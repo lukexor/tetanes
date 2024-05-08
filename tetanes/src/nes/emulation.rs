@@ -458,7 +458,7 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::SaveState(slot) => self.save_state(*slot),
+            EmulationEvent::SaveState(slot) => self.save_state(*slot, false),
             EmulationEvent::Screenshot => {
                 if self.control_deck.is_running() {
                     match self.save_screenshot() {
@@ -614,6 +614,7 @@ impl State {
             }
             self.audio.pause(self.paused);
             if !self.paused {
+                self.last_auto_save = Instant::now();
                 // To avoid having a large dip in frame stats when unpausing
                 self.last_frame_time = Instant::now();
             }
@@ -622,11 +623,15 @@ impl State {
         }
     }
 
-    fn save_state(&mut self, slot: u8) {
+    fn save_state(&mut self, slot: u8, auto: bool) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if let Some(data_dir) = Config::save_path(rom, slot) {
                 match self.control_deck.save_state(data_dir) {
-                    Ok(_) => self.add_message(format!("State {slot} Saved")),
+                    Ok(_) => {
+                        if !auto {
+                            self.add_message(format!("State {slot} Saved"));
+                        }
+                    }
                     Err(err) => self.on_error(err),
                 }
             }
@@ -738,11 +743,15 @@ impl State {
     fn audio_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
             if !recording && self.audio.is_recording() {
-                self.audio.set_recording(false);
-                self.add_message("Audio Recording Stopped");
+                match self.audio.stop_recording() {
+                    Ok(Some(filename)) => {
+                        self.add_message(format!("Saved Replay Recording {filename:?}"));
+                    }
+                    Err(err) => self.on_error(err),
+                    _ => (),
+                }
             } else if recording {
-                self.audio.set_recording(true);
-                self.add_message("Audio Recording Started");
+                self.audio.start_recording();
             }
         }
     }
@@ -751,7 +760,6 @@ impl State {
         if self.control_deck.is_running() {
             if recording {
                 self.record.start(self.control_deck.cpu().clone());
-                self.add_message("Replay Recording Started");
             } else if let Some(rom) = self.control_deck.loaded_rom() {
                 match self.record.stop(rom) {
                     Ok(Some(filename)) => {
@@ -893,7 +901,7 @@ impl State {
                     }
                     if self.last_auto_save.elapsed() > self.auto_save_interval {
                         self.last_auto_save = Instant::now();
-                        self.save_state(self.save_slot);
+                        self.save_state(self.save_slot, true);
                     }
                 }
                 Err(err) => {

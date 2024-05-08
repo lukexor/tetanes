@@ -6,6 +6,7 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     iter,
+    path::PathBuf,
     sync::Arc,
 };
 use tetanes_core::time::Duration;
@@ -188,15 +189,23 @@ impl Audio {
             .map_or(false, |mixer| mixer.recording.is_some())
     }
 
-    /// Start/stop recording audio to a file.
-    pub fn set_recording(&mut self, recording: bool) {
+    /// Start recording audio to a file.
+    pub fn start_recording(&mut self) {
         if let Some(mixer) = &mut self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
         {
-            mixer.set_recording(recording);
+            mixer.start_recording();
         }
+    }
+
+    /// Stop recording audio to a file.
+    pub fn stop_recording(&mut self) -> anyhow::Result<Option<PathBuf>> {
+        self.output
+            .as_mut()
+            .and_then(|output| output.mixer.as_mut())
+            .map_or(Ok(None), |mixer| mixer.stop_recording())
     }
 
     /// Start the audio output stream. Returns [`State`] representing the state of the audio stream.
@@ -404,7 +413,7 @@ pub(crate) struct Mixer {
     sample_latency: usize,
     producer: Producer<f32, AudioRb>,
     processed_samples: Vec<f32>,
-    recording: Option<BufWriter<File>>,
+    recording: Option<(PathBuf, BufWriter<File>)>,
 }
 
 impl std::fmt::Debug for Mixer {
@@ -467,7 +476,7 @@ impl Mixer {
     /// yet, it will be started.
     fn pause(&mut self, paused: bool) {
         if paused && !self.paused {
-            self.stop_recording();
+            let _ = self.stop_recording();
             self.processed_samples.clear();
             // FIXME: Currently cpal doesn't let the underyling audio device empty samples before
             // pausing which leads to the remaining audio playing again upon resume. The only work
@@ -483,37 +492,38 @@ impl Mixer {
         self.paused = paused;
     }
 
-    fn stop_recording(&mut self) {
-        if let Some(mut recording) = self.recording.take() {
-            if let Err(err) = recording.flush() {
-                error!("failed to flush audio recording: {err:?}");
+    fn start_recording(&mut self) {
+        let _ = self.stop_recording();
+        if let Some(dir) = Config::default_audio_dir() {
+            let path = dir
+                .join(
+                    chrono::Local::now()
+                        .format("recording_%Y-%m-%d_at_%H_%M_%S")
+                        .to_string(),
+                )
+                .with_extension("raw");
+            if let Some(parent) = path.parent() {
+                if !parent.exists() {
+                    if let Err(err) = std::fs::create_dir_all(parent) {
+                        error!("failed to create audio recording directory: {err:?}");
+                        return;
+                    }
+                }
             }
+            let writer =
+                BufWriter::new(File::create(&path).expect("failed to create audio recording"));
+            self.recording = Some((path, writer));
         }
     }
 
-    fn set_recording(&mut self, recording: bool) {
-        self.stop_recording();
-        if recording {
-            if let Some(dir) = Config::default_audio_dir() {
-                let path = dir
-                    .join(
-                        chrono::Local::now()
-                            .format("recording_%Y-%m-%d_at_%H_%M_%S")
-                            .to_string(),
-                    )
-                    .with_extension("raw");
-                if let Some(parent) = path.parent() {
-                    if !parent.exists() {
-                        if let Err(err) = std::fs::create_dir_all(parent) {
-                            error!("failed to create audio recording directory: {err:?}");
-                            return;
-                        }
-                    }
-                }
-                self.recording = Some(BufWriter::new(
-                    File::create(path).expect("failed to create audio recording"),
-                ));
+    fn stop_recording(&mut self) -> anyhow::Result<Option<PathBuf>> {
+        if let Some((path, mut recording)) = self.recording.take() {
+            match recording.flush() {
+                Ok(_) => Ok(Some(path)),
+                Err(err) => Err(anyhow!("failed to flush audio recording: {err:?}")),
             }
+        } else {
+            Ok(None)
         }
     }
 
@@ -558,7 +568,7 @@ impl Mixer {
             for _ in 0..self.channels {
                 self.processed_samples.push(*sample);
             }
-            if let Some(recording) = &mut self.recording {
+            if let Some((_, recording)) = &mut self.recording {
                 // TODO: push slice to recording thread
                 // TODO: add wav format
                 let _ = recording.write_all(&sample.to_le_bytes());

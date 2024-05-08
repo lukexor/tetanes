@@ -39,7 +39,7 @@ pub struct RomAssets {
 }
 
 impl RomAssets {
-    pub fn names<'a>(&'a self) -> impl Iterator<Item = &'static str> + 'a {
+    pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
         RomAssetsIter {
             index: 0,
             roms: self,

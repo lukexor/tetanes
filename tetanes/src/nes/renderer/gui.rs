@@ -13,11 +13,11 @@ use egui::{
     ahash::{HashMap, HashMapExt},
     global_dark_light_mode_switch, include_image,
     load::SizedTexture,
-    menu, Align, Align2, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
-    DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Key, KeyboardShortcut,
-    Layout, Modifiers, PointerButton, Pos2, Rect, Response, RichText, ScrollArea, Sense, Slider,
-    TextStyle, TopBottomPanel, Ui, Vec2, ViewportClass, ViewportCommand, ViewportId, Widget,
-    WidgetText,
+    menu, Align, Align2, Area, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon,
+    Direction, DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Id, Image, Key,
+    KeyboardShortcut, Layout, Modifiers, Order, PointerButton, Pos2, Rect, Response, RichText,
+    ScrollArea, Sense, Slider, TextStyle, TopBottomPanel, Ui, Vec2, ViewportClass, ViewportCommand,
+    ViewportId, Widget, WidgetText,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -159,7 +159,6 @@ pub struct Gui {
     pub start: Instant,
     pub sys: Option<System>,
     pub sys_updated: Instant,
-    pub status: Option<&'static str>,
     pub error: Option<String>,
 }
 
@@ -233,7 +232,6 @@ impl Gui {
             start: Instant::now(),
             sys,
             sys_updated: Instant::now(),
-            status: None,
             error: None,
         }
     }
@@ -301,7 +299,7 @@ impl Gui {
         TopBottomPanel::top("menu_bar")
             .show_animated(ctx, cfg.renderer.show_menubar, |ui| self.menu_bar(ui, cfg));
         CentralPanel::default()
-            .frame(Frame::none().fill(egui::Color32::BLACK))
+            .frame(Frame::dark_canvas(&ctx.style()))
             .show(ctx, |ui| self.nes_frame(ui, gamepads, cfg));
 
         self.show_keybinds_viewport(ctx, gamepads, cfg);
@@ -725,7 +723,7 @@ impl Gui {
 
         ui.set_enabled(self.pending_keybind.is_none());
 
-        let inner_response = menu::bar(ui, |ui| {
+        let inner_res = menu::bar(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 global_dark_light_mode_switch(ui);
                 ui.separator();
@@ -741,7 +739,7 @@ impl Gui {
         });
         let spacing = ui.style().spacing.item_spacing;
         let border = 1.0;
-        let height = inner_response.response.rect.height() + spacing.y + border;
+        let height = inner_res.response.rect.height() + spacing.y + border;
         if height != self.menu_height {
             self.menu_height = height;
             self.resize_window = true;
@@ -824,6 +822,7 @@ impl Gui {
                             .shortcut_text(self.fmt_shortcut(DeckAction::SaveState)),
                     )
                     .on_hover_text("Save the current state to the selected save slot.")
+                    .on_disabled_hover_text(Self::NO_ROM_LOADED)
                     .clicked()
                 {
                     self.tx
@@ -835,6 +834,7 @@ impl Gui {
                             .shortcut_text(self.fmt_shortcut(DeckAction::LoadState)),
                     )
                     .on_hover_text("Load a previous state from the selected save slot.")
+                    .on_disabled_hover_text(Self::NO_ROM_LOADED)
                     .clicked()
                 {
                     self.tx
@@ -1227,7 +1227,7 @@ impl Gui {
 
         ui.separator();
 
-        ui.add_enabled_ui(self.paused && self.loaded_rom.is_some(), |ui| {
+        ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             if ui
                 .add(
                     Button::new("Step Into")
@@ -1296,7 +1296,7 @@ impl Gui {
 
         ui.set_enabled(self.pending_keybind.is_none());
 
-        CentralPanel::default()
+        let inner_res = CentralPanel::default()
             .frame(Frame::none())
             .show_inside(ui, |ui| {
                 if self.loaded_rom.is_some() {
@@ -1360,22 +1360,63 @@ impl Gui {
                 }
             });
 
-        if cfg.renderer.show_messages && (!self.messages.is_empty() || self.error.is_some()) {
-            Frame::canvas(ui.style()).show(ui, |ui| {
-                ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
-                    self.message_bar(ui);
-                    self.error_bar(ui);
+        // Start at the left-top of the NES frame.
+        let mut messages_pos = inner_res.response.rect.left_top();
+
+        let mut recording_labels = Vec::new();
+        if self.replay_recording {
+            recording_labels.push("Replay");
+        }
+        if self.audio_recording {
+            recording_labels.push("Audio");
+        }
+        if !recording_labels.is_empty() {
+            let inner_res = Area::new(Id::new("status"))
+                .order(Order::Foreground)
+                .fixed_pos(messages_pos)
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                ui.label(format!("Recording {}", recording_labels.join(" & ")));
+                            },
+                        );
+                    });
                 });
-            });
+            // Update to the left-bottom of this area, if rendered
+            messages_pos = inner_res.response.rect.left_bottom();
         }
 
-        if self.status.is_some() {
-            Frame::canvas(ui.style()).show(ui, |ui| {
-                ui.with_layout(Layout::top_down(Align::LEFT).with_main_wrap(true), |ui| {
-                    self.status_bar(ui);
+        if cfg.renderer.show_messages && (!self.messages.is_empty() || self.error.is_some()) {
+            Area::new(Id::new("messages"))
+                .order(Order::Foreground)
+                .fixed_pos(messages_pos)
+                .show(ui.ctx(), |ui| {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                self.message_bar(ui);
+                                self.error_bar(ui);
+                            },
+                        );
+                    });
                 });
-            });
         }
+
+        let mut frame = Frame::none();
+        if self.paused {
+            frame = Frame::dark_canvas(ui.style()).multiply_with_opacity(0.7);
+        }
+
+        frame.show(ui, |ui| {
+            ui.with_layout(Layout::centered_and_justified(Direction::TopDown), |ui| {
+                if self.paused {
+                    ui.heading("⏸");
+                }
+            });
+        });
     }
 
     fn message_bar(&mut self, ui: &mut Ui) {
@@ -1397,13 +1438,6 @@ impl Gui {
         }
         if clear_error {
             self.error = None;
-        }
-    }
-
-    fn status_bar(&mut self, ui: &mut Ui) {
-        // TODO: maybe show other statuses like rewinding/playback/recording - bitflags?
-        if let Some(status) = self.status {
-            ui.label(status);
         }
     }
 

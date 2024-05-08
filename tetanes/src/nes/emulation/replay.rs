@@ -54,9 +54,11 @@ impl Record {
     /// Saves the replay recording out to a file.
     pub fn save(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
         let Some(start) = self.start.take() else {
+            tracing::debug!("not saving - replay not started");
             return Ok(None);
         };
         if self.events.is_empty() {
+            tracing::debug!("not saving - no replay events");
             return Ok(None);
         }
         if let Some(dir) = Config::default_data_dir() {
