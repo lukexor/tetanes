@@ -51,7 +51,7 @@ impl Initialize for Running {
 
 impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
-    fn with_platform(self, _title: impl Into<String>) -> Self {
+    fn with_platform(self, _title: &str) -> Self {
         use anyhow::Context;
         use image::{io::Reader as ImageReader, ImageFormat};
         use std::io::Cursor;
@@ -77,10 +77,10 @@ impl BuilderExt for WindowBuilder {
         // issues with certain preference toggles like fullscreen that effect the root viewport.
         #[cfg(target_os = "macos")]
         let window_builder = {
-            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
+            use winit::platform::macos::{OptionAsAlt, WindowBuilderExtMacOS};
 
-            window_builder = window_builder
-                .with_tabbing_identifier(_title.as_deref().unwrap_or_default())
+            window_builder
+                .with_tabbing_identifier(_title)
                 .with_option_as_alt(OptionAsAlt::Both)
         };
         window_builder

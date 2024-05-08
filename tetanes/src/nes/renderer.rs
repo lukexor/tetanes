@@ -593,7 +593,7 @@ impl Renderer {
             egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
         #[cfg(target_os = "macos")]
         let window_builder = {
-            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
+            use winit::platform::macos::{OptionAsAlt, WindowBuilderExtMacOS};
             window_builder.with_option_as_alt(OptionAsAlt::Both)
         };
 
@@ -1122,7 +1122,7 @@ impl Viewport {
         let viewport_id = self.ids.this;
         let window_builder =
             egui_winit::create_winit_window_builder(ctx, event_loop, self.builder.clone())
-                .with_platform(self.builder.title.clone().unwrap_or_default());
+                .with_platform(self.builder.title.as_deref().unwrap_or_default());
 
         match window_builder.build(event_loop) {
             Ok(window) => {
