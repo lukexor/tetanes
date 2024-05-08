@@ -172,6 +172,7 @@ impl ActionBindings {
         use KeyCode::*;
 
         let mut bindings = Vec::with_capacity(10);
+
         bindings.extend(gamepad_map!(
             { (player, JoypadBtn::A) => player; Button::East },
             { (player, JoypadBtn::TurboA) => player; Button::North },
@@ -184,6 +185,7 @@ impl ActionBindings {
             { (player, JoypadBtn::Select) => player; Button::Select },
             { (player, JoypadBtn::Start) => player; Button::Start },
         ));
+
         let additional_bindings = match player {
             Player::One => shortcut_map!(
                 { (Player::One, JoypadBtn::A) => KeyZ },
@@ -218,8 +220,9 @@ impl ActionBindings {
                 { (Player::Three, JoypadBtn::Select) => Digit6 },
                 { (Player::Three, JoypadBtn::Start) => Digit5 },
             ),
-            Player::Four => Vec::new(),
+            _ => Vec::new(),
         };
+
         for binding in additional_bindings {
             if let Some(existing_bind) = bindings.iter_mut().find(|b| b.action == binding.action) {
                 if existing_bind.bindings[0].is_some() {

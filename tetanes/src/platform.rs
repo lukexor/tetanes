@@ -11,7 +11,7 @@ pub trait Initialize {
 /// Extension trait for any builder that provides platform-specific behavior.
 pub trait BuilderExt {
     /// Sets platform-specific options.
-    fn with_platform(self) -> Self;
+    fn with_platform(self, title: impl Into<String>) -> Self;
 }
 
 /// Extension trait for `EventLoop` that provides platform-specific behavior.

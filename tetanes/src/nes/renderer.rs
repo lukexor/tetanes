@@ -279,7 +279,7 @@ impl Renderer {
             focused: Some(ViewportId::ROOT),
         }));
 
-        if !ctx.embed_viewports() {
+        {
             let tx = tx.clone();
             let state = Rc::downgrade(&state);
             let event_loop: *const EventLoopWindowTarget<NesEvent> = event_loop;
@@ -591,7 +591,15 @@ impl Renderer {
 
         let window_builder =
             egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
-        let window = window_builder.with_platform().build(event_loop)?;
+        #[cfg(target_os = "macos")]
+        let window_builder = {
+            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
+            window_builder.with_option_as_alt(OptionAsAlt::Both)
+        };
+
+        let window = window_builder
+            .with_platform(Config::WINDOW_TITLE)
+            .build(event_loop)?;
 
         egui_winit::apply_viewport_builder_to_window(ctx, &window, &viewport_builder);
 
@@ -1113,16 +1121,8 @@ impl Viewport {
 
         let viewport_id = self.ids.this;
         let window_builder =
-            egui_winit::create_winit_window_builder(ctx, event_loop, self.builder.clone());
-
-        // Ensures that viewport windows open in a separate window instead of a tab, which has
-        // issues with certain preference toggles like fullscreen that effect the root viewport.
-        #[cfg(target_os = "macos")]
-        let window_builder = {
-            use winit::platform::macos::WindowBuilderExtMacOS;
-            window_builder
-                .with_tabbing_identifier(self.builder.title.as_deref().unwrap_or_default())
-        };
+            egui_winit::create_winit_window_builder(ctx, event_loop, self.builder.clone())
+                .with_platform(self.builder.title.clone().unwrap_or_default());
 
         match window_builder.build(event_loop) {
             Ok(window) => {

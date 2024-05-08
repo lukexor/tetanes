@@ -339,6 +339,11 @@ impl Running {
                                 self.renderer.on_error(err);
                             }
                         }
+                        WindowEvent::Resized(_) => {
+                            if Some(window_id) == self.renderer.root_window_id() {
+                                self.cfg.renderer.fullscreen = self.renderer.fullscreen();
+                            }
+                        }
                         WindowEvent::Occluded(occluded) => {
                             if !occluded {
                                 self.repaint_times.insert(window_id, Instant::now());

@@ -124,7 +124,7 @@ impl Initialize for Running {
 
 impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
-    fn with_platform(self) -> Self {
+    fn with_platform(self, _title: impl Into<String>) -> Self {
         self.with_canvas(get_canvas())
     }
 }

@@ -51,7 +51,7 @@ impl Initialize for Running {
 
 impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
-    fn with_platform(self) -> Self {
+    fn with_platform(self, _title: impl Into<String>) -> Self {
         use anyhow::Context;
         use image::{io::Reader as ImageReader, ImageFormat};
         use std::io::Cursor;
@@ -62,7 +62,7 @@ impl BuilderExt for WindowBuilder {
             .decode()
             .context("failed to decode window icon");
 
-        self.with_window_icon(
+        let window_builder = self.with_window_icon(
             icon.and_then(|png| {
                 let width = png.width();
                 let height = png.height();
@@ -71,7 +71,19 @@ impl BuilderExt for WindowBuilder {
             })
             .map_err(|err| error!("{err:?}"))
             .ok(),
-        )
+        );
+
+        // Ensures that viewport windows open in a separate window instead of a tab, which has
+        // issues with certain preference toggles like fullscreen that effect the root viewport.
+        #[cfg(target_os = "macos")]
+        let window_builder = {
+            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
+
+            window_builder = window_builder
+                .with_tabbing_identifier(_title.as_deref().unwrap_or_default())
+                .with_option_as_alt(OptionAsAlt::Both)
+        };
+        window_builder
     }
 }
 

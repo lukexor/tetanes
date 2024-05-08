@@ -1064,14 +1064,19 @@ impl Gui {
         self.fullscreen_checkbox(ui, cfg, true);
 
         if platform::supports(platform::Feature::Viewports) {
-            let mut embed_viewports = ui.ctx().embed_viewports();
-            if ui
-                .checkbox(&mut embed_viewports, "Embed viewports")
-                .clicked()
-            {
-                cfg.renderer.embed_viewports = embed_viewports;
-            }
-            ui.ctx().set_embed_viewports(embed_viewports);
+            ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
+                let mut embed_viewports = ui.ctx().embed_viewports();
+                if ui
+                    .checkbox(&mut embed_viewports, "Embed viewports")
+                    .on_disabled_hover_text(
+                        "Non-embedded viewports are not supported while in fullscreen.",
+                    )
+                    .clicked()
+                {
+                    cfg.renderer.embed_viewports = embed_viewports;
+                    ui.ctx().set_embed_viewports(embed_viewports);
+                }
+            });
         }
 
         ui.separator();
@@ -2344,7 +2349,8 @@ impl Gui {
             .clicked()
         {
             if platform::supports(platform::Feature::Viewports) {
-                ui.ctx().set_embed_viewports(cfg.renderer.fullscreen);
+                ui.ctx()
+                    .set_embed_viewports(cfg.renderer.fullscreen || cfg.renderer.embed_viewports);
             }
             ui.ctx()
                 .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
