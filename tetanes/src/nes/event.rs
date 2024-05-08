@@ -234,17 +234,32 @@ impl Nes {
                 if let Some(resources) = self.resource_state.take_pending() {
                     match self.init_running(event_loop, resources) {
                         Ok(state) => {
-                            // Immediately redraw the root window on start. Fixes a bug where
-                            // `window.request_redraw()` events may not be sent if the window isn't
-                            // visible, which is the case until the first frame is drawn.
-                            if let Some(window_id) = state.renderer.root_window_id() {
-                                if let Err(err) = state.renderer.redraw(
-                                    window_id,
-                                    event_loop,
-                                    &mut state.gamepads,
-                                    &mut state.cfg,
-                                ) {
-                                    state.renderer.on_error(err);
+                            if let Some(window) = state
+                                .renderer
+                                .root_window_id()
+                                .and_then(|id| state.renderer.window(id))
+                            {
+                                if window.is_visible().unwrap_or(true) {
+                                    state.repaint_times.insert(
+                                        state
+                                            .renderer
+                                            .root_window_id()
+                                            .expect("failed to get root window_id"),
+                                        Instant::now(),
+                                    );
+                                } else {
+                                    // Immediately redraw the root window on start if not
+                                    // visible. Fixes a bug where `window.request_redraw()` events
+                                    // may not be sent if the window isn't visible, which is the
+                                    // case until the first frame is drawn.
+                                    if let Err(err) = state.renderer.redraw(
+                                        window.id(),
+                                        event_loop,
+                                        &mut state.gamepads,
+                                        &mut state.cfg,
+                                    ) {
+                                        state.renderer.on_error(err);
+                                    }
                                 }
                             }
                         }

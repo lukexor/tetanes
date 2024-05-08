@@ -584,7 +584,7 @@ impl Renderer {
             .with_app_id(Config::WINDOW_TITLE)
             .with_title(Config::WINDOW_TITLE)
             .with_active(true)
-            .with_visible(false) // hide until first frame is rendered
+            .with_visible(false) // hide until first frame is rendered on platforms that support it
             .with_inner_size(window_size)
             .with_min_inner_size(Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32))
             .with_fullscreen(cfg.renderer.fullscreen)
