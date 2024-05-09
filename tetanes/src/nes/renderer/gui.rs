@@ -653,8 +653,14 @@ impl Gui {
             |ctx, class| {
                 if class == ViewportClass::Embedded {
                     let mut preferences_open = self.preferences_open;
+                    let mut default_rect = ctx.available_rect();
+                    let border = 1.0;
+                    default_rect.min.y +=
+                        self.menu_height + ctx.style().spacing.item_spacing.y + border;
+                    default_rect.max.y -= self.menu_height;
                     egui::Window::new(title)
                         .open(&mut preferences_open)
+                        .default_rect(default_rect)
                         .show(ctx, |ui| self.preferences(ui, cfg));
                     self.preferences_open = preferences_open;
                 } else {
@@ -682,8 +688,14 @@ impl Gui {
             |ctx, class| {
                 if class == ViewportClass::Embedded {
                     let mut keybinds_open = self.keybinds_open;
+                    let mut default_rect = ctx.available_rect();
+                    let border = 1.0;
+                    default_rect.min.y +=
+                        self.menu_height + ctx.style().spacing.item_spacing.y + border;
+                    default_rect.max.y -= self.menu_height;
                     egui::Window::new("Keybinds")
                         .open(&mut keybinds_open)
+                        .default_rect(default_rect)
                         .show(ctx, |ui| self.keybinds(ui, gamepads, cfg));
                     self.keybinds_open = keybinds_open;
                 } else {
@@ -781,7 +793,9 @@ impl Gui {
         // get processed.
         let button = Button::new("Load ROM...").shortcut_text(self.fmt_shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
-            self.tx.nes_event(EmulationEvent::Pause(true));
+            if self.loaded_rom.is_some() {
+                self.tx.nes_event(EmulationEvent::Pause(true));
+            }
             self.tx.nes_event(UiEvent::LoadRomDialog);
             ui.close_menu();
         }
@@ -804,7 +818,9 @@ impl Gui {
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.tx.nes_event(EmulationEvent::Pause(true));
+                if self.loaded_rom.is_some() {
+                    self.tx.nes_event(EmulationEvent::Pause(true));
+                }
                 self.tx.nes_event(UiEvent::LoadReplayDialog);
                 ui.close_menu();
             }
@@ -1370,7 +1386,7 @@ impl Gui {
         frame.show(ui, |ui| {
             ui.with_layout(Layout::centered_and_justified(Direction::TopDown), |ui| {
                 if self.paused {
-                    ui.heading("⏸");
+                    ui.heading(RichText::new("⏸").size(40.0));
                 }
             });
         });
@@ -1382,12 +1398,12 @@ impl Gui {
         self.messages.dedup_by(|a, b| a.1.eq(&b.1));
         for (ty, message, _) in self.messages.iter().take(Self::MAX_MESSAGES) {
             let visuals = &ui.style().visuals;
-            let color = match ty {
-                MessageType::Info => visuals.widgets.noninteractive.fg_stroke.color,
-                MessageType::Warn => visuals.warn_fg_color,
-                MessageType::Error => visuals.error_fg_color,
+            let (icon, color) = match ty {
+                MessageType::Info => ("ℹ", visuals.widgets.noninteractive.fg_stroke.color),
+                MessageType::Warn => ("⚠", visuals.warn_fg_color),
+                MessageType::Error => ("❗", visuals.error_fg_color),
             };
-            ui.colored_label(color, message);
+            ui.colored_label(color, format!("{icon} {message}"));
         }
     }
 
@@ -1925,66 +1941,7 @@ impl Gui {
         puffin::profile_function!();
 
         if let Some(player) = player {
-            ui.horizontal(|ui| {
-                ui.strong("Assigned Gamepad:");
-
-                let unassigned = "Unassigned".to_string();
-                match gamepads.list() {
-                    Some(mut list) => {
-                        if list.peek().is_some() {
-                            let mut assigned_gamepad = cfg.input.gamepad_assigned_to(player);
-                            let previous_gamepad = assigned_gamepad;
-                            let gamepad_name = assigned_gamepad
-                                .and_then(|uuid| gamepads.gamepad_name_by_uuid(&uuid))
-                                .unwrap_or_else(|| unassigned.clone());
-                            let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                                .selected_text(gamepad_name.clone());
-                            combo.show_ui(ui, |ui| {
-                                ui.selectable_value(&mut assigned_gamepad, None, unassigned);
-                                for (_, gamepad) in list {
-                                    ui.selectable_value(
-                                        &mut assigned_gamepad,
-                                        Some(Gamepads::create_uuid(&gamepad)),
-                                        gamepad.name(),
-                                    );
-                                }
-                            });
-                            if previous_gamepad != assigned_gamepad {
-                                match &assigned_gamepad {
-                                    Some(uuid) => {
-                                        match assigned_gamepad
-                                            .as_ref()
-                                            .and_then(|name| cfg.input.gamepad_assignment(name))
-                                        {
-                                            Some(existing_player) => {
-                                                self.gamepad_unassign =
-                                                    Some((existing_player, player, *uuid));
-                                            }
-                                            None => {
-                                                self.assign_gamepad(player, *uuid, gamepads, cfg)
-                                            }
-                                        }
-                                    }
-                                    None => {
-                                        self.unassign_gamepad(player, gamepads, cfg);
-                                    }
-                                }
-                            }
-                        } else {
-                            ui.set_enabled(false);
-                            let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                                .selected_text("No Gamepads Connected");
-                            combo.show_ui(ui, |_| {});
-                        }
-                    }
-                    None => {
-                        ui.set_enabled(false);
-                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                            .selected_text("Gamepads not supported");
-                        combo.show_ui(ui, |_| {});
-                    }
-                }
-            });
+            self.player_gamepad_combo(ui, player, gamepads, cfg);
 
             ui.separator();
         }
@@ -1994,23 +1951,19 @@ impl Gui {
             Some(player) => &mut self.joypad_keybinds[player as usize],
         };
 
-        let row_height = ui.text_style_height(&TextStyle::Body);
-        let total_rows = keybinds.len();
-        ScrollArea::vertical().show_rows(ui, row_height, total_rows, |ui, row_range| {
+        ScrollArea::both().show(ui, |ui| {
+            ui.set_width(ui.available_width()); // Pushes scrollbar to the right of the window
+
             let grid = Grid::new("keybind_list")
                 .num_columns(3)
-                .spacing([80.0, 6.0]);
+                .spacing([40.0, 6.0]);
             grid.show(ui, |ui| {
                 ui.heading("Action");
                 ui.heading("Binding #1");
                 ui.heading("Binding #2");
                 ui.end_row();
 
-                for (action, input) in keybinds
-                    .values_mut()
-                    .skip(row_range.start)
-                    .take(row_range.end)
-                {
+                for (action, input) in keybinds.values_mut() {
                     ui.strong(action.to_string());
                     for (slot, input) in input.iter_mut().enumerate() {
                         let button = Button::new(input.map(format_input).unwrap_or_default())
@@ -2036,6 +1989,73 @@ impl Gui {
                     ui.end_row();
                 }
             });
+        });
+    }
+
+    fn player_gamepad_combo(
+        &mut self,
+        ui: &mut Ui,
+        player: Player,
+        gamepads: &Gamepads,
+        cfg: &mut Config,
+    ) {
+        ui.horizontal(|ui| {
+            ui.strong("Assigned Gamepad:");
+
+            let unassigned = "Unassigned".to_string();
+            match gamepads.list() {
+                Some(mut list) => {
+                    if list.peek().is_some() {
+                        let mut assigned_gamepad = cfg.input.gamepad_assigned_to(player);
+                        let previous_gamepad = assigned_gamepad;
+                        let gamepad_name = assigned_gamepad
+                            .and_then(|uuid| gamepads.gamepad_name_by_uuid(&uuid))
+                            .unwrap_or_else(|| unassigned.clone());
+                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                            .selected_text(gamepad_name.clone());
+                        combo.show_ui(ui, |ui| {
+                            ui.selectable_value(&mut assigned_gamepad, None, unassigned);
+                            for (_, gamepad) in list {
+                                ui.selectable_value(
+                                    &mut assigned_gamepad,
+                                    Some(Gamepads::create_uuid(&gamepad)),
+                                    gamepad.name(),
+                                );
+                            }
+                        });
+                        if previous_gamepad != assigned_gamepad {
+                            match &assigned_gamepad {
+                                Some(uuid) => {
+                                    match assigned_gamepad
+                                        .as_ref()
+                                        .and_then(|name| cfg.input.gamepad_assignment(name))
+                                    {
+                                        Some(existing_player) => {
+                                            self.gamepad_unassign =
+                                                Some((existing_player, player, *uuid));
+                                        }
+                                        None => self.assign_gamepad(player, *uuid, gamepads, cfg),
+                                    }
+                                }
+                                None => {
+                                    self.unassign_gamepad(player, gamepads, cfg);
+                                }
+                            }
+                        }
+                    } else {
+                        ui.set_enabled(false);
+                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                            .selected_text("No Gamepads Connected");
+                        combo.show_ui(ui, |_| {});
+                    }
+                }
+                None => {
+                    ui.set_enabled(false);
+                    let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                        .selected_text("Gamepads not supported");
+                    combo.show_ui(ui, |_| {});
+                }
+            }
         });
     }
 
