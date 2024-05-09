@@ -22,3 +22,5 @@ Turn Based Kraken Battle Mode
 Similar to “Kraken Battle Mode”, but instead of the Kraken attacking every few
 seconds, it advances its tentacle every time you drop a piece. Make every move
 count, as this move favors slow, deliberate play!
+
+https://mhughson.itch.io/from-below/devlog/212679/vs-system-beta-0100

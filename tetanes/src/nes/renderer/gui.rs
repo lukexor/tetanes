@@ -5,7 +5,7 @@ use crate::{
         emulation::FrameStats,
         event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
         input::{ActionBindings, Gamepads, Input},
-        rom::HOMEBREW_ROMS,
+        rom::{RomAsset, HOMEBREW_ROMS},
     },
     platform,
 };
@@ -156,6 +156,7 @@ pub struct Gui {
     pub frame_stats: FrameStats,
     pub messages: Vec<(String, Instant)>,
     pub loaded_rom: Option<String>,
+    pub selected_homebrew_rom: Option<RomAsset>,
     pub start: Instant,
     pub sys: Option<System>,
     pub sys_updated: Instant,
@@ -229,6 +230,7 @@ impl Gui {
             frame_stats: FrameStats::new(),
             messages: Vec::new(),
             loaded_rom: None,
+            selected_homebrew_rom: None,
             start: Instant::now(),
             sys,
             sys_updated: Instant::now(),
@@ -306,7 +308,8 @@ impl Gui {
 
         self.show_performance_window(ctx, cfg);
         self.show_preferences_viewport(ctx, cfg);
-        self.show_about_viewport(ctx);
+        self.show_about_window(ctx);
+        self.show_about_homebrew_window(ctx);
 
         #[cfg(feature = "profiling")]
         if self.pending_keybind.is_none() {
@@ -690,31 +693,30 @@ impl Gui {
         );
     }
 
-    fn show_about_viewport(&mut self, ctx: &Context) {
+    fn show_about_window(&mut self, ctx: &Context) {
         if !self.about_open {
             return;
         }
 
-        let title = "About TetaNES";
-        // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
-        ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("about"),
-            egui::ViewportBuilder::default().with_title(title),
-            |ctx, class| {
-                if class == ViewportClass::Embedded {
-                    let mut about_open = self.about_open;
-                    egui::Window::new("About TetaNES")
-                        .open(&mut about_open)
-                        .show(ctx, |ui| self.about(ui));
-                    self.about_open = about_open;
-                } else {
-                    CentralPanel::default().show(ctx, |ui| self.about(ui));
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        self.about_open = false;
-                    }
-                }
-            },
-        );
+        let mut about_open = self.about_open;
+        egui::Window::new("About TetaNES")
+            .open(&mut about_open)
+            .show(ctx, |ui| self.about(ui));
+        self.about_open = about_open;
+    }
+
+    fn show_about_homebrew_window(&mut self, ctx: &Context) {
+        let Some(rom) = self.selected_homebrew_rom else {
+            return;
+        };
+
+        let mut about_homebrew_open = true;
+        egui::Window::new(format!("About {}", rom.name))
+            .open(&mut about_homebrew_open)
+            .show(ctx, |ui| Self::about_homebrew(ui, rom));
+        if !about_homebrew_open {
+            self.selected_homebrew_rom = None;
+        }
     }
 
     fn menu_bar(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -859,16 +861,18 @@ impl Gui {
     }
 
     fn homebrew_rom_menu(&mut self, ui: &mut Ui) {
-        for name in HOMEBREW_ROMS.names() {
-            if ui.button(name).clicked() {
-                let Some(data) = HOMEBREW_ROMS.data(name) else {
-                    self.add_message(format!("Failed to load homebrew ROM `{name}`."));
-                    return;
-                };
-                self.tx
-                    .nes_event(EmulationEvent::LoadRom((name.to_string(), data)));
-                ui.close_menu();
-            }
+        for rom in HOMEBREW_ROMS {
+            ui.horizontal(|ui| {
+                if ui.button(rom.name).clicked() {
+                    self.tx
+                        .nes_event(EmulationEvent::LoadRom((rom.name.to_string(), rom.data())));
+                    ui.close_menu();
+                }
+                if ui.button("❓").clicked() {
+                    self.selected_homebrew_rom = Some(rom);
+                    ui.close_menu();
+                }
+            });
         }
     }
 
@@ -2165,6 +2169,21 @@ impl Gui {
                     });
                 }
             });
+        });
+    }
+
+    fn about_homebrew(ui: &mut Ui, rom: RomAsset) {
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.strong("Author(s):");
+            ui.label(rom.authors);
+            ui.add_space(12.0);
+
+            ui.strong("Description:");
+            ui.label(rom.description);
+            ui.add_space(12.0);
+
+            ui.strong("Source:");
+            ui.hyperlink(rom.source);
         });
     }
 

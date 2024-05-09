@@ -87,3 +87,5 @@ but it was only used to view levels FCEUX, VirtuaNES (profiler mod) - to test
 everything, some others for compatibility tests NES Screen Tool - to design all
 the graphics, screens, and levels Inkscape, Blender, GIMP, CutePDF Writer - to
 make manual and label
+
+https://shiru.untergrund.net/software.shtml

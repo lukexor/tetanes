@@ -50,15 +50,16 @@ codegen-units = 1
 lto = "thin"
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
 panic = 'abort'
+strip = true
 
 [profile.flamegraph]
 inherits = "release"
+strip = false
 debug = true
 
 # Profile used by 'cargo dist'
 [profile.dist]
 inherits = "release"
-strip = true
 
 [profile.dev.package.serde]
 inherits = "release"

@@ -46,3 +46,5 @@ about were surfaced in this project FamiTracker - to make all the music and
 sound effects FCEUX, Nintendulator - to test everything Borland Turbo Explorer -
 to make level editor Inkscape, Blender, CutePDF Writer - to make manual and
 label
+
+https://shiru.untergrund.net/software.shtml
