@@ -77,6 +77,7 @@ egui_extras = { version = "0.27", default-features = false, features = [
   "image",
 ] }
 gilrs = { version = "0.10", features = ["serde-serialize"] }
+hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
 puffin_egui = { version = "0.27", optional = true }

@@ -763,7 +763,9 @@ impl State {
                     _ => (),
                 }
             } else if recording {
-                self.audio.start_recording();
+                if let Err(err) = self.audio.start_recording() {
+                    self.on_error(err);
+                }
             }
         }
     }

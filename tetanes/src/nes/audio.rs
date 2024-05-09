@@ -2,13 +2,7 @@ use crate::nes::config::Config;
 use anyhow::{anyhow, Context};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    iter,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{fs::File, io::BufWriter, iter, path::PathBuf, sync::Arc};
 use tetanes_core::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
@@ -190,13 +184,15 @@ impl Audio {
     }
 
     /// Start recording audio to a file.
-    pub fn start_recording(&mut self) {
+    pub fn start_recording(&mut self) -> anyhow::Result<()> {
         if let Some(mixer) = &mut self
             .output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
         {
-            mixer.start_recording();
+            mixer.start_recording()
+        } else {
+            Ok(())
         }
     }
 
@@ -410,10 +406,11 @@ pub(crate) struct Mixer {
     stream: cpal::Stream,
     paused: bool,
     channels: u16,
+    sample_rate: u32,
     sample_latency: usize,
     producer: Producer<f32, AudioRb>,
     processed_samples: Vec<f32>,
-    recording: Option<(PathBuf, BufWriter<File>)>,
+    recording: Option<(PathBuf, hound::WavWriter<BufWriter<File>>)>,
 }
 
 impl std::fmt::Debug for Mixer {
@@ -421,6 +418,7 @@ impl std::fmt::Debug for Mixer {
         f.debug_struct("Audio")
             .field("paused", &self.paused)
             .field("channels", &self.channels)
+            .field("sample_rate", &self.sample_rate)
             .field("sample_latency", &self.sample_latency)
             .field("queued_len", &self.producer.len())
             .field("processed_len", &self.processed_samples.len())
@@ -465,6 +463,7 @@ impl Mixer {
             stream,
             paused: false,
             channels,
+            sample_rate,
             sample_latency,
             producer,
             processed_samples,
@@ -492,7 +491,7 @@ impl Mixer {
         self.paused = paused;
     }
 
-    fn start_recording(&mut self) {
+    fn start_recording(&mut self) -> anyhow::Result<()> {
         let _ = self.stop_recording();
         if let Some(dir) = Config::default_audio_dir() {
             let path = dir
@@ -501,19 +500,24 @@ impl Mixer {
                         .format("recording_%Y-%m-%d_at_%H_%M_%S")
                         .to_string(),
                 )
-                .with_extension("raw");
+                .with_extension("wav");
             if let Some(parent) = path.parent() {
                 if !parent.exists() {
-                    if let Err(err) = std::fs::create_dir_all(parent) {
-                        error!("failed to create audio recording directory: {err:?}");
-                        return;
-                    }
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("failed to create audio recording directory"))?;
                 }
             }
-            let writer =
-                BufWriter::new(File::create(&path).expect("failed to create audio recording"));
+            let spec = hound::WavSpec {
+                channels: self.channels,
+                sample_rate: self.sample_rate,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            };
+            let writer = hound::WavWriter::create(&path, spec)
+                .context("failed to create audio recording")?;
             self.recording = Some((path, writer));
         }
+        Ok(())
     }
 
     fn stop_recording(&mut self) -> anyhow::Result<Option<PathBuf>> {
@@ -570,8 +574,10 @@ impl Mixer {
             }
             if let Some((_, recording)) = &mut self.recording {
                 // TODO: push slice to recording thread
-                // TODO: add wav format
-                let _ = recording.write_all(&sample.to_le_bytes());
+                if let Err(err) = recording.write_sample(*sample) {
+                    error!("failed to write audio sample: {err:?}");
+                    let _ = self.stop_recording();
+                }
             }
         }
         let processed_len = self.processed_samples.len();
