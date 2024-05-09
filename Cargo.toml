@@ -47,18 +47,17 @@ opt-level = 1
 
 [profile.release]
 codegen-units = 1
-lto = "thin"
+lto = true
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
 panic = 'abort'
-strip = true
 
 [profile.flamegraph]
 inherits = "release"
-strip = false
 debug = true
 
 # Profile used by 'cargo dist'
 [profile.dist]
+strip = true
 inherits = "release"
 
 [profile.dev.package.serde]

@@ -17,8 +17,8 @@ use egui::{
     Align, Align2, Area, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
     DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Id, Image, Key,
     KeyboardShortcut, Layout, Modifiers, Order, PointerButton, Pos2, Rect, Response, RichText,
-    Rounding, ScrollArea, Sense, Slider, Stroke, TextStyle, TopBottomPanel, Ui, Vec2,
-    ViewportClass, ViewportCommand, ViewportId, Visuals, Widget, WidgetText,
+    Rounding, ScrollArea, Sense, Slider, Stroke, TopBottomPanel, Ui, Vec2, ViewportClass,
+    ViewportCommand, ViewportId, Visuals, Widget, WidgetText,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -1174,9 +1174,11 @@ impl Gui {
         }
 
         #[cfg(debug_assertions)]
-        let res = ui.checkbox(&mut self.debug_on_hover, "Debug on Hover");
-        if res.clicked() {
-            ui.ctx().set_debug_on_hover(self.debug_on_hover);
+        {
+            let res = ui.checkbox(&mut self.debug_on_hover, "Debug on Hover");
+            if res.clicked() {
+                ui.ctx().set_debug_on_hover(self.debug_on_hover);
+            }
         }
 
         ui.separator();

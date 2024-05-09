@@ -116,7 +116,7 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
-    Occluded(bool),
+    UnfocusedPause(bool),
     Pause(bool),
     ReplayRecord(bool),
     Reset(ResetKind),
@@ -351,7 +351,13 @@ impl Running {
                                 self.cfg.renderer.fullscreen = self.renderer.fullscreen();
                             }
                         }
+                        WindowEvent::Focused(focused) => {
+                            if focused {
+                                self.repaint_times.insert(window_id, Instant::now());
+                            }
+                        }
                         WindowEvent::Occluded(occluded) => {
+                            // Note: Does not trigger on all platforms
                             if !occluded {
                                 self.repaint_times.insert(window_id, Instant::now());
                             }

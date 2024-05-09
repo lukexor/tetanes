@@ -119,6 +119,17 @@ impl Initialize for Running {
             on_load.forget();
         }
 
+        if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
+            tracing::info!(
+                "removing hidden class from loading status: {}",
+                html_ids::LOADING_STATUS
+            );
+            if let Err(err) = status.class_list().add_1("hidden") {
+                tracing::info!("{err:?}");
+                on_error(&self.tx, err);
+            }
+        }
+
         Ok(())
     }
 }
@@ -143,6 +154,7 @@ impl<T> EventLoopExt<T> for EventLoop<T> {
 
 mod html_ids {
     pub(super) const CANVAS: &str = "frame";
+    pub(super) const LOADING_STATUS: &str = "loading-status";
     pub(super) const ROM_INPUT: &str = "load-rom";
     pub(super) const REPLAY_INPUT: &str = "load-replay";
 }

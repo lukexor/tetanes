@@ -4,18 +4,32 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TetaNES Web</title>
+    <link
+      rel="preload"
+      href="/pixeloid-sans.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
+    <link
+      rel="preload"
+      href="/pixeloid-sans-bold.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
     <style>
       @font-face {
         font-family: "Pixeloid Sans";
         src:
           local("Pixeloid Sans"),
-          url("pixeloid-sans.ttf") format("truetype");
+          url("/pixeloid-sans.ttf") format("truetype");
       }
       @font-face {
         font-family: "Pixeloid Sans Bold";
         src:
           local("Pixeloid Sans Bold"),
-          url("pixeloid-sans-bold.ttf") format("truetype");
+          url("/pixeloid-sans-bold.ttf") format("truetype");
       }
 
       body {
@@ -37,7 +51,7 @@
       h1,
       h2 {
         color: var(--heading);
-        font-family: "Pixeloid Sans Bold";
+        font-family: "Pixeloid Sans Bold", "Courier New", Courier, monospace;
         text-align: center;
       }
 
@@ -101,7 +115,32 @@
       }
 
       .hidden {
-        display: none;
+        display: none !important;
+      }
+
+      #loading-status {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #loader {
+        border: 4px solid #e6b673;
+        border-top: 4px solid #a9491f;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        margin: 8px;
+        animation: spin 2s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
       }
     </style>
 
@@ -130,6 +169,11 @@
       <input type="file" id="load-rom" accept=".nes" class="hidden" />
       <input type="file" id="load-replay" accept=".replay" class="hidden" />
     </div>
+
+    <h3 id="loading-status">
+      <div id="loader"></div>
+      Loading...
+    </h3>
 
     <div id="content">
       <p>

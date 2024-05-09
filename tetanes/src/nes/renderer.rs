@@ -474,15 +474,24 @@ impl Renderer {
         match event {
             WindowEvent::Focused(focused) => {
                 state.focused = focused.then(|| viewport_id).flatten();
+                if let Some(viewport) = viewport_id
+                    .as_ref()
+                    .and_then(|id| state.viewports.get_mut(id))
+                {
+                    if viewport.ids.this == ViewportId::ROOT {
+                        self.tx.nes_event(EmulationEvent::UnfocusedPause(!focused));
+                    }
+                }
             }
             WindowEvent::Occluded(occluded) => {
+                // Note: Does not trigger on all platforms
                 if let Some(viewport) = viewport_id
                     .as_ref()
                     .and_then(|id| state.viewports.get_mut(id))
                 {
                     viewport.occluded = *occluded;
                     if viewport.ids.this == ViewportId::ROOT {
-                        self.tx.nes_event(EmulationEvent::Occluded(*occluded));
+                        self.tx.nes_event(EmulationEvent::UnfocusedPause(*occluded));
                     }
                 }
             }
