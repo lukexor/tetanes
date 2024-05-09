@@ -22,3 +22,20 @@ pub mod mem;
 pub mod ppu;
 pub mod sys;
 pub mod video;
+
+pub mod prelude {
+    pub use crate::{
+        action::Action,
+        apu::{Apu, Channel},
+        cart::Cart,
+        common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
+        control_deck::{Config, ControlDeck, HeadlessMode},
+        cpu::Cpu,
+        genie::GenieCode,
+        input::{FourPlayer, Input, Player},
+        mapper::{Mapped, MappedRead, MappedWrite, Mapper, MapperRevision},
+        mem::RamState,
+        ppu::{Mirroring, Ppu},
+        video::Frame,
+    };
+}
