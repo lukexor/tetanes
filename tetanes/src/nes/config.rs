@@ -88,6 +88,7 @@ pub struct RendererConfig {
     pub show_messages: bool,
     pub show_menubar: bool,
     pub embed_viewports: bool,
+    pub dark_theme: bool,
 }
 
 impl Default for RendererConfig {
@@ -106,6 +107,7 @@ impl Default for RendererConfig {
             show_messages: true,
             show_menubar: true,
             embed_viewports: false,
+            dark_theme: true,
         }
     }
 }

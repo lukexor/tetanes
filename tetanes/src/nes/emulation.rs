@@ -5,7 +5,7 @@ use crate::{
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
         event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
-        renderer::FrameRecycle,
+        renderer::{gui::MessageType, FrameRecycle},
     },
     thread,
 };
@@ -308,8 +308,8 @@ impl State {
         state
     }
 
-    pub(crate) fn add_message<S: ToString>(&mut self, msg: S) {
-        self.tx.nes_event(UiEvent::Message(msg.to_string()));
+    pub(crate) fn add_message<S: ToString>(&mut self, ty: MessageType, msg: S) {
+        self.tx.nes_event(UiEvent::Message((ty, msg.to_string())));
     }
 
     fn write_deck<T>(
@@ -327,7 +327,7 @@ impl State {
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
         let err = err.into();
         error!("Emulation error: {err:?}");
-        self.add_message(err);
+        self.add_message(MessageType::Error, err);
     }
 
     /// Handle event.
@@ -441,8 +441,8 @@ impl State {
                     self.control_deck.reset(*kind);
                     self.pause(false);
                     match kind {
-                        ResetKind::Soft => self.add_message("Reset"),
-                        ResetKind::Hard => self.add_message("Power Cycled"),
+                        ResetKind::Soft => self.add_message(MessageType::Info, "Reset"),
+                        ResetKind::Hard => self.add_message(MessageType::Info, "Power Cycled"),
                     }
                 }
             }
@@ -451,7 +451,7 @@ impl State {
                     if self.rewind.enabled {
                         self.rewinding = *rewind;
                         if self.rewinding {
-                            self.add_message("Rewinding...");
+                            self.add_message(MessageType::Info, "Rewinding...");
                         }
                     } else {
                         self.rewind_disabled();
@@ -463,7 +463,10 @@ impl State {
                 if self.control_deck.is_running() {
                     match self.save_screenshot() {
                         Ok(filename) => {
-                            self.add_message(format!("Screenshot Saved: {}", filename.display()));
+                            self.add_message(
+                                MessageType::Info,
+                                format!("Screenshot Saved: {}", filename.display()),
+                            );
                         }
                         Err(err) => self.on_error(err),
                     }
@@ -490,7 +493,10 @@ impl State {
                 self.control_deck
                     .set_apu_channel_enabled(*channel, *enabled);
                 let enabled_text = if *enabled { "Enabled" } else { "Disabled" };
-                self.add_message(format!("{enabled_text} APU Channel {channel:?}"));
+                self.add_message(
+                    MessageType::Info,
+                    format!("{enabled_text} APU Channel {channel:?}"),
+                );
             }
             ConfigEvent::AudioBuffer(buffer_size) => {
                 if let Err(err) = self.audio.set_buffer_size(*buffer_size) {
@@ -499,9 +505,9 @@ impl State {
             }
             ConfigEvent::AudioEnabled(enabled) => match self.audio.set_enabled(*enabled) {
                 Ok(state) => match state {
-                    AudioState::Started => self.add_message("Audio Enabled"),
+                    AudioState::Started => self.add_message(MessageType::Info, "Audio Enabled"),
                     AudioState::Disabled | AudioState::Stopped => {
-                        self.add_message("Audio Disabled")
+                        self.add_message(MessageType::Info, "Audio Disabled")
                     }
                     AudioState::NoOutputDevice => (),
                 },
@@ -629,7 +635,7 @@ impl State {
                 match self.control_deck.save_state(data_dir) {
                     Ok(_) => {
                         if !auto {
-                            self.add_message(format!("State {slot} Saved"));
+                            self.add_message(MessageType::Info, format!("State {slot} Saved"));
                         }
                     }
                     Err(err) => self.on_error(err),
@@ -642,7 +648,7 @@ impl State {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if let Some(path) = Config::save_path(rom, slot) {
                 match self.control_deck.load_state(path) {
-                    Ok(_) => self.add_message(format!("State {slot} Loaded")),
+                    Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
                     Err(err) => self.on_error(err),
                 }
             }
@@ -713,7 +719,10 @@ impl State {
     }
 
     fn on_load_replay(&mut self, start: Cpu, name: impl AsRef<str>) {
-        self.add_message(format!("Loaded Replay Recording {:?}", name.as_ref()));
+        self.add_message(
+            MessageType::Info,
+            format!("Loaded Replay Recording {:?}", name.as_ref()),
+        );
         self.control_deck.load_cpu(start);
         self.pause(false);
     }
@@ -745,7 +754,10 @@ impl State {
             if !recording && self.audio.is_recording() {
                 match self.audio.stop_recording() {
                     Ok(Some(filename)) => {
-                        self.add_message(format!("Saved Replay Recording {filename:?}"));
+                        self.add_message(
+                            MessageType::Info,
+                            format!("Saved Replay Recording {filename:?}"),
+                        );
                     }
                     Err(err) => self.on_error(err),
                     _ => (),
@@ -763,7 +775,10 @@ impl State {
             } else if let Some(rom) = self.control_deck.loaded_rom() {
                 match self.record.stop(rom) {
                     Ok(Some(filename)) => {
-                        self.add_message(format!("Saved Replay Recording {filename:?}"));
+                        self.add_message(
+                            MessageType::Info,
+                            format!("Saved Replay Recording {filename:?}"),
+                        );
                     }
                     Err(err) => self.on_error(err),
                     _ => (),

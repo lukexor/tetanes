@@ -1,4 +1,4 @@
-use crate::nes::emulation::State;
+use crate::nes::{emulation::State, renderer::gui::MessageType};
 use tetanes_core::{
     cpu::Cpu,
     fs::{Error, Result},
@@ -100,7 +100,10 @@ impl Rewind {
 
 impl State {
     pub fn rewind_disabled(&mut self) {
-        self.add_message("Rewind disabled. You can enable it in the Preferences menu.");
+        self.add_message(
+            MessageType::Warn,
+            "Rewind disabled. You can enable it in the Preferences menu.",
+        );
     }
 
     pub fn instant_rewind(&mut self) {

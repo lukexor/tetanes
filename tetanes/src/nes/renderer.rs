@@ -4,7 +4,7 @@ use crate::{
         event::{EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
         input::Gamepads,
         renderer::{
-            gui::{Gui, Menu},
+            gui::{Gui, Menu, MessageType},
             texture::Texture,
         },
     },
@@ -561,11 +561,11 @@ impl Renderer {
         EventResponse::default()
     }
 
-    pub fn add_message<S>(&mut self, text: S)
+    pub fn add_message<S>(&mut self, ty: MessageType, text: S)
     where
         S: Into<String>,
     {
-        self.gui.add_message(text);
+        self.gui.add_message(ty, text);
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {

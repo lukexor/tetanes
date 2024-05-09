@@ -4,7 +4,7 @@ use crate::{
         config::Config,
         emulation::FrameStats,
         input::{Input, InputBindings},
-        renderer::gui::Menu,
+        renderer::gui::{Menu, MessageType},
         rom::RomData,
         Nes, Running,
     },
@@ -52,7 +52,7 @@ impl SendNesEvent for EventLoopProxy<NesEvent> {
 #[must_use]
 pub enum UiEvent {
     Error(String),
-    Message(String),
+    Message((MessageType, String)),
     LoadRomDialog,
     LoadReplayDialog,
     Terminate,
@@ -305,7 +305,7 @@ impl Running {
             }
             Event::MemoryWarning => {
                 self.renderer
-                    .add_message("Your system memory is running low...");
+                    .add_message(MessageType::Warn, "Your system memory is running low...");
             }
             Event::AboutToWait => {
                 self.gamepads.update_events();
@@ -428,7 +428,7 @@ impl Running {
 
     pub fn on_ui_event(&mut self, event: UiEvent) {
         match event {
-            UiEvent::Message(msg) => self.renderer.add_message(msg),
+            UiEvent::Message((ty, msg)) => self.renderer.add_message(ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err)),
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
@@ -549,9 +549,10 @@ impl Running {
                         saved_assignment.or_else(|| self.cfg.input.next_gamepad_unassigned())
                     {
                         if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                            self.renderer.add_message(format!(
-                                "Assigned gamepad `{name}` to player {player:?}."
-                            ));
+                            self.renderer.add_message(
+                                MessageType::Info,
+                                format!("Assigned gamepad `{name}` to player {player:?}."),
+                            );
                             self.cfg.input.assign_gamepad(player, uuid);
                         }
                     }
@@ -560,9 +561,10 @@ impl Running {
                     self.gamepads.disconnect(event.id);
                     if let Some(player) = self.cfg.input.unassign_gamepad_name(&uuid) {
                         if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                            self.renderer.add_message(format!(
-                                "Unassigned gamepad `{name}` from player {player:?}."
-                            ));
+                            self.renderer.add_message(
+                                MessageType::Info,
+                                format!("Unassigned gamepad `{name}` from player {player:?}."),
+                            );
                         }
                     }
                 }
@@ -620,7 +622,8 @@ impl Running {
                             }
                         } else {
                             self.renderer.add_message(
-                                "replay recordings are not supported yet on this platform.",
+                                MessageType::Warn,
+                                "Replay recordings are not supported yet on this platform.",
                             );
                         }
                     }
@@ -632,7 +635,8 @@ impl Running {
                             }
                         } else {
                             self.renderer.add_message(
-                                "audio recordings are not supported yet on this platform.",
+                                MessageType::Warn,
+                                "Audio recordings are not supported yet on this platform.",
                             );
                         }
                     }
@@ -642,8 +646,10 @@ impl Running {
                                 self.nes_event(EmulationEvent::Screenshot);
                             }
                         } else {
-                            self.renderer
-                                .add_message("screenshots are not supported yet on this platform.");
+                            self.renderer.add_message(
+                                MessageType::Warn,
+                                "Screenshots are not supported yet on this platform.",
+                            );
                         }
                     }
                     Feature::VisualRewind => {
@@ -692,8 +698,10 @@ impl Running {
                         let new_speed = self.cfg.increment_speed();
                         if speed != new_speed {
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
-                            self.renderer
-                                .add_message(format!("Increased Emulation Speed to {new_speed}"));
+                            self.renderer.add_message(
+                                MessageType::Info,
+                                format!("Increased Emulation Speed to {new_speed}"),
+                            );
                         }
                     }
                     Setting::DecrementSpeed if released => {
@@ -701,8 +709,10 @@ impl Running {
                         let new_speed = self.cfg.decrement_speed();
                         if speed != new_speed {
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
-                            self.renderer
-                                .add_message(format!("Decreased Emulation Speed to {new_speed}"));
+                            self.renderer.add_message(
+                                MessageType::Info,
+                                format!("Decreased Emulation Speed to {new_speed}"),
+                            );
                         }
                     }
                     Setting::FastForward
@@ -714,7 +724,8 @@ impl Running {
                             self.cfg.emulation.speed = new_speed;
                             self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             if new_speed == 2.0 {
-                                self.renderer.add_message("Fast forwarding");
+                                self.renderer
+                                    .add_message(MessageType::Info, "Fast forwarding");
                             }
                         }
                     }
@@ -735,28 +746,36 @@ impl Running {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.cfg.emulation.save_slot != slot {
                                 self.cfg.emulation.save_slot = slot;
-                                self.renderer
-                                    .add_message(format!("Changed Save Slot to {slot}"));
+                                self.renderer.add_message(
+                                    MessageType::Info,
+                                    format!("Changed Save Slot to {slot}"),
+                                );
                             }
                         } else {
-                            self.renderer
-                                .add_message("save states are not supported yet on this platform.");
+                            self.renderer.add_message(
+                                MessageType::Warn,
+                                "Save states are not supported yet on this platform.",
+                            );
                         }
                     }
                     DeckAction::SaveState if released && root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
-                            self.renderer
-                                .add_message("save states are not supported yet on this platform.");
+                            self.renderer.add_message(
+                                MessageType::Warn,
+                                "Save states are not supported yet on this platform.",
+                            );
                         }
                     }
                     DeckAction::LoadState if released && root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
-                            self.renderer
-                                .add_message("save states are not supported yet on this platform.");
+                            self.renderer.add_message(
+                                MessageType::Warn,
+                                "Save states are not supported yet on this platform.",
+                            );
                         }
                     }
                     DeckAction::ToggleApuChannel(channel) if released => {
@@ -772,14 +791,18 @@ impl Running {
                         self.nes_event(ConfigEvent::MapperRevisions(
                             self.cfg.deck.mapper_revisions,
                         ));
-                        self.renderer
-                            .add_message(format!("Changed Mapper Revision to {rev}"));
+                        self.renderer.add_message(
+                            MessageType::Info,
+                            format!("Changed Mapper Revision to {rev}"),
+                        );
                     }
                     DeckAction::SetNesRegion(region) if released => {
                         self.cfg.deck.region = region;
                         self.nes_event(ConfigEvent::Region(self.cfg.deck.region));
-                        self.renderer
-                            .add_message(format!("Changed NES Region to {region:?}"));
+                        self.renderer.add_message(
+                            MessageType::Info,
+                            format!("Changed NES Region to {region:?}"),
+                        );
                     }
                     DeckAction::SetVideoFilter(filter) if released => {
                         let filter = if self.cfg.deck.filter == filter {
@@ -794,8 +817,10 @@ impl Running {
                 },
                 Action::Debug(action) => match action {
                     Debug::Toggle(kind) if released => {
-                        self.renderer
-                            .add_message(format!("{kind:?} is not implemented yet"));
+                        self.renderer.add_message(
+                            MessageType::Warn,
+                            format!("{kind:?} is not implemented yet"),
+                        );
                     }
                     Debug::Step(step) if (released | repeat) && root_window => {
                         self.nes_event(EmulationEvent::DebugStep(step));
