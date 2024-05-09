@@ -504,11 +504,13 @@ impl Gui {
                             }
                         }
                         while let Some(event) = gamepads.next_event() {
-                            if let Some(input) = gamepads
-                                .input_from_event(&event, cfg)
-                                .map(|(input, state)| (input, state == ElementState::Pressed))
-                            {
-                                return Some(input);
+                            let input = gamepads.input_from_event(&event, cfg).and_then(
+                                |(input, state)| {
+                                    (state == ElementState::Pressed).then_some((input, false))
+                                },
+                            );
+                            if input.is_some() {
+                                return input;
                             }
                         }
                         None
@@ -2659,8 +2661,15 @@ fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) -> b
             .map_or(false, |g| g.is_pressed(button)),
         Input::Mouse(mouse_button) => pointer_button_from_mouse(mouse_button)
             .map_or(false, |pointer| i.pointer.button_down(pointer)),
-        // Doesn't make sense for an `Axis` to be `down`
-        Input::Axis(..) => false,
+        Input::Axis(player, axis, direction) => cfg
+            .input
+            .gamepad_assigned_to(player)
+            .and_then(|uuid| gamepads.gamepad_by_uuid(&uuid))
+            .and_then(|g| g.axis_data(axis).map(|data| data.value()))
+            .map_or(false, |value| {
+                let (dir, state) = Gamepads::axis_state(value);
+                dir == Some(direction) && state == ElementState::Pressed
+            }),
     })
 }
 
@@ -2916,7 +2925,7 @@ fn format_input(input: Input) -> String {
             s
         }
         Input::Button(_, button) => format!("{button:#?}"),
-        Input::Axis(_, axis) => format!("{axis:#?}"),
+        Input::Axis(_, axis, direction) => format!("{axis:#?} {direction:#?}"),
         Input::Mouse(button) => match button {
             MouseButton::Left => String::from("Left Click"),
             MouseButton::Right => String::from("Right Click"),

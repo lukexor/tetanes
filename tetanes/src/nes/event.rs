@@ -3,7 +3,7 @@ use crate::{
         action::{Action, Debug, DebugStep, Feature, Setting, Ui},
         config::Config,
         emulation::FrameStats,
-        input::{Input, InputBindings},
+        input::{AxisDirection, Gamepads, Input, InputBindings},
         renderer::gui::{Menu, MessageType},
         rom::RomData,
         Nes, Running,
@@ -539,14 +539,25 @@ impl Running {
                         );
                     }
                 }
-                EventType::ButtonChanged(button, value, _) => {
-                    if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
-                        self.on_button(window_id, Input::Button(player, button), value);
-                    }
-                }
                 EventType::AxisChanged(axis, value, _) => {
                     if let Some(player) = self.cfg.input.gamepad_assignment(&uuid) {
-                        self.on_axis(window_id, Input::Axis(player, axis), value);
+                        if let (Some(direction), state) = Gamepads::axis_state(value) {
+                            self.on_input(
+                                window_id,
+                                Input::Axis(player, axis, direction),
+                                state,
+                                false,
+                            );
+                        } else {
+                            for direction in [AxisDirection::Positive, AxisDirection::Negative] {
+                                self.on_input(
+                                    window_id,
+                                    Input::Axis(player, axis, direction),
+                                    ElementState::Released,
+                                    false,
+                                );
+                            }
+                        }
                     }
                 }
                 EventType::Connected => {
@@ -836,15 +847,5 @@ impl Running {
                 _ => (),
             }
         }
-    }
-
-    /// Handle user input mapped to gamepad bindings.
-    pub fn on_button(&mut self, _window_id: WindowId, input: Input, value: f32) {
-        tracing::trace!("button: {input:?}, value: {value}");
-    }
-
-    /// Handle user input mapped to gamepad bindings.
-    pub fn on_axis(&mut self, _window_id: WindowId, input: Input, value: f32) {
-        tracing::trace!("axis: {input:?}, value: {value}");
     }
 }

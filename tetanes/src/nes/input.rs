@@ -67,8 +67,11 @@ macro_rules! gamepad_map {
     (@ $action:expr => $player:expr; $button:expr) => {
         action_binding!($action => [Some(Input::Button($player, $button)), None])
     };
-    ($({ $action:expr => $player:expr; $button:expr }),+$(,)?) => {
-        vec![$(gamepad_map!(@ $action => $player; $button),)+]
+    (@ $action:expr => $player:expr; $button1:expr; ($button2:expr, $state:expr)) => {
+        action_binding!($action => [Some(Input::Button($player, $button1)), Some(Input::Axis($player, $button2, $state))])
+    };
+    ($({ $action:expr => $player:expr; $button1:expr$(; ($button2:expr, $state:expr))? }),+$(,)?) => {
+        vec![$(gamepad_map!(@ $action => $player; $button1$(; ($button2, $state))?),)+]
     };
 }
 
@@ -87,7 +90,13 @@ pub enum Input {
     Key(KeyCode, ModifiersState),
     Mouse(MouseButton),
     Button(Player, gilrs::Button),
-    Axis(Player, gilrs::Axis),
+    Axis(Player, gilrs::Axis, AxisDirection),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AxisDirection {
+    Negative, // Left or Up
+    Positive, // Right or Down
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
@@ -170,7 +179,7 @@ impl ActionBindings {
     }
 
     pub fn default_player_bindings(player: Player) -> Vec<Self> {
-        use gilrs::Button;
+        use gilrs::{Axis, Button};
         use KeyCode::*;
 
         let mut bindings = Vec::with_capacity(10);
@@ -180,10 +189,10 @@ impl ActionBindings {
             { (player, JoypadBtn::TurboA) => player; Button::North },
             { (player, JoypadBtn::B) => player; Button::South },
             { (player, JoypadBtn::TurboB) => player; Button::West },
-            { (player, JoypadBtn::Up) => player; Button::DPadUp },
-            { (player, JoypadBtn::Down) => player; Button::DPadDown },
-            { (player, JoypadBtn::Left) => player; Button::DPadLeft },
-            { (player, JoypadBtn::Right) => player; Button::DPadRight },
+            { (player, JoypadBtn::Up) => player; Button::DPadUp; (Axis::LeftStickY, AxisDirection::Negative) },
+            { (player, JoypadBtn::Down) => player; Button::DPadDown; (Axis::LeftStickY, AxisDirection::Positive) },
+            { (player, JoypadBtn::Left) => player; Button::DPadLeft; (Axis::LeftStickX, AxisDirection::Negative) },
+            { (player, JoypadBtn::Right) => player; Button::DPadRight; (Axis::LeftStickX, AxisDirection::Positive) },
             { (player, JoypadBtn::Select) => player; Button::Select },
             { (player, JoypadBtn::Start) => player; Button::Start },
         ));
@@ -194,6 +203,8 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::TurboA) => KeyA },
                 { (Player::One, JoypadBtn::B) => KeyX },
                 { (Player::One, JoypadBtn::TurboB) => KeyS },
+                // TODO: These overwrite Axis bindings above because there are only two binding
+                // slots available at present
                 { (Player::One, JoypadBtn::Up) => ArrowUp },
                 { (Player::One, JoypadBtn::Down) => ArrowDown },
                 { (Player::One, JoypadBtn::Left) => ArrowLeft },
@@ -314,6 +325,22 @@ impl Gamepads {
         }
     }
 
+    pub fn axis_state(value: f32) -> (Option<AxisDirection>, ElementState) {
+        let direction = if value >= 0.6 {
+            Some(AxisDirection::Positive)
+        } else if value <= -0.6 {
+            Some(AxisDirection::Negative)
+        } else {
+            None
+        };
+        let state = if direction.is_some() {
+            ElementState::Pressed
+        } else {
+            ElementState::Released
+        };
+        (direction, state)
+    }
+
     pub fn has_events(&self) -> bool {
         !self.events.is_empty()
     }
@@ -339,8 +366,14 @@ impl Gamepads {
                 EventType::ButtonReleased(button, _) => {
                     Some((Input::Button(player, button), ElementState::Released))
                 }
+                EventType::AxisChanged(axis, value, _) => {
+                    if let (Some(direction), state) = Gamepads::axis_state(value) {
+                        Some((Input::Axis(player, axis, direction), state))
+                    } else {
+                        None
+                    }
+                }
                 EventType::ButtonChanged(_, _, _) => None,
-                EventType::AxisChanged(_, _, _) => None,
                 EventType::Connected | EventType::Disconnected | EventType::Dropped => None,
             }
         } else {
