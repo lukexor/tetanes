@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        config::{Config, FrameRate},
+        config::Config,
         event::{EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
         input::Gamepads,
         renderer::{
@@ -22,8 +22,11 @@ use egui_winit::EventResponse;
 use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
 use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
-use thingbuf::{mpsc::blocking::Receiver as BufReceiver, Recycle};
-use tracing::{debug, error, warn};
+use thingbuf::{
+    mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
+    Recycle,
+};
+use tracing::{debug, error, trace, warn};
 use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
@@ -404,6 +407,12 @@ impl Renderer {
                 RendererEvent::FrameStats(stats) => {
                     self.gui.frame_stats = *stats;
                 }
+                RendererEvent::ShowMenubar(show) => {
+                    if !show {
+                        self.gui.menu_height = 0.0;
+                        self.gui.resize_window = true;
+                    }
+                }
                 RendererEvent::ScaleChanged => {
                     // Handles increment/decrement scale action bindings
                     self.gui.resize_window = true;
@@ -431,7 +440,11 @@ impl Renderer {
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.gui.about_open = !self.gui.about_open,
                     Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
-                    Menu::PerfStats => self.gui.perf_stats_open = !self.gui.perf_stats_open,
+                    Menu::PerfStats => {
+                        self.gui.perf_stats_open = !self.gui.perf_stats_open;
+                        self.tx
+                            .nes_event(EmulationEvent::ShowFrameStats(self.gui.perf_stats_open));
+                    }
                     Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
                 },
                 RendererEvent::ResourcesReady | RendererEvent::RequestRedraw { .. } => (),
@@ -705,9 +718,8 @@ impl Renderer {
         viewport_id: ViewportId,
         window: Option<Arc<Window>>,
     ) {
-        // This is fine because we're in a sync function. native platforms call `block_on` and
-        // wasm is single-threaded with `spawn_local` and runs in on the next microtick which
-        // is synchronous.
+        // This is fine because we won't be yielding. Native platforms call `block_on` and
+        // wasm is single-threaded with `spawn_local` and runs on the next microtick.
         #[allow(clippy::await_holding_refcell_ref)]
         thread::spawn(async move {
             if let Err(err) = painter.borrow_mut().set_window(viewport_id, window).await {
@@ -1033,20 +1045,34 @@ impl Renderer {
         // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
         // resize tied to a configuration change.
         if let Some(render_state) = &self.render_state {
-            if let Ok(frame_buffer) = self.frame_rx.try_recv() {
-                self.texture.update(
-                    &render_state.queue,
-                    if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
-                        &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
-                    } else {
-                        &frame_buffer
-                    },
-                );
+            match self.frame_rx.try_recv() {
+                Ok(frame_buffer) => {
+                    self.texture.update(
+                        &render_state.queue,
+                        if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
+                            &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
+                        } else {
+                            &frame_buffer
+                        },
+                    );
+                }
+                Err(err) => match err {
+                    TryRecvError::Empty if self.rom_loaded() => {
+                        debug!("missed frame");
+                    }
+                    TryRecvError::Closed => {
+                        error!("frame channel closed unexpectedly, exiting");
+                        event_loop.exit();
+                        return Ok(());
+                    }
+                    _ => (),
+                },
             }
             if !self.frame_rx.is_empty() {
+                trace!("behind {} frames", self.frame_rx.len());
                 self.tx.nes_event(RendererEvent::RequestRedraw {
                     viewport_id: ViewportId::ROOT,
-                    when: Instant::now() + FrameRate::from(cfg.deck.region).duration(),
+                    when: Instant::now(),
                 });
             }
         }

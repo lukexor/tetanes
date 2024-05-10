@@ -303,8 +303,9 @@ impl Gui {
             self.initialize(ctx, cfg);
         }
 
-        TopBottomPanel::top("menu_bar")
-            .show_animated(ctx, cfg.renderer.show_menubar, |ui| self.menu_bar(ui, cfg));
+        if cfg.renderer.show_menubar {
+            TopBottomPanel::top("menu_bar").show(ctx, |ui| self.menu_bar(ui, cfg));
+        }
         CentralPanel::default()
             .frame(Frame::canvas(&ctx.style()))
             .show(ctx, |ui| self.nes_frame(ui, gamepads, cfg));
@@ -2367,7 +2368,11 @@ impl Gui {
             .unwrap_or_default();
         let checkbox = Checkbox::new(&mut cfg.renderer.show_menubar, "Show Menu Bar")
             .shortcut_text(shortcut_txt);
-        ui.add(checkbox).on_hover_text("Show the menu bar.");
+        let res = ui.add(checkbox).on_hover_text("Show the menu bar.");
+        if res.clicked() && !cfg.renderer.show_menubar {
+            self.menu_height = 0.0;
+            self.resize_window = true;
+        }
     }
 
     fn messages_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {

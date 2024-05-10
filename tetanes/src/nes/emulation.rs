@@ -253,6 +253,7 @@ pub struct State {
     auto_load: bool,
     speed: f32,
     run_ahead: usize,
+    show_frame_stats: bool,
 }
 
 impl Drop for State {
@@ -303,6 +304,7 @@ impl State {
             auto_load: cfg.emulation.auto_load,
             speed: cfg.emulation.speed,
             run_ahead: cfg.emulation.run_ahead,
+            show_frame_stats: false,
         };
         state.update_region(cfg.deck.region);
         state
@@ -446,6 +448,10 @@ impl State {
                 }
             }
             EmulationEvent::SaveState(slot) => self.save_state(*slot, false),
+            EmulationEvent::ShowFrameStats(show) => {
+                self.frame_time_diag.reset();
+                self.show_frame_stats = *show;
+            }
             EmulationEvent::Screenshot => {
                 if self.control_deck.is_running() {
                     match self.save_screenshot() {
@@ -564,6 +570,10 @@ impl State {
     }
 
     fn update_frame_stats(&mut self) {
+        if !self.show_frame_stats {
+            return;
+        }
+
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();

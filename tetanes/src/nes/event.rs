@@ -122,6 +122,7 @@ pub enum EmulationEvent {
     Reset(ResetKind),
     Rewinding(bool),
     SaveState(u8),
+    ShowFrameStats(bool),
     Screenshot,
     UnloadRom,
     ZapperAim((u32, u32)),
@@ -132,6 +133,7 @@ pub enum EmulationEvent {
 #[must_use]
 pub enum RendererEvent {
     FrameStats(FrameStats),
+    ShowMenubar(bool),
     ScaleChanged,
     ResourcesReady,
     RequestRedraw {
@@ -186,10 +188,7 @@ impl Nes {
         puffin::profile_function!();
 
         if !matches!(event, Event::NewEvents(..) | Event::AboutToWait) {
-            trace!(
-                "event: {}",
-                egui_winit::short_generic_event_description(&event)
-            );
+            trace!("event: {:?}", event);
         }
 
         match event {
@@ -613,7 +612,9 @@ impl Running {
                     }
                     Ui::LoadRom => {
                         self.paused = true;
-                        self.nes_event(EmulationEvent::Pause(self.paused));
+                        if self.renderer.rom_loaded() {
+                            self.nes_event(EmulationEvent::Pause(self.paused));
+                        }
                         self.nes_event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
@@ -624,7 +625,9 @@ impl Running {
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
                             self.paused = true;
-                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            if self.renderer.rom_loaded() {
+                                self.nes_event(EmulationEvent::Pause(self.paused));
+                            }
                             self.nes_event(UiEvent::LoadReplayDialog);
                         }
                     }
@@ -695,6 +698,7 @@ impl Running {
                     }
                     Setting::ToggleMenubar if released => {
                         self.cfg.renderer.show_menubar = !self.cfg.renderer.show_menubar;
+                        self.nes_event(RendererEvent::ShowMenubar(self.cfg.renderer.show_menubar));
                     }
                     Setting::IncrementScale if released => {
                         let scale = self.cfg.renderer.scale;
