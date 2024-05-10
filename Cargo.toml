@@ -3,11 +3,11 @@
 
 [workspace]
 resolver = "2"
-members = ["tetanes", "tetanes-core"]
+members = ["tetanes", "tetanes-core", "tetanes-utils"]
 
 [workspace.package]
 version = "0.10.0"
-rust-version = "1.74.0"
+rust-version = "1.78.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
@@ -67,12 +67,18 @@ inherits = "release"
 [profile.dev.build-override]
 inherits = "release"
 
+[workspace.metadata.wix]
+upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
+path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
+license = false
+eula = false
+
 # Config for 'cargo dist'
 [workspace.metadata.dist]
 # The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.9.0"
+cargo-dist-version = "0.14.1"
 # CI backends to support
-ci = ["github"]
+ci = "github"
 # The installers to generate for each app
 installers = ["shell", "homebrew", "msi"]
 # Target platforms to build apps for (Rust target-triple syntax)
@@ -83,10 +89,15 @@ targets = [
   "x86_64-pc-windows-msvc",
 ]
 # Publish jobs to run in CI
-pr-run-mode = "plan"
+pr-run-mode = "upload" # TODO: change this back to plan when vetted
 # A GitHub repo to push Homebrew formulas to
 tap = "lukexor/formulae"
 # Publish jobs to run in CI
 publish-jobs = ["homebrew", "./package-macos"]
 # Skip checking whether the specified configuration files are up to date
 allow-dirty = ["msi"]
+# Whether to install an updater program
+install-updater = true
+
+[workspace.metadata.dist.dependencies.apt]
+libgtk-3-dev = '*'

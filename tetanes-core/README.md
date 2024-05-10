@@ -7,7 +7,7 @@ own libraries or UIs on top of it.
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current minimum Rust version is `1.74.0`.
+The current minimum Rust version is `1.78.0`.
 
 ## Feature Flags
 

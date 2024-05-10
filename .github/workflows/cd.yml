@@ -18,7 +18,10 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          profile: minimal
       - uses: Swatinem/rust-cache@v2
       - name: Run release
         uses: MarcoIeni/release-plz-action@v0.5

@@ -2862,6 +2862,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetanes-utils"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tetanes",
+ "tetanes-core",
+]
+
+[[package]]
 name = "thingbuf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

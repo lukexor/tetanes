@@ -17,19 +17,6 @@ default-run = "tetanes"
 
 [[bin]]
 name = "tetanes"
-path = "src/main.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "list_boards"
-path = "bin/list_boards.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "generate_db"
-path = "bin/generate_db.rs"
 test = false
 bench = false
 
@@ -49,12 +36,6 @@ unused = "warn"
 [package.metadata.docs.rs]
 rustc-args = ["--cfg=web_sys_unstable_apis"]
 targets = ["wasm32-unknown-unknown"]
-
-[package.metadata.wix]
-upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
-path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
-license = false
-eula = false
 
 [features]
 default = ["tetanes-core/cycle-accurate"]

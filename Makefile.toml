@@ -35,13 +35,6 @@ workspace = false
 command = "cargo"
 args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
 
-[tasks.post-build]
-description = "Strip release build symbols"
-category = "Build"
-workspace = false
-command = "strip"
-args = ["${CARGO_TARGET_DIR}/release/tetanes*"]
-
 [tasks.bench]
 description = "Benchmark TetaNES"
 category = "Development"

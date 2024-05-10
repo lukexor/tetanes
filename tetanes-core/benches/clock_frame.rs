@@ -24,7 +24,8 @@ fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
 
 fn basic(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
-    group.measurement_time(Duration::from_secs(10));
+    group.measurement_time(Duration::from_secs(60));
+    group.sample_size(10);
     group.bench_function("basic", |b| {
         b.iter(|| clock_frames("test_roms/ppu/_240pee.nes", black_box(200)))
     });
