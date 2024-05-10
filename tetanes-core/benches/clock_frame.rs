@@ -26,7 +26,7 @@ fn basic(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
     group.measurement_time(Duration::from_secs(10));
     group.bench_function("basic", |b| {
-        b.iter(|| clock_frames("test_roms/ppu/240pee.nes", black_box(200)))
+        b.iter(|| clock_frames("test_roms/ppu/_240pee.nes", black_box(200)))
     });
     group.finish();
 }

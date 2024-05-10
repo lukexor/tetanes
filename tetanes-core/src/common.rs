@@ -555,7 +555,7 @@ pub(crate) mod tests {
     test_roms!(
         ppu,
         "test_roms/ppu",
-        240pee,                // TODO: Run each test
+        _240pee,               // TODO: Run each test
         color,                 // TODO: Test all color combinations
         ntsc_torture,          // Tests PPU NTSC signal artifacts
         oam_read,              // Tests OAM reading ($2004)
