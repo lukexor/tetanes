@@ -493,6 +493,7 @@ impl Renderer {
                 {
                     if viewport.ids.this == ViewportId::ROOT {
                         self.tx.nes_event(EmulationEvent::UnfocusedPause(!focused));
+                        self.gui.paused = !*focused;
                     }
                 }
             }
@@ -505,6 +506,7 @@ impl Renderer {
                     viewport.occluded = *occluded;
                     if viewport.ids.this == ViewportId::ROOT {
                         self.tx.nes_event(EmulationEvent::UnfocusedPause(*occluded));
+                        self.gui.paused = *occluded;
                     }
                 }
             }
@@ -1057,7 +1059,7 @@ impl Renderer {
                     );
                 }
                 Err(err) => match err {
-                    TryRecvError::Empty if self.rom_loaded() => {
+                    TryRecvError::Empty if self.rom_loaded() && !self.gui.paused => {
                         debug!("missed frame");
                     }
                     TryRecvError::Closed => {

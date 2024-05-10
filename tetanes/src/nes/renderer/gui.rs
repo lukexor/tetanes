@@ -1658,34 +1658,44 @@ impl Gui {
             ui.end_row();
 
             self.rewind_checkbox(ui, cfg, ShowShortcut::No);
-            ui.vertical(|ui| {
+            ui.horizontal(|ui| {
                 ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
                     .on_hover_text(concat!(
                         "Automatically save game state to the current save slot ",
                         "on exit or unloading and an optional interval. ",
                         "Setting to 0 will disable saving on an interval.",
                     ));
-
+                ui.add_space(15.0);
                 ui.add_enabled_ui(cfg.emulation.auto_save, |ui| {
                     let mut auto_save_interval = cfg.emulation.auto_save_interval.as_secs();
-                    ui.indent("auto_save_interval", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong("Interval:");
-                            let drag = DragValue::new(&mut auto_save_interval)
-                                .clamp_range(0..=60)
-                                .suffix(" seconds");
-                            let res = ui.add(drag);
-                            if res.lost_focus() && res.changed() {
-                                cfg.emulation.auto_save_interval =
-                                    Duration::from_secs(auto_save_interval);
-                                self.tx.nes_event(ConfigEvent::AutoSaveInterval(
-                                    cfg.emulation.auto_save_interval,
-                                ));
-                            }
-                        });
-                    });
+                    ui.label("Interval:")
+                        .on_hover_text(concat!(
+                            "Set the interval to auto-save game state. ",
+                            "A value of `0` will still save on exit or unload while Auto-Save is enabled."
+                        ));
+                    let drag = DragValue::new(&mut auto_save_interval)
+                        .clamp_range(0..=60)
+                        .suffix(" seconds");
+                    let res = ui.add(drag);
+                    if res.lost_focus() && res.changed() {
+                        cfg.emulation.auto_save_interval =
+                            Duration::from_secs(auto_save_interval);
+                        self.tx.nes_event(ConfigEvent::AutoSaveInterval(
+                            cfg.emulation.auto_save_interval,
+                        ));
+                    }
                 });
             });
+            ui.end_row();
+
+            let res = ui.checkbox(&mut cfg.deck.emulate_ppu_warmup, "Emulate PPU Warmup")
+                .on_hover_text(concat!(
+                    "Set whether to emulate PPU warmup where writes to certain registers are ignored. ",
+                    "Can result in some games not working correctly"
+                ));
+            if res.clicked() {
+                self.tx.nes_event(EmulationEvent::EmulatePpuWarmup(cfg.deck.emulate_ppu_warmup));
+            }
             ui.end_row();
         });
 

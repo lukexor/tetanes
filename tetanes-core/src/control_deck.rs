@@ -116,6 +116,11 @@ pub struct Config {
     pub data_dir: Option<PathBuf>,
     /// Which mapper revisions to emulate for any ROM loaded that uses this mapper.
     pub mapper_revisions: MapperRevisions,
+    /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
+    /// some games not working correctly.
+    ///
+    /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
+    pub emulate_ppu_warmup: bool,
 }
 
 impl Config {
@@ -152,6 +157,7 @@ impl Default for Config {
             headless_mode: HeadlessMode::empty(),
             data_dir: Self::default_data_dir(),
             mapper_revisions: MapperRevisions::default(),
+            emulate_ppu_warmup: false,
         }
     }
 }
@@ -189,6 +195,7 @@ impl ControlDeck {
     pub fn with_config(cfg: Config) -> Self {
         let mut cpu = Cpu::new(Bus::new(cfg.region, cfg.ram_state));
         cpu.bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
+        cpu.bus.ppu.emulate_warmup = cfg.emulate_ppu_warmup;
         cpu.bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
         if cfg.region.is_auto() {
             cpu.set_region(NesRegion::Ntsc);
@@ -341,6 +348,15 @@ impl ControlDeck {
     pub fn set_headless_mode(&mut self, mode: HeadlessMode) {
         self.cpu.bus.ppu.skip_rendering = mode.contains(HeadlessMode::NO_VIDEO);
         self.cpu.bus.apu.skip_mixing = mode.contains(HeadlessMode::NO_AUDIO);
+    }
+
+    /// Set whether to emulate PPU warmup where writes to certain registers are ignored. Can result
+    /// in some games not working correctly.
+    ///
+    /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
+    #[inline]
+    pub fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
+        self.cpu.bus.ppu.emulate_warmup = enabled;
     }
 
     /// Returns the name of the currently loaded ROM.

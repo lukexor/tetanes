@@ -116,8 +116,9 @@ impl FrameTimeDiag {
     }
 }
 
-fn shutdown(err: impl std::fmt::Display) {
+fn shutdown(tx: &EventLoopProxy<NesEvent>, err: impl std::fmt::Display) {
     error!("{err}");
+    tx.nes_event(UiEvent::Terminate);
     std::process::exit(1);
 }
 
@@ -210,9 +211,8 @@ impl Emulation {
             Threads::Multi(Multi { tx, handle }) => {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(event.clone()) {
-                    shutdown(format!(
-                        "failed to send emulation event: {event:?}. {err:?}"
-                    ));
+                    error!("failed to send emulation event: {event:?}. {err:?}");
+                    std::process::exit(1);
                 }
             }
         }
@@ -384,6 +384,9 @@ impl State {
                         }
                     }
                 }
+            }
+            EmulationEvent::EmulatePpuWarmup(enabled) => {
+                self.control_deck.set_emulate_ppu_warmup(*enabled);
             }
             EmulationEvent::InstantRewind => {
                 if self.control_deck.is_running() {
@@ -611,7 +614,7 @@ impl State {
             match self.frame_tx.try_send_ref() {
                 Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
                 Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                Err(_) => shutdown("failed to get frame"),
+                Err(_) => shutdown(&self.tx, "failed to get frame"),
             }
         } else if let Ok(mut frame) = self.frame_tx.send_ref() {
             self.control_deck.frame_buffer_into(&mut frame);
@@ -908,13 +911,13 @@ impl State {
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
                             Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                            Err(_) => shutdown("failed to get frame"),
+                            Err(_) => shutdown(&self.tx, "failed to get frame"),
                         }
                     } else {
                         // Otherwise we'll block on vsync
                         match self.frame_tx.send_ref() {
                             Ok(mut frame) => send_frame(&mut frame),
-                            Err(_) => shutdown("failed to get frame"),
+                            Err(_) => shutdown(&self.tx, "failed to get frame"),
                         }
                     }
                 },

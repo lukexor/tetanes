@@ -415,7 +415,7 @@ pub(crate) mod tests {
                     env::var("RUST_LOG")
                         .ok()
                         .and_then(|filter| filter.parse::<Targets>().ok())
-                        .unwrap_or("none".parse::<Targets>().unwrap()),
+                        .unwrap_or_default(),
                 )
                 .with(
                     fmt::layer()

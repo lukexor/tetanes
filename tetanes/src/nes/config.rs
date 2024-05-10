@@ -274,10 +274,6 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        if !self.emulation.auto_save {
-            return Ok(());
-        }
-
         if let Some(path) = Config::config_path() {
             let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
             fs::save_raw(path, &data).context("failed to save config")?;

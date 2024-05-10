@@ -57,7 +57,6 @@ impl Scroll {
     // || |||| +++------ high 3 bits of coarse Y (y/4)
     // || ++++---------- attribute offset (960 bytes)
     // ++--------------- nametable select
-
     #[must_use]
     pub const fn attr_addr(&self) -> u16 {
         let nametable_select = self.v & (Self::NT_X_MASK | Self::NT_Y_MASK);
@@ -79,7 +78,6 @@ impl Scroll {
     // Writes to PPUSCROLL affect v and t
     // 1st write writes X
     // 2nd write writes Y
-
     pub fn write(&mut self, val: u8) {
         let val = u16::from(val);
         let lo_5_bit_mask: u16 = 0x1F;
@@ -112,7 +110,6 @@ impl Scroll {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
-
     pub fn write_addr(&mut self, val: u8) {
         if self.write_latch {
             // Write lo address on second write
@@ -160,13 +157,11 @@ impl Scroll {
 
     // Increment PPUADDR v by either 1 (going across) or 32 (going down)
     // Address wraps around
-
     pub fn increment(&mut self, val: u16) {
         self.set_v(self.v.wrapping_add(val));
     }
 
     // Copy Coarse X from register t and add it to PPUADDR v
-
     pub fn copy_x(&mut self) {
         //    .....N.. ...XXXXX
         // t: .....F.. ...EDCBA
@@ -189,7 +184,6 @@ impl Scroll {
     // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
     // nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-
     pub fn increment_x(&mut self) {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
@@ -204,7 +198,6 @@ impl Scroll {
     // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
     // overflow toggling bit 11 which switches the vertical nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-
     pub fn increment_y(&mut self) {
         if (self.v & Self::FINE_Y_MASK) == Self::FINE_Y_MASK {
             self.set_v(self.v & !Self::FINE_Y_MASK); // set fine y = 0 and overflow into coarse y
@@ -246,8 +239,9 @@ impl Reset for Scroll {
             // v is not cleared on a a soft reset
             self.v = 0x0000;
         }
-        self.t = 0x0000;
         self.fine_x = 0x00;
         self.write_latch = false;
+        self.delay_v_cycles = 0;
+        self.delay_v = 0x0000;
     }
 }

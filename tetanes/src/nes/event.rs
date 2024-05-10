@@ -107,6 +107,7 @@ pub enum ConfigEvent {
 pub enum EmulationEvent {
     AudioRecord(bool),
     DebugStep(DebugStep),
+    EmulatePpuWarmup(bool),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
     #[serde(skip)]

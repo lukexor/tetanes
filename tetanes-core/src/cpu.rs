@@ -979,9 +979,9 @@ impl Regional for Cpu {
 
     fn set_region(&mut self, region: NesRegion) {
         let (start_cycles, end_cycles) = match region {
-            NesRegion::Auto | NesRegion::Ntsc => (6, 6),
-            NesRegion::Pal => (8, 8),
-            NesRegion::Dendy => (7, 8),
+            NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2
+            NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
+            NesRegion::Dendy => (7, 8),                  // DENDY_MASTER_CLOCK_DIVIDER / 2
         };
         self.region = region;
         self.read_cycles = Cycle {
