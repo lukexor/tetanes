@@ -1,3 +1,7 @@
+//! The APU Frame Counter implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Frame_Counter>
+
 use crate::{
     common::{NesRegion, Reset, ResetKind},
     cpu::{Cpu, Irq},

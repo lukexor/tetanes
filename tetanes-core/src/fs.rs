@@ -1,3 +1,5 @@
+//! Filesystem utilities for save state and compression.
+
 use crate::sys::fs;
 use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use serde::{de::DeserializeOwned, Serialize};

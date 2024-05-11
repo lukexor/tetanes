@@ -1,4 +1,4 @@
-//! NES Memory Mappers for Cartridges
+//! Memory Mappers for cartridges.
 //!
 //! <http://wiki.nesdev.com/w/index.php/Mapper>
 

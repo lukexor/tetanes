@@ -1,3 +1,5 @@
+//! PPU Memory/Data Bus.
+
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},

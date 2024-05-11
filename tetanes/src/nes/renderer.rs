@@ -423,12 +423,11 @@ impl Renderer {
                     self.gui.loaded_rom = None;
                     self.gui.title = Config::WINDOW_TITLE.to_string();
                 }
-                RendererEvent::RomLoaded((title, region)) => {
+                RendererEvent::RomLoaded(rom) => {
                     self.gui.paused = false;
-                    self.gui.title = format!("{} :: {title}", Config::WINDOW_TITLE);
-                    self.gui.loaded_rom = Some(title.to_owned());
-                    self.gui.loaded_region = *region;
-                    if self.gui.loaded_region != *region {
+                    self.gui.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
+                    self.gui.loaded_rom = Some(rom.clone());
+                    if self.gui.loaded_rom.as_ref().map(|rom| rom.region) != Some(rom.region) {
                         self.gui.resize_window = true;
                         self.gui.resize_texture = true;
                     }

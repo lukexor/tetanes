@@ -1,3 +1,5 @@
+//! NES PPU (Picture Processing Unit) implementation.
+
 use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
@@ -38,19 +40,32 @@ pub enum Mirroring {
 
 /// Trait for PPU Registers.
 pub trait Registers {
-    fn write_ctrl(&mut self, val: u8); // $2000 PPUCTRL
-    fn write_mask(&mut self, val: u8); // $2001 PPUMASK
-    fn read_status(&mut self) -> u8; // $2002 PPUSTATUS
-    fn peek_status(&self) -> u8; // $2002 PPUSTATUS
-    fn write_oamaddr(&mut self, val: u8); // $2003 OAMADDR
-    fn read_oamdata(&mut self) -> u8; // $2004 OAMDATA
-    fn peek_oamdata(&self) -> u8; // $2004 OAMDATA
-    fn write_oamdata(&mut self, val: u8); // $2004 OAMDATA
-    fn write_scroll(&mut self, val: u8); // $2005 PPUSCROLL
-    fn write_addr(&mut self, val: u8); // $2006 PPUADDR
-    fn read_data(&mut self) -> u8; // $2007 PPUDATA
-    fn peek_data(&self) -> u8; // $2007 PPUDATA
-    fn write_data(&mut self, val: u8); // $2007 PPUDATA
+    /// $2000 PPUCTRL
+    fn write_ctrl(&mut self, val: u8);
+    /// Write $2001 PPUMASK
+    fn write_mask(&mut self, val: u8);
+    /// Read $2002 PPUSTATUS
+    fn read_status(&mut self) -> u8;
+    /// Peek $2002 PPUSTATUS
+    fn peek_status(&self) -> u8;
+    /// Write $2003 OAMADDR
+    fn write_oamaddr(&mut self, val: u8);
+    /// Read $2004 OAMDATA
+    fn read_oamdata(&mut self) -> u8;
+    /// Peek $2004 OAMDATA
+    fn peek_oamdata(&self) -> u8;
+    /// Write $2004 OAMDATA
+    fn write_oamdata(&mut self, val: u8);
+    /// Write $2005 PPUSCROLL
+    fn write_scroll(&mut self, val: u8);
+    /// Write $2006 PPUADDR
+    fn write_addr(&mut self, val: u8);
+    /// Read $2007 PPUDATA
+    fn read_data(&mut self) -> u8;
+    /// Peek $2007 PPUDATA
+    fn peek_data(&self) -> u8;
+    /// Write $2007 PPUDATA
+    fn write_data(&mut self, val: u8);
 }
 
 /// NES PPU.
@@ -59,19 +74,33 @@ pub trait Registers {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
+    /// Master clock.
     pub master_clock: usize,
+    /// Master clock divider.
     pub clock_divider: usize,
-    pub cycle: u32,    // (0, 340) cycles per scanline
-    pub scanline: u32, // (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame
+    /// (0, 340) cycles per scanline.
+    pub cycle: u32,
+    /// (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame.
+    pub scanline: u32,
+    /// Scanline that Vertical Blank (VBlank) starts on.
     pub vblank_scanline: u32,
+    /// Scanline that Prerender starts on.
     pub prerender_scanline: u32,
+    /// Scanline that Sprite Evaluation for PAL starts on.
     pub pal_spr_eval_scanline: u32,
+    /// Whether PPU is skipping rendering (used for
+    /// [`HeadlessMode`](crate::control_deck::HeadlessMode)).
     pub skip_rendering: bool,
 
-    pub scroll: Scroll, // $2005 PPUSCROLL and $2006 PPUADDR write-only
-    pub mask: Mask,     // $2001 PPUMASK write-only
-    pub ctrl: Ctrl,     // $2000 PPUCTRL write-only
-    pub status: Status, // $2002 PPUSTATUS read-only
+    /// $2005 PPUSCROLL and $2006 PPUADDR (write-only).
+    pub scroll: Scroll,
+    /// $2001 PPUMASK (write-only).
+    pub mask: Mask,
+    /// $2000 PPUCTRL (write-only).
+    pub ctrl: Ctrl,
+    /// $2002 PPUSTATUS (read-only).
+    pub status: Status,
+    /// PPU Memory/Data Bus.
     pub bus: Bus,
 
     pub curr_palette: u8,
@@ -85,7 +114,8 @@ pub struct Ppu {
 
     pub oamaddr_lo: u8,
     pub oamaddr_hi: u8,
-    pub oamaddr: u8, // $2003 OAM addr write-only
+    /// $2003 OAM addr (write-only).
+    pub oamaddr: u8,
     pub oam_fetch: u8,
     pub oam_eval_done: bool,
     pub secondary_oamaddr: u8,
@@ -94,11 +124,16 @@ pub struct Ppu {
     pub spr_zero_in_range: bool,
     pub spr_zero_visible: bool,
     pub spr_count: usize,
-    pub vram_buffer: u8, // $2007 PPUDATA buffer
+    /// $2007 PPUDATA buffer.
+    pub vram_buffer: u8,
 
-    pub oamdata: Vec<u8>, // $2004 OAM data read/write - Object Attribute Memory for Sprites
-    pub secondary_oamdata: [u8; Self::SECONDARY_OAM_SIZE], // Secondary OAM data for Sprites on a given scanline
-    pub sprites: [Sprite; 8], // Each scanline can hold 8 sprites at a time
+    /// $2004 Object Attribute Memory (OAM) data (read/write).
+    pub oamdata: Vec<u8>,
+    /// Secondary OAM data on a given scanline.
+    pub secondary_oamdata: [u8; Self::SECONDARY_OAM_SIZE],
+    /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
+    pub sprites: [Sprite; 8],
+    /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
     pub spr_present: Vec<bool>,
 
     pub prevent_vbl: bool,
@@ -106,8 +141,10 @@ pub struct Ppu {
 
     pub region: NesRegion,
     pub cycle_count: usize,
-    // Internal signal that clears status registers and prevents writes and cleared at the end of VBlank
-    // https://www.nesdev.org/wiki/PPU_power_up_state
+    /// Internal signal that clears status registers and prevents writes and cleared at the end of
+    /// VBlank.
+    ///
+    /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
     pub reset_signal: bool,
     pub emulate_warmup: bool,
 
@@ -246,14 +283,14 @@ impl Ppu {
     /// Return the system palette color for the given pixel.
     #[inline]
     #[must_use]
-    pub const fn system_palette(pixel: u16) -> (u8, u8, u8) {
+    pub const fn system_palette(pixel: u8) -> (u8, u8, u8) {
         Self::SYSTEM_PALETTE[(pixel as usize) & (Self::SYSTEM_PALETTE.len() - 1)]
     }
 
     /// Return the current frame buffer.
     #[inline]
     #[must_use]
-    pub fn frame_buffer(&self) -> &[u16] {
+    pub fn frame_buffer(&self) -> &[u8] {
         self.frame.buffer()
     }
 
@@ -323,10 +360,10 @@ impl Ppu {
         self.bus.mapper.ppu_bus_write(0x2002, val);
     }
 
+    /// Fetch BG nametable byte.
+    ///
+    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_bg_nt_byte(&mut self) {
-        // Fetch BG nametable
-        // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
-
         self.prev_palette = self.curr_palette;
         self.curr_palette = self.next_palette;
 
@@ -339,15 +376,20 @@ impl Ppu {
         self.tile_addr = self.ctrl.bg_select | (tile_index << 4) | self.scroll.fine_y;
     }
 
+    /// Fetch BG attribute byte.
+    ///
+    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_bg_attr_byte(&mut self) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
         self.next_palette = ((self.bus.read_ciram(addr, Access::Read) >> shift) & 0x03) << 2;
     }
 
+    /// Fetch 4 tiles and write out shift registers every 8th cycle.
+    /// Each tile fetch takes 2 cycles.
+    ///
+    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_background(&mut self) {
-        // Fetch 4 tiles and write out shift registers every 8th cycle
-        // Each tile fetch takes 2 cycles
         match self.cycle & 0x07 {
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
@@ -636,11 +678,8 @@ impl Ppu {
                 self.bus.read_palette(addr, Access::Read)
             };
 
-        self.frame.set_pixel(
-            x,
-            y,
-            (u16::from(color) & self.mask.grayscale) | self.mask.emphasis,
-        );
+        self.frame
+            .set_pixel(x, y, (color & self.mask.grayscale) | self.mask.emphasis);
     }
 
     fn tick(&mut self) {

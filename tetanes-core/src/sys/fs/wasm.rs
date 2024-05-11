@@ -1,3 +1,5 @@
+//! Web-specific filesystem operations.
+
 use crate::fs::{Error, Result};
 use std::{
     io::{Empty, Read, Write},

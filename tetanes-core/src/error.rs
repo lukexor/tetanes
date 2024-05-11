@@ -1,3 +1,5 @@
+//! Error handling.
+
 use std::path::PathBuf;
 use thiserror::Error;
 

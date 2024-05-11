@@ -1,3 +1,7 @@
+//! NES APU (Audio Processing Unit) implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU>
+
 use crate::{
     apu::{
         dmc::Dmc,
@@ -32,7 +36,7 @@ pub mod timer;
 #[error("failed to parse `Channel`")]
 pub struct ParseChannelError;
 
-/// APU Channel.
+/// [`Apu`] Channel.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Channel {
@@ -60,7 +64,7 @@ impl TryFrom<usize> for Channel {
     }
 }
 
-/// Trait for APU registers.
+/// Trait for [`Apu`] registers.
 pub trait ApuRegisters {
     fn write_ctrl(&mut self, channel: Channel, val: u8);
     fn write_sweep(&mut self, channel: Channel, val: u8);
@@ -76,7 +80,7 @@ pub trait ApuRegisters {
     fn write_frame_counter(&mut self, val: u8);
 }
 
-/// NES APU.
+/// NES APU (Audio Processing Unit).
 ///
 /// See: <https://wiki.nesdev.com/w/index.php/APU>
 #[derive(Clone, Serialize, Deserialize)]
@@ -606,13 +610,18 @@ impl std::fmt::Debug for Apu {
     }
 }
 
-// Generated values to avoid constant Lazy deref cost during runtime.
-//
-// Original calculation:
-// let mut pulse_table = [0.0; 31];
-// for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
-//     *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
-// }
+/// [`Pulse`] channel lookup table.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Mixer>
+///
+/// Original calculation:
+///
+/// ```rust
+/// let mut pulse_table = [0.0; 31];
+/// for (i, val) in pulse_table.iter_mut().enumerate().skip(1) {
+///     *val = 95.52 / (8_128.0 / (i as f32) + 100.0);
+/// }
+/// ```
 #[rustfmt::skip]
 pub static PULSE_TABLE: [f32; 31] = [
     0.0,          0.011_609_139, 0.022_939_48, 0.034_000_948, 0.044_803,    0.055_354_66,
@@ -623,13 +632,18 @@ pub static PULSE_TABLE: [f32; 31] = [
     0.257_512_57,
 ];
 
-// Generated values to avoid constant Lazy deref cost during runtime.
-//
-// Original calculation:
-// let mut tnd_table = [0.0; 203];
-// for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
-//     *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
-// }
+/// [`Triangle`]/[`Noise`]/[`Dmc`] channels lookup table.
+///
+/// See: <https://www.nesdev.org/wiki/APU_Mixer>
+///
+/// Original calculation:
+///
+/// ```rust
+/// let mut tnd_table = [0.0; 203];
+/// for (i, val) in tnd_table.iter_mut().enumerate().skip(1) {
+///     *val = 163.67 / (24_329.0 / (i as f32) + 100.0);
+/// }
+/// ```
 #[rustfmt::skip]
 pub static TND_TABLE: [f32; 203] = [
     0.0,           0.006_699_824, 0.013_345_02,  0.019_936_256, 0.026_474_18,  0.032_959_443,

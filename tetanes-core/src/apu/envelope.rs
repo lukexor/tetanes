@@ -1,3 +1,7 @@
+//! APU Envelope implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Envelope>
+
 use crate::common::{Clock, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 

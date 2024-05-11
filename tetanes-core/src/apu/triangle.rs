@@ -1,3 +1,7 @@
+//! APU Triangle Channel implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Triangle>
+
 use crate::{
     apu::{
         length_counter::LengthCounter,

@@ -1,3 +1,5 @@
+//! Platform-specific filesystem methods.
+
 use cfg_if::cfg_if;
 
 cfg_if! {

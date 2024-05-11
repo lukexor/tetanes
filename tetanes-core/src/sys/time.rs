@@ -1,3 +1,5 @@
+//! Platform-specific time and date methods.
+
 use cfg_if::cfg_if;
 
 cfg_if! {

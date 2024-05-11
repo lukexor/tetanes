@@ -1,3 +1,5 @@
+//! Control Deck implementation. The primary entry-point for emulating the NES.
+
 use crate::{
     apu::{Apu, Channel},
     bus::Bus,
@@ -21,29 +23,39 @@ use std::{
 use thiserror::Error;
 use tracing::{error, info};
 
+/// Result returned from [`ControlDeck`] methods.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Errors that [`ControlDeck`] can return.
 #[derive(Error, Debug)]
 #[must_use]
 pub enum Error {
+    /// [`Cart`] error when loading a ROM.
     #[error(transparent)]
     Cart(#[from] cart::Error),
+    /// Battery-backed RAM error.
     #[error("sram error: {0:?}")]
     Sram(fs::Error),
+    /// Save state error.
     #[error("save state error: {0:?}")]
     SaveState(fs::Error),
+    /// Operational error indicating a ROM must be loaded first.
     #[error("no rom is loaded")]
     RomNotLoaded,
+    /// CPU state is corrupted and emulation can't continue. Could be due to a bad ROM image or a
+    /// corrupt save state.
     #[error("cpu state is corrupted")]
     CpuCorrupted,
+    /// Invalid Game Genie code error.
     #[error(transparent)]
     InvalidGenieCode(#[from] genie::Error),
-    #[error("invalid rom path {0:?}")]
-    InvalidRomPath(PathBuf),
+    /// Invalid file path.
     #[error("invalid file path {0:?}")]
     InvalidFilePath(PathBuf),
+    /// Filesystem error.
     #[error(transparent)]
     Fs(#[from] fs::Error),
+    /// IO error.
     #[error("{context}: {source:?}")]
     Io {
         context: String,
@@ -61,23 +73,29 @@ impl Error {
 }
 
 bitflags! {
-    /// Headless mode flags to disable audio and video rendering.
+    /// Headless mode flags to disable audio and video processing, reducing CPU usage.
     #[derive(Default, Debug, Copy, Clone, PartialEq, Serialize, Deserialize, )]
     #[must_use]
     pub struct HeadlessMode: u8 {
+        /// Disable audio mixing.
         const NO_AUDIO = 0x01;
+        /// Disable pixel rendering.
         const NO_VIDEO = 0x02;
     }
 }
 
+/// Set of desired mapper revisions to use when loading a ROM matching the available mapper types.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub struct MapperRevisions {
+pub struct MapperRevisionsConfig {
+    /// MMC3 mapper revision.
     pub mmc3: Mmc3Revision,
+    /// BF909 mapper revision.
     pub bf909: Bf909Revision,
 }
 
-impl MapperRevisions {
+impl MapperRevisionsConfig {
+    /// Set the desired mapper revision to use when loading a ROM matching the available mapper types.
     pub fn set(&mut self, rev: MapperRevision) {
         match rev {
             MapperRevision::Mmc3(rev) => self.mmc3 = rev,
@@ -115,7 +133,7 @@ pub struct Config {
     /// Data directory for storing battery-backed RAM.
     pub data_dir: Option<PathBuf>,
     /// Which mapper revisions to emulate for any ROM loaded that uses this mapper.
-    pub mapper_revisions: MapperRevisions,
+    pub mapper_revisions: MapperRevisionsConfig,
     /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
     /// some games not working correctly.
     ///
@@ -124,10 +142,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// Base directory for storing TetaNES data.
     pub const BASE_DIR: &'static str = "tetanes";
+    /// Directory for storing battery-backed Cart RAM.
     pub const SRAM_DIR: &'static str = "sram";
 
-    /// Returns the base directory where TetaNES data is stored.
+    /// Returns the default directory where TetaNES data is stored.
     #[inline]
     #[must_use]
     pub fn default_data_dir() -> Option<PathBuf> {
@@ -156,27 +176,45 @@ impl Default for Config {
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
             data_dir: Self::default_data_dir(),
-            mapper_revisions: MapperRevisions::default(),
+            mapper_revisions: MapperRevisionsConfig::default(),
             emulate_ppu_warmup: false,
         }
     }
 }
 
-/// Represents an NES Control Deck
+/// Represents a loaded ROM [`Cart`].
+#[derive(Debug, Clone)]
+pub struct LoadedRom {
+    /// Name of ROM.
+    pub name: String,
+    /// Whether the loaded Cart is battery-backed.
+    pub battery_backed: bool,
+    /// Auto-detected of the loaded Cart.
+    pub region: NesRegion,
+}
+
+/// Represents an NES Control Deck. Encapsulates the entire emulation state.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ControlDeck {
-    pub running: bool,
-    pub video: Video,
-    pub last_frame_number: u32,
-    pub loaded_rom: Option<String>,
-    pub sram_dir: Option<PathBuf>,
-    pub cart_battery_backed: bool,
-    pub cart_region: NesRegion,
-    pub mapper_revisions: MapperRevisions,
-    pub auto_detect_region: bool,
-    pub cycles_remaining: f32,
-    pub cpu: Cpu,
+    /// Whether a ROM is loaded and the emulation is currently running or not.
+    running: bool,
+    /// Video output and filtering.
+    video: Video,
+    /// Last frame number rendered, allowing `frame_buffer` to be cached if called multiple times.
+    last_frame_number: u32,
+    /// The currently loaded ROM [`Cart`], if any.
+    loaded_rom: Option<LoadedRom>,
+    /// Directory for storing battery-backed Cart RAM if a ROM is loaded.
+    sram_dir: Option<PathBuf>,
+    /// Mapper revisions to emulate for any ROM loaded that matches the given mappers.
+    mapper_revisions: MapperRevisionsConfig,
+    /// Whether to auto-detect the region based on the loaded Cart.
+    auto_detect_region: bool,
+    /// Remaining CPU cycles to execute used to clock a given number of seconds.
+    cycles_remaining: f32,
+    /// NES CPU.
+    cpu: Cpu,
 }
 
 impl Default for ControlDeck {
@@ -220,8 +258,6 @@ impl ControlDeck {
             last_frame_number: 0,
             loaded_rom: None,
             sram_dir: cfg.sram_dir(),
-            cart_battery_backed: false,
-            cart_region: NesRegion::Ntsc,
             mapper_revisions: cfg.mapper_revisions,
             auto_detect_region: cfg.region.is_auto(),
             cycles_remaining: 0.0,
@@ -230,7 +266,8 @@ impl ControlDeck {
     }
 
     /// Returns the path to the SRAM save file for a given ROM name which is used to store
-    /// battery-backed Cart RAM.
+    /// battery-backed Cart RAM. Returns `None` when the current platform doesn't have a
+    /// `data` directory and no custom `data_dir` was configured.
     pub fn sram_path(&self, name: &str) -> Option<PathBuf> {
         self.sram_dir
             .as_ref()
@@ -242,14 +279,17 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is any issue loading the ROM, then an error is returned.
-    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<()> {
+    pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<LoadedRom> {
         let name = name.to_string();
         self.unload_rom()?;
         let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
-        self.cart_battery_backed = cart.battery_backed();
-        self.cart_region = cart.region();
+        let loaded_rom = LoadedRom {
+            name: name.clone(),
+            battery_backed: cart.battery_backed(),
+            region: cart.region(),
+        };
         if self.auto_detect_region {
-            self.cpu.set_region(self.cart_region);
+            self.cpu.set_region(loaded_rom.region);
         }
         self.cpu.bus.load_cart(cart);
         self.update_mapper_revisions();
@@ -260,12 +300,16 @@ impl ControlDeck {
                 error!("failed to load SRAM: {err:?}");
             }
         }
-        self.loaded_rom = Some(name);
-        Ok(())
+        self.loaded_rom = Some(loaded_rom.clone());
+        Ok(loaded_rom)
     }
 
     /// Loads a ROM cartridge into memory from a path.
-    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// If there is any issue loading the ROM, then an error is returned.
+    pub fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) -> Result<LoadedRom> {
         use std::{fs::File, io::BufReader};
 
         let path = path.as_ref();
@@ -277,9 +321,13 @@ impl ControlDeck {
     }
 
     /// Unloads the currently loaded ROM and saves SRAM to disk if the Cart is battery-backed.
+    ///
+    /// # Errors
+    ///
+    /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
     pub fn unload_rom(&mut self) -> Result<()> {
-        if let Some(ref rom) = self.loaded_rom {
-            if let Some(dir) = self.sram_path(rom) {
+        if let Some(rom) = &self.loaded_rom {
+            if let Some(dir) = self.sram_path(&rom.name) {
                 if let Err(err) = self.save_sram(dir) {
                     error!("failed to save SRAM: {err:?}");
                 }
@@ -304,13 +352,16 @@ impl ControlDeck {
         self.update_mapper_revisions();
     }
 
-    /// Set the set of [`MapperRevisions`] to emulate for the any ROM loaded that uses this mapper.
+    /// Set the set of [`MapperRevisionsConfig`] to emulate for the any ROM loaded that uses this
+    /// mapper.
     #[inline]
-    pub fn set_mapper_revisions(&mut self, revs: MapperRevisions) {
+    pub fn set_mapper_revisions(&mut self, revs: MapperRevisionsConfig) {
         self.mapper_revisions = revs;
         self.update_mapper_revisions();
     }
 
+    /// Internal method to update the loaded ROM mapper revision when `mapper_revisions` is
+    /// updated.
     fn update_mapper_revisions(&mut self) {
         match &mut self.cpu.bus.ppu.bus.mapper {
             Mapper::Txrom(mapper) => {
@@ -359,18 +410,26 @@ impl ControlDeck {
         self.cpu.bus.ppu.emulate_warmup = enabled;
     }
 
-    /// Returns the name of the currently loaded ROM.
+    /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.
     #[inline]
     #[must_use]
-    pub const fn loaded_rom(&self) -> &Option<String> {
-        &self.loaded_rom
+    pub const fn loaded_rom(&self) -> Option<&LoadedRom> {
+        self.loaded_rom.as_ref()
     }
 
-    /// Returns whether the loaded Cart is battery-backed.
+    /// Returns the auto-detected [`NesRegion`] for the loaded ROM. Returns `None` if no ROM is
+    /// loaded.
+    #[inline]
+    #[must_use]
+    pub fn cart_region(&self) -> Option<NesRegion> {
+        self.loaded_rom.as_ref().map(|rom| rom.region)
+    }
+
+    /// Returns whether the loaded ROM is battery-backed. Returns `None` if no ROM is loaded.
     #[inline]
     #[must_use]
     pub fn cart_battery_backed(&self) -> Option<bool> {
-        self.loaded_rom.as_ref().map(|_| self.cart_battery_backed)
+        self.loaded_rom.as_ref().map(|rom| rom.battery_backed)
     }
 
     /// Returns the NES Work RAM.
@@ -388,12 +447,17 @@ impl ControlDeck {
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
+    ///
+    /// # Errors
+    ///
+    /// If the file path is invalid or fails to save, then an error is returned.
     pub fn save_sram(&self, path: impl AsRef<Path>) -> Result<()> {
-        let path = path.as_ref();
-        if path.is_dir() {
-            return Err(Error::InvalidFilePath(path.to_path_buf()));
-        }
         if let Some(true) = self.cart_battery_backed() {
+            let path = path.as_ref();
+            if path.is_dir() {
+                return Err(Error::InvalidFilePath(path.to_path_buf()));
+            }
+
             info!("saving SRAM...");
             fs::save(path, self.cpu.bus.sram()).map_err(Error::Sram)?;
         }
@@ -401,16 +465,22 @@ impl ControlDeck {
     }
 
     /// Load battery-backed Save RAM from a file (if cartridge supports it)
+    ///
+    /// # Errors
+    ///
+    /// If the file path is invalid or fails to load, then an error is returned.
     pub fn load_sram(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        let path = path.as_ref();
-        if path.is_dir() {
-            return Err(Error::InvalidFilePath(path.to_path_buf()));
-        }
-        if path.is_file() {
-            info!("loading SRAM...");
-            fs::load(path)
-                .map(|data| self.cpu.bus.load_sram(data))
-                .map_err(Error::Sram)?;
+        if let Some(true) = self.cart_battery_backed() {
+            let path = path.as_ref();
+            if path.is_dir() {
+                return Err(Error::InvalidFilePath(path.to_path_buf()));
+            }
+            if path.is_file() {
+                info!("loading SRAM...");
+                fs::load(path)
+                    .map(|data| self.cpu.bus.load_sram(data))
+                    .map_err(Error::Sram)?;
+            }
         }
         Ok(())
     }
@@ -448,6 +518,11 @@ impl ControlDeck {
         } else {
             Ok(())
         }
+    }
+
+    /// Load the raw underlying frame buffer from the PPU for further processing.
+    pub fn frame_buffer_raw(&mut self) -> &[u8] {
+        self.cpu.bus.ppu.frame_buffer()
     }
 
     /// Load a frame worth of pixels.
@@ -505,7 +580,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_instr(&mut self) -> Result<usize> {
         if !self.running {
             return Err(Error::RomNotLoaded);
@@ -522,7 +597,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_seconds(&mut self, seconds: f32) -> Result<usize> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
@@ -538,7 +613,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame(&mut self) -> Result<usize> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -558,7 +633,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_output<T>(
         &mut self,
         handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
@@ -601,7 +676,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_ahead<T>(
         &mut self,
         run_ahead: usize,
@@ -645,7 +720,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_ahead_into(
         &mut self,
         run_ahead: usize,
@@ -688,7 +763,7 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
+    /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<usize> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -709,49 +784,61 @@ impl ControlDeck {
         self.cpu.corrupted
     }
 
-    /// Returns the current CPU state.
+    /// Returns the current [`Cpu`] state.
     #[inline]
     pub const fn cpu(&self) -> &Cpu {
         &self.cpu
     }
 
-    /// Returns a mutable reference to the current CPU state.
+    /// Returns a mutable reference to the current [`Cpu`] state.
     #[inline]
     pub fn cpu_mut(&mut self) -> &mut Cpu {
         &mut self.cpu
     }
 
-    /// Returns the current PPU state.
+    /// Returns the current [`Ppu`] state.
     #[inline]
     pub const fn ppu(&self) -> &Ppu {
         &self.cpu.bus.ppu
     }
 
-    /// Returns a mutable reference to the current PPU state.
+    /// Returns a mutable reference to the current [`Ppu`] state.
     #[inline]
     pub fn ppu_mut(&mut self) -> &mut Ppu {
         &mut self.cpu.bus.ppu
     }
 
-    /// Returns the current APU state.
+    /// Retu[ns the current [`Bus`] state.
+    #[inline]
+    pub const fn bus(&self) -> &Bus {
+        &self.cpu.bus
+    }
+
+    /// Returns a mutable reference to the current [`Bus`] state.
+    #[inline]
+    pub fn bus_mut(&mut self) -> &mut Bus {
+        &mut self.cpu.bus
+    }
+
+    /// Returns the current [`Apu`] state.
     #[inline]
     pub const fn apu(&self) -> &Apu {
         &self.cpu.bus.apu
     }
 
-    /// Returns a mutable reference to the current APU state.
+    /// Returns a mutable reference to the current [`Apu`] state.
     #[inline]
     pub fn apu_mut(&mut self) -> &Apu {
         &mut self.cpu.bus.apu
     }
 
-    /// Returns the current Mapper state.
+    /// Returns the current [`Mapper`] state.
     #[inline]
     pub const fn mapper(&self) -> &Mapper {
         &self.cpu.bus.ppu.bus.mapper
     }
 
-    /// Returns a mutable reference to the current Mapper state.
+    /// Returns a mutable reference to the current [`Mapper`] state.
     #[inline]
     pub fn mapper_mut(&mut self) -> &mut Mapper {
         &mut self.cpu.bus.ppu.bus.mapper
@@ -769,31 +856,31 @@ impl ControlDeck {
         self.cpu.bus.input.set_four_player(four_player);
     }
 
-    /// Returns the current joypad state for a given controller slot.
+    /// Returns the current [`Joypad`] state for a given controller slot.
     #[inline]
     pub fn joypad(&mut self, slot: Player) -> &Joypad {
         self.cpu.bus.input.joypad(slot)
     }
 
-    /// Returns a mutable reference to the current joypad state for a given controller slot.
+    /// Returns a mutable reference to the current [`Joypad`] state for a given controller slot.
     #[inline]
     pub fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
         self.cpu.bus.input.joypad_mut(slot)
     }
 
-    /// Returns whether the Zapper gun is connected.
+    /// Returns whether the [`Zapper`](crate::input::Zapper) gun is connected.
     #[inline]
     pub const fn zapper_connected(&self) -> bool {
         self.cpu.bus.input.zapper.connected
     }
 
-    /// Enable Zapper gun.
+    /// Enable [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub fn connect_zapper(&mut self, enabled: bool) {
         self.cpu.bus.input.connect_zapper(enabled);
     }
 
-    /// Returns the current Zapper gun position.
+    /// Returns the current [`Zapper`](crate::input::Zapper) aim position.
     #[inline]
     #[must_use]
     pub const fn zapper_pos(&self) -> (u32, u32) {
@@ -801,13 +888,13 @@ impl ControlDeck {
         (zapper.x(), zapper.y())
     }
 
-    /// Trigger Zapper gun.
+    /// Trigger [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub fn trigger_zapper(&mut self) {
         self.cpu.bus.input.zapper.trigger();
     }
 
-    /// Aim Zapper gun.
+    /// Aim [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub fn aim_zapper(&mut self, x: u32, y: u32) {
         self.cpu.bus.input.zapper.aim(x, y);
@@ -819,7 +906,7 @@ impl ControlDeck {
         self.video.filter = filter;
     }
 
-    /// Set the APU sample rate.
+    /// Set the [`Apu`] sample rate.
     #[inline]
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.cpu.bus.apu.set_sample_rate(sample_rate);
@@ -854,20 +941,20 @@ impl ControlDeck {
         self.cpu.bus.clear_genie_codes();
     }
 
-    /// Returns whether a given APU audio channel is enabled.
+    /// Returns whether a given [`Apu`] [`Channel`] is enabled.
     #[inline]
     #[must_use]
     pub const fn channel_enabled(&self, channel: Channel) -> bool {
         self.cpu.bus.apu.channel_enabled(channel)
     }
 
-    /// Enable or disable a given APU channel.
+    /// Enable or disable a given [`Apu`] [`Channel`].
     #[inline]
     pub fn set_apu_channel_enabled(&mut self, channel: Channel, enabled: bool) {
         self.cpu.bus.apu.set_channel_enabled(channel, enabled);
     }
 
-    /// Toggle a given APU channel.
+    /// Toggle a given [`Apu`] [`Channel`].
     #[inline]
     pub fn toggle_apu_channel(&mut self, channel: Channel) {
         self.cpu.bus.apu.toggle_channel(channel);
@@ -898,7 +985,7 @@ impl Regional for ControlDeck {
     fn set_region(&mut self, region: NesRegion) {
         self.auto_detect_region = region.is_auto();
         if self.auto_detect_region {
-            self.cpu.set_region(self.cart_region);
+            self.cpu.set_region(self.cart_region().unwrap_or_default());
         } else {
             self.cpu.set_region(region);
         }

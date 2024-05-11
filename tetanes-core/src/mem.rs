@@ -1,3 +1,5 @@
+//! Memory and Bankswitching implementations.
+
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;

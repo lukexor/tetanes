@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![doc(
-    html_favicon_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true",
-    html_logo_url = "https://github.com/lukexor/tetanes/blob/main/static/tetanes_icon.png?raw=true"
+    html_favicon_url = "https://github.com/lukexor/tetanes/blob/main/assets/tetanes_icon.png?raw=true",
+    html_logo_url = "https://github.com/lukexor/tetanes/blob/main/assets/tetanes_icon.png?raw=true"
 )]
 
 pub mod action;
@@ -24,6 +24,8 @@ pub mod sys;
 pub mod video;
 
 pub mod prelude {
+    //! The prelude re-exports all the common structs/enums used for basic NES emulation.
+
     pub use crate::{
         action::Action,
         apu::{Apu, Channel},

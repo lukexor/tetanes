@@ -15,7 +15,7 @@
 [crates.io]: https://crates.io/crates/tetanes
 [downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
 [license]: https://img.shields.io/crates/l/tetanes?style=plastic
-[gnu]: https://github.com/lukexor/tetanes/blob/main/LICENSE.md
+[gnu]: https://github.com/lukexor/tetanes/blob/main/LICENSE-MIT
 
 <!-- markdownlint-disable line-length -->
 📖 [Summary](#summary) - ✨ [Features](#features) - 🌆 [Screenshots](#screenshots) - 🚀 [Getting

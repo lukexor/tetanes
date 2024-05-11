@@ -1,3 +1,5 @@
+//! Timer abstraction for the [`Apu`](crate::apu::Apu).
+
 use crate::common::{Clock, ClockTo, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 

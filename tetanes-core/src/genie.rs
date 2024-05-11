@@ -1,3 +1,5 @@
+//! Game Genie code parsing.
+
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::OnceLock};
 use thiserror::Error;

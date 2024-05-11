@@ -1,10 +1,14 @@
+//! An [`Action`] is an enumerated list of possible state changes to the `TetaNES` application that
+//! allows for event handling and test abstractions such as being able to map a custom keybind to a
+//! given state change.
+
 use crate::nes::renderer::gui::Menu;
 use serde::{Deserialize, Serialize};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
     common::{NesRegion, ResetKind},
-    input::{JoypadBtn, Player},
+    input::{FourPlayer, JoypadBtn, Player},
     mapper::{Bf909Revision, MapperRevision, Mmc3Revision},
     video::VideoFilter,
 };
@@ -20,7 +24,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 106] = [
+    pub const BINDABLE: [Self; 109] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -93,6 +97,9 @@ impl Action {
         Self::Deck(DeckAction::ToggleZapperConnected),
         // Self::Deck(DeckAction::ZapperAim), // Binding doesn't make sense
         Self::Deck(DeckAction::ZapperTrigger),
+        Self::Deck(DeckAction::FourPlayer(FourPlayer::Disabled)),
+        Self::Deck(DeckAction::FourPlayer(FourPlayer::FourScore)),
+        Self::Deck(DeckAction::FourPlayer(FourPlayer::Satellite)),
         // Only allow bindings up to 8 slots
         Self::Deck(DeckAction::SetSaveSlot(1)),
         Self::Deck(DeckAction::SetSaveSlot(2)),
@@ -211,6 +218,9 @@ impl AsRef<str> for Action {
                 DeckAction::ZapperAim(_) => "Zapper Aim",
                 DeckAction::ZapperAimOffscreen => "Zapper Aim Offscreen (Hold)",
                 DeckAction::ZapperTrigger => "Zapper Trigger",
+                DeckAction::FourPlayer(FourPlayer::Disabled) => "Disable Four Player Mode",
+                DeckAction::FourPlayer(FourPlayer::FourScore) => "Enable Four Player (FourScore)",
+                DeckAction::FourPlayer(FourPlayer::Satellite) => "Enable Four Player (Satellite)",
                 DeckAction::SetSaveSlot(1) => "Set Save Slot 1",
                 DeckAction::SetSaveSlot(2) => "Set Save Slot 2",
                 DeckAction::SetSaveSlot(3) => "Set Save Slot 3",

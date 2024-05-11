@@ -23,9 +23,8 @@ use std::{
 use tetanes_core::{
     apu::Apu,
     common::{NesRegion, Regional, Reset, ResetKind},
-    control_deck::{self, ControlDeck},
+    control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
-    fs,
     ppu::Ppu,
     time::{Duration, Instant},
     video::Frame,
@@ -473,7 +472,7 @@ impl State {
                 if self.control_deck.is_running() {
                     if self.unfocused_paused {
                         if let Some(rom) = self.control_deck.loaded_rom() {
-                            if let Err(err) = self.record.stop(rom) {
+                            if let Err(err) = self.record.stop(&rom.name) {
                                 self.on_error(err);
                             }
                         }
@@ -540,7 +539,10 @@ impl State {
                 self.control_deck.set_four_player(*four_player);
             }
             ConfigEvent::GenieCodeAdded(genie_code) => {
-                self.control_deck.cpu.bus.add_genie_code(genie_code.clone());
+                self.control_deck
+                    .cpu_mut()
+                    .bus
+                    .add_genie_code(genie_code.clone());
             }
             ConfigEvent::GenieCodeRemoved(code) => {
                 self.control_deck.remove_genie_code(code);
@@ -626,7 +628,7 @@ impl State {
             self.paused = paused;
             if self.paused {
                 if let Some(rom) = self.control_deck.loaded_rom() {
-                    if let Err(err) = self.record.stop(rom) {
+                    if let Err(err) = self.record.stop(&rom.name) {
                         self.on_error(err);
                     }
                 }
@@ -644,7 +646,7 @@ impl State {
 
     fn save_state(&mut self, slot: u8, auto: bool) {
         if let Some(rom) = self.control_deck.loaded_rom() {
-            if let Some(data_dir) = Config::save_path(rom, slot) {
+            if let Some(data_dir) = Config::save_path(&rom.name, slot) {
                 match self.control_deck.save_state(data_dir) {
                     Ok(_) => {
                         if !auto {
@@ -659,7 +661,7 @@ impl State {
 
     fn load_state(&mut self, slot: u8) {
         if let Some(rom) = self.control_deck.loaded_rom() {
-            if let Some(path) = Config::save_path(rom, slot) {
+            if let Some(path) = Config::save_path(&rom.name, slot) {
                 match self.control_deck.load_state(path) {
                     Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
                     Err(err) => self.on_error(err),
@@ -671,7 +673,7 @@ impl State {
     fn unload_rom(&mut self) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if self.auto_save {
-                if let Some(path) = Config::save_path(rom, self.save_slot) {
+                if let Some(path) = Config::save_path(&rom.name, self.save_slot) {
                     if let Err(err) = self.control_deck.save_state(path) {
                         self.on_error(err);
                     }
@@ -688,19 +690,15 @@ impl State {
         }
     }
 
-    fn on_load_rom(&mut self, name: impl Into<String>) {
-        let name = name.into();
+    fn on_load_rom(&mut self, rom: LoadedRom) {
         if self.auto_load {
-            if let Some(path) = Config::save_path(&name, self.save_slot) {
+            if let Some(path) = Config::save_path(&rom.name, self.save_slot) {
                 if let Err(err) = self.control_deck.load_state(path) {
                     error!("failed to load state: {err:?}");
                 }
             }
         }
-        self.tx.nes_event(RendererEvent::RomLoaded((
-            name,
-            self.control_deck.cart_region,
-        )));
+        self.tx.nes_event(RendererEvent::RomLoaded(rom));
         if let Err(err) = self.audio.start() {
             self.on_error(err);
         }
@@ -715,10 +713,7 @@ impl State {
         let path = path.as_ref();
         self.unload_rom();
         match self.control_deck.load_rom_path(path) {
-            Ok(()) => {
-                let filename = fs::filename(path);
-                self.on_load_rom(filename);
-            }
+            Ok(rom) => self.on_load_rom(rom),
             Err(err) => self.on_error(err),
         }
     }
@@ -726,7 +721,7 @@ impl State {
     fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
         self.unload_rom();
         match self.control_deck.load_rom(name, rom) {
-            Ok(()) => self.on_load_rom(name),
+            Ok(rom) => self.on_load_rom(rom),
             Err(err) => self.on_error(err),
         }
     }
@@ -788,7 +783,7 @@ impl State {
             if recording {
                 self.record.start(self.control_deck.cpu().clone());
             } else if let Some(rom) = self.control_deck.loaded_rom() {
-                match self.record.stop(rom) {
+                match self.record.stop(&rom.name) {
                     Ok(Some(filename)) => {
                         self.add_message(
                             MessageType::Info,

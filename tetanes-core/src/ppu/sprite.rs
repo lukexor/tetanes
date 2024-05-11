@@ -1,6 +1,13 @@
+//! PPU OAM Sprite implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/PPU_OAM>
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// PPU OAM Sprite entry.
+///
+/// See: <https://www.nesdev.org/wiki/PPU_OAM>
 #[derive(Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sprite {

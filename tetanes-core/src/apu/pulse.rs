@@ -1,3 +1,7 @@
+//! APU Pulse Channel implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Pulse>
+
 use crate::{
     apu::{
         envelope::Envelope,

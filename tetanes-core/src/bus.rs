@@ -1,3 +1,7 @@
+//! NES Memory/Data Bus implementation.
+//!
+//! <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
+
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,

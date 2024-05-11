@@ -1,3 +1,5 @@
+//! [`Joypad`] and [`Zapper`] implementation.
+
 use crate::{
     common::{Clock, NesRegion, Reset, ResetKind},
     cpu::Cpu,
@@ -67,7 +69,7 @@ pub trait InputRegisters {
     fn write(&mut self, val: u8);
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum FourPlayer {
     #[default]

@@ -1,4 +1,4 @@
-//! A 6502 Central Processing Unit
+//! 6502 Central Processing Unit (CPU) implementation.
 //!
 //! <http://wiki.nesdev.com/w/index.php/CPU>
 

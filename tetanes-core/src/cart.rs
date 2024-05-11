@@ -1,3 +1,5 @@
+//! NES cartridge implementation.
+
 use crate::{
     common::{NesRegion, Regional},
     fs,

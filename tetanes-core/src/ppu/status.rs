@@ -1,7 +1,14 @@
+//! PPUSTATUS register implementation.
+//!
+//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS>
+
 use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
+/// PPUSTATUS register.
+///
+/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Status {

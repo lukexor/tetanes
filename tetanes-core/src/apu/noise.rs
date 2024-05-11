@@ -1,3 +1,7 @@
+//! APU Noise Channel implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Noise>
+
 use crate::{
     apu::{
         envelope::Envelope,

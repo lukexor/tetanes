@@ -1,3 +1,7 @@
+//! PPUCTRL register implementation.
+//!
+//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL>
+
 use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -7,6 +11,9 @@ const NAMETABLE2: u16 = 0x2400;
 const NAMETABLE3: u16 = 0x2800;
 const NAMETABLE4: u16 = 0x2C00;
 
+/// PPUCTRL register.
+///
+/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Ctrl {

@@ -1,3 +1,5 @@
+//! PPU frame implementation.
+
 use crate::{
     common::{Reset, ResetKind},
     ppu::Ppu,
@@ -5,10 +7,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
+/// PPU frame.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 #[must_use]
-pub struct Buffer(Vec<u16>);
+pub struct Buffer(Vec<u8>);
 
 impl std::fmt::Debug for Buffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -23,7 +26,7 @@ impl Default for Buffer {
 }
 
 impl Deref for Buffer {
-    type Target = [u16];
+    type Target = [u8];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -35,6 +38,7 @@ impl DerefMut for Buffer {
     }
 }
 
+/// PPU frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Frame {
@@ -62,11 +66,11 @@ impl Frame {
     }
 
     #[must_use]
-    pub fn pixel(&self, x: u32, y: u32) -> u16 {
+    pub fn pixel(&self, x: u32, y: u32) -> u8 {
         self.buffer[(x + (y << 8)) as usize]
     }
 
-    pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
+    pub fn set_pixel(&mut self, x: u32, y: u32, color: u8) {
         self.buffer[(x + (y << 8)) as usize] = color;
     }
 
@@ -83,7 +87,7 @@ impl Frame {
     }
 
     #[must_use]
-    pub fn buffer(&self) -> &[u16] {
+    pub fn buffer(&self) -> &[u8] {
         &self.buffer
     }
 }

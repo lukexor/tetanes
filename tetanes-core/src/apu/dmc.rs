@@ -1,3 +1,7 @@
+//! APU DMC (Delta Modulation Channel) implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_DMC>
+
 use crate::{
     apu::timer::{Timer, TimerCycle},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
@@ -6,7 +10,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-/// APU Delta Modulation Channel (DMC) provides sample playback.
+/// APU DMC (Delta Modulation Channel) provides sample playback.
 ///
 /// See: <https://www.nesdev.org/wiki/APU_DMC>
 #[derive(Debug, Clone, Serialize, Deserialize)]

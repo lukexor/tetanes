@@ -1,3 +1,5 @@
+//! Common traits and constants.
+
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
@@ -331,7 +333,8 @@ pub(crate) mod tests {
                 | Action::SaveState
                 | Action::SetSaveSlot(_)
                 | Action::ToggleApuChannel(_)
-                | Action::ZapperAimOffscreen => (),
+                | Action::ZapperAimOffscreen
+                | Action::FourPlayer(_) => (),
             }
         }
     }
@@ -450,7 +453,7 @@ pub(crate) mod tests {
         assert!(rom.exists(), "No test rom found for {rom:?}");
 
         let mut deck = load_control_deck(&rom);
-        deck.cpu.bus.apu.skip_mixing = !test.audio;
+        deck.cpu_mut().bus.apu.skip_mixing = !test.audio;
 
         let mut results = Vec::new();
         assert!(!test.frames.is_empty(), "No test frames found for {rom:?}");

@@ -1,3 +1,5 @@
+//! CPU Addressing Modes and Operations
+
 use crate::{
     cpu::{Cpu, Status},
     mem::{Access, Mem},

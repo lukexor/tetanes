@@ -1,3 +1,7 @@
+//! APU Length Counter implementation.
+//!
+//! See: <https://www.nesdev.org/wiki/APU_Length_Counter>
+
 use crate::{
     apu::Channel,
     common::{Clock, Reset, ResetKind},

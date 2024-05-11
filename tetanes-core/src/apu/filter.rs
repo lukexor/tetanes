@@ -1,3 +1,7 @@
+//! Digital filters for the [`Apu`](crate::apu::Apu).
+//!
+//! See <https://www.nesdev.org/wiki/APU_Mixer>
+
 use crate::{
     common::{NesRegion, Sample},
     cpu::Cpu,

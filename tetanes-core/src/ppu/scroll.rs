@@ -1,6 +1,13 @@
+//! PPUSCROLL register implementation.
+//!
+//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL>
+
 use crate::common::{Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
+/// PPUSCROLL register.
+///
+/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL>
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Scroll {

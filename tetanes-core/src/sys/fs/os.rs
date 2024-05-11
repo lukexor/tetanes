@@ -1,3 +1,5 @@
+//! OS-specific filesystem operations.
+
 use crate::fs::{Error, Result};
 use std::{
     fs::{create_dir_all, remove_dir_all, File},
