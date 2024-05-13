@@ -277,7 +277,11 @@ impl State {
         if Apu::DEFAULT_SAMPLE_RATE != audio.sample_rate {
             control_deck.set_sample_rate(audio.sample_rate);
         }
-        let rewind = Rewind::new(cfg.emulation.rewind);
+        let rewind = Rewind::new(
+            cfg.emulation.rewind,
+            cfg.emulation.rewind_seconds,
+            cfg.emulation.rewind_interval,
+        );
         let target_frame_duration = FrameRate::from(cfg.deck.region).duration();
         let mut state = Self {
             tx,
@@ -547,9 +551,9 @@ impl State {
                 self.control_deck.set_region(*region);
                 self.update_region(*region);
             }
-            ConfigEvent::RewindEnabled(enabled) => {
-                self.rewind.set_enabled(*enabled);
-            }
+            ConfigEvent::RewindEnabled(enabled) => self.rewind.set_enabled(*enabled),
+            ConfigEvent::RewindSeconds(seconds) => self.rewind.set_seconds(*seconds),
+            ConfigEvent::RewindInterval(interval) => self.rewind.set_interval(*interval),
             ConfigEvent::RunAhead(run_ahead) => self.run_ahead = *run_ahead,
             ConfigEvent::SaveSlot(slot) => self.save_slot = *slot,
             ConfigEvent::MapperRevisions(revs) => {

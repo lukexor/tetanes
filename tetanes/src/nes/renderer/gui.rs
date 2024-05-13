@@ -1757,33 +1757,62 @@ impl Gui {
                 .on_hover_text("Automatically load game state from the current save slot on load.");
             ui.end_row();
 
-            self.rewind_checkbox(ui, cfg, ShowShortcut::No);
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                self.rewind_checkbox(ui, cfg, ShowShortcut::No);
+
+                ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
+                    ui.indent("rewind_settings", |ui| {
+                        ui.label("Seconds:")
+                            .on_hover_text("The maximum number of seconds to rewind.");
+                        let drag = DragValue::new(&mut cfg.emulation.rewind_seconds)
+                            .clamp_range(1..=360)
+                            .suffix(" seconds");
+                        let res = ui.add(drag);
+                        if res.lost_focus() && res.changed() {
+                            self.tx.nes_event(ConfigEvent::RewindSeconds(cfg.emulation.rewind_seconds));
+                        }
+
+                        ui.label("Interval:")
+                            .on_hover_text("The frame interval to save rewind states.");
+                        let drag = DragValue::new(&mut cfg.emulation.rewind_interval)
+                            .clamp_range(1..=60)
+                            .suffix(" frames");
+                        let res = ui.add(drag);
+                        if res.lost_focus() && res.changed() {
+                            self.tx.nes_event(ConfigEvent::RewindInterval(cfg.emulation.rewind_interval));
+                        }
+                    });
+                });
+            });
+
+            ui.vertical(|ui| {
                 ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
                     .on_hover_text(concat!(
                         "Automatically save game state to the current save slot ",
                         "on exit or unloading and an optional interval. ",
                         "Setting to 0 will disable saving on an interval.",
                     ));
-                ui.add_space(15.0);
+
                 ui.add_enabled_ui(cfg.emulation.auto_save, |ui| {
-                    let mut auto_save_interval = cfg.emulation.auto_save_interval.as_secs();
-                    ui.label("Interval:")
-                        .on_hover_text(concat!(
-                            "Set the interval to auto-save game state. ",
-                            "A value of `0` will still save on exit or unload while Auto-Save is enabled."
-                        ));
-                    let drag = DragValue::new(&mut auto_save_interval)
-                        .clamp_range(0..=60)
-                        .suffix(" seconds");
-                    let res = ui.add(drag);
-                    if res.lost_focus() && res.changed() {
-                        cfg.emulation.auto_save_interval =
-                            Duration::from_secs(auto_save_interval);
-                        self.tx.nes_event(ConfigEvent::AutoSaveInterval(
-                            cfg.emulation.auto_save_interval,
-                        ));
-                    }
+                    ui.indent("auto_save_settings", |ui| {
+                        let mut auto_save_interval = cfg.emulation.auto_save_interval.as_secs();
+                        ui.label("Interval:")
+                            .on_hover_text(concat!(
+                                "Set the interval to auto-save game state. ",
+                                "A value of `0` will still save on exit or unload while Auto-Save is enabled."
+                            ));
+                        let drag = DragValue::new(&mut auto_save_interval)
+                            .clamp_range(0..=60)
+                            .suffix(" seconds");
+                        let res = ui.add(drag);
+                        if res.lost_focus() && res.changed() {
+                            cfg.emulation.auto_save_interval =
+                                Duration::from_secs(auto_save_interval);
+                            self.tx.nes_event(ConfigEvent::AutoSaveInterval(
+                                cfg.emulation.auto_save_interval,
+                            ));
+                        }
+                    });
                 });
             });
             ui.end_row();

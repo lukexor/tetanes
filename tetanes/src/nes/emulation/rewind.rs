@@ -17,28 +17,49 @@ pub struct Frame {
 #[must_use]
 pub struct Rewind {
     pub enabled: bool,
-    pub interval_counter: u8,
+    pub interval_counter: usize,
     pub index: usize,
     pub count: usize,
+    pub interval: usize,
+    pub seconds: usize,
     pub frames: Vec<Option<Frame>>,
 }
 
 impl Rewind {
-    const FRAMES_SIZE: usize = 1024; // ~34 seconds of frames at a 2 frame interval
-    const INTERVAL: u8 = 2;
+    const TARGET_FPS: usize = 60;
 
-    pub fn new(enabled: bool) -> Self {
+    pub fn new(enabled: bool, seconds: u32, interval: u32) -> Self {
+        let interval = interval as usize;
+        let seconds = seconds as usize;
         Self {
             enabled,
             interval_counter: 0,
             index: 0,
             count: 0,
-            frames: vec![None; Self::FRAMES_SIZE],
+            interval,
+            seconds,
+            frames: vec![None; Self::frame_size(seconds, interval)],
         }
+    }
+
+    const fn frame_size(seconds: usize, interval: usize) -> usize {
+        Self::TARGET_FPS * seconds / interval
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+    }
+
+    pub fn set_seconds(&mut self, seconds: u32) {
+        self.seconds = seconds as usize;
+        self.frames
+            .resize(Self::frame_size(self.seconds, self.interval), None);
+    }
+
+    pub fn set_interval(&mut self, interval: u32) {
+        self.interval = interval as usize;
+        self.frames
+            .resize(Self::frame_size(self.seconds, self.interval), None);
     }
 
     pub fn push(&mut self, cpu: &Cpu) -> Result<()> {
@@ -46,7 +67,7 @@ impl Rewind {
             return Ok(());
         }
         self.interval_counter += 1;
-        if self.interval_counter >= Self::INTERVAL {
+        if self.interval_counter >= self.interval {
             self.interval_counter = 0;
 
             let state = bincode::serialize(&cpu)
@@ -110,8 +131,8 @@ impl State {
         if !self.rewind.enabled {
             return self.rewind_disabled();
         }
-        // Two seconds worth of frames @ 60 FPS
-        let mut rewind_frames = 120 / Rewind::INTERVAL;
+        // ~2 seconds worth of frames @ 60 FPS
+        let mut rewind_frames = 120 / self.rewind.interval;
         while let Some(cpu) = self.rewind.pop() {
             self.control_deck.load_cpu(cpu);
             rewind_frames -= 1;

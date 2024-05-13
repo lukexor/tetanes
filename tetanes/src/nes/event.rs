@@ -94,6 +94,8 @@ pub enum ConfigEvent {
     RamState(RamState),
     Region(NesRegion),
     RewindEnabled(bool),
+    RewindSeconds(u32),
+    RewindInterval(u32),
     RunAhead(usize),
     SaveSlot(u8),
     Scale(f32),

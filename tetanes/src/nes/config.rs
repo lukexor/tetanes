@@ -46,6 +46,8 @@ pub struct EmulationConfig {
     pub auto_save: bool,
     pub auto_save_interval: Duration,
     pub rewind: bool,
+    pub rewind_seconds: u32,
+    pub rewind_interval: u32,
     pub run_ahead: usize,
     pub save_slot: u8,
     pub speed: f32,
@@ -61,6 +63,8 @@ impl Default for EmulationConfig {
             // WASM framerates suffer with garbage collection pauses when rewind is enabled.
             // FIXME: Perhaps re-using Vec allocations could help resolve it.
             rewind: cfg!(not(target_arch = "wasm32")),
+            rewind_seconds: 30,
+            rewind_interval: 2,
             // WASM struggles to run fast enough with run-ahead and low latency is not needed in
             // debug builds.
             run_ahead: if cfg!(any(debug_assertions, target_arch = "wasm32")) {
