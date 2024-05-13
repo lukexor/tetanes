@@ -11,7 +11,6 @@ use crate::{
     platform::{self, BuilderExt},
     thread,
 };
-use crossbeam::channel::Receiver;
 use egui::{
     ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
     ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
@@ -123,58 +122,12 @@ impl std::fmt::Debug for Renderer {
     }
 }
 
-#[derive(Debug, Default)]
-#[must_use]
-pub enum ResourceState {
-    #[default]
-    Suspended,
-    Pending {
-        ctx: egui::Context,
-        window: Arc<Window>,
-        viewport_builder: ViewportBuilder,
-        painter_rx: Receiver<Painter>,
-    },
-    Running,
-}
-
-impl ResourceState {
-    pub const fn is_suspended(&self) -> bool {
-        matches!(self, Self::Suspended)
-    }
-
-    pub const fn is_pending(&self) -> bool {
-        matches!(self, Self::Pending { .. })
-    }
-
-    pub fn take_pending(&mut self) -> Option<Resources> {
-        if self.is_pending() {
-            let Self::Pending {
-                ctx,
-                window,
-                viewport_builder,
-                painter_rx,
-            } = std::mem::take(self)
-            else {
-                unreachable!("not in pending state");
-            };
-            Some(Resources {
-                ctx,
-                window,
-                viewport_builder,
-                painter: painter_rx.recv().ok()?,
-            })
-        } else {
-            None
-        }
-    }
-}
-
 #[must_use]
 pub struct Resources {
-    ctx: egui::Context,
-    window: Arc<Window>,
-    viewport_builder: ViewportBuilder,
-    painter: Painter,
+    pub(crate) ctx: egui::Context,
+    pub(crate) window: Arc<Window>,
+    pub(crate) viewport_builder: ViewportBuilder,
+    pub(crate) painter: Painter,
 }
 
 impl std::fmt::Debug for Resources {
@@ -490,7 +443,7 @@ impl Renderer {
                     .as_ref()
                     .and_then(|id| state.viewports.get_mut(id))
                 {
-                    if viewport.ids.this == ViewportId::ROOT {
+                    if viewport.ids.this == ViewportId::ROOT && self.rom_loaded() {
                         self.tx.nes_event(EmulationEvent::UnfocusedPause(!focused));
                         self.gui.paused = !*focused;
                     }
@@ -503,7 +456,7 @@ impl Renderer {
                     .and_then(|id| state.viewports.get_mut(id))
                 {
                     viewport.occluded = *occluded;
-                    if viewport.ids.this == ViewportId::ROOT {
+                    if viewport.ids.this == ViewportId::ROOT && self.rom_loaded() {
                         self.tx.nes_event(EmulationEvent::UnfocusedPause(*occluded));
                         self.gui.paused = *occluded;
                     }

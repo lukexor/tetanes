@@ -6,7 +6,7 @@ use crate::{
         input::{AxisDirection, Gamepads, Input, InputBindings},
         renderer::gui::{Menu, MessageType},
         rom::RomData,
-        Nes, Running,
+        Nes, Running, State,
     },
     platform::{self, open_file_dialog},
 };
@@ -194,13 +194,13 @@ impl Nes {
 
         match event {
             Event::Resumed => {
-                let state = if let Some(state) = &mut self.state {
+                let state = if let State::Running(state) = &mut self.state {
                     if platform::supports(platform::Feature::Suspend) {
                         state.renderer.recreate_window(event_loop);
                     }
                     state
                 } else {
-                    if self.resource_state.is_suspended() {
+                    if self.state.is_suspended() {
                         if let Err(err) = self.request_resources(event_loop) {
                             error!("failed to request renderer resources: {err:?}");
                             event_loop.exit();
@@ -217,42 +217,38 @@ impl Nes {
                 );
             }
             Event::UserEvent(NesEvent::Renderer(RendererEvent::ResourcesReady)) => {
-                if let Some(resources) = self.resource_state.take_pending() {
-                    match self.init_running(event_loop, resources) {
-                        Ok(state) => {
-                            if let Some(window) = state
-                                .renderer
-                                .root_window_id()
-                                .and_then(|id| state.renderer.window(id))
-                            {
-                                if window.is_visible().unwrap_or(true) {
-                                    state.repaint_times.insert(
-                                        state
-                                            .renderer
-                                            .root_window_id()
-                                            .expect("failed to get root window_id"),
-                                        Instant::now(),
-                                    );
-                                } else {
-                                    // Immediately redraw the root window on start if not
-                                    // visible. Fixes a bug where `window.request_redraw()` events
-                                    // may not be sent if the window isn't visible, which is the
-                                    // case until the first frame is drawn.
-                                    if let Err(err) = state.renderer.redraw(
-                                        window.id(),
-                                        event_loop,
-                                        &mut state.gamepads,
-                                        &mut state.cfg,
-                                    ) {
-                                        state.renderer.on_error(err);
-                                    }
-                                }
+                if let Err(err) = self.init_running(event_loop) {
+                    error!("failed to create window: {err:?}");
+                    event_loop.exit();
+                    return;
+                }
+                if let State::Running(state) = &mut self.state {
+                    if let Some(window) = state
+                        .renderer
+                        .root_window_id()
+                        .and_then(|id| state.renderer.window(id))
+                    {
+                        if window.is_visible().unwrap_or(true) {
+                            state.repaint_times.insert(
+                                state
+                                    .renderer
+                                    .root_window_id()
+                                    .expect("failed to get root window_id"),
+                                Instant::now(),
+                            );
+                        } else {
+                            // Immediately redraw the root window on start if not
+                            // visible. Fixes a bug where `window.request_redraw()` events
+                            // may not be sent if the window isn't visible, which is the
+                            // case until the first frame is drawn.
+                            if let Err(err) = state.renderer.redraw(
+                                window.id(),
+                                event_loop,
+                                &mut state.gamepads,
+                                &mut state.cfg,
+                            ) {
+                                state.renderer.on_error(err);
                             }
-                        }
-                        Err(err) => {
-                            error!("failed to create window: {err:?}");
-                            event_loop.exit();
-                            return;
                         }
                     }
                 }
@@ -260,7 +256,7 @@ impl Nes {
             _ => (),
         }
 
-        if let Some(state) = &mut self.state {
+        if let State::Running(state) = &mut self.state {
             state.on_event(event, event_loop);
 
             let mut next_repaint_time = state.repaint_times.values().min().copied();

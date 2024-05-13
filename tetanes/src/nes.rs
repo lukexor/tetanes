@@ -4,14 +4,15 @@ use crate::{
     nes::{
         event::{RendererEvent, SendNesEvent, UiEvent},
         input::{Gamepads, InputBindings},
-        renderer::{FrameRecycle, ResourceState, Resources},
+        renderer::{FrameRecycle, Resources},
     },
     platform::{EventLoopExt, Initialize},
     thread,
 };
 use config::Config;
-use crossbeam::channel;
-use egui::ahash::HashMap;
+use crossbeam::channel::{self, Receiver};
+use egui::{ahash::HashMap, ViewportBuilder};
+use egui_wgpu::winit::Painter;
 use emulation::Emulation;
 use event::NesEvent;
 use renderer::Renderer;
@@ -21,7 +22,7 @@ use thingbuf::mpsc::blocking;
 use winit::{
     event::Modifiers,
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::WindowId,
+    window::{Window, WindowId},
 };
 
 pub mod action;
@@ -41,9 +42,29 @@ pub struct Nes {
     /// `EventLoopProxy` can only be created on the initial `EventLoop` and not on
     /// `&EventLoopWindowTarget`.
     pub(crate) init_state: Option<(Config, EventLoopProxy<NesEvent>)>,
-    /// Requested after `Resume` event and awaited, then taken and set to `None` when running.
-    pub(crate) resource_state: ResourceState,
-    pub(crate) state: Option<Running>,
+    /// Initially `Suspended`. `Pending` after `Resume` event received and spanwed. `Running` after
+    /// resources future completes.
+    pub(crate) state: State,
+}
+
+#[derive(Debug, Default)]
+#[must_use]
+pub(crate) enum State {
+    #[default]
+    Suspended,
+    Pending {
+        ctx: egui::Context,
+        window: Arc<Window>,
+        viewport_builder: ViewportBuilder,
+        painter_rx: Receiver<Painter>,
+    },
+    Running(Running),
+}
+
+impl State {
+    pub const fn is_suspended(&self) -> bool {
+        matches!(self, Self::Suspended)
+    }
 }
 
 /// Represents the NES running state.
@@ -85,8 +106,7 @@ impl Nes {
         let tx = event_loop.create_proxy();
         Self {
             init_state: Some((cfg, tx)),
-            resource_state: ResourceState::Suspended,
-            state: None,
+            state: State::Suspended,
         }
     }
 
@@ -121,7 +141,7 @@ impl Nes {
             }
         });
 
-        self.resource_state = ResourceState::Pending {
+        self.state = State::Pending {
             ctx,
             window,
             viewport_builder,
@@ -141,35 +161,55 @@ impl Nes {
     pub(crate) fn init_running(
         &mut self,
         event_loop: &EventLoopWindowTarget<NesEvent>,
-        resources: Resources,
-    ) -> anyhow::Result<&mut Running> {
-        let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
-        let (mut cfg, tx) = self
-            .init_state
-            .take()
-            .expect("config unexpectedly already taken");
-        let emulation = Emulation::new(tx.clone(), frame_tx.clone(), cfg.clone())?;
-        let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;
+    ) -> anyhow::Result<()> {
+        match std::mem::take(&mut self.state) {
+            State::Pending {
+                ctx,
+                window,
+                viewport_builder,
+                painter_rx,
+            } => {
+                let resources = Resources {
+                    ctx,
+                    window,
+                    viewport_builder,
+                    painter: painter_rx.recv()?,
+                };
+                let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
+                let (mut cfg, tx) = self
+                    .init_state
+                    .take()
+                    .expect("config unexpectedly already taken");
+                let emulation = Emulation::new(tx.clone(), frame_tx.clone(), cfg.clone())?;
+                let renderer =
+                    Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;
 
-        let input_bindings = InputBindings::from_input_config(&cfg.input);
-        let gamepads = Gamepads::new();
-        cfg.input.update_gamepad_assignments(&gamepads);
-        let mut running = Running {
-            cfg,
-            tx,
-            emulation,
-            renderer,
-            input_bindings,
-            gamepads,
-            modifiers: Modifiers::default(),
-            paused: false,
-            replay_recording: false,
-            audio_recording: false,
-            rewinding: false,
-            repaint_times: HashMap::default(),
-        };
-        running.initialize()?;
-
-        Ok(self.state.insert(running))
+                let input_bindings = InputBindings::from_input_config(&cfg.input);
+                let gamepads = Gamepads::new();
+                cfg.input.update_gamepad_assignments(&gamepads);
+                let mut running = Running {
+                    cfg,
+                    tx,
+                    emulation,
+                    renderer,
+                    input_bindings,
+                    gamepads,
+                    modifiers: Modifiers::default(),
+                    paused: false,
+                    replay_recording: false,
+                    audio_recording: false,
+                    rewinding: false,
+                    repaint_times: HashMap::default(),
+                };
+                running.initialize()?;
+                self.state = State::Running(running);
+                Ok(())
+            }
+            State::Suspended => anyhow::bail!("not in pending state"),
+            State::Running(running) => {
+                self.state = State::Running(running);
+                Ok(())
+            }
+        }
     }
 }

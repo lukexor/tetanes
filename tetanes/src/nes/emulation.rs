@@ -470,13 +470,6 @@ impl State {
             EmulationEvent::UnfocusedPause(paused) => {
                 self.unfocused_paused = *paused;
                 if self.control_deck.is_running() {
-                    if self.unfocused_paused {
-                        if let Some(rom) = self.control_deck.loaded_rom() {
-                            if let Err(err) = self.record.stop(&rom.name) {
-                                self.on_error(err);
-                            }
-                        }
-                    }
                     self.audio.pause(self.unfocused_paused);
                 }
             }
