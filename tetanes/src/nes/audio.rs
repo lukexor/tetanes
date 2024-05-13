@@ -503,8 +503,12 @@ impl Mixer {
                 .with_extension("wav");
             if let Some(parent) = path.parent() {
                 if !parent.exists() {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("failed to create audio recording directory"))?;
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!(
+                            "failed to create audio recording directory: {}",
+                            parent.display()
+                        )
+                    })?;
                 }
             }
             let spec = hound::WavSpec {

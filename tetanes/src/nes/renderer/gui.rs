@@ -6,6 +6,7 @@ use crate::{
         event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
         input::{ActionBindings, Gamepads, Input},
         rom::{RomAsset, HOMEBREW_ROMS},
+        version::Version,
     },
     platform,
 };
@@ -148,6 +149,8 @@ pub struct Gui {
     pub perf_stats_open: bool,
     pub preferences_open: bool,
     pub preferences_tab: PreferencesTab,
+    pub update_window_open: bool,
+    pub version: Version,
     pub pending_keybind: Option<PendingKeybind>,
     pub gamepad_unassign: Option<(Player, Player, Uuid)>,
     pub debugger_open: bool,
@@ -182,7 +185,7 @@ macro_rules! hex_color {
 impl Gui {
     const MSG_TIMEOUT: Duration = Duration::from_secs(3);
     const MAX_MESSAGES: usize = 5;
-    const MENU_WIDTH: f32 = 200.0;
+    const MENU_WIDTH: f32 = 250.0;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
 
     /// Create a gui `State`.
@@ -229,6 +232,8 @@ impl Gui {
             perf_stats_open: false,
             preferences_open: false,
             preferences_tab: PreferencesTab::Emulation,
+            update_window_open: false,
+            version: Version::new(),
             pending_keybind: None,
             gamepad_unassign: None,
             debugger_open: false,
@@ -317,6 +322,7 @@ impl Gui {
         self.show_preferences_viewport(ctx, cfg);
         self.show_about_window(ctx);
         self.show_about_homebrew_window(ctx);
+        self.show_update_window(ctx);
 
         #[cfg(feature = "profiling")]
         if self.pending_keybind.is_none() {
@@ -713,10 +719,6 @@ impl Gui {
     }
 
     fn show_about_window(&mut self, ctx: &Context) {
-        if !self.about_open {
-            return;
-        }
-
         let mut about_open = self.about_open;
         egui::Window::new("About TetaNES")
             .open(&mut about_open)
@@ -732,10 +734,72 @@ impl Gui {
         let mut about_homebrew_open = true;
         egui::Window::new(format!("About {}", rom.name))
             .open(&mut about_homebrew_open)
-            .show(ctx, |ui| Self::about_homebrew(ui, rom));
+            .show(ctx, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    ui.strong("Author(s):");
+                    ui.label(rom.authors);
+                    ui.add_space(12.0);
+
+                    ui.strong("Description:");
+                    ui.label(rom.description);
+                    ui.add_space(12.0);
+
+                    ui.strong("Source:");
+                    ui.hyperlink(rom.source);
+                });
+            });
         if !about_homebrew_open {
             self.selected_homebrew_rom = None;
         }
+    }
+
+    fn show_update_window(&mut self, ctx: &Context) {
+        let mut update_window_open = self.update_window_open;
+        let mut close_window = false;
+        egui::Window::new("Update Available")
+            .open(&mut update_window_open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "An update is available for TetaNES! (v{})",
+                    self.version.latest(),
+                ));
+                ui.hyperlink("https://github.com/lukexor/tetanes/releases");
+
+                ui.add_space(15.0);
+                ui.separator();
+                ui.add_space(15.0);
+
+                ui.label("Would you like to install it and restart?");
+                ui.add_space(15.0);
+
+                ui.horizontal(|ui| {
+                    let res = ui.button("Continue").on_hover_text(format!(
+                        "Install the latest version (v{}) restart TetaNES.",
+                        self.version.current()
+                    ));
+                    if res.clicked() {
+                        if let Err(err) = self.version.install_update_and_restart() {
+                            self.add_message(
+                                MessageType::Error,
+                                format!("Failed to install update: {err}"),
+                            );
+                            close_window = true;
+                        }
+                    }
+                    let res = ui.button("Cancel").on_hover_text(format!(
+                        "Keep the current version of TetaNES (v{}).",
+                        self.version.current()
+                    ));
+                    if res.clicked() {
+                        close_window = true;
+                    }
+                });
+            });
+        if close_window {
+            update_window_open = false;
+        }
+        self.update_window_open = update_window_open;
     }
 
     fn menu_bar(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -756,7 +820,7 @@ impl Gui {
                 // icon: screen
                 ui.menu_button("🖵 Window", |ui| self.window_menu(ui, cfg));
                 ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
-                ui.toggle_value(&mut self.about_open, "🔎 About");
+                ui.menu_button("❓ Help", |ui| self.help_menu(ui));
             });
         });
         let spacing = ui.style().spacing.item_spacing;
@@ -795,7 +859,8 @@ impl Gui {
         // NOTE: Due to some platforms file dialogs blocking the event loop,
         // loading requires a round-trip in order for the above pause to
         // get processed.
-        let button = Button::new("Load ROM...").shortcut_text(self.fmt_shortcut(UiAction::LoadRom));
+        let button =
+            Button::new("📂 Load ROM...").shortcut_text(self.fmt_shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
                 self.tx.nes_event(EmulationEvent::Pause(true));
@@ -804,11 +869,11 @@ impl Gui {
             ui.close_menu();
         }
 
-        ui.menu_button("Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
+        ui.menu_button("🍺 Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-            let button =
-                Button::new("Unload ROM...").shortcut_text(self.fmt_shortcut(UiAction::UnloadRom));
+            let button = Button::new("⏹ Unload ROM...")
+                .shortcut_text(self.fmt_shortcut(UiAction::UnloadRom));
             let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 self.tx.nes_event(EmulationEvent::UnloadRom);
@@ -816,7 +881,7 @@ impl Gui {
             }
 
             let button =
-                Button::new("Load Replay").shortcut_text(self.fmt_shortcut(UiAction::LoadReplay));
+                Button::new("🎞 Load Replay").shortcut_text(self.fmt_shortcut(UiAction::LoadReplay));
             let res = ui
                 .add(button)
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
@@ -832,7 +897,7 @@ impl Gui {
 
         // TODO: support saves and recent games on wasm? Requires storing the data
         if platform::supports(platform::Feature::Filesystem) {
-            ui.menu_button("Recently Played...", |ui| {
+            ui.menu_button("🗄 Recently Played...", |ui| {
                 use tetanes_core::fs;
 
                 if cfg.renderer.recent_roms.is_empty() {
@@ -854,7 +919,7 @@ impl Gui {
             ui.separator();
 
             ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-                let button = Button::new("Save State")
+                let button = Button::new("💾 Save State")
                     .shortcut_text(self.fmt_shortcut(DeckAction::SaveState));
                 let res = ui
                     .add(button)
@@ -865,7 +930,7 @@ impl Gui {
                         .nes_event(EmulationEvent::SaveState(cfg.emulation.save_slot));
                 };
 
-                let button = Button::new("Load State")
+                let button = Button::new("⎗ Load State")
                     .shortcut_text(self.fmt_shortcut(DeckAction::LoadState));
                 let res = ui
                     .add(button)
@@ -877,13 +942,14 @@ impl Gui {
                 }
             });
 
-            ui.menu_button("Save Slot...", |ui| {
+            // icon: # in a square
+            ui.menu_button("󾠬 Save Slot...", |ui| {
                 self.save_slot_radio(ui, cfg, ShowShortcut::Yes);
             });
 
             ui.separator();
 
-            let button = Button::new("Quit").shortcut_text(self.fmt_shortcut(UiAction::Quit));
+            let button = Button::new("⎆ Quit").shortcut_text(self.fmt_shortcut(UiAction::Quit));
             if ui.add(button).clicked() {
                 self.tx.nes_event(UiEvent::Terminate);
                 ui.close_menu();
@@ -918,8 +984,12 @@ impl Gui {
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-            let button = Button::new(if self.paused { "Resume" } else { "Pause" })
-                .shortcut_text(self.fmt_shortcut(UiAction::TogglePause));
+            let button = Button::new(if self.paused {
+                "▶ Resume"
+            } else {
+                "⏸ Pause"
+            })
+            .shortcut_text(self.fmt_shortcut(UiAction::TogglePause));
             let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 self.tx.nes_event(EmulationEvent::Pause(!self.paused));
@@ -927,14 +997,17 @@ impl Gui {
             };
         });
 
-        let button = Button::new(if cfg.audio.enabled { "Mute" } else { "Unmute" })
-            .shortcut_text(self.fmt_shortcut(Setting::ToggleAudio));
+        let button = Button::new(if cfg.audio.enabled {
+            "🔇 Mute"
+        } else {
+            "🔊 Unmute"
+        })
+        .shortcut_text(self.fmt_shortcut(Setting::ToggleAudio));
 
         if ui.add(button).clicked() {
             cfg.audio.enabled = !cfg.audio.enabled;
             self.tx
                 .nes_event(ConfigEvent::AudioEnabled(cfg.audio.enabled));
-            ui.close_menu();
         };
 
         ui.separator();
@@ -942,7 +1015,7 @@ impl Gui {
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             if platform::supports(platform::Feature::Filesystem) {
                 ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
-                    let button = Button::new("Instant Rewind")
+                    let button = Button::new("⟲ Instant Rewind")
                         .shortcut_text(self.fmt_shortcut(Feature::InstantRewind));
                     let disabled_hover_text = if self.loaded_rom.is_none() {
                         Self::NO_ROM_LOADED
@@ -960,7 +1033,7 @@ impl Gui {
                 });
             }
 
-            let button = Button::new("Reset")
+            let button = Button::new("🔃 Reset")
                 .shortcut_text(self.fmt_shortcut(DeckAction::Reset(ResetKind::Soft)));
             let res = ui
                 .add(button)
@@ -971,7 +1044,7 @@ impl Gui {
                 ui.close_menu();
             };
 
-            let button = Button::new("Power Cycle")
+            let button = Button::new("🔌 Power Cycle")
                 .shortcut_text(self.fmt_shortcut(DeckAction::Reset(ResetKind::Hard)));
             let res = ui
                 .add(button)
@@ -987,7 +1060,7 @@ impl Gui {
             ui.separator();
 
             ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-                let button = Button::new("Screenshot")
+                let button = Button::new("🖼 Screenshot")
                     .shortcut_text(self.fmt_shortcut(Feature::TakeScreenshot));
                 let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
@@ -996,9 +1069,9 @@ impl Gui {
                 };
 
                 let button_txt = if self.replay_recording {
-                    "Stop Replay Recording"
+                    "⏹ Stop Replay Recording"
                 } else {
-                    "Record Replay"
+                    "🎞 Record Replay"
                 };
                 let button = Button::new(button_txt)
                     .shortcut_text(self.fmt_shortcut(Feature::ToggleReplayRecording));
@@ -1013,9 +1086,9 @@ impl Gui {
                 };
 
                 let button_txt = if self.audio_recording {
-                    "Stop Audio Recording"
+                    "⏹ Stop Audio Recording"
                 } else {
-                    "Record Audio"
+                    "🎤 Record Audio"
                 };
                 let button = Button::new(button_txt)
                     .shortcut_text(self.fmt_shortcut(Feature::ToggleAudioRecording));
@@ -1045,7 +1118,7 @@ impl Gui {
 
         ui.separator();
 
-        ui.menu_button("Emulation Speed...", |ui| {
+        ui.menu_button("🕒 Emulation Speed...", |ui| {
             let speed = cfg.emulation.speed;
             let button =
                 Button::new("Increment").shortcut_text(self.fmt_shortcut(Setting::IncrementSpeed));
@@ -1066,19 +1139,24 @@ impl Gui {
             }
             self.speed_slider(ui, cfg);
         });
-        ui.menu_button("Run Ahead...", |ui| self.run_ahead_slider(ui, cfg));
+        ui.menu_button("🏃 Run Ahead...", |ui| self.run_ahead_slider(ui, cfg));
 
         ui.separator();
 
-        ui.menu_button("Video Filter...", |ui| self.video_filter_radio(ui, cfg));
-        ui.menu_button("Nes Region...", |ui| self.nes_region_radio(ui, cfg));
-        ui.menu_button("Four Player...", |ui| self.four_player_radio(ui, cfg));
-        ui.menu_button("Game Genie Codes...", |ui| self.genie_codes_entry(ui, cfg));
+        ui.menu_button("🌉 Video Filter...", |ui| {
+            self.video_filter_radio(ui, cfg)
+        });
+        ui.menu_button("🌎 Nes Region...", |ui| self.nes_region_radio(ui, cfg));
+        ui.menu_button("🎮 Four Player...", |ui| self.four_player_radio(ui, cfg));
+        ui.menu_button("📓 Game Genie Codes...", |ui| {
+            self.genie_codes_entry(ui, cfg)
+        });
 
         ui.separator();
 
         let mut preferences_open = self.preferences_open;
-        let toggle = ToggleValue::new(&mut preferences_open, "Preferences")
+        // icon: gear
+        let toggle = ToggleValue::new(&mut preferences_open, "⛭ Preferences")
             .shortcut_text(self.fmt_shortcut(Menu::Preferences));
         if ui.add(toggle).clicked() {
             self.preferences_open = preferences_open;
@@ -1086,7 +1164,8 @@ impl Gui {
         }
 
         let mut keybinds_open = self.keybinds_open;
-        let toggle = ToggleValue::new(&mut keybinds_open, "Keybinds")
+        // icon: keyboard
+        let toggle = ToggleValue::new(&mut keybinds_open, "🖮 Keybinds")
             .shortcut_text(self.fmt_shortcut(Menu::Keybinds));
         if ui.add(toggle).clicked() {
             self.keybinds_open = keybinds_open;
@@ -1100,7 +1179,7 @@ impl Gui {
 
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
-        ui.menu_button("Window Scale...", |ui| {
+        ui.menu_button("📏 Window Scale...", |ui| {
             let scale = cfg.renderer.scale;
             let button =
                 Button::new("Increment").shortcut_text(self.fmt_shortcut(Setting::IncrementScale));
@@ -1134,8 +1213,9 @@ impl Gui {
         if platform::supports(platform::Feature::Viewports) {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
                 let mut embed_viewports = ui.ctx().embed_viewports();
+                // icon: maximize
                 let res = ui
-                    .checkbox(&mut embed_viewports, "Embed viewports")
+                    .checkbox(&mut embed_viewports, "🗖 Embed viewports")
                     .on_disabled_hover_text(
                         "Non-embedded viewports are not supported while in fullscreen.",
                     );
@@ -1167,7 +1247,7 @@ impl Gui {
         }
 
         let mut perf_stats_open = self.perf_stats_open;
-        let toggle = ToggleValue::new(&mut perf_stats_open, "Performance Stats")
+        let toggle = ToggleValue::new(&mut perf_stats_open, "🛠 Performance Stats")
             .shortcut_text(self.fmt_shortcut(Menu::PerfStats));
         let res = ui
             .add(toggle)
@@ -1189,7 +1269,7 @@ impl Gui {
 
         ui.add_enabled_ui(false, |ui| {
             let debugger_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Cpu));
-            let toggle = ToggleValue::new(&mut self.debugger_open, "Debugger")
+            let toggle = ToggleValue::new(&mut self.debugger_open, "🚧 Debugger")
                 .shortcut_text(debugger_shortcut);
             let res = ui
                 .add(toggle)
@@ -1200,7 +1280,7 @@ impl Gui {
             }
 
             let ppu_viewer_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Ppu));
-            let toggle = ToggleValue::new(&mut self.ppu_viewer_open, "PPU Viewer")
+            let toggle = ToggleValue::new(&mut self.ppu_viewer_open, "🌇 PPU Viewer")
                 .shortcut_text(ppu_viewer_shortcut);
             let res = ui
                 .add(toggle)
@@ -1211,7 +1291,7 @@ impl Gui {
             }
 
             let apu_mixer_shortcut = self.fmt_shortcut(Debug::Toggle(Debugger::Apu));
-            let toggle = ToggleValue::new(&mut self.apu_mixer_open, "APU Mixer")
+            let toggle = ToggleValue::new(&mut self.apu_mixer_open, "🎼 APU Mixer")
                 .shortcut_text(apu_mixer_shortcut);
             let res = ui
                 .add(toggle)
@@ -1279,6 +1359,25 @@ impl Gui {
                     .nes_event(EmulationEvent::DebugStep(DebugStep::Frame));
             }
         });
+    }
+
+    fn help_menu(&mut self, ui: &mut Ui) {
+        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
+
+        if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
+            match self.version.update_available() {
+                Ok(update_available) => self.update_window_open = update_available,
+                Err(err) => self.add_message(MessageType::Error, err.to_string()),
+            }
+            if !self.update_window_open {
+                self.add_message(
+                    MessageType::Info,
+                    format!("TetaNES v{} is up to date!", self.version.current()),
+                );
+            }
+            ui.close_menu();
+        }
+        ui.toggle_value(&mut self.about_open, "ℹ About");
     }
 
     fn nes_frame(&mut self, ui: &mut Ui, gamepads: &Gamepads, cfg: &mut Config) {
@@ -2091,7 +2190,7 @@ impl Gui {
                 let grid = Grid::new("version").num_columns(2).spacing([40.0, 6.0]);
                 grid.show(ui, |ui| {
                     ui.strong("Version:");
-                    ui.label(env!("CARGO_PKG_VERSION").to_string());
+                    ui.label(self.version.current());
                     ui.end_row();
 
                     ui.strong("GitHub:");
@@ -2199,8 +2298,12 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleCycleAccurate))
             .unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cfg.deck.cycle_accurate, "Cycle Accurate")
-            .shortcut_text(shortcut_txt);
+        let icon = shortcut.then(|| "📐 ").unwrap_or_default();
+        let checkbox = Checkbox::new(
+            &mut cfg.deck.cycle_accurate,
+            format!("{icon}Cycle Accurate"),
+        )
+        .shortcut_text(shortcut_txt);
         let res = ui
             .add(checkbox)
             .on_hover_text("Enables more accurate NES emulation at a slight cost in performance.");
@@ -2214,7 +2317,8 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleRewinding))
             .unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cfg.emulation.rewind, "Enable Rewinding")
+        let icon = shortcut.then(|| "🔄 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut cfg.emulation.rewind, format!("{icon}Enable Rewinding"))
             .shortcut_text(shortcut_txt);
         let res = ui
             .add(checkbox)
@@ -2229,8 +2333,9 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(DeckAction::ToggleZapperConnected))
             .unwrap_or_default();
-        let checkbox =
-            Checkbox::new(&mut cfg.deck.zapper, "Enable Zapper Gun").shortcut_text(shortcut_txt);
+        let icon = shortcut.then(|| "🔫 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut cfg.deck.zapper, format!("{icon}Enable Zapper Gun"))
+            .shortcut_text(shortcut_txt);
         let res = ui
             .add(checkbox)
             .on_hover_text("Enable the Zapper Light Gun for games that support it.");
@@ -2244,8 +2349,12 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleOverscan))
             .unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cfg.renderer.hide_overscan, "Hide Overscan")
-            .shortcut_text(shortcut_txt);
+        let icon = shortcut.then(|| "📺 ").unwrap_or_default();
+        let checkbox = Checkbox::new(
+            &mut cfg.renderer.hide_overscan,
+            format!("{icon}Hide Overscan"),
+        )
+        .shortcut_text(shortcut_txt);
         let res = ui.add(checkbox)
             .on_hover_text("Traditional CRT displays would crop the top and bottom edges of the image. Disable this to show the overscan.");
         if res.clicked() {
@@ -2377,8 +2486,12 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleMenubar))
             .unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cfg.renderer.show_menubar, "Show Menu Bar")
-            .shortcut_text(shortcut_txt);
+        let icon = shortcut.then(|| "☰ ").unwrap_or_default();
+        let checkbox = Checkbox::new(
+            &mut cfg.renderer.show_menubar,
+            format!("{icon}Show Menu Bar"),
+        )
+        .shortcut_text(shortcut_txt);
         let res = ui.add(checkbox).on_hover_text("Show the menu bar.");
         if res.clicked() && !cfg.renderer.show_menubar {
             self.menu_height = 0.0;
@@ -2390,8 +2503,13 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleMessages))
             .unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cfg.renderer.show_messages, "Show Messages")
-            .shortcut_text(shortcut_txt);
+        // icon: document with text
+        let icon = shortcut.then(|| "🖹 ").unwrap_or_default();
+        let checkbox = Checkbox::new(
+            &mut cfg.renderer.show_messages,
+            format!("{icon}Show Messages"),
+        )
+        .shortcut_text(shortcut_txt);
         ui.add(checkbox)
             .on_hover_text("Show shortcut and emulator messages.");
     }
@@ -2418,8 +2536,10 @@ impl Gui {
         let shortcut_txt = shortcut
             .then(|| self.fmt_shortcut(Setting::ToggleFullscreen))
             .unwrap_or_default();
-        let checkbox =
-            Checkbox::new(&mut cfg.renderer.fullscreen, "Fullscreen").shortcut_text(shortcut_txt);
+        // icon: screen
+        let icon = shortcut.then(|| "🖵 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut cfg.renderer.fullscreen, format!("{icon}Fullscreen"))
+            .shortcut_text(shortcut_txt);
         if ui.add(checkbox).clicked() {
             let ctx = ui.ctx();
             if platform::supports(platform::Feature::Viewports) {

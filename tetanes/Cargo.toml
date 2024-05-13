@@ -82,6 +82,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 egui-winit = "0.27"
 pollster = "0.3"
 puffin = { workspace = true, optional = true }
+reqwest = { version = "0.12", features = ["blocking"] }
+semver = "1"
 wgpu = "0.19"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
