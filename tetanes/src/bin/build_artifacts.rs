@@ -40,18 +40,20 @@ fn make(cmd: &'static str) -> io::Result<()> {
 fn write_sha256(file: PathBuf, output: PathBuf) -> io::Result<()> {
     println!("writing sha256 for {file:?}");
 
-    let shasum;
-    cfg_if! {
-        if #[cfg(target_os = "windows")] {
-            shasum = Command::new("powershell")
-                .arg("-Command")
-                .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display()))
-                .output()?;
-        } else {
-            shasum = Command::new("shasum")
-                .args(["-a", "256"])
-                .arg(file)
-                .output()?;
+    let shasum = {
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                Command::new("powershell")
+                    .arg("-Command")
+                    .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display()))
+                    .output()?
+            } else {
+                Command::new("shasum")
+                    .current_dir(file.parent().expect("parent directory"))
+                    .args(["-a", "256"])
+                    .arg(file.file_name().expect("filename"))
+                    .output()?
+            }
         }
     };
     let sha256 = std::str::from_utf8(&shasum.stdout)
@@ -104,7 +106,7 @@ fn create_macos_app(cargo_target_dir: &Path) -> io::Result<()> {
     let _ = Command::new("hdiutil").arg("detach").arg(&volume).status();
     Command::new("hdiutil")
         .args(["create", "-size", "50m", "-volname"])
-        .arg(artifact_name)
+        .arg(&artifact_name)
         .arg(build_dir.join(&dmg_name))
         .spawn()?
         .wait()?;
@@ -128,7 +130,7 @@ fn create_macos_app(cargo_target_dir: &Path) -> io::Result<()> {
         .arg(format!("s/%VERSION%/{VERSION}/"))
         .arg("assets/macos/Info.plist")
         .output()?;
-    File::create(app_dir.join("Contents/Info.plist"))?.write_all(&output.stdout)?;
+    fs::write(app_dir.join("Contents/Info.plist"), &output.stdout)?;
 
     println!("copying assets...");
 
@@ -220,19 +222,16 @@ fn create_macos_app(cargo_target_dir: &Path) -> io::Result<()> {
     println!("writing artifacts...");
 
     let dist_dir = PathBuf::from(DIST_DIR);
-    let sha_name = format!("{installer_name}-sha256.txt");
+    let sha_name = format!("{artifact_name}-sha256.txt");
 
     let _ = fs::remove_dir_all(&dist_dir); // ignore if not found
     fs::create_dir_all(&dist_dir)?;
 
-    write_sha256(
-        build_dir.join(&dmg_name_compressed),
-        dist_dir.join(&sha_name),
-    )?;
     fs::copy(
         build_dir.join(&dmg_name_compressed),
         dist_dir.join(&dmg_name_compressed),
     )?;
+    write_sha256(dist_dir.join(&dmg_name_compressed), dist_dir.join(sha_name))?;
 
     println!("cleaning up...");
 
@@ -270,11 +269,11 @@ fn create_windows_installer(cargo_target_dir: &Path) -> io::Result<()> {
     let _ = fs::remove_dir_all(&dist_dir); // ignore if not found
     fs::create_dir_all(&dist_dir)?;
 
-    write_sha256(build_dir.join(&installer_name), dist_dir.join(&sha_name))?;
     fs::copy(
         build_dir.join(&installer_name),
         dist_dir.join(&installer_name),
     )?;
+    write_sha256(dist_dir.join(&installer_name), dist_dir.join(&sha_name))?;
 
     Ok(())
 }
