@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<<<<<<<< HEAD:tetanes/Contents/Info.plist
+========
+  <key>CFBundleDevelopmentRegion</key>
+  <string>English</string>
+  <key>CFBundleIdentifier</key>
+  <string>tech.lukeworks.tetanes</string>
+>>>>>>>> c07a38a6c3571fa1a9c81e53dca09e3d8fcdb684:assets/Info.plist
   <key>CFBundleName</key>
   <string>tetanes</string>
   <key>CFBundleDisplayName</key>
@@ -10,5 +17,7 @@
   <string>tetanes</string>
   <key>CFBundleIconFile</key>
   <string>logo</string>
+  <key>CFBundleVersion</key>
+  <string>0.10.0</string>
 </dict>
 </plist>
