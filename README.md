@@ -32,8 +32,8 @@ Issues](#known-issues) - 💬 [Contact](#contact)
 > on [unsplash](https://unsplash.com/photos/pEK3AbP8wa4)
 
 `TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
-(NES) released in Japan in 1983 and North America in 1986, written using
-[Rust][] and [wgpu][]. It runs on Linux, macOS, Windows, and in a web browser
+(NES) released in Japan in 1983 and North America in 1986, written in
+[Rust][] using [wgpu][]. It runs on Linux, macOS, Windows, and in a web browser
 with [Web Assembly][].
 
 It started as a personal curiosity that turned into a passion project. It is
@@ -88,13 +88,70 @@ time being you can install with `cargo` which comes installed with [Rust][].
 
 ### Install
 
+There are multiple options for installation, depending on your operating system,
+preference and existing tooling.
+
+#### Linux
+
+##### Ubuntu/Debian
+
+A `.deb` package is provided under `Assets` on the latest [Release][]. Once
+downloaded, you can install it and the required dependencies. e.g.
+
+```sh
+sudo apt install ./tetanes-0.10.0-1-amd64.deb
+```
+
+##### Other Distros
+
+An [AppImage](https://appimage.org/) is provided  under `Assets` on the latest
+[Release][]. Simply download it and put it wherever you want.
+
+A `.tar.gz` package is also provided under `Assets` on the latest
+[Release][]. You can place the `tetanes` binary anywhere in your `PATH`.
+
+The following dependencies are required to be installed:
+
+- ALSA Shared Library
+- GTK3
+
+e.g.
+
+`apt install libasound2 libgtk-3-0`
+`dnf install alsa-lib gtk3`
+`pacman -Sy alsa-lib gtk3`
+
+#### MacOS
+
+##### App Bundle
+
+The easiest is to download the correct app bundle for your processor. The `.dmg`
+downloads can be found under the `Assets` section of the latest
+[Release][].
+
+##### Homebrew
+
+`TetaNES` can also be installed through [Homebrew](https://brew.sh/).
+
+```sh
+brew install lukexor/formulae/tetanes
+```
+
+#### Windows
+
+A windows installer is provided under `Assets` on the latest [Release][].
+
+#### Cargo Install
+
+You can also build and install with `cargo` which comes with [rustup](https://www.rust-lang.org/tools/install).
+
 ```sh
 cargo install tetanes
 ```
 
-This will install the latest version of the `TetaNES` binary to your `cargo` bin
-directory located at either `$HOME/.cargo/bin/` on a Unix-like platform or
-`%USERPROFILE%\.cargo\bin` on Windows.
+This will install the latest released version of the `TetaNES` binary to your
+`cargo` bin directory located at either `$HOME/.cargo/bin/` on a Unix-like
+platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
 ### Usage
 
@@ -444,3 +501,4 @@ series as those helped a ton in some recent refactorings.
 [web assembly]: https://webassembly.org/
 [github issue tracker]: https://github.com/lukexor/tetanes/issues
 [ROADMAP.md]: ROADMAP.md
+[Release]: https://github.com/lukexor/tetanes/releases/latest
