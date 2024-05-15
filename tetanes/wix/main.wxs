@@ -69,7 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
-            Description='A NES Emulator written in Rust with SDL2 and WebAssembly support'
+            Description='A cross-platform NES Emulator written in Rust and wgpu.'
             Manufacturer='Luke Petherbridge'
             InstallerVersion='450'
             Languages='1033'
@@ -107,78 +107,6 @@
                             KeyPath='yes'
                             Checksum='yes'/>
                     </Component>
-                    <Component Id='libFLAC_8.dll' Guid='D6099F00-ED16-40C0-8455-68B54102D2DB'>
-                        <File Id='libFLAC_8.dll' Source='.\lib\msvc\dll\64\libFLAC-8.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2.lib' Guid='38db74ed-4c97-4026-a4a2-ed27bccef1c7'>
-                        <File Id='SDL2.lib' Source='.\lib\msvc\lib\64\SDL2.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_gfx.lib' Guid='1e3671f8-5778-432e-99a9-118274d8ac45'>
-                        <File Id='SDL2_gfx.lib' Source='.\lib\msvc\lib\64\SDL2_gfx.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_image.lib' Guid='d7b48cab-5525-4658-984e-fb006bc791ce'>
-                        <File Id='SDL2_image.lib' Source='.\lib\msvc\lib\64\SDL2_image.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_mixer.lib' Guid='1679090d-d4a6-46f3-82ff-0668533a641d'>
-                        <File Id='SDL2_mixer.lib' Source='.\lib\msvc\lib\64\SDL2_mixer.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_ttf.lib' Guid='1bf78686-e158-4e9a-a97e-6f3777f24b2d'>
-                        <File Id='SDL2_ttf.lib' Source='.\lib\msvc\lib\64\SDL2_ttf.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2main.lib' Guid='f18008a5-e614-4e16-abe7-7e1aa5b109c6'>
-                        <File Id='SDL2main.lib' Source='.\lib\msvc\lib\64\SDL2main.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2test.lib' Guid='13077e63-978c-419f-823b-bb51c8a19d89'>
-                        <File Id='SDL2test.lib' Source='.\lib\msvc\lib\64\SDL2test.lib' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libjpeg_9.dll' Guid='9ff0ea62-9db4-4948-a3f1-44f59d32b89d'>
-                        <File Id='libjpeg_9.dll' Source='.\lib\msvc\dll\64\libjpeg-9.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libmodplug_1.dll' Guid='35650f65-65af-4335-abd9-dea6d9d7247a'>
-                        <File Id='libmodplug_1.dll' Source='.\lib\msvc\dll\64\libmodplug-1.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libmpg123_0.dll' Guid='3fa05141-ad15-445c-80c3-359b7bd44e97'>
-                        <File Id='libmpg123_0.dll' Source='.\lib\msvc\dll\64\libmpg123-0.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libogg_0.dll' Guid='20bcf2e3-2e52-4a09-a15c-17f5b1d8ded7'>
-                        <File Id='libogg_0.dll' Source='.\lib\msvc\dll\64\libogg-0.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libopus_0.dll' Guid='e66a9db4-1e34-4160-9f75-31209cccc922'>
-                        <File Id='libopus_0.dll' Source='.\lib\msvc\dll\64\libopus-0.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libopusfile_0.dll' Guid='cc57ebdc-0662-449f-9ff0-3412b564375e'>
-                        <File Id='libopusfile_0.dll' Source='.\lib\msvc\dll\64\libopusfile-0.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libpng16_16.dll' Guid='363d6c90-d1a4-4a3b-8792-0de6625b7369'>
-                        <File Id='libpng16_16.dll' Source='.\lib\msvc\dll\64\libpng16-16.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libtiff_5.dll' Guid='df506b22-3de3-431e-953f-84557b019a83'>
-                        <File Id='libtiff_5.dll' Source='.\lib\msvc\dll\64\libtiff-5.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libvorbis_0.dll' Guid='2c0bef62-1998-4864-96ba-049e096b0658'>
-                        <File Id='libvorbis_0.dll' Source='.\lib\msvc\dll\64\libvorbis-0.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libvorbisfile_3.dll' Guid='a18d5d80-d51b-4a6a-a5a7-ade41f8d57d8'>
-                        <File Id='libvorbisfile_3.dll' Source='.\lib\msvc\dll\64\libvorbisfile-3.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='libwebp_7.dll' Guid='2b78de86-61b2-4ed9-a4ed-5d0a1a895fa6'>
-                        <File Id='libwebp_7.dll' Source='.\lib\msvc\dll\64\libwebp-7.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2.dll' Guid='ac2a23f5-a17b-4ec7-ae3c-98b079d665b5'>
-                        <File Id='SDL2.dll' Source='.\lib\msvc\dll\64\SDL2.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_gfx.dll' Guid='5cc85256-0b03-4ae8-92ad-8442ad36485b'>
-                        <File Id='SDL2_gfx.dll' Source='.\lib\msvc\dll\64\SDL2_gfx.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_image.dll' Guid='20dc9c0b-5767-4548-9bf6-096f921e45f6'>
-                        <File Id='SDL2_image.dll' Source='.\lib\msvc\dll\64\SDL2_image.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_mixer.dll' Guid='61cff165-790d-4084-9db6-99a5ec5a8930'>
-                        <File Id='SDL2_mixer.dll' Source='.\lib\msvc\dll\64\SDL2_mixer.dll' KeyPath='yes'/>
-                    </Component>
-                    <Component Id='SDL2_ttf.d' Guid='871F2130-A8B3-4B28-9C5B-3D35174EF913'>
-                        <File Id='SDL2_ttf.d' Source='.\lib\msvc\dll\64\SDL2_ttf.dll' KeyPath='yes'/>
-                    </Component>
                 </Directory>
             </Directory>
         </Directory>
@@ -186,7 +114,7 @@
         <Feature
             Id='Application'
             Title='Application'
-            Description='Installs the [ProductName] executable and SDL2 dependencies.'
+            Description='Installs the [ProductName] executable and dependencies.'
             Level='1'
             ConfigurableDirectory='APPLICATIONFOLDER'
             AllowAdvertise='no'
@@ -194,30 +122,6 @@
             Absent='disallow'>
 
             <ComponentRef Id='TetaNES.exe'/>
-            <ComponentRef Id='libFLAC_8.dll'/>
-            <ComponentRef Id='SDL2.lib'/>
-            <ComponentRef Id='SDL2_gfx.lib'/>
-            <ComponentRef Id='SDL2_image.lib'/>
-            <ComponentRef Id='SDL2_mixer.lib'/>
-            <ComponentRef Id='SDL2_ttf.lib'/>
-            <ComponentRef Id='SDL2main.lib'/>
-            <ComponentRef Id='SDL2test.lib'/>
-            <ComponentRef Id='libjpeg_9.dll'/>
-            <ComponentRef Id='libmodplug_1.dll'/>
-            <ComponentRef Id='libmpg123_0.dll'/>
-            <ComponentRef Id='libogg_0.dll'/>
-            <ComponentRef Id='libopus_0.dll'/>
-            <ComponentRef Id='libopusfile_0.dll'/>
-            <ComponentRef Id='libpng16_16.dll'/>
-            <ComponentRef Id='libtiff_5.dll'/>
-            <ComponentRef Id='libvorbis_0.dll'/>
-            <ComponentRef Id='libvorbisfile_3.dll'/>
-            <ComponentRef Id='libwebp_7.dll'/>
-            <ComponentRef Id='SDL2.dll'/>
-            <ComponentRef Id='SDL2_gfx.dll'/>
-            <ComponentRef Id='SDL2_image.dll'/>
-            <ComponentRef Id='SDL2_mixer.dll'/>
-            <ComponentRef Id='SDL2_ttf.d'/>
 
             <Feature
                 Id='Environment'

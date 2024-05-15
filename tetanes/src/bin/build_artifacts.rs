@@ -1,42 +1,92 @@
 use cfg_if::cfg_if;
 use std::{
-    env,
-    fs::{self, File},
-    io::{self, Write},
-    path::PathBuf,
+    env, fs, io,
+    path::{Path, PathBuf},
     process::Command,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BIN_NAME: &str = "tetanes";
-const APP_NAME: &str = "TetaNES";
+const DIST_DIR: &str = "dist";
 
 fn main() {
-    // TODO: disable lto and make pgo build
-    let mut handle = Command::new("cargo")
-        .args(["make", "build-all"])
-        .spawn()
-        .expect("cargo build failed");
-    let result = handle
-        .wait()
-        .expect("failed to read cargo build exit status");
-    if !result.success() {
-        panic!("cargo build failed");
-    }
+    let cargo_target_dir =
+        PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
 
     cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            create_macos_app().expect("failed to create macOS app");
+        if #[cfg(target_os = "linux")] {
+            make("build-all").expect("failed to build");
+            create_linux_artifacts(&cargo_target_dir).expect("failed to create linux artifacts");
+        } else if #[cfg(target_os = "macos")] {
+            make("build").expect("failed to build");
+            create_macos_app(&cargo_target_dir).expect("failed to create macOS app");
+        } else if #[cfg(target_os = "windows")] {
+            create_windows_installer(&cargo_target_dir).expect("failed to create windows installer");
         }
     }
+
+    update_homebrew_formula(&cargo_target_dir).expect("failed to update homebrew formula");
+}
+
+// Wix on Windows bakes in the build step
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn make(cmd: &'static str) -> io::Result<()> {
+    // TODO: disable lto and make pgo build
+    Command::new("cargo").args(["make", cmd]).spawn()?.wait()?;
+
+    Ok(())
+}
+
+fn write_sha256(file: PathBuf, output: PathBuf) -> io::Result<()> {
+    println!("writing sha256 for {file:?}");
+
+    let shasum;
+    cfg_if! {
+        if #[cfg(target_os = "windows")] {
+            shasum = Command::new("powershell")
+                .arg("-Command")
+                .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display()))
+                .output()?;
+        } else {
+            shasum = Command::new("shasum")
+                .args(["-a", "256"])
+                .arg(file)
+                .output()?;
+        }
+    };
+    let sha256 = std::str::from_utf8(&shasum.stdout)
+        .expect("valid stdout")
+        .trim()
+        .to_owned();
+
+    println!("sha256: {sha256}");
+
+    fs::write(output, shasum.stdout)?;
+
+    Ok(())
+}
+
+fn update_homebrew_formula(_cargo_target_dir: &Path) -> io::Result<()> {
+    println!("todo: update_homebrew_formula");
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn create_linux_artifacts(cargo_target_dir: &Path) -> io::Result<()> {
+    println!("todo: create_linux_artifacts");
+
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn create_macos_app() -> io::Result<()> {
+fn create_macos_app(cargo_target_dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::symlink;
 
-    let cargo_target_dir =
-        PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
+    const APP_NAME: &str = "TetaNES";
+
+    println!("creating macos app...");
+
     let build_dir = cargo_target_dir.join("macos");
 
     println!("creating build directory: {build_dir:?}");
@@ -44,17 +94,17 @@ fn create_macos_app() -> io::Result<()> {
     let _ = fs::remove_dir_all(&build_dir); // ignore if not found
     fs::create_dir_all(&build_dir)?;
 
-    let volume_name = format!("{APP_NAME}-{VERSION}");
-    let volume = PathBuf::from("/Volumes").join(&volume_name);
-    let dmg_name = format!("{volume_name}-Uncompressed.dmg");
-    let dmg_name_compressed = format!("{volume_name}.dmg");
+    let artifact_name = format!("{APP_NAME}-{VERSION}");
+    let volume = PathBuf::from("/Volumes").join(&artifact_name);
+    let dmg_name = format!("{artifact_name}-Uncompressed.dmg");
+    let dmg_name_compressed = format!("{artifact_name}.dmg");
 
     println!("creating dmg volume: {dmg_name}");
 
     let _ = Command::new("hdiutil").arg("detach").arg(&volume).status();
     Command::new("hdiutil")
         .args(["create", "-size", "50m", "-volname"])
-        .arg(volume_name)
+        .arg(artifact_name)
         .arg(build_dir.join(&dmg_name))
         .spawn()?
         .wait()?;
@@ -167,20 +217,64 @@ fn create_macos_app() -> io::Result<()> {
         .spawn()?
         .wait()?;
 
-    let shasum = Command::new("shasum")
-        .args(["-a", "256"])
-        .arg(build_dir.join(&dmg_name_compressed))
-        .output()
-        .map(|output| {
-            std::str::from_utf8(&output.stdout)
-                .expect("valid stdout")
-                .trim()
-                .to_owned()
-        })?;
-    println!("sha256: {shasum}");
+    println!("writing artifacts...");
+
+    let dist_dir = PathBuf::from(DIST_DIR);
+    let sha_name = format!("{installer_name}-sha256.txt");
+
+    let _ = fs::remove_dir_all(&dist_dir); // ignore if not found
+    fs::create_dir_all(&dist_dir)?;
+
+    write_sha256(
+        build_dir.join(&dmg_name_compressed),
+        dist_dir.join(&sha_name),
+    )?;
+    fs::copy(
+        build_dir.join(&dmg_name_compressed),
+        dist_dir.join(&dmg_name_compressed),
+    )?;
 
     println!("cleaning up...");
+
     fs::remove_file(build_dir.join(&dmg_name))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_installer(cargo_target_dir: &Path) -> io::Result<()> {
+    println!("creating windows installer...");
+
+    let build_dir = cargo_target_dir.join("wix");
+
+    println!("creating build directory: {build_dir:?}");
+
+    let _ = fs::remove_dir_all(&build_dir); // ignore if not found
+    fs::create_dir_all(&build_dir)?;
+
+    let artifact_name = format!("{BIN_NAME}-{VERSION}-x86_64");
+    let installer_name = format!("{artifact_name}.msi");
+
+    println!("building installer...");
+
+    Command::new("cargo")
+        .args(["wix", "-p", "tetanes", "--nocapture"])
+        .spawn()?
+        .wait()?;
+
+    println!("writing artifacts...");
+
+    let dist_dir = PathBuf::from(DIST_DIR);
+    let sha_name = format!("{installer_name}-sha256.txt");
+
+    let _ = fs::remove_dir_all(&dist_dir); // ignore if not found
+    fs::create_dir_all(&dist_dir)?;
+
+    write_sha256(build_dir.join(&installer_name), dist_dir.join(&sha_name))?;
+    fs::copy(
+        build_dir.join(&installer_name),
+        dist_dir.join(&installer_name),
+    )?;
 
     Ok(())
 }
