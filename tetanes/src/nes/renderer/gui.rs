@@ -1768,7 +1768,7 @@ impl Gui {
                             .clamp_range(1..=360)
                             .suffix(" seconds");
                         let res = ui.add(drag);
-                        if res.lost_focus() && res.changed() {
+                        if res.changed() {
                             self.tx.nes_event(ConfigEvent::RewindSeconds(cfg.emulation.rewind_seconds));
                         }
 
@@ -1778,7 +1778,7 @@ impl Gui {
                             .clamp_range(1..=60)
                             .suffix(" frames");
                         let res = ui.add(drag);
-                        if res.lost_focus() && res.changed() {
+                        if res.changed() {
                             self.tx.nes_event(ConfigEvent::RewindInterval(cfg.emulation.rewind_interval));
                         }
                     });
@@ -1805,7 +1805,7 @@ impl Gui {
                             .clamp_range(0..=60)
                             .suffix(" seconds");
                         let res = ui.add(drag);
-                        if res.lost_focus() && res.changed() {
+                        if res.changed() {
                             cfg.emulation.auto_save_interval =
                                 Duration::from_secs(auto_save_interval);
                             self.tx.nes_event(ConfigEvent::AutoSaveInterval(
@@ -1949,7 +1949,7 @@ impl Gui {
                             .clamp_range(0..=8192)
                             .suffix(" samples");
                         let res = ui.add(drag);
-                        if res.lost_focus() && res.changed() {
+                        if res.changed() {
                             self.tx.nes_event(ConfigEvent::AudioBuffer(cfg.audio.buffer_size));
                         }
                         ui.end_row();
@@ -1964,7 +1964,7 @@ impl Gui {
                             .clamp_range(0..=1000)
                             .suffix(" ms");
                         let res = ui.add(drag);
-                        if res.lost_focus() && res.changed() {
+                        if res.changed() {
                             cfg.audio.latency = Duration::from_millis(latency);
                             self.tx.nes_event(ConfigEvent::AudioLatency(cfg.audio.latency));
                         }
@@ -2307,7 +2307,7 @@ impl Gui {
         let res = ui
             .add(slider)
             .on_hover_text("Adjust the speed of the NES emulation.");
-        if res.lost_focus() && res.changed() {
+        if res.changed() {
             self.tx.nes_event(ConfigEvent::Speed(cfg.emulation.speed));
         }
     }
@@ -2317,7 +2317,7 @@ impl Gui {
         let res = ui
             .add(slider)
             .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
-        if res.lost_focus() && res.changed() {
+        if res.changed() {
             self.tx
                 .nes_event(ConfigEvent::RunAhead(cfg.emulation.run_ahead));
         }
