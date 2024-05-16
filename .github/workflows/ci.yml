@@ -35,10 +35,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-          profile: minimal
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - if: matrix.os == 'ubuntu-latest'
+        run: |
+          apt install libudev
       - run: |
           cargo clippy --all-targets
           cargo clippy --target wasm32-unknown-unknown

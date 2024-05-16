@@ -96,6 +96,10 @@ command = "cargo"
 args = ["run", "--bin", "build_artifacts"]
 dependencies = ["install-cargo-tools"]
 
+[tasks.update-homebrew]
+command = "cargo"
+args = ["run", "--bin", "update_homebrew_formula"]
+
 [tasks.run-web]
 description = "Run TetaNES Web in release mode"
 category = "Development"

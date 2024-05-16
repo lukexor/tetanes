@@ -21,7 +21,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          profile: minimal
       - uses: Swatinem/rust-cache@v2
       - name: Run release
         uses: MarcoIeni/release-plz-action@v0.5
