@@ -40,7 +40,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - if: matrix.os == 'ubuntu-latest'
         run: |
-          apt install libudev
+          sudo apt install libudev
       - run: |
           cargo clippy --all-targets
           cargo clippy --target wasm32-unknown-unknown
