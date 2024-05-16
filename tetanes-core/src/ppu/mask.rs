@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub struct Mask {
     pub rendering_enabled: bool,
     pub grayscale: u8,
-    pub emphasis: u8,
+    pub emphasis: u16,
     pub show_left_bg: bool,
     pub show_left_spr: bool,
     pub show_bg: bool,
@@ -72,25 +72,27 @@ impl Mask {
         self.show_bg = self.bits.contains(Bits::SHOW_BG);
         self.show_spr = self.bits.contains(Bits::SHOW_SPR);
         self.rendering_enabled = self.show_bg || self.show_spr;
-        self.emphasis = match self.region {
-            NesRegion::Auto | NesRegion::Ntsc => self
-                .bits
-                .intersection(Bits::EMPHASIZE_RED | Bits::EMPHASIZE_GREEN | Bits::EMPHASIZE_BLUE),
-            NesRegion::Pal | NesRegion::Dendy => {
-                // Red/Green are swapped for PAL/Dendy
-                let mut emphasis = self.bits.intersection(Bits::EMPHASIZE_BLUE);
-                emphasis.set(
-                    Bits::EMPHASIZE_GREEN,
-                    self.bits.contains(Bits::EMPHASIZE_RED),
-                );
-                emphasis.set(
-                    Bits::EMPHASIZE_RED,
-                    self.bits.contains(Bits::EMPHASIZE_GREEN),
-                );
-                emphasis
+        self.emphasis = u16::from(
+            match self.region {
+                NesRegion::Auto | NesRegion::Ntsc => self.bits.intersection(
+                    Bits::EMPHASIZE_RED | Bits::EMPHASIZE_GREEN | Bits::EMPHASIZE_BLUE,
+                ),
+                NesRegion::Pal | NesRegion::Dendy => {
+                    // Red/Green are swapped for PAL/Dendy
+                    let mut emphasis = self.bits.intersection(Bits::EMPHASIZE_BLUE);
+                    emphasis.set(
+                        Bits::EMPHASIZE_GREEN,
+                        self.bits.contains(Bits::EMPHASIZE_RED),
+                    );
+                    emphasis.set(
+                        Bits::EMPHASIZE_RED,
+                        self.bits.contains(Bits::EMPHASIZE_GREEN),
+                    );
+                    emphasis
+                }
             }
-        }
-        .bits();
+            .bits(),
+        ) << 1;
     }
 
     pub fn set_region(&mut self, region: NesRegion) {

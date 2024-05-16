@@ -521,7 +521,7 @@ impl ControlDeck {
     }
 
     /// Load the raw underlying frame buffer from the PPU for further processing.
-    pub fn frame_buffer_raw(&mut self) -> &[u8] {
+    pub fn frame_buffer_raw(&mut self) -> &[u16] {
         self.cpu.bus.ppu.frame_buffer()
     }
 

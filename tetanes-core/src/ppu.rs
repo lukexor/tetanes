@@ -283,14 +283,14 @@ impl Ppu {
     /// Return the system palette color for the given pixel.
     #[inline]
     #[must_use]
-    pub const fn system_palette(pixel: u8) -> (u8, u8, u8) {
+    pub const fn system_palette(pixel: u16) -> (u8, u8, u8) {
         Self::SYSTEM_PALETTE[(pixel as usize) & (Self::SYSTEM_PALETTE.len() - 1)]
     }
 
     /// Return the current frame buffer.
     #[inline]
     #[must_use]
-    pub fn frame_buffer(&self) -> &[u8] {
+    pub fn frame_buffer(&self) -> &[u16] {
         self.frame.buffer()
     }
 
@@ -678,8 +678,11 @@ impl Ppu {
                 self.bus.read_palette(addr, Access::Read)
             };
 
-        self.frame
-            .set_pixel(x, y, (color & self.mask.grayscale) | self.mask.emphasis);
+        self.frame.set_pixel(
+            x,
+            y,
+            u16::from(color & self.mask.grayscale) | self.mask.emphasis,
+        );
     }
 
     fn tick(&mut self) {

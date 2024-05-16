@@ -107,7 +107,7 @@ impl Video {
     }
 
     /// Applies the given filter to the given video buffer and returns the result.
-    pub fn apply_filter(&mut self, buffer: &[u8], frame_number: u32) -> &[u8] {
+    pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -120,7 +120,7 @@ impl Video {
     }
 
     /// Applies the given filter to the given video buffer by coping into the provided buffer.
-    pub fn apply_filter_into(&self, buffer: &[u8], frame_number: u32, output: &mut [u8]) {
+    pub fn apply_filter_into(&self, buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -131,9 +131,9 @@ impl Video {
     }
 
     /// Fills a fully rendered frame with RGB colors.
-    pub fn decode_buffer(buffer: &[u8], output: &mut [u8]) {
+    pub fn decode_buffer(buffer: &[u16], output: &mut [u8]) {
         for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
-            let index = (pixel * 3) as usize;
+            let index = (*pixel as usize) * 3;
             assert!(Ppu::NTSC_PALETTE.len() > index + 2);
             assert!(colors.len() > 2);
             colors[0] = Ppu::NTSC_PALETTE[index];
@@ -148,7 +148,7 @@ impl Video {
     /// to translate it to Rust
     /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
     /// See also: <http://wiki.nesdev.com/w/index.php/NTSC_video>
-    pub fn apply_ntsc_filter(buffer: &[u8], frame_number: u32, output: &mut [u8]) {
+    pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         let mut prev_pixel = 0;
         for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;

@@ -11,7 +11,7 @@ use std::ops::{Deref, DerefMut};
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 #[must_use]
-pub struct Buffer(Vec<u8>);
+pub struct Buffer(Vec<u16>);
 
 impl std::fmt::Debug for Buffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,7 +26,7 @@ impl Default for Buffer {
 }
 
 impl Deref for Buffer {
-    type Target = [u8];
+    type Target = [u16];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -66,11 +66,11 @@ impl Frame {
     }
 
     #[must_use]
-    pub fn pixel(&self, x: u32, y: u32) -> u8 {
+    pub fn pixel(&self, x: u32, y: u32) -> u16 {
         self.buffer[(x + (y << 8)) as usize]
     }
 
-    pub fn set_pixel(&mut self, x: u32, y: u32, color: u8) {
+    pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.buffer[(x + (y << 8)) as usize] = color;
     }
 
@@ -87,7 +87,7 @@ impl Frame {
     }
 
     #[must_use]
-    pub fn buffer(&self) -> &[u8] {
+    pub fn buffer(&self) -> &[u16] {
         &self.buffer
     }
 }
