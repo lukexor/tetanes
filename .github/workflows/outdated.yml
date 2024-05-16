@@ -4,7 +4,8 @@ name: Outdated
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "10 16 * * 1"
+    # At 08:00 on day-of-month 2 and 16
+    - cron: "0 8 2,16 * *"
 
 env:
   CARGO_TERM_COLOR: always

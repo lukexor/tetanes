@@ -1,0 +1,243 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TetaNES Web</title>
+    <link
+      rel="preload"
+      href="/pixeloid-sans.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
+    <link
+      rel="preload"
+      href="/pixeloid-sans-bold.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
+    <style>
+      @font-face {
+        font-family: "Pixeloid Sans";
+        src:
+          local("Pixeloid Sans"),
+          url("/pixeloid-sans.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Pixeloid Sans Bold";
+        src:
+          local("Pixeloid Sans Bold"),
+          url("/pixeloid-sans-bold.ttf") format("truetype");
+      }
+
+      body {
+        --color: #e6b673;
+        --heading: #a9491f;
+        --background: #0f1419;
+        background-color: var(--background);
+        max-width: 80%;
+        margin: auto;
+        margin-bottom: 100px;
+        color: var(--color);
+        font-family: "Pixeloid Sans", "Courier New", Courier, monospace;
+      }
+
+      h1 {
+        margin: 40px 0;
+      }
+
+      h1,
+      h2 {
+        color: var(--heading);
+        font-family: "Pixeloid Sans Bold", "Courier New", Courier, monospace;
+        text-align: center;
+      }
+
+      p {
+        font-size: 0.9rem;
+        max-width: 70ch;
+        margin: 15px 0;
+      }
+
+      table {
+        --color: #333;
+        border-collapse: separate;
+        border-color: var(--color);
+        border-spacing: 0;
+        border: 0.5px solid var(--color);
+        text-align: left;
+        width: 100%;
+      }
+
+      th {
+        color: var(--heading);
+      }
+
+      th,
+      td {
+        padding: 5px;
+        border: 0.5px solid var(--color);
+      }
+
+      td {
+        font-weight: bold;
+      }
+
+      a {
+        color: #36a3d9;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      canvas {
+        background: rgba(0.13, 0.13, 0.13, 1);
+        margin: 0 40px;
+        width: fit-content;
+        height: fit-content;
+        outline: none;
+      }
+
+      #wrapper {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+
+      #content {
+        max-width: 70ch;
+        margin: auto;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      #loading-status {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #loader {
+        border: 4px solid #e6b673;
+        border-top: 4px solid #a9491f;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        margin: 8px;
+        animation: spin 2s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+
+    <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />
+    <link
+      data-trunk
+      rel="rust"
+      data-bin="tetanes"
+      data-initializer="initializer.js"
+      data-wasm-opt="4"
+      data-no-import
+    />
+  </head>
+  <body>
+    <noscript>
+      This page contains WebAssembly and Javascript content, please enable
+      Javascript in your browser.
+    </noscript>
+
+    <h1>TetaNES</h1>
+
+    <div id="wrapper">
+      <canvas id="frame" width="512" height="480"></canvas>
+      <input type="file" id="load-rom" accept=".nes" class="hidden" />
+      <input type="file" id="load-replay" accept=".replay" class="hidden" />
+    </div>
+
+    <h3 id="loading-status">
+      <div id="loader"></div>
+      Loading...
+    </h3>
+
+    <div id="content">
+      <p>
+        <em>TetaNES</em> is a cross-platform emulator for the Nintendo
+        Entertainment System (NES) released in Japan in 1983 and North America
+        in 1986, written using
+        <a href="https://www.rust-lang.org/" title="Rust">Rust</a> and
+        <a href="https://wgpu.rs/" title="wgpu">wgpu</a>. It runs on Linux,
+        macOS, Windows, and in a web browser with
+        <a href="https://webassembly.org/">WebAssembly</a>. While the web
+        version is playable, the desktop version is much more performant and
+        fully featured.
+      </p>
+
+      <p>
+        Load any NES ROM which uses the
+        <a href="https://www.nesdev.org/wiki/INES">iNES</a> or
+        <a href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> header format.
+      </p>
+
+      <p>
+        You can check out the code on
+        <a href="https://github.com/lukexor/tetanes">github</a>.
+      </p>
+
+      <h2>Controls</h2>
+      <table>
+        <tr>
+          <th>Action</th>
+          <th>Key</th>
+        </tr>
+        <tr>
+          <td>A Button</td>
+          <td>Z</td>
+        </tr>
+        <tr>
+          <td>B Button</td>
+          <td>X</td>
+        </tr>
+        <tr>
+          <td>A Button (Turbo)</td>
+          <td>A</td>
+        </tr>
+        <tr>
+          <td>B Button (Turbo)</td>
+          <td>S</td>
+        </tr>
+        <tr>
+          <td>Start Button</td>
+          <td>Q</td>
+        </tr>
+        <tr>
+          <td>Select Button</td>
+          <td>W</td>
+        </tr>
+        <tr>
+          <td>D-Pad</td>
+          <td>Arrow Keys</td>
+        </tr>
+      </table>
+      <p>
+        Other mappings can be found and modified in the `Config -> Keybinds`
+        menu.
+      </p>
+    </div>
+  </body>
+</html>

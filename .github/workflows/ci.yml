@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - run: cargo fmt --all --check
 
   build-and-test:
@@ -25,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [stable, 1.74.0]
+        toolchain: [stable, 1.78.0]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,25 +35,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
+          profile: minimal
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy
-      - uses: ./.github/actions/install-linuxbrew
-        if: matrix.os == 'ubuntu-latest'
-        name: Install Homebrew for Linux
-      - uses: ./.github/actions/install-sdl2
-        if: matrix.os != 'windows-latest'
-        name: Install SDL2
-      - name: Install wasm-pack
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: cargo install wasm-pack
-      - name: Build
-        shell: bash
-        run: |
-          cargo build --all-targets --verbose
-          cd web
-          bash bin/build.sh --dev
-      - run: cargo doc --verbose
-      - run: cargo test --verbose
+      - run: |
+          cargo clippy --all-targets
+          cargo clippy --target wasm32-unknown-unknown
+      - run: |
+          cargo build -p tetanes
+          cargo build -p tetanes --target wasm32-unknown-unknown
+      - run: cargo doc
+      - run: cargo test

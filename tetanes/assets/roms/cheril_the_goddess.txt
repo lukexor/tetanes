@@ -1,0 +1,20 @@
+Cheril the Goddess
+By The Mojon Twins
+
+You control Cheril. There’s plenty of things to do, and you’ll need special
+objects. Cheril can only carry ONE object at a time, so if you try to get a new
+one while you are carring an object, you will drop the one you carry in the
+place of the one you take. To get/interchange objects press DOWN. Besides,
+you’ll have to give those objects a use. To use an object, just walk to the
+place you want to use it and press DOWN. For Cheril to fly, she has to
+«push». You can make her «push» by pressing UP. But beware: «pushing» for too
+long drains Cheril’s vitality, so you have to do this carefully. Timing short
+«pushes» can make her gain momentum. Take your time to master the technique, it
+won’t take long. Cheril can also fire power balls. You can fire pressing
+FIRE. Power balls also drain Cheril, but think that enemies do quite a lot of
+harm. Use this feature wisely, and just when needed! Cheril can also regain her
+vitality by means of a special action we won’t reveal ‘cause it’s easy enough to
+find out! You can choose the difficulty level, but the easiest level won’t show
+the real ending.
+
+https://forums.nesdev.org/viewtopic.php?t=15367

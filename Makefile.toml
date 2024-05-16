@@ -1,0 +1,118 @@
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+
+[config]
+reduce_output = false
+skip_core_tasks = true
+default_to_workspace = false
+
+[tasks.default]
+alias = "run"
+
+[tasks.version]
+description = "Print the crate version"
+category = "Tools"
+script = ["echo Version: ${CARGO_MAKE_PROJECT_VERSION}"]
+
+[tasks.clean]
+description = "Clean up build artifacts"
+category = "Development"
+command = "cargo"
+args = ["clean"]
+
+[tasks.lint]
+description = "Lint with clippy"
+category = "Development"
+command = "cargo"
+args = ["clippy"]
+
+[tasks.build]
+description = "Build TetaNES"
+category = "Build"
+command = "cargo"
+args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
+
+[tasks.bench]
+description = "Benchmark TetaNES"
+category = "Development"
+command = "cargo"
+args = ["bench", "--bench", "clock_frame", "${@}"]
+
+[tasks.run]
+description = "Run TetaNES in release mode"
+category = "Development"
+command = "cargo"
+args = ["run", "-p", "tetanes", "--release", "${@}"]
+
+[tasks.profile]
+description = "Run TetaNES in release mode w/profiling"
+category = "Development"
+command = "cargo"
+args = ["run", "-p", "tetanes", "--release", "--features", "profiling", "${@}"]
+
+[tasks.dev]
+description = "Run TetaNES in development mode"
+category = "Development"
+command = "cargo"
+args = ["run", "-p", "tetanes", "${@}"]
+
+[tasks.add-wasm-target]
+description = "Add wasm target"
+category = "Development"
+command = "rustup"
+args = ["target", "add", "wasm32-unknown-unknown"]
+
+[tasks.install-binstall]
+description = "Install cargo binstall"
+category = "Development"
+command = "cargo"
+args = ["install", "cargo-binstall"]
+
+[tasks.install-cargo-tools]
+description = "Install cargo tools"
+category = "Development"
+command = "cargo"
+args = ["binstall", "-y", "trunk", "cargo-deb"]
+dependencies = ["install-binstall"]
+
+[tasks.create-dist]
+description = "Creates dist directory"
+category = "Development"
+command = "mkdir"
+args = ["-p", "dist"]
+
+[tasks.build-web]
+description = "Build TetaNES Web"
+category = "Build"
+command = "trunk"
+args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web"]
+dependencies = ["create-dist", "add-wasm-target"]
+
+[tasks.build-all]
+run_task = { name = ["build", "build-web"], parallel = true }
+
+[tasks.build-artifacts]
+command = "cargo"
+args = ["run", "--bin", "build_artifacts"]
+dependencies = ["install-cargo-tools"]
+
+[tasks.run-web]
+description = "Run TetaNES Web in release mode"
+category = "Development"
+command = "trunk"
+args = ["serve", "--release", "--config", "tetanes/Cargo.toml"]
+dependencies = ["add-wasm-target"]
+
+[tasks.profile-web]
+description = "Run TetaNES Web in release mode w/profiling"
+category = "Development"
+command = "trunk"
+args = ["serve", "--release", "--features", "profiling", "--config", "tetanes/Cargo.toml"]
+dependencies = ["add-wasm-target"]
+
+[tasks.dev-web]
+description = "Run TetaNES Web in development mode"
+category = "Development"
+command = "trunk"
+args = ["serve", "--config", "tetanes/Cargo.toml"]
+dependencies = ["add-wasm-target"]

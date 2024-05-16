@@ -1,0 +1,62 @@
+////////////////////////////////////////////////////////////////////////////
+//                                Dúshlán                                 //
+//                    Copyright (c)2016 Peter McQuillan                   //
+//                          All Rights Reserved.                          //
+//      Distributed under the BSD Software License (see license.txt)      //
+////////////////////////////////////////////////////////////////////////////
+
+This package contains the source code for the game 'Dúshlán'.
+Dúshlán is the Irish for 'Challenge'.
+This game is written in 6502 assembly for the Nintendo Entertainment System (NES).
+
+The code was developed using the ASM6 assembler.
+
+There is a NES file included in the package that can be used on an emulator,
+or an a real NES using a Flash cart like Powerpak or Everdrive.
+
+The game itself is based on the classic Tetris, but with a few twists on the
+game and some extra features that are not commonly available like ghost (where
+you can see where your piece would go if you dropped it) and save (where you
+can swap a piece in play for later usage).
+
+There are two possible button controls for the game, the normal controls are
+
+LEFT     -  Move left
+RIGHT    -  Move right
+DOWN     -  Drop piece
+UP       -  Swap/Save a piece for later usage
+A        -  Rotate piece clockwise
+B        -  Rotate piece anticlockwise
+START    -  Pause/Resume game
+SELECT   -  Enable/Disable ghost mode
+
+There is also an alternate control system available on the main menu, these
+are the button definitions for it:
+
+LEFT     -  move left
+RIGHT    -  move right
+DOWN     -  Rotate piece clockwise
+UP       -  Rotate piece anticlockwise
+A        -  Drop piece
+B        -  Swap/Save a piece for later usage
+START    -  Pause/Resume game
+SELECT   -  Enable/Disable ghost mode
+
+You are able to modify the behaviour of the 'Drop piece' key in the settings
+on the main menu. The three possible options are
+
+Full - Pressing the drop key will cause the piece to fall down the screen as far as
+possible
+While Held - This will cause the piece to drop as long as the drop key is pressed
+(effectively works like a down key)
+Mixture - If you quickly press/tap the drop key, the piece will fall down the screen
+as far as possible, however holding the drop key will drop the piece as long as the
+drop key is pressed - therefore a mixture of 'Full' and 'While Held'
+
+Thanks to Teuthida for the music and sound effects.
+Thanks to Derek Andrews for the ggsound sound engine
+Thanks also to Shiru, Drag, Damian Yerrick and Joe Granato for some code snippets used.
+
+Please direct any questions or comments to beatofthedrum@gmail.com
+
+https://github.com/soiaf/Dushlan
