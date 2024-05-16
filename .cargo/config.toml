@@ -2,10 +2,4 @@
 rustflags = ["-Z", "threads=8"]
 
 [target.'cfg(target_arch = "wasm32")']
-rustflags = [
-  "-Z",
-  "threads=8",
-  "-C",
-  "panic=abort",
-  "--cfg=web_sys_unstable_apis",
-]
+rustflags = ["-Z", "threads=8", "--cfg=web_sys_unstable_apis"]

@@ -905,14 +905,16 @@ impl Gui {
                 } else {
                     ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
-                    // TODO: add timestamp, save slots, and screenshot
-                    for rom in &cfg.renderer.recent_roms {
-                        if ui.button(fs::filename(rom)).clicked() {
-                            self.tx
-                                .nes_event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
-                            ui.close_menu();
+                    ScrollArea::vertical().show(ui, |ui| {
+                        // TODO: add timestamp, save slots, and screenshot
+                        for rom in &cfg.renderer.recent_roms {
+                            if ui.button(fs::filename(rom)).clicked() {
+                                self.tx
+                                    .nes_event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
+                                ui.close_menu();
+                            }
                         }
-                    }
+                    });
                 }
             });
 
@@ -958,23 +960,25 @@ impl Gui {
     }
 
     fn homebrew_rom_menu(&mut self, ui: &mut Ui) {
-        for rom in HOMEBREW_ROMS {
-            ui.horizontal(|ui| {
-                if ui.button(rom.name).clicked() {
-                    self.tx
-                        .nes_event(EmulationEvent::LoadRom((rom.name.to_string(), rom.data())));
-                    ui.close_menu();
-                }
-                let res = ui.button("ℹ").on_hover_ui(|ui| {
-                    ui.set_max_width(400.0);
-                    Self::about_homebrew(ui, rom);
+        ScrollArea::vertical().show(ui, |ui| {
+            for rom in HOMEBREW_ROMS {
+                ui.horizontal(|ui| {
+                    if ui.button(rom.name).clicked() {
+                        self.tx
+                            .nes_event(EmulationEvent::LoadRom((rom.name.to_string(), rom.data())));
+                        ui.close_menu();
+                    }
+                    let res = ui.button("ℹ").on_hover_ui(|ui| {
+                        ui.set_max_width(400.0);
+                        Self::about_homebrew(ui, rom);
+                    });
+                    if res.clicked() {
+                        self.selected_homebrew_rom = Some(rom);
+                        ui.close_menu();
+                    }
                 });
-                if res.clicked() {
-                    self.selected_homebrew_rom = Some(rom);
-                    ui.close_menu();
-                }
-            });
-        }
+            }
+        });
     }
 
     fn controls_menu(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -2494,19 +2498,21 @@ impl Gui {
         if !cfg.deck.genie_codes.is_empty() {
             ui.separator();
             ui.strong("Current Genie Codes:");
-            cfg.deck.genie_codes.retain(|genie| {
-                ui.horizontal(|ui| {
-                    ui.label(genie.code());
-                    // icon: waste basket
-                    if ui.button("🗑").clicked() {
-                        self.tx
-                            .nes_event(ConfigEvent::GenieCodeRemoved(genie.code().to_string()));
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .inner
+            ScrollArea::vertical().show(ui, |ui| {
+                cfg.deck.genie_codes.retain(|genie| {
+                    ui.horizontal(|ui| {
+                        ui.label(genie.code());
+                        // icon: waste basket
+                        if ui.button("🗑").clicked() {
+                            self.tx
+                                .nes_event(ConfigEvent::GenieCodeRemoved(genie.code().to_string()));
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .inner
+                });
             });
         }
     }
