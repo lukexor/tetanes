@@ -80,7 +80,7 @@ To build the project, you'll need a nightly version of the compiler and run
 Below is a basic example of setting up `tetanes_core` with a ROM and running the
 emulation. For a more in-depth example see the `tetanes::nes::emulation` module.
 
-```rust
+```rust no_run
 use tetanes_core::prelude::*;
 
 fn main() -> anyhow::Result<()> {
