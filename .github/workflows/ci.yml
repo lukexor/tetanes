@@ -41,7 +41,7 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt update
-          sudo apt install libudev-dev
+          sudo apt install libudev-dev alsa
       - run: |
           cargo clippy --all-targets
           cargo clippy --target wasm32-unknown-unknown
