@@ -44,5 +44,12 @@ fn main() -> io::Result<()> {
     formula = formula.replace("%aarch64_SHA%", aarch64_sha);
     fs::write("homebrew-formulae/Casks/tetanes.rb", formula)?;
 
+    Command::new("git")
+        .args(["commit", "-m"])
+        .arg(format!("Version bump: {version}"))
+        .spawn()?
+        .wait()?;
+    Command::new("git").arg("push").spawn()?.wait()?;
+
     Ok(())
 }
