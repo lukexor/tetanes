@@ -37,8 +37,6 @@ fn main() {
             create_windows_installer(&cargo_target_dir, &dist_dir).expect("failed to create windows installer");
         }
     }
-
-    update_homebrew_formula(&cargo_target_dir).expect("failed to update homebrew formula");
 }
 
 /// Run `cargo make` to build binary.
@@ -97,9 +95,19 @@ fn write_sha256(file: PathBuf, output: PathBuf) -> io::Result<()> {
     Ok(())
 }
 
-/// Update the homebrew formula.
-fn update_homebrew_formula(_cargo_target_dir: &Path) -> io::Result<()> {
-    println!("todo: update_homebrew_formula");
+fn tar_gz(dist_dir: &Path, tgz_name: &str, directory: &Path, files: &[&str]) -> io::Result<()> {
+    println!("creating tarball...");
+
+    let mut cmd = Command::new("tar");
+    cmd.arg("-czvf")
+        .arg(dist_dir.join(tgz_name))
+        .arg(format!("--directory={}", directory.display()));
+    for file in files {
+        cmd.arg(file);
+    }
+    cmd.spawn()?.wait()?;
+    let tgz_sha_name = format!("{tgz_name}-sha256.txt");
+    write_sha256(dist_dir.join(tgz_name), dist_dir.join(tgz_sha_name))?;
 
     Ok(())
 }
@@ -121,16 +129,12 @@ fn create_linux_artifacts(cargo_target_dir: &Path, dist_dir: &Path) -> io::Resul
         build_dir.join(BIN_NAME),
     )?;
 
-    let tgz_name = format!("{BIN_NAME}-{VERSION}-linux-{TARGET_ARCH}.tar.gz");
-    Command::new("tar")
-        .arg("-czvf")
-        .arg(dist_dir.join(&tgz_name))
-        .arg(format!("--directory={}", build_dir.display()))
-        .arg(".")
-        .spawn()?
-        .wait()?;
-    let tgz_sha_name = format!("{tgz_name}-sha256.txt");
-    write_sha256(dist_dir.join(&tgz_name), dist_dir.join(&tgz_sha_name))?;
+    tar_gz(
+        dist_dir,
+        &format!("{BIN_NAME}-{VERSION}-{TARGET_ARCH}-linux.tar.gz"),
+        &build_dir,
+        &["."],
+    )?;
 
     println!("creating deb...");
 
@@ -181,21 +185,20 @@ fn create_linux_artifacts(cargo_target_dir: &Path, dist_dir: &Path) -> io::Resul
 }
 
 /// Compress web artifacts.
+#[cfg(target_os = "linux")]
 fn compress_web_artifacts(dist_dir: &Path) -> io::Result<()> {
     println!("compressing web artifacts...");
 
     println!("creating tarball...");
 
-    let tgz_name = format!("{BIN_NAME}-{VERSION}-web.tar.gz");
-    Command::new("tar")
-        .arg("-czvf")
-        .arg(dist_dir.join(&tgz_name))
-        .arg(format!("--directory={}", dist_dir.join("web").display()))
-        .arg(".")
-        .spawn()?
-        .wait()?;
     let tgz_sha_name = format!("{tgz_name}-sha256.txt");
     write_sha256(dist_dir.join(&tgz_name), dist_dir.join(&tgz_sha_name))?;
+    tar_gz(
+        dist_dir,
+        &format!("{BIN_NAME}-{VERSION}-web.tar.gz"),
+        &dist_dir.join("web"),
+        &["."],
+    )?;
 
     println!("cleaning up...");
 
@@ -211,14 +214,14 @@ fn create_macos_app(cargo_target_dir: &Path, dist_dir: &Path) -> io::Result<()> 
 
     println!("creating macos app...");
 
-    let build_dir = create_build_dir(cargo_target_dir, "macos")?;
-
     let artifact_name = format!("{APP_NAME}-{VERSION}-{TARGET_ARCH}");
     let volume = PathBuf::from("/Volumes").join(&artifact_name);
     let dmg_name = format!("{artifact_name}-Uncompressed.dmg");
     let dmg_name_compressed = format!("{artifact_name}.dmg");
 
-    println!("creating dmg volume: {dmg_name}");
+    println!("creating dmg volume: {dmg_name_compressed}");
+
+    let build_dir = create_build_dir(cargo_target_dir, "macos")?;
 
     let _ = Command::new("hdiutil").arg("detach").arg(&volume).status();
     Command::new("hdiutil")
@@ -242,12 +245,9 @@ fn create_macos_app(cargo_target_dir: &Path, dist_dir: &Path) -> io::Result<()> 
 
     println!("updating Info.plist version: {VERSION:?}");
 
-    let output = Command::new("sed")
-        .arg("-e")
-        .arg(format!("s/%VERSION%/{VERSION}/"))
-        .arg("assets/macos/Info.plist")
-        .output()?;
-    fs::write(app_dir.join("Contents/Info.plist"), &output.stdout)?;
+    let mut info_plist = fs::read_to_string("assets/macos/Info.plist")?;
+    info_plist = info_plist.replace("%VERSION%", VERSION);
+    fs::write(app_dir.join("Contents/Info.plist"), info_plist)?;
 
     println!("copying assets...");
 
@@ -323,7 +323,15 @@ fn create_macos_app(cargo_target_dir: &Path, dist_dir: &Path) -> io::Result<()> 
         .spawn()?
         .wait()?;
 
+    tar_gz(
+        dist_dir,
+        &format!("{BIN_NAME}-{VERSION}-{TARGET_ARCH}-apple.tar.gz"),
+        &volume,
+        &[&format!("{APP_NAME}.app")],
+    )?;
+
     println!("compressing dmg...");
+
     Command::new("hdiutil")
         .arg("detach")
         .arg(&volume)
@@ -342,8 +350,11 @@ fn create_macos_app(cargo_target_dir: &Path, dist_dir: &Path) -> io::Result<()> 
         build_dir.join(&dmg_name_compressed),
         dist_dir.join(&dmg_name_compressed),
     )?;
-    let sha_name = format!("{artifact_name}-sha256.txt");
-    write_sha256(dist_dir.join(&dmg_name_compressed), dist_dir.join(sha_name))?;
+    let dmg_sha_name = format!("{artifact_name}-sha256.txt");
+    write_sha256(
+        dist_dir.join(&dmg_name_compressed),
+        dist_dir.join(dmg_sha_name),
+    )?;
 
     println!("cleaning up...");
 
