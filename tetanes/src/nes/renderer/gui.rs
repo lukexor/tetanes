@@ -1258,6 +1258,8 @@ impl Gui {
             .on_hover_text("Enable a performance statistics overlay");
         if res.clicked() {
             self.perf_stats_open = perf_stats_open;
+            self.tx
+                .nes_event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
             ui.close_menu();
         }
 
