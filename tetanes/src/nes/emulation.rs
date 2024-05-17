@@ -853,7 +853,8 @@ impl State {
             }
             thread::park_timeout(self.target_frame_duration - park_epsilon);
             return;
-        } else if !self.rewinding && self.should_park() {
+        }
+        if !self.rewinding && self.should_park() {
             thread::park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
             return;
         }
