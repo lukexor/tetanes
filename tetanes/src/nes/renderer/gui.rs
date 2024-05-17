@@ -167,7 +167,7 @@ pub struct Gui {
     pub frame_stats: FrameStats,
     pub messages: Vec<(MessageType, String, Instant)>,
     pub loaded_rom: Option<LoadedRom>,
-    pub selected_homebrew_rom: Option<RomAsset>,
+    pub about_homebrew_rom_open: Option<RomAsset>,
     pub start: Instant,
     pub sys: Option<System>,
     pub sys_updated: Instant,
@@ -250,7 +250,7 @@ impl Gui {
             frame_stats: FrameStats::new(),
             messages: Vec::new(),
             loaded_rom: None,
-            selected_homebrew_rom: None,
+            about_homebrew_rom_open: None,
             start: Instant::now(),
             sys,
             sys_updated: Instant::now(),
@@ -727,7 +727,7 @@ impl Gui {
     }
 
     fn show_about_homebrew_window(&mut self, ctx: &Context) {
-        let Some(rom) = self.selected_homebrew_rom else {
+        let Some(rom) = self.about_homebrew_rom_open else {
             return;
         };
 
@@ -749,7 +749,7 @@ impl Gui {
                 });
             });
         if !about_homebrew_open {
-            self.selected_homebrew_rom = None;
+            self.about_homebrew_rom_open = None;
         }
     }
 
@@ -973,7 +973,7 @@ impl Gui {
                         Self::about_homebrew(ui, rom);
                     });
                     if res.clicked() {
-                        self.selected_homebrew_rom = Some(rom);
+                        self.about_homebrew_rom_open = Some(rom);
                         ui.close_menu();
                     }
                 });
@@ -1517,15 +1517,13 @@ impl Gui {
     }
 
     fn error_bar(&mut self, ui: &mut Ui) {
-        let mut clear_error = false;
-        if let Some(ref error) = self.error {
+        if let Some(error) = self.error.clone() {
             ui.vertical(|ui| {
                 ui.label(RichText::new(error).color(Color32::RED));
-                clear_error = ui.button("Clear").clicked();
+                if ui.button("Clear").clicked() {
+                    self.error = None;
+                }
             });
-        }
-        if clear_error {
-            self.error = None;
         }
     }
 
