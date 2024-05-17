@@ -5,7 +5,7 @@ use crate::{
     fs,
     mapper::{
         m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, Bf909x, Bnrom,
-        Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
+        Cnrom, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -198,6 +198,7 @@ impl Cart {
             5 => Exrom::load(&mut cart),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
+            10 => Fxrom::load(&mut cart),
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
             26 => Vrc6::load(&mut cart, Vrc6Revision::B),
             34 => {
@@ -481,13 +482,15 @@ impl NesHeader {
                 value: header[0],
                 message: "nes header signature not found".to_string(),
             });
-        } else if (header[7] & 0x0C) == 0x04 {
+        }
+        if (header[7] & 0x0C) == 0x04 {
             return Err(Error::InvalidHeader {
                 byte: 7,
                 value: header[7],
                 message: "header is corrupted by `DiskDude!`. repair and try again".to_string(),
             });
-        } else if (header[7] & 0x0C) == 0x0C {
+        }
+        if (header[7] & 0x0C) == 0x0C {
             return Err(Error::InvalidHeader {
                 byte: 7,
                 value: header[7],
@@ -529,19 +532,22 @@ impl NesHeader {
                     value: prg_ram_shift,
                     message: "invalid prg-ram size in header".to_string(),
                 });
-            } else if chr_ram_shift & 0x0F == 0x0F || chr_ram_shift & 0xF0 == 0xF0 {
+            }
+            if chr_ram_shift & 0x0F == 0x0F || chr_ram_shift & 0xF0 == 0xF0 {
                 return Err(Error::InvalidHeader {
                     byte: 11,
                     value: chr_ram_shift,
                     message: "invalid chr-ram size in header".to_string(),
                 });
-            } else if chr_ram_shift & 0xF0 == 0xF0 {
+            }
+            if chr_ram_shift & 0xF0 == 0xF0 {
                 return Err(Error::InvalidHeader {
                     byte: 11,
                     value: chr_ram_shift,
                     message: "battery-backed chr-ram is currently not supported".to_string(),
                 });
-            } else if header[14] > 0 || header[15] > 0 {
+            }
+            if header[14] > 0 || header[15] > 0 {
                 return Err(Error::InvalidHeader {
                     byte: 14,
                     value: header[14],
@@ -604,7 +610,8 @@ impl NesHeader {
             4 => "Mapper 004 - TxROM/MMC3/MMC6",
             5 => "Mapper 005 - ExROM/MMC5",
             7 => "Mapper 007 - AxROM",
-            9 => "Mapper 009 - PxROM",
+            9 => "Mapper 009 - PxROM/MMC2",
+            10 => "Mapper 010 - FxROM/MMC4",
             24 => "Mapper 024 - Vrc6a",
             26 => "Mapper 026 - Vrc6b",
             34 => "Mapper 034 - BNROM/NINA-001",
