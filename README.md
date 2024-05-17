@@ -210,13 +210,14 @@ Support for the following mappers is currently implemented or in development:
 | 005 | ExROM/MMC5           | Castlevania 3, Laser Invasion             | ~24                    | &lt;0.01%              |
 | 007 | AxROM                | Battletoads, Marble Madness               | ~75                    | ~3%                    |
 | 009 | PxROM/MMC2           | Punch Out!!                               | 1                      | &lt;0.01%              |
+| 011 | Color Dreams         | Crystal Mines, Metal Fighter              | 34                     | ~1%                    |
 | 024 | VRC6a                | Akumajou Densetsu                         | 1                      | &lt;0.01%              |
 | 026 | VRC6b                | Madara, Esper Dream 2                     | 2                      | &lt;0.01%              |
 | 034 | BNROM/NINA-001       | Deadly Towers, Impossible Mission II      | 3                      | &lt;0.01%              |
 | 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
 | 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
-|     |                      |                                           | ~2091 / 2447           | ~85.5%                 |
+|     |                      |                                           | ~2125 / 2447           | ~86.8%                 |
 
 <!-- markdownlint-enable line-length -->
 

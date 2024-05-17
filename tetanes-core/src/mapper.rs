@@ -17,6 +17,7 @@ pub use m004_txrom::{Revision as Mmc3Revision, Txrom};
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
+pub use m011_color_dreams::ColorDreams;
 pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
 pub use m034_nina001::Nina001;
@@ -31,6 +32,7 @@ pub mod m004_txrom;
 pub mod m005_exrom;
 pub mod m007_axrom;
 pub mod m009_pxrom;
+pub mod m011_color_dreams;
 pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
 pub mod m034_nina001;
@@ -78,6 +80,7 @@ pub enum Mapper {
     Exrom,
     Axrom,
     Pxrom,
+    ColorDreams,
     Vrc6,
     Bnrom,
     Nina001,

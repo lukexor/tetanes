@@ -5,7 +5,8 @@ use crate::{
     fs,
     mapper::{
         m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, Bf909x, Bnrom,
-        Cnrom, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
+        Cnrom, ColorDreams, Exrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom,
+        Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -198,6 +199,7 @@ impl Cart {
             5 => Exrom::load(&mut cart),
             7 => Axrom::load(&mut cart),
             9 => Pxrom::load(&mut cart),
+            11 => ColorDreams::load(&mut cart),
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
             26 => Vrc6::load(&mut cart, Vrc6Revision::B),
             34 => {
@@ -605,6 +607,7 @@ impl NesHeader {
             5 => "Mapper 005 - ExROM/MMC5",
             7 => "Mapper 007 - AxROM",
             9 => "Mapper 009 - PxROM",
+            11 => "Mapper 011 - Color Dreams",
             24 => "Mapper 024 - Vrc6a",
             26 => "Mapper 026 - Vrc6b",
             34 => "Mapper 034 - BNROM/NINA-001",
