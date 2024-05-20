@@ -1,12 +1,18 @@
 use crate::nes::config::Config;
 use anyhow::{anyhow, Context};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::{consumer::Consumer, producer::Producer, HeapRb};
+use ringbuf::{
+    producer::Producer,
+    traits::{Consumer, Observer, Split},
+    CachingCons, CachingProd, HeapRb,
+};
 use std::{fs::File, io::BufWriter, iter, path::PathBuf, sync::Arc};
 use tetanes_core::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
-type AudioRb = Arc<HeapRb<f32>>;
+type SampleRb = Arc<HeapRb<f32>>;
+type SampleProducer = CachingProd<SampleRb>;
+type SampleConsumer = CachingCons<SampleRb>;
 
 /// Represents the state of the audio stream.
 #[derive(Debug)]
@@ -130,7 +136,7 @@ impl Audio {
             .and_then(|output| output.mixer.as_ref())
             .map_or(Duration::default(), |mixer| {
                 let queued_seconds =
-                    mixer.producer.len() as f32 / self.sample_rate / mixer.channels as f32;
+                    mixer.producer.occupied_len() as f32 / self.sample_rate / mixer.channels as f32;
                 Duration::from_secs_f32(queued_seconds)
             })
     }
@@ -408,7 +414,7 @@ pub(crate) struct Mixer {
     channels: u16,
     sample_rate: u32,
     sample_latency: usize,
-    producer: Producer<f32, AudioRb>,
+    producer: SampleProducer,
     processed_samples: Vec<f32>,
     recording: Option<(PathBuf, hound::WavWriter<BufWriter<File>>)>,
 }
@@ -420,7 +426,7 @@ impl std::fmt::Debug for Mixer {
             .field("channels", &self.channels)
             .field("sample_rate", &self.sample_rate)
             .field("sample_latency", &self.sample_latency)
-            .field("queued_len", &self.producer.len())
+            .field("queued_len", &self.producer.occupied_len())
             .field("processed_len", &self.processed_samples.len())
             .field("recording", &self.recording.is_some())
             .finish_non_exhaustive()
@@ -538,7 +544,7 @@ impl Mixer {
     fn make_stream<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
-        mut consumer: Consumer<f32, AudioRb>,
+        mut consumer: SampleConsumer,
     ) -> anyhow::Result<cpal::Stream>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
@@ -549,8 +555,12 @@ impl Mixer {
                 #[cfg(feature = "profiling")]
                 puffin::profile_scope!("audio callback");
 
-                if consumer.len() < out.len() {
-                    trace!("audio underrun: {} < {}", consumer.len(), out.len());
+                if consumer.occupied_len() < out.len() {
+                    trace!(
+                        "audio underrun: {} < {}",
+                        consumer.occupied_len(),
+                        out.len()
+                    );
                 }
 
                 for (sample, value) in out
@@ -585,13 +595,13 @@ impl Mixer {
             }
         }
         let processed_len = self.processed_samples.len();
-        let len = self.producer.free_len().min(processed_len);
+        let len = self.producer.vacant_len().min(processed_len);
         let queued_len = self
             .producer
             .push_iter(&mut self.processed_samples.drain(..len));
         trace!(
             "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
-            self.producer.len()
+            self.producer.occupied_len()
         );
     }
 }
