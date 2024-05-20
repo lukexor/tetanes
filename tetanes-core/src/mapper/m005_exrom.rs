@@ -12,8 +12,8 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::{bus::PpuAddr, Mirroring, Ppu},
 };
 use bitflags::bitflags;
@@ -279,9 +279,9 @@ pub struct Exrom {
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
     pub ex_ram: Vec<u8>,
-    pub prg_ram_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
-    pub chr_banks: MemBanks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
+    pub chr_banks: Banks,
     pub tile_cache: u16,
     pub last_chr_write: ChrBank,
     pub region: NesRegion,
@@ -338,7 +338,7 @@ impl Exrom {
     //     4, 4, 6, 6, 4, 4, 6, 6,
     // ];
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
 
         let mut exrom = Self {
@@ -361,9 +361,9 @@ impl Exrom {
             // Cart provides an `add_ex_ram` method used by the PpuBus, but during reads from the
             // PpuBus we need access to it for bank selection so we need to store it here instead.
             ex_ram: vec![0x00; Self::EXRAM_SIZE],
-            prg_ram_banks: MemBanks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
+            prg_ram_banks: Banks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
             tile_cache: 0,
             last_chr_write: ChrBank::Spr,
             region: cart.region(),
@@ -376,7 +376,7 @@ impl Exrom {
         };
         exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | Self::ROM_SELECT_MASK;
         exrom.update_prg_banks();
-        exrom.into()
+        Ok(exrom.into())
     }
 
     //              $6000   $8000   $A000   $C000   $E000

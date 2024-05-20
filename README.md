@@ -220,14 +220,18 @@ Support for the following mappers is currently implemented or in development:
 | 007 | AxROM                | Battletoads, Marble Madness               | ~75                    | ~3%                    |
 | 009 | PxROM/MMC2           | Punch Out!!                               | 1                      | &lt;0.01%              |
 | 010 | FxROM/MMC4           | Fire Emblem Gaiden                        | 3                      | &lt;0.01%              |
-| 011 | Color Dreams         | Crystal Mines, Metal Fighter              | 34                     | ~1%                    |
+| 011 | Color Dreams         | Crystal Mines, Metal Fighter              | 15                     | ~1%                    |
+| 016 | Bandai FCG           | Dragon Ball: Daimaou Fukkatsu             | 14                     | ~1%                    |
 | 024 | VRC6a                | Akumajou Densetsu                         | 1                      | &lt;0.01%              |
 | 026 | VRC6b                | Madara, Esper Dream 2                     | 2                      | &lt;0.01%              |
 | 034 | BNROM/NINA-001       | Deadly Towers, Impossible Mission II      | 3                      | &lt;0.01%              |
 | 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
+| 153 | Bandai FCG           | Famicom Jump II: Saikyou no 7-nin         | 1                      | &lt;0.01%              |
+| 157 | Bandai FCG           | SD Gundam Wars                            | 7                      | &lt;0.01%              |
 | 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
-|     |                      |                                           | ~2128 / 2447           | ~87.0%                 |
+| 159 | Bandai FCG           | Dragon Ball Z: Kyoushuu! Saiya-jin        | 4                      | &lt;0.01%              |
+|     |                      |                                           | ~2155 / 2447           | ~88.0%                 |
 
 <!-- markdownlint-enable line-length -->
 

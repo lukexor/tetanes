@@ -6,8 +6,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -41,9 +41,9 @@ pub struct Sxrom {
     pub mirroring: Mirroring,
     pub revision: Revision,
     pub chr_select: bool,
-    pub chr_banks: MemBanks,
-    pub prg_ram_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Sxrom {
@@ -63,7 +63,7 @@ impl Sxrom {
     const PRG_BANK_MASK: u8 = 0x0F;
     const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 
-    pub fn load(cart: &mut Cart, revision: Revision) -> Mapper {
+    pub fn load(cart: &mut Cart, revision: Revision) -> Result<Mapper, mapper::Error> {
         if !cart.has_prg_ram() {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
@@ -88,12 +88,12 @@ impl Sxrom {
             mirroring: Mirroring::SingleScreenA,
             revision,
             chr_select: cart.prg_rom.len() == 0x80000,
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
-            prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW)?,
+            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
         };
         sxrom.update_banks(0x0000);
-        sxrom.into()
+        Ok(sxrom.into())
     }
 
     pub fn update_banks(&mut self, addr: u16) {
@@ -143,9 +143,9 @@ impl Sxrom {
                     self.prg_rom_banks.set(1, bank_select | prg_bank);
                 }
                 3 => {
-                    let last = self.prg_rom_banks.last();
                     self.prg_rom_banks.set(0, bank_select | prg_bank);
-                    self.prg_rom_banks.set(1, bank_select | last);
+                    self.prg_rom_banks
+                        .set(1, bank_select | self.prg_rom_banks.last());
                 }
                 _ => unreachable!("impossible prg mode"),
             }

@@ -110,7 +110,7 @@ impl Cpu {
     ///
     /// ASL, ROL, LSR, ROR
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- -----------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -124,7 +124,7 @@ impl Cpu {
     ///
     /// No additional data is required, but the default target will be the accumulator.
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- -----------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -138,7 +138,7 @@ impl Cpu {
     ///
     /// Uses the next byte as the value, so we'll update the `abs_addr` to the next byte.
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- ------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -158,7 +158,7 @@ impl Cpu {
     ///
     /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- ------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -170,7 +170,7 @@ impl Cpu {
     ///
     /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- ------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -185,7 +185,7 @@ impl Cpu {
     ///
     /// STA, STX, STY, SAX
     ///
-    /// ```
+    /// ```text
     ///    #  address R/W description
     ///   --- ------- --- ------------------------------------------
     ///    1    PC     R  fetch opcode, increment PC
@@ -204,7 +204,7 @@ impl Cpu {
     ///
     /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -220,7 +220,7 @@ impl Cpu {
     ///
     /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ---------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -239,7 +239,7 @@ impl Cpu {
     ///
     /// STA, STX, STY, SAX
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- -------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -264,7 +264,7 @@ impl Cpu {
     ///
     /// LDX, LAX
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -280,7 +280,7 @@ impl Cpu {
     ///
     /// STX, SAX
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- -------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -308,7 +308,7 @@ impl Cpu {
     /// The opcode fetch of the next instruction is included to this diagram for illustration
     /// purposes. When determining real execution times, remember to subtract the last cycle.
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ---------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -339,7 +339,7 @@ impl Cpu {
     ///
     /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- ------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -352,7 +352,7 @@ impl Cpu {
     ///
     /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- ------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -368,7 +368,7 @@ impl Cpu {
     ///
     /// STA, STX, STY, SAX
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- ------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -389,7 +389,7 @@ impl Cpu {
     ///
     /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, LAE, SHS, NOP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -411,7 +411,7 @@ impl Cpu {
     ///
     /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     /// #   address  R/W description
     /// -- --------- --- ------------------------------------------
     /// 1    PC       R  fetch opcode, increment PC
@@ -434,7 +434,7 @@ impl Cpu {
     ///
     /// STA, STX, STY, SHA, SHX, SHY
     ///
-    /// ```
+    /// ```text
     /// #   address  R/W description
     /// -- --------- --- ------------------------------------------
     /// 1     PC      R  fetch opcode, increment PC
@@ -467,7 +467,7 @@ impl Cpu {
     ///
     /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, LAE, SHS, NOP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -489,7 +489,7 @@ impl Cpu {
     ///
     /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1    PC       R  fetch opcode, increment PC
@@ -512,7 +512,7 @@ impl Cpu {
     ///
     /// STA, STX, STY, SHA, SHX, SHY
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -547,7 +547,7 @@ impl Cpu {
     ///
     /// JMP
     ///
-    /// ```
+    /// ```text
     ///  #   address  R/W description
     /// --- --------- --- ------------------------------------------
     ///  1     PC      R  fetch opcode, increment PC
@@ -581,7 +581,7 @@ impl Cpu {
     ///
     /// LDA, ORA, EOR, AND, ADC, CMP, SBC, LAX
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -599,7 +599,7 @@ impl Cpu {
     ///
     /// SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -620,7 +620,7 @@ impl Cpu {
     ///
     /// STA, SAX
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -649,7 +649,7 @@ impl Cpu {
     ///
     /// LDA, EOR, AND, ORA, ADC, SBC, CMP
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -673,7 +673,7 @@ impl Cpu {
     ///
     /// SLO, SRE, RLA, RRA, ISB, DCP
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -698,7 +698,7 @@ impl Cpu {
     ///
     /// STA, SHA
     ///
-    /// ```
+    /// ```text
     ///  #    address   R/W description
     /// --- ----------- --- ------------------------------------------
     ///  1      PC       R  fetch opcode, increment PC
@@ -1034,7 +1034,7 @@ impl Cpu {
 
     /// JMP: Jump to Location
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -------------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1048,7 +1048,7 @@ impl Cpu {
 
     /// JSR: Jump to Location Save Return addr
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -------------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1067,7 +1067,7 @@ impl Cpu {
 
     /// RTI: Return from Interrupt
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1087,7 +1087,7 @@ impl Cpu {
 
     /// RTS: Return from Subroutine
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1171,7 +1171,7 @@ impl Cpu {
 
     /// PHP: Push Processor Status on Stack
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1185,7 +1185,7 @@ impl Cpu {
 
     /// PLP: Pull Processor Status from Stack
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1200,7 +1200,7 @@ impl Cpu {
 
     /// PHA: Push A on Stack
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1213,7 +1213,7 @@ impl Cpu {
 
     /// PLA: Pull A from Stack
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC
@@ -1231,7 +1231,7 @@ impl Cpu {
 
     /// BRK: Force Break Interrupt
     ///
-    /// ```
+    /// ```text
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch opcode, increment PC

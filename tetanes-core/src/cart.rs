@@ -4,9 +4,9 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, Bf909x, Bnrom,
-        Cnrom, ColorDreams, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom,
-        Uxrom, Vrc6,
+        self, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG,
+        Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom,
+        Sxrom, Txrom, Uxrom, Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -34,6 +34,8 @@ pub enum Error {
         value: u8,
         message: String,
     },
+    #[error("mapper: {0}")]
+    InvalidMapper(#[from] mapper::Error),
     #[error("{context}: {source:?}")]
     Io {
         context: String,
@@ -58,7 +60,6 @@ pub struct GameRegion {
 }
 
 /// An NES cartridge.
-#[derive(Default)]
 #[must_use]
 pub struct Cart {
     name: String,
@@ -71,6 +72,12 @@ pub struct Cart {
     pub(crate) prg_rom: Vec<u8>, // Program ROM
     pub(crate) prg_ram: Vec<u8>, // Program RAM
     pub(crate) ex_ram: Vec<u8>,  // Internal Extra RAM
+}
+
+impl Default for Cart {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl Cart {
@@ -87,7 +94,7 @@ impl Cart {
             prg_ram: vec![],
             ex_ram: vec![],
         };
-        empty.mapper = Nrom::load(&mut empty);
+        empty.mapper = Nrom::load(&mut empty).expect("valid empty mapper");
         empty
     }
 
@@ -119,6 +126,7 @@ impl Cart {
     {
         let name = name.to_string();
         let header = NesHeader::load(&mut rom_data)?;
+        debug!("{header:?}");
 
         let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
         let mut prg_rom = vec![0x00; prg_rom_len];
@@ -188,29 +196,30 @@ impl Cart {
             ex_ram: vec![],
         };
         cart.mapper = match cart.header.mapper_num {
-            0 => Nrom::load(&mut cart),
-            1 => Sxrom::load(&mut cart, Mmc1Revision::BC),
-            2 => Uxrom::load(&mut cart),
-            3 => Cnrom::load(&mut cart),
-            4 => Txrom::load(&mut cart),
-            5 => Exrom::load(&mut cart),
-            7 => Axrom::load(&mut cart),
-            9 => Pxrom::load(&mut cart),
-            10 => Fxrom::load(&mut cart),
-            11 => ColorDreams::load(&mut cart),
-            24 => Vrc6::load(&mut cart, Vrc6Revision::A),
-            26 => Vrc6::load(&mut cart, Vrc6Revision::B),
+            0 => Nrom::load(&mut cart)?,
+            1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
+            2 => Uxrom::load(&mut cart)?,
+            3 => Cnrom::load(&mut cart)?,
+            4 => Txrom::load(&mut cart)?,
+            5 => Exrom::load(&mut cart)?,
+            7 => Axrom::load(&mut cart)?,
+            9 => Pxrom::load(&mut cart)?,
+            10 => Fxrom::load(&mut cart)?,
+            11 => ColorDreams::load(&mut cart)?,
+            16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart)?,
+            24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
+            26 => Vrc6::load(&mut cart, Vrc6Revision::B)?,
             34 => {
                 // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
                 if cart.has_chr_rom() && cart.chr_rom.len() >= 0x4000 {
-                    Nina001::load(&mut cart)
+                    Nina001::load(&mut cart)?
                 } else {
-                    Bnrom::load(&mut cart)
+                    Bnrom::load(&mut cart)?
                 }
             }
-            66 => Gxrom::load(&mut cart),
-            71 => Bf909x::load(&mut cart),
-            155 => Sxrom::load(&mut cart, Mmc1Revision::A),
+            66 => Gxrom::load(&mut cart)?,
+            71 => Bf909x::load(&mut cart)?,
+            155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };
 

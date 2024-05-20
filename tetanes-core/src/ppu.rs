@@ -1351,7 +1351,7 @@ mod tests {
     fn vram_vertical_mirror() {
         let mut ppu = Ppu::default();
         let mut cart = Cart::default();
-        let mut mapper = Sxrom::load(&mut cart, Mmc1Revision::BC);
+        let mut mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
         mapper.set_mirroring(Mirroring::Vertical);
         ppu.load_mapper(mapper);
 
