@@ -308,6 +308,9 @@ impl Running {
             Event::MemoryWarning => {
                 self.renderer
                     .add_message(MessageType::Warn, "Your system memory is running low...");
+                if self.cfg.emulation.rewind {
+                    self.nes_event(ConfigEvent::RewindEnabled(false));
+                }
             }
             Event::AboutToWait => {
                 self.gamepads.update_events();

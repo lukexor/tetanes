@@ -48,6 +48,9 @@ impl Rewind {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+        if !enabled {
+            self.clear();
+        }
     }
 
     pub fn set_seconds(&mut self, seconds: u32) {

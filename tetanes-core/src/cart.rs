@@ -138,7 +138,7 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let mut prg_ram = RamState::filled(prg_ram_size, ram_state);
+        let prg_ram = RamState::filled(prg_ram_size, ram_state);
 
         let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         let mut chr_ram = vec![];
