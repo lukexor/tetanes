@@ -326,18 +326,6 @@ impl Running {
                 }
 
                 self.emulation.clock_frame();
-
-                // Event loop timing isn't great on web, so try to clock as fast as possible by
-                // requesting a redraw every time which will wake up the event loop, and then
-                // trigger AboutToWait again.
-                #[cfg(target_arch = "wasm32")]
-                if let Some(window) = self
-                    .renderer
-                    .root_window_id()
-                    .and_then(|window_id| self.renderer.window(window_id))
-                {
-                    window.request_redraw();
-                }
             }
             Event::WindowEvent {
                 window_id, event, ..
