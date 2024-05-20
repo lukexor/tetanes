@@ -69,7 +69,7 @@ impl std::fmt::Display for MapperRevision {
 #[allow(clippy::large_enum_variant)]
 #[must_use]
 pub enum Mapper {
-    Empty,
+    None,
     Nrom,
     Sxrom,
     Uxrom,
@@ -87,7 +87,11 @@ pub enum Mapper {
 
 impl Mapper {
     pub fn none() -> Self {
-        Empty.into()
+        None.into()
+    }
+
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None(_))
     }
 }
 
@@ -150,10 +154,10 @@ pub trait Mapped {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Empty;
+pub struct None;
 
-impl MemMap for Empty {}
-impl Mapped for Empty {}
-impl Clock for Empty {}
-impl Regional for Empty {}
-impl Reset for Empty {}
+impl MemMap for None {}
+impl Mapped for None {}
+impl Clock for None {}
+impl Regional for None {}
+impl Reset for None {}
