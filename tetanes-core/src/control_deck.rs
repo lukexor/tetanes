@@ -52,6 +52,8 @@ pub enum Error {
     /// Invalid file path.
     #[error("invalid file path {0:?}")]
     InvalidFilePath(PathBuf),
+    #[error("unimplemented mapper `{0}`")]
+    UnimplementedMapper(u16),
     /// Filesystem error.
     #[error(transparent)]
     Fs(#[from] fs::Error),
@@ -283,6 +285,9 @@ impl ControlDeck {
         let name = name.to_string();
         self.unload_rom()?;
         let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
+        if cart.mapper.is_none() {
+            return Err(Error::UnimplementedMapper(cart.mapper_num()));
+        }
         let loaded_rom = LoadedRom {
             name: name.clone(),
             battery_backed: cart.battery_backed(),

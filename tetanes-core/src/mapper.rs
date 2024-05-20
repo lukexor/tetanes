@@ -17,6 +17,7 @@ pub use m004_txrom::{Revision as Mmc3Revision, Txrom};
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
+pub use m010_fxrom::Fxrom;
 pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
 pub use m034_nina001::Nina001;
@@ -31,6 +32,7 @@ pub mod m004_txrom;
 pub mod m005_exrom;
 pub mod m007_axrom;
 pub mod m009_pxrom;
+pub mod m010_fxrom;
 pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
 pub mod m034_nina001;
@@ -69,7 +71,7 @@ impl std::fmt::Display for MapperRevision {
 #[allow(clippy::large_enum_variant)]
 #[must_use]
 pub enum Mapper {
-    Empty,
+    None,
     Nrom,
     Sxrom,
     Uxrom,
@@ -78,6 +80,7 @@ pub enum Mapper {
     Exrom,
     Axrom,
     Pxrom,
+    Fxrom,
     Vrc6,
     Bnrom,
     Nina001,
@@ -87,7 +90,11 @@ pub enum Mapper {
 
 impl Mapper {
     pub fn none() -> Self {
-        Empty.into()
+        None.into()
+    }
+
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None(_))
     }
 }
 
@@ -150,10 +157,10 @@ pub trait Mapped {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Empty;
+pub struct None;
 
-impl MemMap for Empty {}
-impl Mapped for Empty {}
-impl Clock for Empty {}
-impl Regional for Empty {}
-impl Reset for Empty {}
+impl MemMap for None {}
+impl Mapped for None {}
+impl Clock for None {}
+impl Regional for None {}
+impl Reset for None {}

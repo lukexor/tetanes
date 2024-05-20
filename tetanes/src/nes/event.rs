@@ -55,6 +55,7 @@ pub enum UiEvent {
     Message((MessageType, String)),
     LoadRomDialog,
     LoadReplayDialog,
+    FileDialogCancelled,
     Terminate,
 }
 
@@ -325,18 +326,6 @@ impl Running {
                 }
 
                 self.emulation.clock_frame();
-
-                // Event loop timing isn't great on web, so try to clock as fast as possible by
-                // requesting a redraw every time which will wake up the event loop, and then
-                // trigger AboutToWait again.
-                #[cfg(target_arch = "wasm32")]
-                if let Some(window) = self
-                    .renderer
-                    .root_window_id()
-                    .and_then(|window_id| self.renderer.window(window_id))
-                {
-                    window.request_redraw();
-                }
             }
             Event::WindowEvent {
                 window_id, event, ..
@@ -489,6 +478,12 @@ impl Running {
                     }
                 }
             }
+            UiEvent::FileDialogCancelled => {
+                if self.renderer.rom_loaded() {
+                    self.paused = false;
+                    self.nes_event(EmulationEvent::Pause(self.paused));
+                }
+            }
             UiEvent::Terminate => (),
         }
     }
@@ -625,11 +620,14 @@ impl Running {
                         }
                     }
                     Ui::LoadRom => {
-                        self.paused = true;
                         if self.renderer.rom_loaded() {
+                            self.paused = true;
                             self.nes_event(EmulationEvent::Pause(self.paused));
                         }
-                        self.nes_event(UiEvent::LoadRomDialog);
+                        // NOTE: Due to some platforms file dialogs blocking the event loop,
+                        // loading requires a round-trip in order for the above pause to
+                        // get processed.
+                        self.tx.nes_event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
                         if self.renderer.rom_loaded() {
@@ -639,10 +637,11 @@ impl Running {
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
                             self.paused = true;
-                            if self.renderer.rom_loaded() {
-                                self.nes_event(EmulationEvent::Pause(self.paused));
-                            }
-                            self.nes_event(UiEvent::LoadReplayDialog);
+                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            // NOTE: Due to some platforms file dialogs blocking the event loop,
+                            // loading requires a round-trip in order for the above pause to
+                            // get processed.
+                            self.tx.nes_event(UiEvent::LoadReplayDialog);
                         }
                     }
                 },

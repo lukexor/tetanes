@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEvent, ReplayData, UiEvent},
+        event::{EmulationEvent, NesEvent, ReplayData, SendNesEvent, UiEvent},
         rom::RomData,
         Running,
     },
@@ -8,7 +8,6 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use std::path::PathBuf;
-use tracing::error;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{js_sys::Uint8Array, window, FileReader, HtmlCanvasElement, HtmlInputElement};
 use winit::{
@@ -51,72 +50,84 @@ impl Initialize for Running {
         let document = window.document().context("valid html document")?;
 
         let on_error = |tx: &EventLoopProxy<NesEvent>, err: JsValue| {
-            if let Err(err) = tx.send_event(
-                UiEvent::Error(
-                    err.as_string()
-                        .unwrap_or_else(|| "failed to load rom".to_string()),
-                )
-                .into(),
-            ) {
-                error!("failed to send event: {err:?}");
-            }
+            tx.nes_event(UiEvent::Error(
+                err.as_string()
+                    .unwrap_or_else(|| "failed to load rom".to_string()),
+            ));
         };
 
         for input_id in [html_ids::ROM_INPUT, html_ids::REPLAY_INPUT] {
-            let on_load = Closure::<dyn FnMut(_)>::new({
+            let on_change = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |evt: web_sys::MouseEvent| match FileReader::new().and_then(|reader| {
-                    evt.current_target()
-                        .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
-                        .and_then(|input| input.files())
-                        .and_then(|files| files.item(0))
-                        .map(|file| {
-                            reader.read_as_array_buffer(&file).map(|_| {
-                                let onload = Closure::<dyn FnMut()>::new({
-                                    let reader = reader.clone();
-                                    let tx = tx.clone();
-                                    move || {
-                                        if let Err(err) = reader.result().map(|result| {
-                                            let data = Uint8Array::new(&result);
-                                            let event = match input_id {
-                                                html_ids::ROM_INPUT => EmulationEvent::LoadRom((
-                                                    file.name(),
-                                                    RomData(data.to_vec()),
-                                                )),
-                                                html_ids::REPLAY_INPUT => {
-                                                    EmulationEvent::LoadReplay((
-                                                        file.name(),
-                                                        ReplayData(data.to_vec()),
-                                                    ))
-                                                }
-                                                _ => unreachable!("unsupported input id"),
-                                            };
-                                            tx.send_event(event.into())
-                                        }) {
-                                            on_error(&tx, err);
+                move |evt: web_sys::MouseEvent| {
+                    match FileReader::new() {
+                        Ok(reader) => {
+                            let Some(file) = evt
+                                .current_target()
+                                .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
+                                .and_then(|input| input.files())
+                                .and_then(|files| files.item(0))
+                            else {
+                                tx.nes_event(UiEvent::FileDialogCancelled);
+                                return;
+                            };
+                            match reader.read_as_array_buffer(&file) {
+                                Ok(_) => {
+                                    let onload = Closure::<dyn FnMut()>::new({
+                                        let reader = reader.clone();
+                                        let tx = tx.clone();
+                                        move || match reader.result() {
+                                            Ok(result) => {
+                                                let data = Uint8Array::new(&result);
+                                                let event = match input_id {
+                                                    html_ids::ROM_INPUT => EmulationEvent::LoadRom(
+                                                        (file.name(), RomData(data.to_vec())),
+                                                    ),
+                                                    html_ids::REPLAY_INPUT => {
+                                                        EmulationEvent::LoadReplay((
+                                                            file.name(),
+                                                            ReplayData(data.to_vec()),
+                                                        ))
+                                                    }
+                                                    _ => unreachable!("unsupported input id"),
+                                                };
+                                                tx.nes_event(event);
+                                                focus_canvas();
+                                            }
+                                            Err(err) => on_error(&tx, err),
                                         }
-                                    }
-                                });
-                                reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-                                onload.forget();
-                            })
-                        })
-                        .unwrap()
-                }) {
-                    Ok(()) => focus_canvas(),
-                    Err(err) => on_error(&tx, err),
+                                    });
+                                    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                                    onload.forget();
+                                }
+                                Err(err) => on_error(&tx, err),
+                            }
+                        }
+                        Err(err) => on_error(&tx, err),
+                    };
                 }
+            });
+
+            let on_cancel = Closure::<dyn FnMut(_)>::new({
+                let tx = self.tx.clone();
+                move |_: web_sys::MouseEvent| tx.nes_event(UiEvent::FileDialogCancelled)
             });
 
             let input = document
                 .get_element_by_id(input_id)
                 .with_context(|| format!("valid {input_id} button"))?;
             if let Err(err) =
-                input.add_event_listener_with_callback("change", on_load.as_ref().unchecked_ref())
+                input.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref())
             {
                 on_error(&self.tx, err);
             }
-            on_load.forget();
+            if let Err(err) =
+                input.add_event_listener_with_callback("cancel", on_cancel.as_ref().unchecked_ref())
+            {
+                on_error(&self.tx, err);
+            }
+            on_change.forget();
+            on_cancel.forget();
         }
 
         if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {

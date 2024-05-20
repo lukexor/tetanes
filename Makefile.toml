@@ -85,7 +85,7 @@ args = ["-p", "dist"]
 description = "Build TetaNES Web"
 category = "Build"
 command = "trunk"
-args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web"]
+args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web", "--public-url", "./"]
 dependencies = ["create-dist", "add-wasm-target"]
 
 [tasks.build-all]

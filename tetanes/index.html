@@ -6,14 +6,14 @@
     <title>TetaNES Web</title>
     <link
       rel="preload"
-      href="/pixeloid-sans.ttf"
+      href="./pixeloid-sans.ttf"
       crossorigin="anonymous"
       as="font"
       type="font/ttf"
     />
     <link
       rel="preload"
-      href="/pixeloid-sans-bold.ttf"
+      href="./pixeloid-sans-bold.ttf"
       crossorigin="anonymous"
       as="font"
       type="font/ttf"
@@ -23,13 +23,13 @@
         font-family: "Pixeloid Sans";
         src:
           local("Pixeloid Sans"),
-          url("/pixeloid-sans.ttf") format("truetype");
+          url("./pixeloid-sans.ttf") format("truetype");
       }
       @font-face {
         font-family: "Pixeloid Sans Bold";
         src:
           local("Pixeloid Sans Bold"),
-          url("/pixeloid-sans-bold.ttf") format("truetype");
+          url("./pixeloid-sans-bold.ttf") format("truetype");
       }
 
       body {
@@ -144,6 +144,7 @@
       }
     </style>
 
+    <base data-trunk-public-url />
     <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />

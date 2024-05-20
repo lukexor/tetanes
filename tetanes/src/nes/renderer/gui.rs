@@ -856,15 +856,16 @@ impl Gui {
 
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
-        // NOTE: Due to some platforms file dialogs blocking the event loop,
-        // loading requires a round-trip in order for the above pause to
-        // get processed.
         let button =
             Button::new("📂 Load ROM...").shortcut_text(self.fmt_shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
+                self.paused = true;
                 self.tx.nes_event(EmulationEvent::Pause(true));
             }
+            // NOTE: Due to some platforms file dialogs blocking the event loop,
+            // loading requires a round-trip in order for the above pause to
+            // get processed.
             self.tx.nes_event(UiEvent::LoadRomDialog);
             ui.close_menu();
         }
@@ -887,9 +888,11 @@ impl Gui {
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                if self.loaded_rom.is_some() {
-                    self.tx.nes_event(EmulationEvent::Pause(true));
-                }
+                self.paused = true;
+                self.tx.nes_event(EmulationEvent::Pause(true));
+                // NOTE: Due to some platforms file dialogs blocking the event loop,
+                // loading requires a round-trip in order for the above pause to
+                // get processed.
                 self.tx.nes_event(UiEvent::LoadReplayDialog);
                 ui.close_menu();
             }
@@ -996,7 +999,8 @@ impl Gui {
             .shortcut_text(self.fmt_shortcut(UiAction::TogglePause));
             let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.tx.nes_event(EmulationEvent::Pause(!self.paused));
+                self.paused = !self.paused;
+                self.tx.nes_event(EmulationEvent::Pause(self.paused));
                 ui.close_menu();
             };
         });
@@ -1520,9 +1524,9 @@ impl Gui {
 
     fn error_bar(&mut self, ui: &mut Ui) {
         if let Some(error) = self.error.clone() {
-            ui.vertical(|ui| {
+            ui.horizontal(|ui| {
                 ui.label(RichText::new(error).color(Color32::RED));
-                if ui.button("Clear").clicked() {
+                if ui.button("").clicked() {
                     self.error = None;
                 }
             });
@@ -1757,8 +1761,13 @@ impl Gui {
             .spacing([80.0, 6.0]);
         grid.show(ui, |ui| {
             self.cycle_acurate_checkbox(ui, cfg, ShowShortcut::No);
-            ui.checkbox(&mut cfg.emulation.auto_load, "Auto-Load")
+            let res = ui.checkbox(&mut cfg.emulation.auto_load, "Auto-Load")
                 .on_hover_text("Automatically load game state from the current save slot on load.");
+            if res.changed() {
+                self.tx.nes_event(ConfigEvent::AutoLoad(
+                    cfg.emulation.auto_load,
+                ));
+            }
             ui.end_row();
 
             ui.vertical(|ui| {
@@ -1790,12 +1799,17 @@ impl Gui {
             });
 
             ui.vertical(|ui| {
-                ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
+                let res = ui.checkbox(&mut cfg.emulation.auto_save, "Auto-Save")
                     .on_hover_text(concat!(
                         "Automatically save game state to the current save slot ",
                         "on exit or unloading and an optional interval. ",
                         "Setting to 0 will disable saving on an interval.",
                     ));
+                if res.changed() {
+                    self.tx.nes_event(ConfigEvent::AutoSave(
+                        cfg.emulation.auto_save,
+                    ));
+                }
 
                 ui.add_enabled_ui(cfg.emulation.auto_save, |ui| {
                     ui.indent("auto_save_settings", |ui| {
