@@ -4,9 +4,9 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, Bf909x, Bnrom,
-        Cnrom, ColorDreams, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom,
-        Uxrom, Vrc6,
+        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG, Bf909x,
+        Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom,
+        Txrom, Uxrom, Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -198,6 +198,7 @@ impl Cart {
             9 => Pxrom::load(&mut cart),
             10 => Fxrom::load(&mut cart),
             11 => ColorDreams::load(&mut cart),
+            16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart),
             24 => Vrc6::load(&mut cart, Vrc6Revision::A),
             26 => Vrc6::load(&mut cart, Vrc6Revision::B),
             34 => {

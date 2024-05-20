@@ -9,6 +9,7 @@ use crate::{
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 
+pub use bandai_fcg::BandaiFCG; // m016, m153, m157, m159
 pub use m000_nrom::Nrom;
 pub use m001_sxrom::{Revision as Mmc1Revision, Sxrom};
 pub use m002_uxrom::Uxrom;
@@ -25,6 +26,7 @@ pub use m034_nina001::Nina001;
 pub use m066_gxrom::Gxrom;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 
+pub mod bandai_fcg;
 pub mod m000_nrom;
 pub mod m001_sxrom;
 pub mod m002_uxrom;
@@ -84,6 +86,7 @@ pub enum Mapper {
     Pxrom,
     Fxrom,
     ColorDreams,
+    BandaiFCG,
     Vrc6,
     Bnrom,
     Nina001,
