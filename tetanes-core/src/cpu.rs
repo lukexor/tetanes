@@ -218,90 +218,90 @@ impl Cpu {
     #[inline]
     #[must_use]
     pub fn nmi_pending() -> bool {
-        NMI.with(|nmi| nmi.get())
+        NMI.get()
     }
 
     #[inline]
     pub fn set_nmi() {
-        NMI.with(|nmi| nmi.set(true));
+        NMI.set(true);
     }
 
     #[inline]
     pub fn clear_nmi() {
-        NMI.with(|nmi| nmi.set(false));
+        NMI.set(false);
     }
 
     #[inline]
     pub fn irqs() -> Irq {
-        IRQS.with(|irqs| irqs.get())
+        IRQS.get()
     }
 
     #[inline]
     #[must_use]
     pub fn has_irq(irq: Irq) -> bool {
-        IRQS.with(|irqs| irqs.get().contains(irq))
+        IRQS.get().contains(irq)
     }
 
     #[inline]
     pub fn set_irq(irq: Irq) {
-        IRQS.with(|irqs| irqs.set(irqs.get() | irq));
+        IRQS.set(IRQS.get() | irq);
     }
 
     #[inline]
     pub fn clear_irq(irq: Irq) {
-        IRQS.with(|irqs| irqs.set(irqs.get() & !irq));
+        IRQS.set(IRQS.get() & !irq);
     }
 
     #[inline]
     pub fn start_dmc_dma() {
-        DMAS.with(|dmas| dmas.set(dmas.get() | Dma::DMC));
-        DMA_HALT.with(|dma_halt| dma_halt.set(true));
-        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.set(true));
+        DMAS.set(DMAS.get() | Dma::DMC);
+        DMA_HALT.set(true);
+        DMA_DUMMY_READ.set(true);
     }
 
     #[inline]
     pub fn start_oam_dma(addr: u16) {
-        DMAS.with(|dmas| dmas.set(dmas.get() | Dma::OAM));
-        DMA_HALT.with(|dma_halt| dma_halt.set(true));
-        DMA_OAM_ADDR.with(|dma_oam_addr| dma_oam_addr.set(addr));
+        DMAS.set(DMAS.get() | Dma::OAM);
+        DMA_HALT.set(true);
+        DMA_OAM_ADDR.set(addr);
     }
 
     #[inline]
     #[must_use]
     pub fn halt_for_dma() -> bool {
-        DMA_HALT.with(|dma_halt| dma_halt.get())
+        DMA_HALT.get()
     }
 
     #[inline]
     pub fn dma_oam_addr() -> u16 {
-        DMA_OAM_ADDR.with(|dma_oam_addr| dma_oam_addr.get())
+        DMA_OAM_ADDR.get()
     }
 
     #[inline]
     #[must_use]
     pub fn dmas_running() -> Option<(bool, bool)> {
-        let dmas = DMAS.with(|dmas| dmas.get());
+        let dmas = DMAS.get();
         (!dmas.is_empty()).then_some((dmas.contains(Dma::DMC), dmas.contains(Dma::OAM)))
     }
 
     #[inline]
     pub fn clear_dma(dma: Dma) {
-        DMAS.with(|dmas| dmas.set(dmas.get() & !dma));
+        DMAS.set(DMAS.get() & !dma);
     }
 
     #[inline]
     pub fn clear_dma_halt() {
-        DMA_HALT.with(|dma_halt| dma_halt.set(false));
+        DMA_HALT.set(false);
     }
 
     #[inline]
     pub fn dma_dummy_read() -> bool {
-        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.get())
+        DMA_DUMMY_READ.get()
     }
 
     #[inline]
     pub fn clear_dma_dummy_read() {
-        DMA_DUMMY_READ.with(|dma_dummy_read| dma_dummy_read.set(false));
+        DMA_DUMMY_READ.set(false);
     }
 
     /// Process an interrupted request.

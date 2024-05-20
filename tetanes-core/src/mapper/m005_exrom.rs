@@ -10,7 +10,7 @@ use crate::{
         PULSE_TABLE, TND_TABLE,
     },
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
@@ -205,7 +205,7 @@ impl VSplit {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct ExRegs {
+pub struct Regs {
     pub prg_mode: PrgMode,                   // $5100
     pub chr_mode: ChrMode,                   // $5101
     pub prg_ram_protect: [u8; 2],            // $5102 - $5103
@@ -223,13 +223,13 @@ pub struct ExRegs {
     pub mult_result: u16,                    // $5205: read lo, $5206: read hi
 }
 
-impl Default for ExRegs {
+impl Default for Regs {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ExRegs {
+impl Regs {
     pub const fn new() -> Self {
         Self {
             prg_mode: PrgMode::Bank8k,
@@ -274,7 +274,7 @@ pub struct PpuStatus {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
-    pub regs: ExRegs,
+    pub regs: Regs,
     pub mirroring: Mirroring,
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
@@ -342,7 +342,7 @@ impl Exrom {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
 
         let mut exrom = Self {
-            regs: ExRegs::new(),
+            regs: Regs::new(),
             mirroring: cart.mirroring(),
             irq_state: IrqState {
                 in_frame: false,
@@ -1058,6 +1058,8 @@ impl Reset for Exrom {
         self.regs.chr_mode = ChrMode::Bank1k;
     }
 }
+
+impl Sram for Exrom {}
 
 impl std::fmt::Debug for Exrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

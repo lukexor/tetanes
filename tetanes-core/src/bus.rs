@@ -5,8 +5,9 @@
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
-    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::Cpu,
+    fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
@@ -14,7 +15,7 @@ use crate::{
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 /// NES Bus
 ///
@@ -72,8 +73,6 @@ impl Bus {
     const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
 
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
-        let mut wram = vec![0x00; Self::WRAM_SIZE];
-        RamState::fill(&mut wram, ram_state);
         Self {
             apu: Apu::new(region),
             genie_codes: HashMap::new(),
@@ -85,7 +84,7 @@ impl Bus {
             prg_rom: vec![],
             ram_state,
             region,
-            wram,
+            wram: RamState::filled(Self::WRAM_SIZE, ram_state),
         }
     }
 
@@ -302,6 +301,18 @@ impl Reset for Bus {
         }
         self.ppu.reset(kind);
         self.apu.reset(kind);
+    }
+}
+
+impl Sram for Bus {
+    fn save(&self, dir: impl AsRef<Path>) -> fs::Result<()> {
+        fs::save(dir.as_ref().with_extension(".sram"), self.sram())?;
+        self.ppu.bus.mapper.save(dir)
+    }
+
+    fn load(&mut self, dir: impl AsRef<Path>) -> fs::Result<()> {
+        fs::load(dir.as_ref().with_extension(".sram")).map(|data| self.load_sram(data))?;
+        self.ppu.bus.mapper.load(dir)
     }
 }
 

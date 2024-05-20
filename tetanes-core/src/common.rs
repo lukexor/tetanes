@@ -122,10 +122,10 @@ impl TryFrom<usize> for NesRegion {
 /// Trait for types that have different behavior depending on NES region.
 #[enum_dispatch(Mapper)]
 pub trait Regional {
-    fn region(&self) -> NesRegion {
-        NesRegion::Ntsc
+    fn region(&self) -> crate::common::NesRegion {
+        crate::common::NesRegion::Ntsc
     }
-    fn set_region(&mut self, _region: NesRegion) {}
+    fn set_region(&mut self, _region: crate::common::NesRegion) {}
 }
 
 /// Type of reset for types that have different behavior for reset vs power cycling.
@@ -139,7 +139,7 @@ pub enum ResetKind {
 /// Trait for types that can can be reset.
 #[enum_dispatch(Mapper)]
 pub trait Reset {
-    fn reset(&mut self, _kind: ResetKind) {}
+    fn reset(&mut self, _kind: crate::common::ResetKind) {}
 }
 
 /// Trait for types that can clock a single cycle.
@@ -160,6 +160,18 @@ pub trait ClockTo {
 /// Trait for types that can output `f32` audio samples.
 pub trait Sample {
     fn output(&self) -> f32;
+}
+
+/// Trait for types that can save RAM to disk.
+#[enum_dispatch(Mapper)]
+pub trait Sram {
+    fn save(&self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
+        Ok(())
+    }
+
+    fn load(&mut self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
+        Ok(())
+    }
 }
 
 /// Prints a hex dump of a given byte array starting at `addr_offset`.

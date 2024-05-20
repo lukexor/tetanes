@@ -138,8 +138,7 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let mut prg_ram = vec![0x00; prg_ram_size];
-        RamState::fill(&mut prg_ram, ram_state);
+        let mut prg_ram = RamState::filled(prg_ram_size, ram_state);
 
         let mut chr_rom = vec![0x00; (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE];
         let mut chr_ram = vec![];
@@ -258,6 +257,19 @@ impl Cart {
     #[must_use]
     pub fn has_prg_ram(&self) -> bool {
         !self.prg_ram.is_empty()
+    }
+
+    #[must_use]
+    pub const fn is_ines(&self) -> bool {
+        matches!(
+            self.header.variant,
+            NesVariant::ArchaicINes | NesVariant::INes07 | NesVariant::INes
+        )
+    }
+
+    #[must_use]
+    pub const fn is_nes2(&self) -> bool {
+        matches!(self.header.variant, NesVariant::Nes2)
     }
 
     /// Returns whether this cartridge has battery-backed Save RAM.

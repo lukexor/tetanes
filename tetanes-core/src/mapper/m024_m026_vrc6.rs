@@ -5,7 +5,7 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sample},
+    common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     mapper::{vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -24,7 +24,7 @@ pub enum Revision {
 
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Vrc6Regs {
+pub struct Regs {
     pub banking_mode: u8,
     pub prg: [usize; 4],
     pub chr: [usize; 8],
@@ -33,7 +33,7 @@ pub struct Vrc6Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
-    pub regs: Vrc6Regs,
+    pub regs: Regs,
     pub revision: Revision,
     pub mirroring: Mirroring,
     pub irq: VrcIrq,
@@ -54,7 +54,7 @@ impl Vrc6 {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
         let mut vrc6 = Self {
-            regs: Vrc6Regs::default(),
+            regs: Regs::default(),
             revision,
             mirroring: cart.mirroring(),
             irq: VrcIrq::default(),
@@ -347,6 +347,7 @@ impl Reset for Vrc6 {
 }
 
 impl Regional for Vrc6 {}
+impl Sram for Vrc6 {}
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]

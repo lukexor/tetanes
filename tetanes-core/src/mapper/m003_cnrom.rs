@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -71,3 +71,4 @@ impl Mapped for Cnrom {
 impl Clock for Cnrom {}
 impl Regional for Cnrom {}
 impl Reset for Cnrom {}
+impl Sram for Cnrom {}

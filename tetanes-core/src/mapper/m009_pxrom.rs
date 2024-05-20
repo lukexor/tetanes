@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind},
+    common::{Clock, Regional, Reset, ResetKind, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
     mem::MemBanks,
 };
@@ -136,3 +136,4 @@ impl Reset for Pxrom {
 
 impl Clock for Pxrom {}
 impl Regional for Pxrom {}
+impl Sram for Pxrom {}

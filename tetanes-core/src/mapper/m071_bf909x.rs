@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -105,3 +105,4 @@ impl MemMap for Bf909x {
 impl Clock for Bf909x {}
 impl Regional for Bf909x {}
 impl Reset for Bf909x {}
+impl Sram for Bf909x {}

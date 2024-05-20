@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -77,3 +77,4 @@ impl MemMap for Nina001 {
 impl Clock for Nina001 {}
 impl Regional for Nina001 {}
 impl Reset for Nina001 {}
+impl Sram for Nina001 {}

@@ -52,7 +52,7 @@ pub enum RamState {
 
 impl RamState {
     #[must_use]
-    pub fn with_capacity(capacity: usize, state: Self) -> Vec<u8> {
+    pub fn filled(capacity: usize, state: Self) -> Vec<u8> {
         let mut ram = vec![0x00; capacity];
         Self::fill(&mut ram, state);
         ram
@@ -215,6 +215,11 @@ impl MemBanks {
         assert!(slot < self.banks.len());
         let page = self.banks[slot];
         page | (addr as usize) & (self.window - 1)
+    }
+
+    #[must_use]
+    pub const fn page_count(&self) -> usize {
+        self.page_count
     }
 }
 

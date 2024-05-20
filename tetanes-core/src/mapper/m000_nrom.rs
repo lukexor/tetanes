@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     ppu::Mirroring,
 };
@@ -78,3 +78,4 @@ impl Mapped for Nrom {
 impl Clock for Nrom {}
 impl Regional for Nrom {}
 impl Reset for Nrom {}
+impl Sram for Nrom {}

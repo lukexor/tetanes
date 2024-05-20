@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -68,3 +68,4 @@ impl MemMap for Bnrom {
 impl Clock for Bnrom {}
 impl Regional for Bnrom {}
 impl Reset for Bnrom {}
+impl Sram for Bnrom {}

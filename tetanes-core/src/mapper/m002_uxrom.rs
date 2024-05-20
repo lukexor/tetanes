@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -74,3 +74,4 @@ impl Mapped for Uxrom {
 impl Clock for Uxrom {}
 impl Regional for Uxrom {}
 impl Reset for Uxrom {}
+impl Sram for Uxrom {}

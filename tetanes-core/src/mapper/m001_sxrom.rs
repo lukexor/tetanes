@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind},
+    common::{Clock, Regional, Reset, ResetKind, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
     ppu::Mirroring,
@@ -24,7 +24,7 @@ pub enum Revision {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct SxRegs {
+pub struct Regs {
     write_just_occurred: u8,
     shift_register: u8, // $8000-$FFFF - 5 bit shift register
     control: u8,        // $8000-$9FFF
@@ -36,7 +36,7 @@ pub struct SxRegs {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sxrom {
-    pub regs: SxRegs,
+    pub regs: Regs,
     pub submapper_num: u8,
     pub mirroring: Mirroring,
     pub revision: Revision,
@@ -76,7 +76,7 @@ impl Sxrom {
             cart.chr_ram.len()
         };
         let mut sxrom = Self {
-            regs: SxRegs {
+            regs: Regs {
                 write_just_occurred: 0x00,
                 shift_register: Self::DEFAULT_SHIFT_REGISTER,
                 control: Self::DEFAULT_PRG_MODE,
@@ -297,6 +297,7 @@ impl Reset for Sxrom {
 }
 
 impl Regional for Sxrom {}
+impl Sram for Sxrom {}
 
 impl std::fmt::Debug for Sxrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -314,7 +315,7 @@ impl std::fmt::Debug for Sxrom {
     }
 }
 
-impl std::fmt::Debug for SxRegs {
+impl std::fmt::Debug for Regs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SxRegs")
             .field("write_just_occurred", &self.write_just_occurred)

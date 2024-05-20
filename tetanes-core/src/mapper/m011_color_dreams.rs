@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset},
+    common::{Clock, Regional, Reset, Sram},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
     mem::MemBanks,
 };
@@ -32,10 +32,6 @@ impl ColorDreams {
             prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
         };
         color_dreams.into()
-    }
-
-    pub fn update_banks(&mut self) {
-        todo!()
     }
 }
 
@@ -75,3 +71,4 @@ impl MemMap for ColorDreams {
 impl Clock for ColorDreams {}
 impl Regional for ColorDreams {}
 impl Reset for ColorDreams {}
+impl Sram for ColorDreams {}

@@ -3,7 +3,7 @@
 //! <http://wiki.nesdev.com/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, Regional, Reset, Sram},
     ppu::Mirroring,
 };
 use enum_dispatch::enum_dispatch;
@@ -167,3 +167,4 @@ impl Mapped for None {}
 impl Clock for None {}
 impl Regional for None {}
 impl Reset for None {}
+impl Sram for None {}

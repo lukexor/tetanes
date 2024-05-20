@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind},
+    common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::MemBanks,
@@ -44,7 +44,7 @@ pub enum Revision {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct TxRegs {
+pub struct Regs {
     pub bank_select: u8,
     pub bank_values: [u8; 8],
     pub irq_latch: u8,
@@ -54,24 +54,10 @@ pub struct TxRegs {
     pub last_clock: u16,
 }
 
-impl TxRegs {
-    pub const fn new() -> Self {
-        Self {
-            bank_select: 0x00,
-            bank_values: [0x00; 8],
-            irq_latch: 0x00,
-            irq_counter: 0x00,
-            irq_enabled: false,
-            irq_reload: false,
-            last_clock: 0x0000,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Txrom {
-    pub regs: TxRegs,
+    pub regs: Regs,
     pub mirroring: Mirroring,
     pub revision: Revision,
     pub chr_banks: MemBanks,
@@ -104,7 +90,7 @@ impl Txrom {
             cart.chr_ram.len()
         };
         let mut txrom = Self {
-            regs: TxRegs::new(),
+            regs: Regs::default(),
             mirroring: cart.mirroring(),
             revision: Revision::BC, // TODO compare to known games
             chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
@@ -306,10 +292,11 @@ impl MemMap for Txrom {
 
 impl Reset for Txrom {
     fn reset(&mut self, _kind: ResetKind) {
-        self.regs = TxRegs::new();
+        self.regs = Regs::default();
         self.update_banks();
     }
 }
 
 impl Clock for Txrom {}
 impl Regional for Txrom {}
+impl Sram for Txrom {}

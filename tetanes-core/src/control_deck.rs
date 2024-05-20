@@ -4,7 +4,7 @@ use crate::{
     apu::{Apu, Channel},
     bus::Bus,
     cart::{self, Cart},
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
     cpu::Cpu,
     fs,
     genie::{self, GenieCode},
@@ -270,10 +270,8 @@ impl ControlDeck {
     /// Returns the path to the SRAM save file for a given ROM name which is used to store
     /// battery-backed Cart RAM. Returns `None` when the current platform doesn't have a
     /// `data` directory and no custom `data_dir` was configured.
-    pub fn sram_path(&self, name: &str) -> Option<PathBuf> {
-        self.sram_dir
-            .as_ref()
-            .map(|dir| dir.join(name).with_extension("sram"))
+    pub fn sram_dir(&self, name: &str) -> Option<PathBuf> {
+        self.sram_dir.as_ref().map(|dir| dir.join(name))
     }
 
     /// Loads a ROM cartridge into memory
@@ -300,8 +298,8 @@ impl ControlDeck {
         self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
         self.running = true;
-        if let Some(path) = self.sram_path(&name) {
-            if let Err(err) = self.load_sram(path) {
+        if let Some(dir) = self.sram_dir(&name) {
+            if let Err(err) = self.load_sram(dir) {
                 error!("failed to load SRAM: {err:?}");
             }
         }
@@ -332,7 +330,7 @@ impl ControlDeck {
     /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
     pub fn unload_rom(&mut self) -> Result<()> {
         if let Some(rom) = &self.loaded_rom {
-            if let Some(dir) = self.sram_path(&rom.name) {
+            if let Some(dir) = self.sram_dir(&rom.name) {
                 if let Err(err) = self.save_sram(dir) {
                     error!("failed to save SRAM: {err:?}");
                 }
@@ -464,7 +462,7 @@ impl ControlDeck {
             }
 
             info!("saving SRAM...");
-            fs::save(path, self.cpu.bus.sram()).map_err(Error::Sram)?;
+            self.cpu.bus.save(path).map_err(Error::Sram)?;
         }
         Ok(())
     }
@@ -482,9 +480,7 @@ impl ControlDeck {
             }
             if path.is_file() {
                 info!("loading SRAM...");
-                fs::load(path)
-                    .map(|data| self.cpu.bus.load_sram(data))
-                    .map_err(Error::Sram)?;
+                self.cpu.bus.load(path).map_err(Error::Sram)?;
             }
         }
         Ok(())
