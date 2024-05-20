@@ -55,6 +55,7 @@ pub enum UiEvent {
     Message((MessageType, String)),
     LoadRomDialog,
     LoadReplayDialog,
+    FileDialogCancelled,
     Terminate,
 }
 
@@ -489,6 +490,12 @@ impl Running {
                     }
                 }
             }
+            UiEvent::FileDialogCancelled => {
+                if self.renderer.rom_loaded() {
+                    self.paused = false;
+                    self.nes_event(EmulationEvent::Pause(self.paused));
+                }
+            }
             UiEvent::Terminate => (),
         }
     }
@@ -625,11 +632,14 @@ impl Running {
                         }
                     }
                     Ui::LoadRom => {
-                        self.paused = true;
                         if self.renderer.rom_loaded() {
+                            self.paused = true;
                             self.nes_event(EmulationEvent::Pause(self.paused));
                         }
-                        self.nes_event(UiEvent::LoadRomDialog);
+                        // NOTE: Due to some platforms file dialogs blocking the event loop,
+                        // loading requires a round-trip in order for the above pause to
+                        // get processed.
+                        self.tx.nes_event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
                         if self.renderer.rom_loaded() {
@@ -639,10 +649,11 @@ impl Running {
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
                             self.paused = true;
-                            if self.renderer.rom_loaded() {
-                                self.nes_event(EmulationEvent::Pause(self.paused));
-                            }
-                            self.nes_event(UiEvent::LoadReplayDialog);
+                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            // NOTE: Due to some platforms file dialogs blocking the event loop,
+                            // loading requires a round-trip in order for the above pause to
+                            // get processed.
+                            self.tx.nes_event(UiEvent::LoadReplayDialog);
                         }
                     }
                 },

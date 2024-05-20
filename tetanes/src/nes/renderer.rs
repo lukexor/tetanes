@@ -159,13 +159,15 @@ impl Renderer {
         ctx.set_request_repaint_callback({
             let redraw_tx = redraw_tx.clone();
             move |info| {
-                redraw_tx
-                    .lock()
-                    .send_event(NesEvent::Renderer(RendererEvent::RequestRedraw {
+                // IMPORTANT: Wasm can't block
+                if let Some(tx) = redraw_tx.try_lock() {
+                    tx.nes_event(RendererEvent::RequestRedraw {
                         viewport_id: info.viewport_id,
                         when: Instant::now() + info.delay,
-                    }))
-                    .expect("sent redraw request");
+                    });
+                } else {
+                    tracing::warn!("failed to lock redraw_tx");
+                }
             }
         });
 
