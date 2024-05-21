@@ -249,7 +249,7 @@ pub(crate) mod tests {
         fmt::Write,
         fs::{self, File},
         hash::{Hash, Hasher},
-        io::BufReader,
+        io::{BufReader, Read},
         path::{Path, PathBuf},
         sync::OnceLock,
     };
@@ -307,8 +307,11 @@ pub(crate) mod tests {
         let file = PathBuf::from(directory)
             .join("tests")
             .with_extension("json");
-        let tests = File::open(&file)
-            .and_then(|file| Ok(serde_json::from_reader::<_, Vec<RomTest>>(file)?))
+        let mut content = String::with_capacity(1024);
+        File::open(&file)
+            .and_then(|mut file| file.read_to_string(&mut content))
+            .with_context(|| format!("failed to read rom test data: {file:?}"))?;
+        let tests = serde_json::from_str(&content)
             .with_context(|| format!("valid rom test data: {file:?}"))?;
         Ok((file, tests))
     }
