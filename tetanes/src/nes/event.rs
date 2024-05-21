@@ -135,6 +135,8 @@ pub enum EmulationEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
+    #[cfg(target_arch = "wasm32")]
+    BrowserResized((f32, f32)),
     FrameStats(FrameStats),
     ShowMenubar(bool),
     ScaleChanged,
@@ -332,9 +334,12 @@ impl Running {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self
-                    .renderer
-                    .on_window_event(window_id, &event, &mut self.cfg);
+                let res = self.renderer.on_window_event(
+                    window_id,
+                    &event,
+                    #[cfg(target_arch = "wasm32")]
+                    &self.cfg,
+                );
                 if res.repaint {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
@@ -398,7 +403,11 @@ impl Running {
                 if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
                     self.emulation.on_event(&event);
                 }
-                self.renderer.on_event(&event);
+                self.renderer.on_event(
+                    &event,
+                    #[cfg(target_arch = "wasm32")]
+                    &self.cfg,
+                );
 
                 match event {
                     NesEvent::Config(ConfigEvent::InputBindings) => {
@@ -498,7 +507,11 @@ impl Running {
         trace!("Nes event: {event:?}");
 
         self.emulation.on_event(&event);
-        self.renderer.on_event(&event);
+        self.renderer.on_event(
+            &event,
+            #[cfg(target_arch = "wasm32")]
+            &self.cfg,
+        );
         match event {
             NesEvent::Ui(event) => self.on_ui_event(event),
             NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {

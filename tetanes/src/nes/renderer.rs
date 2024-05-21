@@ -289,6 +289,18 @@ impl Renderer {
             .and_then(|viewport| viewport.window.clone())
     }
 
+    pub fn window_size(&self, cfg: &Config) -> Vec2 {
+        self.window_size_for_scale(cfg, cfg.renderer.scale)
+    }
+
+    pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
+        let aspect_ratio = self.gui.aspect_ratio(cfg);
+        let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
+        window_size.x *= aspect_ratio;
+        window_size.y += self.gui.menu_height;
+        window_size
+    }
+
     pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
         self.state
             .borrow()
@@ -344,7 +356,7 @@ impl Renderer {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent) {
+    pub fn on_event(&mut self, event: &NesEvent, #[cfg(target_arch = "wasm32")] cfg: &Config) {
         match event {
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
@@ -359,6 +371,22 @@ impl Renderer {
                 _ => (),
             },
             NesEvent::Renderer(event) => match event {
+                #[cfg(target_arch = "wasm32")]
+                RendererEvent::BrowserResized((browser_width, _)) => {
+                    if let Some(canvas) = crate::sys::platform::get_canvas() {
+                        let canvas_width = canvas.width() as f32;
+                        let desired_window_size = self.window_size(cfg);
+
+                        if canvas_width < desired_window_size.x
+                            && canvas_width < 0.8 * browser_width
+                        {
+                            self.ctx.send_viewport_cmd_to(
+                                ViewportId::ROOT,
+                                ViewportCommand::InnerSize(desired_window_size),
+                            );
+                        }
+                    }
+                }
                 RendererEvent::FrameStats(stats) => {
                     self.gui.frame_stats = *stats;
                 }
@@ -439,7 +467,7 @@ impl Renderer {
         &mut self,
         window_id: WindowId,
         event: &WindowEvent,
-        _cfg: &mut Config,
+        #[cfg(target_arch = "wasm32")] cfg: &Config,
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
@@ -504,26 +532,26 @@ impl Renderer {
                         if let Some(canvas) = crate::sys::platform::get_canvas() {
                             // On wasm, width is constrained by the browser
                             if !self.fullscreen() {
-                                let cfg = _cfg;
                                 let aspect_ratio = self.gui.aspect_ratio(cfg);
                                 let canvas_width = canvas.width() as f32;
 
-                                let mut desired_window_size = cfg.window_size(aspect_ratio);
-                                desired_window_size.x *= aspect_ratio;
-                                // TODO: It'd be better to preserve the users scale preference and
-                                // only temporarily restrict the size of the canvas, allowing the
-                                // user to expand the browser window and see more of the canvas if
-                                // their scale isn't at 100%. However, accounting for all the edge
-                                // cases of browser resizing, default size, while still honoring
-                                // the users preference especially when toggling the menubar or
-                                // loading a ROM from a different region is complex.
+                                let desired_window_size = self.window_size(cfg);
                                 if canvas_width < desired_window_size.x {
-                                    let scale = cfg.renderer.scale;
-                                    cfg.renderer.scale = (canvas_width as f32
-                                        / (aspect_ratio * Ppu::WIDTH as f32))
-                                        .floor();
-                                    if scale != cfg.renderer.scale {
-                                        self.tx.nes_event(RendererEvent::ScaleChanged);
+                                    let current_scale = cfg.renderer.scale;
+                                    let actual_scale =
+                                        canvas_width as f32 / (aspect_ratio * Ppu::WIDTH as f32);
+                                    if current_scale > actual_scale {
+                                        let mut window_size =
+                                            self.window_size_for_scale(cfg, actual_scale);
+                                        window_size.x = canvas_width;
+                                        self.ctx.send_viewport_cmd_to(
+                                            ViewportId::ROOT,
+                                            ViewportCommand::InnerSize(window_size),
+                                        );
+                                        self.add_message(
+                                            MessageType::Warn,
+                                            "Configured window scale exceeds browser width.",
+                                        );
                                     }
                                 }
                             }
@@ -962,11 +990,9 @@ impl Renderer {
 
         if self.gui.resize_window {
             if !self.fullscreen() {
-                let mut window_size = cfg.window_size(self.gui.aspect_ratio(cfg));
-                window_size.y += self.gui.menu_height;
                 self.ctx.send_viewport_cmd_to(
                     ViewportId::ROOT,
-                    ViewportCommand::InnerSize(window_size),
+                    ViewportCommand::InnerSize(self.window_size(cfg)),
                 );
             }
             self.gui.resize_window = false;
