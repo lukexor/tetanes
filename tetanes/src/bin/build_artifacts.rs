@@ -19,11 +19,15 @@ struct Build {
 fn main() -> io::Result<()> {
     let build = Build::new()?;
 
+    if env::args().nth(1).as_deref() == Some("web") {
+        build.make("build-web")?;
+        build.compress_web_artifacts()?;
+    }
+
     cfg_if! {
         if #[cfg(target_os = "linux")] {
-            build.make("build-all")?;
+            build.make("build")?;
             build.create_linux_artifacts()?;
-            build.compress_web_artifacts()?;
         } else if #[cfg(target_os = "macos")] {
             build.make("build")?;
             build.create_macos_app()?;
@@ -50,6 +54,8 @@ impl Build {
                 "x86_64"
             } else if cfg!(target_arch = "aarch64") {
                 "aarch64"
+            } else if cfg!(target_arch = "wasm32") {
+                "wasm32"
             } else {
                 panic!("unsupported target arch");
             },
@@ -67,7 +73,6 @@ impl Build {
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn make(&self, cmd: &'static str) -> io::Result<()> {
         // TODO: disable lto and make pgo build
         Command::new("cargo").args(["make", cmd]).spawn()?.wait()?;
@@ -214,26 +219,6 @@ impl Build {
             self.dist_dir.join(&app_image_name),
             self.dist_dir.join(app_image_sha_name),
         )?;
-
-        Ok(())
-    }
-
-    /// Compress web artifacts.
-    #[cfg(target_os = "linux")]
-    fn compress_web_artifacts(&self) -> io::Result<()> {
-        println!("compressing web artifacts...");
-
-        println!("creating tarball...");
-
-        self.tar_gz(
-            format!("{}-{}-web.tar.gz", self.bin_name, self.version),
-            self.dist_dir.join("web"),
-            ["."],
-        )?;
-
-        println!("cleaning up...");
-
-        fs::remove_dir_all(self.dist_dir.join("web"))?;
 
         Ok(())
     }
@@ -425,6 +410,23 @@ impl Build {
             self.dist_dir.join(&installer_name),
             self.dist_dir.join(sha_name),
         )?;
+
+        Ok(())
+    }
+
+    /// Compress web artifacts.
+    fn compress_web_artifacts(&self) -> io::Result<()> {
+        println!("compressing web artifacts...");
+
+        self.tar_gz(
+            format!("{}-{}-web.tar.gz", self.bin_name, self.version),
+            self.dist_dir.join("web"),
+            ["."],
+        )?;
+
+        println!("cleaning up...");
+
+        fs::remove_dir_all(self.dist_dir.join("web"))?;
 
         Ok(())
     }

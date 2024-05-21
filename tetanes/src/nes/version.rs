@@ -47,7 +47,7 @@ impl Version {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn update_available(&self) -> anyhow::Result<bool> {
+    pub const fn update_available(&self) -> anyhow::Result<bool> {
         Ok(false)
     }
 
