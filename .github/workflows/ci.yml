@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [stable, 1.78.0]
+        toolchain: [nightly]
     steps:
       - uses: actions/checkout@v4
         with:

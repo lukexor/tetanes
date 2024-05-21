@@ -19,4 +19,4 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/install@cargo-outdated
-      - run: cargo outdated --exit-code 1
+      - run: cargo outdated -e --exit-code 1
