@@ -435,7 +435,12 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> EventResponse {
+    pub fn on_window_event(
+        &mut self,
+        window_id: WindowId,
+        event: &WindowEvent,
+        _cfg: &mut Config,
+    ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         let mut state = self.state.borrow_mut();
         match event {
@@ -489,6 +494,27 @@ impl Renderer {
                             .painter
                             .borrow_mut()
                             .on_window_resized(viewport_id, width, height);
+
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(canvas) = crate::sys::platform::get_canvas() {
+                            // On wasm, width is constrained by the browser
+                            let cfg = _cfg;
+                            let window_size = cfg.window_size();
+                            let canvas_width = canvas.width() as f32;
+                            if window_size.x > canvas_width {
+                                let scale = cfg.renderer.scale;
+                                let aspect_ratio = self.gui.aspect_ratio(cfg);
+                                tracing::debug!(
+                                    "s: {scale}, w: {window_size:?}, cw: {canvas_width}"
+                                );
+                                cfg.renderer.scale = (canvas_width as f32
+                                    / (aspect_ratio * Ppu::WIDTH as f32))
+                                    .floor();
+                                if scale != cfg.renderer.scale {
+                                    self.tx.nes_event(RendererEvent::ScaleChanged);
+                                }
+                            }
+                        }
                     }
                 }
             }

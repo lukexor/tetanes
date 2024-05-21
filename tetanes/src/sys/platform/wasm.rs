@@ -170,14 +170,14 @@ mod html_ids {
     pub(super) const REPLAY_INPUT: &str = "load-replay";
 }
 
-fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
     window()
         .and_then(|win| win.document())
         .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
         .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
 }
 
-fn focus_canvas() {
+pub fn focus_canvas() {
     if let Some(canvas) = get_canvas() {
         let _ = canvas.focus();
     }

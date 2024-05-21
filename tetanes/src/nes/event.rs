@@ -99,7 +99,6 @@ pub enum ConfigEvent {
     RewindInterval(u32),
     RunAhead(usize),
     SaveSlot(u8),
-    Scale(f32),
     Speed(f32),
     VideoFilter(VideoFilter),
     ZapperConnected(bool),
@@ -333,7 +332,9 @@ impl Running {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self.renderer.on_window_event(window_id, &event);
+                let res = self
+                    .renderer
+                    .on_window_event(window_id, &event, &mut self.cfg);
                 if res.repaint {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
