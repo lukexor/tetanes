@@ -16,7 +16,6 @@ use crossbeam::channel;
 use egui::ViewportId;
 use replay::Replay;
 use std::{
-    collections::VecDeque,
     io::{self, Read},
     path::{Path, PathBuf},
     thread::JoinHandle,
@@ -27,7 +26,7 @@ use tetanes_core::{
     control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
     ppu::Ppu,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
     video::Frame,
 };
 use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
@@ -37,96 +36,41 @@ use winit::event::ElementState;
 pub(crate) mod replay;
 pub(crate) mod rewind;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub(crate) struct FrameStats {
-    pub(crate) timestamp: Instant,
-    pub(crate) fps: f32,
-    pub(crate) fps_min: f32,
-    pub(crate) frame_time: f32,
-    pub(crate) frame_time_max: f32,
-    pub(crate) frame_count: usize,
+    pub(crate) timestamp: f64,
+    pub(crate) avg: f32,
+    pub(crate) count: usize,
+    last_update: Option<Instant>,
 }
 
 impl Default for FrameStats {
     fn default() -> Self {
         Self {
-            timestamp: Instant::now(),
-            fps: 0.0,
-            fps_min: 0.0,
-            frame_time: 0.0,
-            frame_time_max: 0.0,
-            frame_count: 0,
+            timestamp: 0.0,
+            avg: 1.0 / 60.0,
+            count: 0,
+            last_update: None,
         }
     }
 }
 
 impl FrameStats {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[derive(Debug)]
-#[must_use]
-pub(crate) struct FrameTimeDiag {
-    frame_count: usize,
-    history: VecDeque<f32>,
-    sum: f32,
-    avg: f32,
-    last_update: Instant,
-}
-
-impl FrameTimeDiag {
-    const MAX_HISTORY: usize = 120;
-    const UPDATE_INTERVAL: Duration = Duration::from_millis(300);
-
-    fn new() -> Self {
-        Self {
-            frame_count: 0,
-            history: VecDeque::with_capacity(Self::MAX_HISTORY),
-            sum: 0.0,
-            avg: 1.0 / 60.0,
-            last_update: Instant::now(),
-        }
-    }
-
     fn push(&mut self, frame_time: f32) {
-        self.frame_count += 1;
+        const ALPHA: f32 = 0.1;
 
         // Ignore the first few frames to allow the average to stabilize
-        if frame_time.is_finite() && self.frame_count >= 10 {
-            if self.history.len() >= Self::MAX_HISTORY
-                && let Some(oldest) = self.history.pop_front()
-            {
-                self.sum -= oldest;
-            }
-            self.sum += frame_time;
-            self.history.push_back(frame_time);
+        self.count += 1;
+        if frame_time.is_finite() && self.count >= 10 {
+            self.avg = ALPHA * frame_time + (1.0 - ALPHA) * self.avg;
         }
     }
 
-    fn avg(&mut self) -> f32 {
-        if !self.history.is_empty() {
-            let now = Instant::now();
-            if now > self.last_update + Self::UPDATE_INTERVAL {
-                self.last_update = now;
-                self.avg = self.sum / self.history.len() as f32;
-            }
-        }
-        self.avg
-    }
-
-    fn history(&self) -> impl Iterator<Item = &f32> {
-        self.history.iter()
-    }
-
-    fn reset(&mut self) {
-        self.frame_count = 0;
-        self.history.clear();
-        self.sum = 0.0;
+    const fn reset(&mut self) {
         self.avg = 1.0 / 60.0;
-        self.last_update = Instant::now();
+        self.count = 0;
+        self.last_update = None;
     }
 }
 
@@ -263,7 +207,7 @@ pub(crate) struct State {
     last_clock_time: Instant,
     clock_time_accumulator: f32,
     last_frame_time: Instant,
-    frame_time_diag: FrameTimeDiag,
+    frame_stats: FrameStats,
     run_state: RunState,
     threaded: bool,
     rewinding: bool,
@@ -321,7 +265,7 @@ impl State {
             last_clock_time: Instant::now(),
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
-            frame_time_diag: FrameTimeDiag::new(),
+            frame_stats: FrameStats::default(),
             run_state: RunState::AutoPaused,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
@@ -469,7 +413,7 @@ impl State {
                 }
             }
             EmulationEvent::Reset(kind) => {
-                self.frame_time_diag.reset();
+                self.frame_stats.reset();
                 if self.control_deck.is_running() || self.control_deck.cpu_corrupted() {
                     self.control_deck.reset(*kind);
                     match kind {
@@ -493,8 +437,11 @@ impl State {
             }
             EmulationEvent::SaveState(slot) => self.save_state(*slot, false),
             EmulationEvent::ShowFrameStats(show) => {
-                self.frame_time_diag.reset();
+                self.frame_stats.reset();
                 self.show_frame_stats = *show;
+            }
+            EmulationEvent::ResetFrameStats => {
+                self.frame_stats.reset();
             }
             EmulationEvent::Screenshot => {
                 if self.control_deck.is_running() {
@@ -625,34 +572,35 @@ impl State {
     }
 
     fn update_frame_stats(&mut self) {
+        const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+
         if !self.show_frame_stats {
             return;
         }
 
-        self.frame_time_diag
+        self.frame_stats
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
-        let frame_time = self.frame_time_diag.avg();
-        let frame_time_max = self
-            .frame_time_diag
-            .history()
-            .fold(-f32::INFINITY, |a, b| a.max(*b));
-        let mut fps = 1.0 / frame_time;
-        let mut fps_min = 1.0 / frame_time_max;
-        if !fps.is_finite() {
-            fps = 0.0;
+
+        let now = Instant::now();
+        if self
+            .frame_stats
+            .last_update
+            .is_none_or(|last_update| now > last_update + UPDATE_INTERVAL)
+        {
+            self.frame_stats.last_update.replace(now);
+            match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(duration_since_epoch) => {
+                    self.tx.event(RendererEvent::FrameStats(FrameStats {
+                        timestamp: duration_since_epoch.as_secs_f64(),
+                        avg: self.frame_stats.avg,
+                        count: self.frame_stats.count,
+                        last_update: None,
+                    }));
+                }
+                Err(err) => error!("failed to get duration since epoch: {err:?}"),
+            }
         }
-        if !fps_min.is_finite() {
-            fps_min = 0.0;
-        }
-        self.tx.event(RendererEvent::FrameStats(FrameStats {
-            timestamp: Instant::now(),
-            fps,
-            fps_min,
-            frame_time: frame_time * 1000.0,
-            frame_time_max: frame_time_max * 1000.0,
-            frame_count: self.frame_time_diag.frame_count,
-        }));
     }
 
     fn send_frame(&mut self) {
@@ -729,7 +677,7 @@ impl State {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now(),
             });
-            self.frame_time_diag.reset();
+            self.frame_stats.reset();
         }
     }
 
@@ -751,7 +699,7 @@ impl State {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
-        self.frame_time_diag.reset();
+        self.frame_stats.reset();
         self.last_auto_save = Instant::now();
         // To avoid having a large dip in frame stats after loading
         self.last_frame_time = Instant::now();

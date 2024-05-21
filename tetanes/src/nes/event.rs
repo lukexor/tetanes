@@ -202,6 +202,7 @@ pub(crate) enum EmulationEvent {
     Rewinding(bool),
     SaveState(u8),
     ShowFrameStats(bool),
+    ResetFrameStats,
     Screenshot,
     UnloadRom,
     ZapperAim((u32, u32)),
@@ -882,6 +883,7 @@ impl Running {
                 | EmulationEvent::Rewinding(_)
                 | EmulationEvent::SaveState(_)
                 | EmulationEvent::ShowFrameStats(_)
+                | EmulationEvent::ResetFrameStats
                 | EmulationEvent::Screenshot
                 | EmulationEvent::UnloadRom
                 | EmulationEvent::ZapperAim(_)

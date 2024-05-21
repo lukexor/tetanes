@@ -58,6 +58,7 @@ impl TryFrom<EmulationEvent> for ReplayEvent {
             | EmulationEvent::Rewinding(_)
             | EmulationEvent::SaveState(_)
             | EmulationEvent::ShowFrameStats(_)
+            | EmulationEvent::ResetFrameStats
             | EmulationEvent::Screenshot
             | EmulationEvent::UnloadRom => {
                 return Err(anyhow::anyhow!("invalid replay event: {event:?}"));

@@ -29,13 +29,15 @@ use crate::{
     sys::{SystemInfo, info::System},
 };
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
-    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
-    include_image,
+    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, DragValue,
+    FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, ViewportId, Visuals,
+    hex_color, include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -91,6 +93,7 @@ pub(crate) struct Gui {
     #[cfg(debug_assertions)]
     gui_memory_open: Arc<AtomicBool>,
     perf_stats_open: bool,
+    perf_stats_plot: bool,
     update_window_open: bool,
     version: Version,
     pub(crate) keybinds: Keybinds,
@@ -101,7 +104,8 @@ pub(crate) struct Gui {
     viewport_info_open: bool,
     replay_recording: bool,
     audio_recording: bool,
-    frame_stats: FrameStats,
+    frame_stats: VecDeque<FrameStats>,
+    frame_stats_size: usize,
     messages: Vec<(MessageType, String, Instant)>,
     pub(crate) loaded_rom: Option<LoadedRom>,
     about_homebrew_rom_open: Option<RomAsset>,
@@ -117,6 +121,7 @@ impl Gui {
     const MSG_TIMEOUT: Duration = Duration::from_secs(3);
     const MAX_MESSAGES: usize = 5;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
+    const DEFAULT_FRAME_STATS_SIZE: usize = 100; // ~10 seconds
 
     /// Create a `Gui` instance.
     pub(crate) fn new(
@@ -149,6 +154,7 @@ impl Gui {
             #[cfg(debug_assertions)]
             gui_memory_open: Arc::new(AtomicBool::new(false)),
             perf_stats_open: false,
+            perf_stats_plot: false,
             update_window_open: false,
             version: Version::new(),
             keybinds: Keybinds::new(tx.clone()),
@@ -159,7 +165,8 @@ impl Gui {
             viewport_info_open: false,
             replay_recording: false,
             audio_recording: false,
-            frame_stats: FrameStats::new(),
+            frame_stats: VecDeque::with_capacity(Self::DEFAULT_FRAME_STATS_SIZE),
+            frame_stats_size: Self::DEFAULT_FRAME_STATS_SIZE,
             messages: Vec::new(),
             loaded_rom: None,
             about_homebrew_rom_open: None,
@@ -248,6 +255,7 @@ impl Gui {
                 | EmulationEvent::Rewinding(_)
                 | EmulationEvent::SaveState(_)
                 | EmulationEvent::ShowFrameStats(_)
+                | EmulationEvent::ResetFrameStats
                 | EmulationEvent::Screenshot
                 | EmulationEvent::UnloadRom
                 | EmulationEvent::ZapperAim(_)
@@ -257,7 +265,10 @@ impl Gui {
             },
             NesEvent::Renderer(event) => match event {
                 RendererEvent::FrameStats(stats) => {
-                    self.frame_stats = *stats;
+                    self.frame_stats.push_back(std::mem::take(stats));
+                    if self.frame_stats.len() > self.frame_stats_size {
+                        self.frame_stats.pop_front();
+                    }
                 }
                 RendererEvent::ShowMenubar(show) => {
                     // Toggling true is handled in the menu widget
@@ -506,11 +517,13 @@ impl Gui {
 
     fn show_performance_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
         let mut perf_stats_open = self.perf_stats_open;
-        egui::Window::new("🛠 Performance Stats")
-            .open(&mut perf_stats_open)
-            .show(ctx, |ui| {
-                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
-            });
+        let mut perf_window = egui::Window::new("🛠 Performance Stats").open(&mut perf_stats_open);
+        if !self.perf_stats_plot {
+            perf_window = perf_window.max_width(0.0).resizable(false);
+        }
+        perf_window.show(ctx, |ui| {
+            ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
+        });
         self.perf_stats_open = perf_stats_open;
     }
 
@@ -1383,163 +1396,6 @@ impl Gui {
         });
     }
 
-    fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
-        let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
-        grid.show(ui, |ui| {
-            ui.ctx().request_repaint_after(Duration::from_secs(1));
-
-            self.sys.update();
-
-            let good_color = if ui.style().visuals.dark_mode {
-                hex_color!("#b8cc52")
-            } else {
-                hex_color!("#86b300")
-            };
-            let warn_color = ui.style().visuals.warn_fg_color;
-            let bad_color = ui.style().visuals.error_fg_color;
-            let fps_color = |fps| match fps {
-                fps if fps < 30.0 => bad_color,
-                fps if fps < 60.0 => warn_color,
-                _ => good_color,
-            };
-            let frame_time_color = |time| match time {
-                time if time <= 1000.0 * 1.0 / 60.0 => good_color,
-                time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
-                _ => bad_color,
-            };
-
-            let fps = self.frame_stats.fps;
-            ui.strong("FPS:");
-            if fps.is_finite() {
-                ui.colored_label(fps_color(fps), format!("{fps:.2}"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let fps_min = self.frame_stats.fps_min;
-            ui.strong("FPS (min):");
-            if fps_min.is_finite() {
-                ui.colored_label(fps_color(fps_min), format!("{fps_min:.2}"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let frame_time = self.frame_stats.frame_time;
-            ui.strong("Frame Time:");
-            if frame_time.is_finite() {
-                ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let frame_time_max = self.frame_stats.frame_time_max;
-            ui.strong("Frame Time (max):");
-            if frame_time_max.is_finite() {
-                ui.colored_label(
-                    frame_time_color(frame_time_max),
-                    format!("{frame_time_max:.2} ms"),
-                );
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            ui.strong("Frame Count:");
-            ui.label(format!("{}", self.frame_stats.frame_count));
-            ui.end_row();
-
-            if let Some(stats) = self.sys.stats() {
-                const fn bytes_to_mb(bytes: u64) -> u64 {
-                    bytes / 0x10_0000
-                }
-
-                let cpu_color = |cpu| match cpu {
-                    cpu if cpu <= 25.0 => good_color,
-                    cpu if cpu <= 50.0 => warn_color,
-                    _ => bad_color,
-                };
-
-                ui.label("");
-                ui.end_row();
-
-                ui.strong("CPU:");
-                ui.colored_label(
-                    cpu_color(stats.cpu_usage),
-                    format!("{:.2}%", stats.cpu_usage),
-                );
-                ui.end_row();
-
-                ui.strong("Memory:");
-                ui.label(format!("{} MB", bytes_to_mb(stats.memory)));
-                ui.end_row();
-
-                let du = stats.disk_usage;
-                ui.strong("Disk read new/total:");
-                ui.label(format!(
-                    "{:.2}/{:.2} MB",
-                    bytes_to_mb(du.read_bytes),
-                    bytes_to_mb(du.total_read_bytes)
-                ));
-                ui.end_row();
-
-                ui.strong("Disk written new/total:");
-                ui.label(format!(
-                    "{:.2}/{:.2} MB",
-                    bytes_to_mb(du.written_bytes),
-                    bytes_to_mb(du.total_written_bytes),
-                ));
-                ui.end_row();
-            }
-
-            ui.label("");
-            ui.end_row();
-
-            ui.strong("Run Time:");
-            let run_time = {
-                let secs = self.start.elapsed().as_secs();
-                let days = secs / 86_400;
-                let hours = (secs % 86_400) / 3_600;
-                let mins = (secs % 3_600) / 60;
-                let secs = secs % 60;
-                if days > 0 {
-                    format!("{days}d {hours}h {mins}m {secs}s")
-                } else if hours > 0 {
-                    format!("{hours}h {mins}m {secs}s")
-                } else if mins > 0 {
-                    format!("{mins}m {secs}s")
-                } else {
-                    format!("{secs}s")
-                }
-            };
-            ui.label(run_time);
-            ui.end_row();
-
-            let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
-                Some(Pos2 { x, y }) => {
-                    let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
-                        Some(Pos2 { x, y }) => format!("({x:.0}, {y:.0})"),
-                        None => "(-, -)".to_string(),
-                    };
-                    (format!("({x:.0}, {y:.0})"), zapper_pos)
-                }
-                None => ("(-, -)".to_string(), "(-, -)".to_string()),
-            };
-
-            ui.strong("Cursor Pos:");
-            ui.label(cursor_pos);
-            ui.end_row();
-
-            if cfg.deck.zapper {
-                ui.strong("Zapper Pos:");
-                ui.label(zapper_pos);
-                ui.end_row();
-            }
-        });
-    }
-
     fn help_menu(&mut self, ui: &mut Ui) {
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
             let notify_latest = true;
@@ -1622,7 +1478,7 @@ impl Gui {
         for (ty, message, _) in self.messages.iter().take(Self::MAX_MESSAGES) {
             let visuals = &ui.style().visuals;
             let (icon, color) = match ty {
-                MessageType::Info => ("ℹ", visuals.widgets.noninteractive.fg_stroke.color),
+                MessageType::Info => ("ℹ", visuals.noninteractive().fg_stroke.color),
                 MessageType::Warn => ("⚠", visuals.warn_fg_color),
                 MessageType::Error => ("❗", visuals.error_fg_color),
             };
@@ -1648,7 +1504,223 @@ impl Gui {
         }
     }
 
-    pub(crate) fn dark_theme() -> egui::Visuals {
+    fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
+        ui.horizontal(|ui| {
+            ui.toggle_value(&mut self.perf_stats_plot, "📊 Plot");
+
+            if self.perf_stats_plot {
+                ui.label("History:");
+                let drag = DragValue::new(&mut self.frame_stats_size)
+                    .range(1..=18000)
+                    .speed(10);
+                let res = ui.add(drag);
+                if res.changed() {
+                    self.frame_stats.truncate(self.frame_stats_size);
+                }
+
+                if ui.button("🔄 Clear").clicked() {
+                    self.tx.event(EmulationEvent::ResetFrameStats);
+                    self.frame_stats.clear();
+                }
+            }
+        });
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            self.performance_stats_grid(ui, cfg);
+            if self.perf_stats_plot {
+                self.performance_plot(ui);
+            }
+        });
+    }
+
+    fn performance_stats_grid(&mut self, ui: &mut Ui, cfg: &Config) {
+        ui.group(|ui| {
+            let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
+            grid.show(ui, |ui| {
+                ui.ctx().request_repaint_after(Duration::from_secs(1));
+
+                self.sys.update();
+
+                let good_color = if ui.style().visuals.dark_mode {
+                    hex_color!("#b8cc52")
+                } else {
+                    hex_color!("#86b300")
+                };
+                let warn_color = ui.style().visuals.warn_fg_color;
+                let bad_color = ui.style().visuals.error_fg_color;
+                let frame_time_color = |time| match time {
+                    time if time <= 1000.0 * 1.0 / 60.0 => good_color,
+                    time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
+                    _ => bad_color,
+                };
+
+                let (frame_time_avg, frame_count) = self
+                    .frame_stats
+                    .back()
+                    .map(|stats| (stats.avg, stats.count))
+                    .unwrap_or_default();
+                let (frame_time_min, frame_time_max) = self
+                    .frame_stats
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(min, max), frame_time| {
+                        (min.min(frame_time.avg), max.max(frame_time.avg))
+                    });
+
+                let frame_time = frame_time_avg * 1000.0;
+                ui.strong("Frame Time:");
+                if frame_time.is_finite() {
+                    ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                let frame_time_min = frame_time_min * 1000.0;
+                ui.strong("Frame Time (min):");
+                if frame_time_min.is_finite() {
+                    ui.colored_label(
+                        frame_time_color(frame_time_min),
+                        format!("{frame_time_min:.2} ms"),
+                    );
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                let frame_time_max = frame_time_max * 1000.0;
+                ui.strong("Frame Time (max):");
+                if frame_time_max.is_finite() {
+                    ui.colored_label(
+                        frame_time_color(frame_time_max),
+                        format!("{frame_time_max:.2} ms"),
+                    );
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                ui.strong("Frame Count:");
+                ui.label(format!("{frame_count}"));
+                ui.end_row();
+
+                if let Some(stats) = self.sys.stats() {
+                    const fn bytes_to_mb(bytes: u64) -> u64 {
+                        bytes / 0x10_0000
+                    }
+
+                    let cpu_color = |cpu| match cpu {
+                        cpu if cpu <= 25.0 => good_color,
+                        cpu if cpu <= 50.0 => warn_color,
+                        _ => bad_color,
+                    };
+
+                    ui.label("");
+                    ui.end_row();
+
+                    ui.strong("CPU:");
+                    ui.colored_label(
+                        cpu_color(stats.cpu_usage),
+                        format!("{:.2}%", stats.cpu_usage),
+                    );
+                    ui.end_row();
+
+                    ui.strong("Memory:");
+                    ui.label(format!("{} MB", bytes_to_mb(stats.memory)));
+                    ui.end_row();
+
+                    let du = stats.disk_usage;
+                    ui.strong("Disk read new/total:");
+                    ui.label(format!(
+                        "{:.2}/{:.2} MB",
+                        bytes_to_mb(du.read_bytes),
+                        bytes_to_mb(du.total_read_bytes)
+                    ));
+                    ui.end_row();
+
+                    ui.strong("Disk written new/total:");
+                    ui.label(format!(
+                        "{:.2}/{:.2} MB",
+                        bytes_to_mb(du.written_bytes),
+                        bytes_to_mb(du.total_written_bytes),
+                    ));
+                    ui.end_row();
+                }
+
+                ui.label("");
+                ui.end_row();
+
+                ui.strong("Run Time:");
+                let run_time = {
+                    let secs = self.start.elapsed().as_secs();
+                    let days = secs / 86_400;
+                    let hours = (secs % 86_400) / 3_600;
+                    let mins = (secs % 3_600) / 60;
+                    let secs = secs % 60;
+                    if days > 0 {
+                        format!("{days}d {hours}h {mins}m {secs}s")
+                    } else if hours > 0 {
+                        format!("{hours}h {mins}m {secs}s")
+                    } else if mins > 0 {
+                        format!("{mins}m {secs}s")
+                    } else {
+                        format!("{secs}s")
+                    }
+                };
+                ui.label(run_time);
+                ui.end_row();
+
+                let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
+                    Some(Pos2 { x, y }) => {
+                        let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
+                            Some(Pos2 { x, y }) => format!("({x:03.0}, {y:03.0})"),
+                            None => "(000, 000)".to_string(),
+                        };
+                        (format!("({x:03.0}, {y:03.0})"), zapper_pos)
+                    }
+                    None => ("(000, 000)".to_string(), "(000, 000)".to_string()),
+                };
+
+                ui.strong("Cursor Pos:");
+                ui.label(cursor_pos);
+                ui.end_row();
+
+                if cfg.deck.zapper {
+                    ui.strong("Zapper Pos:");
+                    ui.label(zapper_pos);
+                    ui.end_row();
+                }
+            });
+        });
+    }
+
+    fn performance_plot(&mut self, ui: &mut Ui) {
+        let plot = Plot::new("performance_plot")
+            .legend(Legend::default())
+            .x_axis_label("timestamp")
+            .show_x(false)
+            .show_axes([false, true])
+            .width(ui.available_width().max(400.0));
+
+        // TODO: remove allocations here
+        plot.show(ui, |plot_ui| {
+            plot_ui.line(
+                Line::new(
+                    "Frame Time",
+                    PlotPoints::new(
+                        self.frame_stats
+                            .iter()
+                            .map(|stats| [stats.timestamp, (stats.avg * 1000.0) as f64])
+                            .collect(),
+                    ),
+                )
+                .color(hex_color!("#a9491f")),
+            );
+        });
+    }
+
+    pub fn dark_theme() -> egui::Visuals {
         Visuals {
             dark_mode: true,
             widgets: egui::style::Widgets {
