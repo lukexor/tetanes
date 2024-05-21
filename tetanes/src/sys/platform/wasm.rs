@@ -59,7 +59,7 @@ impl Initialize for Running {
         for input_id in [html_ids::ROM_INPUT, html_ids::REPLAY_INPUT] {
             let on_change = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |evt: web_sys::MouseEvent| {
+                move |evt: web_sys::Event| {
                     match FileReader::new() {
                         Ok(reader) => {
                             let Some(file) = evt
@@ -73,7 +73,7 @@ impl Initialize for Running {
                             };
                             match reader.read_as_array_buffer(&file) {
                                 Ok(_) => {
-                                    let onload = Closure::<dyn FnMut()>::new({
+                                    let on_load = Closure::<dyn FnMut()>::new({
                                         let reader = reader.clone();
                                         let tx = tx.clone();
                                         move || match reader.result() {
@@ -97,8 +97,8 @@ impl Initialize for Running {
                                             Err(err) => on_error(&tx, err),
                                         }
                                     });
-                                    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-                                    onload.forget();
+                                    reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
+                                    on_load.forget();
                                 }
                                 Err(err) => on_error(&tx, err),
                             }
@@ -110,7 +110,7 @@ impl Initialize for Running {
 
             let on_cancel = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |_: web_sys::MouseEvent| tx.nes_event(UiEvent::FileDialogCancelled)
+                move |_: web_sys::Event| tx.nes_event(UiEvent::FileDialogCancelled)
             });
 
             let input = document

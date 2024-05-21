@@ -442,9 +442,9 @@ impl Renderer {
         _cfg: &mut Config,
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
-        let mut state = self.state.borrow_mut();
         match event {
             WindowEvent::Focused(focused) => {
+                let mut state = self.state.borrow_mut();
                 state.focused = focused.then(|| viewport_id).flatten();
                 if let Some(viewport) = viewport_id
                     .as_ref()
@@ -457,6 +457,7 @@ impl Renderer {
                 }
             }
             WindowEvent::Occluded(occluded) => {
+                let mut state = self.state.borrow_mut();
                 // Note: Does not trigger on all platforms
                 if let Some(viewport) = viewport_id
                     .as_ref()
@@ -471,6 +472,7 @@ impl Renderer {
             }
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                 if let Some(viewport_id) = viewport_id {
+                    let mut state = self.state.borrow_mut();
                     if viewport_id == ViewportId::ROOT {
                         self.tx.nes_event(UiEvent::Terminate);
                     } else if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
@@ -490,28 +492,39 @@ impl Renderer {
                     if let (Some(width), Some(height)) =
                         (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
                     {
-                        state
-                            .painter
-                            .borrow_mut()
-                            .on_window_resized(viewport_id, width, height);
+                        {
+                            self.state
+                                .borrow_mut()
+                                .painter
+                                .borrow_mut()
+                                .on_window_resized(viewport_id, width, height);
+                        }
 
                         #[cfg(target_arch = "wasm32")]
                         if let Some(canvas) = crate::sys::platform::get_canvas() {
                             // On wasm, width is constrained by the browser
-                            let cfg = _cfg;
-                            let window_size = cfg.window_size();
-                            let canvas_width = canvas.width() as f32;
-                            if window_size.x > canvas_width {
-                                let scale = cfg.renderer.scale;
+                            if !self.fullscreen() {
+                                let cfg = _cfg;
                                 let aspect_ratio = self.gui.aspect_ratio(cfg);
-                                tracing::debug!(
-                                    "s: {scale}, w: {window_size:?}, cw: {canvas_width}"
-                                );
-                                cfg.renderer.scale = (canvas_width as f32
-                                    / (aspect_ratio * Ppu::WIDTH as f32))
-                                    .floor();
-                                if scale != cfg.renderer.scale {
-                                    self.tx.nes_event(RendererEvent::ScaleChanged);
+                                let canvas_width = canvas.width() as f32;
+
+                                let mut desired_window_size = cfg.window_size(aspect_ratio);
+                                desired_window_size.x *= aspect_ratio;
+                                // TODO: It'd be better to preserve the users scale preference and
+                                // only temporarily restrict the size of the canvas, allowing the
+                                // user to expand the browser window and see more of the canvas if
+                                // their scale isn't at 100%. However, accounting for all the edge
+                                // cases of browser resizing, default size, while still honoring
+                                // the users preference especially when toggling the menubar or
+                                // loading a ROM from a different region is complex.
+                                if canvas_width < desired_window_size.x {
+                                    let scale = cfg.renderer.scale;
+                                    cfg.renderer.scale = (canvas_width as f32
+                                        / (aspect_ratio * Ppu::WIDTH as f32))
+                                        .floor();
+                                    if scale != cfg.renderer.scale {
+                                        self.tx.nes_event(RendererEvent::ScaleChanged);
+                                    }
                                 }
                             }
                         }
@@ -529,6 +542,7 @@ impl Renderer {
             _ => (),
         }
 
+        let mut state = self.state.borrow_mut();
         let mut res = viewport_id
             .and_then(|viewport_id| {
                 state.viewports.get_mut(&viewport_id).and_then(|viewport| {
@@ -583,7 +597,7 @@ impl Renderer {
         ctx: &egui::Context,
         cfg: &Config,
     ) -> anyhow::Result<(Window, ViewportBuilder)> {
-        let window_size = cfg.window_size();
+        let window_size = cfg.window_size(cfg.deck.region.aspect_ratio());
         let viewport_builder = ViewportBuilder::default()
             .with_app_id(Config::WINDOW_TITLE)
             .with_title(Config::WINDOW_TITLE)
@@ -948,9 +962,7 @@ impl Renderer {
 
         if self.gui.resize_window {
             if !self.fullscreen() {
-                let aspect_ratio = self.gui.aspect_ratio(cfg);
-                let mut window_size = cfg.window_size();
-                window_size.x *= aspect_ratio;
+                let mut window_size = cfg.window_size(self.gui.aspect_ratio(cfg));
                 window_size.y += self.gui.menu_height;
                 self.ctx.send_viewport_cmd_to(
                     ViewportId::ROOT,
