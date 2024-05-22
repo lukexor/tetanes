@@ -268,7 +268,7 @@ impl Nes {
 
             let mut next_repaint_time = state.repaint_times.values().min().copied();
             state.repaint_times.retain(|window_id, when| {
-                if Instant::now() < *when {
+                if *when > Instant::now() {
                     return true;
                 }
                 next_repaint_time = None;
@@ -278,6 +278,7 @@ impl Nes {
                     if !window.is_minimized().unwrap_or(false) {
                         window.request_redraw();
                     }
+                    // Repaint time will get removed as soon as we receive the RequestRedraw event
                     true
                 } else {
                     false
@@ -340,7 +341,7 @@ impl Running {
                     #[cfg(target_arch = "wasm32")]
                     &self.cfg,
                 );
-                if res.repaint {
+                if res.repaint && event != WindowEvent::RedrawRequested {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
 
