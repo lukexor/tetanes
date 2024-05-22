@@ -1,3 +1,0 @@
-[submodule "homebrew-formulae"]
-	path = homebrew-formulae
-	url = git@github.com:lukexor/homebrew-formulae
