@@ -16,6 +16,19 @@ documentation = "https://docs.rs/tetanes"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://lukeworks.tech/tetanes"
 
+[workspace.lints.clippy]
+all = "warn"
+missing_const_for_fn = "warn"
+print_literal = "warn"
+
+[workspace.lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+
 [workspace.dependencies]
 anyhow = "1.0"
 bincode = "1.3"
