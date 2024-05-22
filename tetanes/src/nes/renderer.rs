@@ -289,6 +289,18 @@ impl Renderer {
             .and_then(|viewport| viewport.window.clone())
     }
 
+    pub fn window_size(&self, cfg: &Config) -> Vec2 {
+        self.window_size_for_scale(cfg, cfg.renderer.scale)
+    }
+
+    pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
+        let aspect_ratio = self.gui.aspect_ratio(cfg);
+        let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
+        window_size.x *= aspect_ratio;
+        window_size.y += self.gui.menu_height;
+        window_size
+    }
+
     pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
         self.state
             .borrow()
@@ -344,7 +356,7 @@ impl Renderer {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent) {
+    pub fn on_event(&mut self, event: &NesEvent, #[cfg(target_arch = "wasm32")] cfg: &Config) {
         match event {
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
@@ -359,6 +371,22 @@ impl Renderer {
                 _ => (),
             },
             NesEvent::Renderer(event) => match event {
+                #[cfg(target_arch = "wasm32")]
+                RendererEvent::BrowserResized((browser_width, _)) => {
+                    if let Some(canvas) = crate::sys::platform::get_canvas() {
+                        let canvas_width = canvas.width() as f32;
+                        let desired_window_size = self.window_size(cfg);
+
+                        if canvas_width < desired_window_size.x
+                            && canvas_width < 0.8 * browser_width
+                        {
+                            self.ctx.send_viewport_cmd_to(
+                                ViewportId::ROOT,
+                                ViewportCommand::InnerSize(desired_window_size),
+                            );
+                        }
+                    }
+                }
                 RendererEvent::FrameStats(stats) => {
                     self.gui.frame_stats = *stats;
                 }
@@ -435,11 +463,16 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> EventResponse {
+    pub fn on_window_event(
+        &mut self,
+        window_id: WindowId,
+        event: &WindowEvent,
+        #[cfg(target_arch = "wasm32")] cfg: &Config,
+    ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
-        let mut state = self.state.borrow_mut();
         match event {
             WindowEvent::Focused(focused) => {
+                let mut state = self.state.borrow_mut();
                 state.focused = focused.then(|| viewport_id).flatten();
                 if let Some(viewport) = viewport_id
                     .as_ref()
@@ -452,6 +485,7 @@ impl Renderer {
                 }
             }
             WindowEvent::Occluded(occluded) => {
+                let mut state = self.state.borrow_mut();
                 // Note: Does not trigger on all platforms
                 if let Some(viewport) = viewport_id
                     .as_ref()
@@ -466,6 +500,7 @@ impl Renderer {
             }
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                 if let Some(viewport_id) = viewport_id {
+                    let mut state = self.state.borrow_mut();
                     if viewport_id == ViewportId::ROOT {
                         self.tx.nes_event(UiEvent::Terminate);
                     } else if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
@@ -485,10 +520,42 @@ impl Renderer {
                     if let (Some(width), Some(height)) =
                         (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
                     {
-                        state
-                            .painter
-                            .borrow_mut()
-                            .on_window_resized(viewport_id, width, height);
+                        {
+                            self.state
+                                .borrow_mut()
+                                .painter
+                                .borrow_mut()
+                                .on_window_resized(viewport_id, width, height);
+                        }
+
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(canvas) = crate::sys::platform::get_canvas() {
+                            // On wasm, width is constrained by the browser
+                            if !self.fullscreen() {
+                                let aspect_ratio = self.gui.aspect_ratio(cfg);
+                                let canvas_width = canvas.width() as f32;
+
+                                let desired_window_size = self.window_size(cfg);
+                                if canvas_width < desired_window_size.x {
+                                    let current_scale = cfg.renderer.scale;
+                                    let actual_scale =
+                                        canvas_width as f32 / (aspect_ratio * Ppu::WIDTH as f32);
+                                    if current_scale > actual_scale {
+                                        let mut window_size =
+                                            self.window_size_for_scale(cfg, actual_scale);
+                                        window_size.x = canvas_width;
+                                        self.ctx.send_viewport_cmd_to(
+                                            ViewportId::ROOT,
+                                            ViewportCommand::InnerSize(window_size),
+                                        );
+                                        self.add_message(
+                                            MessageType::Warn,
+                                            "Configured window scale exceeds browser width.",
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -503,6 +570,7 @@ impl Renderer {
             _ => (),
         }
 
+        let mut state = self.state.borrow_mut();
         let mut res = viewport_id
             .and_then(|viewport_id| {
                 state.viewports.get_mut(&viewport_id).and_then(|viewport| {
@@ -557,7 +625,7 @@ impl Renderer {
         ctx: &egui::Context,
         cfg: &Config,
     ) -> anyhow::Result<(Window, ViewportBuilder)> {
-        let window_size = cfg.window_size();
+        let window_size = cfg.window_size(cfg.deck.region.aspect_ratio());
         let viewport_builder = ViewportBuilder::default()
             .with_app_id(Config::WINDOW_TITLE)
             .with_title(Config::WINDOW_TITLE)
@@ -922,13 +990,9 @@ impl Renderer {
 
         if self.gui.resize_window {
             if !self.fullscreen() {
-                let aspect_ratio = self.gui.aspect_ratio(cfg);
-                let mut window_size = cfg.window_size();
-                window_size.x *= aspect_ratio;
-                window_size.y += self.gui.menu_height;
                 self.ctx.send_viewport_cmd_to(
                     ViewportId::ROOT,
-                    ViewportCommand::InnerSize(window_size),
+                    ViewportCommand::InnerSize(self.window_size(cfg)),
                 );
             }
             self.gui.resize_window = false;

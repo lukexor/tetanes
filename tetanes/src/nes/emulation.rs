@@ -567,7 +567,7 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings | ConfigEvent::Scale(_) => (),
+            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings => (),
         }
     }
 

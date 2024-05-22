@@ -339,10 +339,17 @@ impl Config {
     }
 
     #[must_use]
-    pub fn window_size(&self) -> egui::Vec2 {
-        let scale = self.renderer.scale;
+    pub fn window_size(&self, aspect_ratio: f32) -> egui::Vec2 {
+        self.window_size_for_scale(aspect_ratio, self.renderer.scale)
+    }
+
+    #[must_use]
+    pub fn window_size_for_scale(&self, aspect_ratio: f32, scale: f32) -> egui::Vec2 {
         let texture_size = self.texture_size();
-        egui::Vec2::new(scale * texture_size.x, scale * texture_size.y)
+        egui::Vec2::new(
+            (scale * aspect_ratio * texture_size.x).ceil(),
+            (scale * texture_size.y).ceil(),
+        )
     }
 
     #[must_use]
