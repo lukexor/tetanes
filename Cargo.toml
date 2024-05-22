@@ -64,22 +64,18 @@ opt-level = 1
 codegen-units = 1
 lto = true
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
-panic = 'abort'
+panic = "abort"
 
 [profile.flamegraph]
 inherits = "release"
 debug = true
 
 [profile.dist]
+inherits = "release"
 strip = true
-inherits = "release"
 
-[profile.dev.package.serde]
-inherits = "release"
-[profile.dev.package.bincode]
-inherits = "release"
-[profile.dev.build-override]
-inherits = "release"
+[profile.dev.package."*"]
+opt-level = 3
 
 [workspace.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
