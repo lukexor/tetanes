@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEvent, ReplayData, SendNesEvent, UiEvent},
+        event::{EmulationEvent, NesEvent, RendererEvent, ReplayData, SendNesEvent, UiEvent},
         rom::RomData,
         Running,
     },
@@ -59,7 +59,7 @@ impl Initialize for Running {
         for input_id in [html_ids::ROM_INPUT, html_ids::REPLAY_INPUT] {
             let on_change = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |evt: web_sys::MouseEvent| {
+                move |evt: web_sys::Event| {
                     match FileReader::new() {
                         Ok(reader) => {
                             let Some(file) = evt
@@ -73,7 +73,7 @@ impl Initialize for Running {
                             };
                             match reader.read_as_array_buffer(&file) {
                                 Ok(_) => {
-                                    let onload = Closure::<dyn FnMut()>::new({
+                                    let on_load = Closure::<dyn FnMut()>::new({
                                         let reader = reader.clone();
                                         let tx = tx.clone();
                                         move || match reader.result() {
@@ -97,8 +97,8 @@ impl Initialize for Running {
                                             Err(err) => on_error(&tx, err),
                                         }
                                     });
-                                    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-                                    onload.forget();
+                                    reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
+                                    on_load.forget();
                                 }
                                 Err(err) => on_error(&tx, err),
                             }
@@ -110,7 +110,7 @@ impl Initialize for Running {
 
             let on_cancel = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |_: web_sys::MouseEvent| tx.nes_event(UiEvent::FileDialogCancelled)
+                move |_: web_sys::Event| tx.nes_event(UiEvent::FileDialogCancelled)
             });
 
             let input = document
@@ -129,6 +129,32 @@ impl Initialize for Running {
             on_change.forget();
             on_cancel.forget();
         }
+
+        let on_resize = Closure::<dyn FnMut(_)>::new({
+            let tx = self.tx.clone();
+            move |_: web_sys::Event| {
+                if let Some(window) = web_sys::window() {
+                    tx.nes_event(RendererEvent::BrowserResized((
+                        window
+                            .inner_width()
+                            .ok()
+                            .and_then(|w| w.as_f64())
+                            .map_or(0.0, |w| w as f32),
+                        window
+                            .inner_height()
+                            .ok()
+                            .and_then(|h| h.as_f64())
+                            .map_or(0.0, |h| h as f32),
+                    )));
+                }
+            }
+        });
+        if let Err(err) =
+            window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref())
+        {
+            on_error(&self.tx, err);
+        }
+        on_resize.forget();
 
         if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
             tracing::info!(
@@ -170,14 +196,14 @@ mod html_ids {
     pub(super) const REPLAY_INPUT: &str = "load-replay";
 }
 
-fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
     window()
         .and_then(|win| win.document())
         .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
         .and_then(|canvas| canvas.dyn_into::<HtmlCanvasElement>().ok())
 }
 
-fn focus_canvas() {
+pub fn focus_canvas() {
     if let Some(canvas) = get_canvas() {
         let _ = canvas.focus();
     }

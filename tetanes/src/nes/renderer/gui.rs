@@ -3,7 +3,7 @@ use crate::{
         action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui as UiAction},
         config::Config,
         emulation::FrameStats,
-        event::{ConfigEvent, EmulationEvent, NesEvent, SendNesEvent, UiEvent},
+        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
         input::{ActionBindings, Gamepads, Input},
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
@@ -1194,9 +1194,7 @@ impl Gui {
             if ui.add(button).clicked() {
                 let new_scale = cfg.increment_scale();
                 if scale != new_scale {
-                    self.resize_window = true;
-                    self.resize_texture = true;
-                    self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
+                    self.tx.nes_event(RendererEvent::ScaleChanged);
                 }
             }
 
@@ -1205,9 +1203,7 @@ impl Gui {
             if ui.add(button).clicked() {
                 let new_scale = cfg.decrement_scale();
                 if scale != new_scale {
-                    self.resize_window = true;
-                    self.resize_texture = true;
-                    self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
+                    self.tx.nes_event(RendererEvent::ScaleChanged);
                 }
             }
 
@@ -2575,9 +2571,7 @@ impl Gui {
             ui.radio_value(&mut cfg.renderer.scale, 5.0, "5x");
         });
         if scale != cfg.renderer.scale {
-            self.resize_window = true;
-            self.resize_texture = true;
-            self.tx.nes_event(ConfigEvent::Scale(cfg.renderer.scale));
+            self.tx.nes_event(RendererEvent::ScaleChanged);
         }
     }
 
