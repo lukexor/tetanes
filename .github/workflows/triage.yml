@@ -1,5 +1,5 @@
 ---
-name: Triage
+name: Triage Issues
 
 # yamllint disable-line rule:truthy
 on:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   triage:
+    name: Triage Issue
     runs-on: ubuntu-latest
     steps:
       - name: add needs-triage label

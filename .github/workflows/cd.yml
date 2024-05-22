@@ -1,5 +1,5 @@
 ---
-name: Continuous Deployment
+name: CD
 
 # yamllint disable-line rule:truthy
 on:
@@ -11,19 +11,55 @@ permissions:
   contents: write
 
 jobs:
-  cd:
-    runs-on: ubuntu-latest
+  build-and-upload-artifacts:
+    name: Build & Upload Artifacts (${{ matrix.target }})
+    if: startsWith(github.event.release.name, 'tetanes')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: wasm32-unknown-unknown
+            os: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run release
-        uses: MarcoIeni/release-plz-action@v0.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          toolchain: nightly
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 build-essential pkg-config
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - if: startsWith(matrix.os, 'ubuntu')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      - if: startsWith(matrix.os, 'windows')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-wix
+      - if: startsWith(matrix.os, 'wasm32')
+        run: cargo run --bin build_artifacts web
+      - if: ${{ !startsWith(matrix.os, 'wasm32') }}
+        run: cargo run --bin build_artifacts
+      - run: |
+          version=$(grep '^version' Cargo.toml | awk -F '"' '{ print $2 }')
+          gh release upload ${version} dist/* --clobber

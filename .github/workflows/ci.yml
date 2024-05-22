@@ -5,8 +5,12 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,15 +23,59 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
 
-  build-and-test:
+  lint-web:
+    name: Lint Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo clippy --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+
+  lint-tetanes:
+    name: Lint TetaNES (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [nightly]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
+      - run: |
+          cargo clippy -p tetanes --all-features --keep-going -- -D warnings
+
+  lint-tetanes-core:
+    name: Lint TetaNES Core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        toolchain: [nightly, stable, 1.78]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,18 +83,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-          targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - if: matrix.os == 'ubuntu-latest'
+      - run: |
+          cargo clippy -p tetanes-core --all-features --keep-going -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt update
-          sudo apt install libudev-dev libasound2-dev
+          sudo apt install -y libudev-dev libasound2-dev
       - run: |
-          cargo clippy --all-targets
-          cargo clippy --target wasm32-unknown-unknown
-      - run: |
-          cargo build -p tetanes
-          cargo build -p tetanes --target wasm32-unknown-unknown
-      - run: cargo doc
-      - run: cargo test
+          cargo test --all-targets --all-features --no-fail-fast
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --document-private-items --all-features --workspace --examples --keep-going
