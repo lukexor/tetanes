@@ -8,8 +8,10 @@ use std::{
 #[derive(Debug)]
 #[must_use]
 struct Build {
+    #[cfg(target_os = "macos")]
     version: &'static str,
     bin_name: &'static str,
+    #[cfg(target_os = "macos")]
     app_name: &'static str,
     target_arch: &'static str,
     cargo_target_dir: PathBuf,
@@ -47,8 +49,10 @@ impl Build {
         fs::create_dir_all(&dist_dir)?;
 
         Ok(Build {
+            #[cfg(target_os = "macos")]
             version: env!("CARGO_PKG_VERSION"),
             bin_name: env!("CARGO_PKG_NAME"),
+            #[cfg(target_os = "macos")]
             app_name: "TetaNES",
             target_arch: if cfg!(target_arch = "x86_64") {
                 "x86_64"
@@ -169,8 +173,8 @@ impl Build {
 
         self.tar_gz(
             format!(
-                "{}-{}-{}-linux.tar.gz",
-                self.bin_name, self.version, self.target_arch
+                "{}_{}-unknown-linux-gnu.tar.gz",
+                self.bin_name, self.target_arch
             ),
             &build_dir,
             ["."],
@@ -178,8 +182,8 @@ impl Build {
 
         println!("creating deb...");
 
-        // NOTE: -1 is the deb revision number
-        let deb_name = format!("{}-{}-1-amd64.deb", self.bin_name, self.version);
+        // NOTE: 1- is the deb revision number
+        let deb_name = format!("{}_1-amd64.deb", self.bin_name);
         Command::new("cargo")
             .args(["deb", "-p", "tetanes", "-o"])
             .arg(self.dist_dir.join(&deb_name))
@@ -212,7 +216,7 @@ impl Build {
         .spawn()?
         .wait()?;
 
-        let app_image_name = format!("{}-{}.AppImage", self.app_name, self.target_arch);
+        let app_image_name = format!("{}_{}.AppImage", self.bin_name, self.target_arch);
         fs::rename(&app_image_name, self.dist_dir.join(&app_image_name))?;
         let app_image_sha_name = format!("{app_image_name}-sha256.txt");
         self.write_sha256(
@@ -230,7 +234,7 @@ impl Build {
 
         println!("creating macos app...");
 
-        let artifact_name = format!("{}-{}-{}", self.app_name, self.version, self.target_arch);
+        let artifact_name = format!("{}_{}", self.bin_name, self.target_arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let dmg_name = format!("{artifact_name}-Uncompressed.dmg");
         let dmg_name_compressed = format!("{artifact_name}.dmg");
@@ -341,10 +345,7 @@ impl Build {
             .wait()?;
 
         self.tar_gz(
-            format!(
-                "{}-{}-{}-apple.tar.gz",
-                self.bin_name, self.version, self.target_arch
-            ),
+            format!("{}_{}-apple-darwin.tar.gz", self.bin_name, self.target_arch),
             &volume,
             [&format!("{}.app", self.app_name)],
         )?;
@@ -389,8 +390,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("wix")?;
 
-        let artifact_name = format!("{}-{}-{}", self.app_name, self.version, self.target_arch);
-        let installer_name = format!("{artifact_name}.msi");
+        let installer_name = format!("{}_{}-pc-windows-msvc.msi", self.bin_name, self.target_arch);
 
         println!("building installer...");
 
@@ -419,7 +419,7 @@ impl Build {
         println!("compressing web artifacts...");
 
         self.tar_gz(
-            format!("{}-{}-web.tar.gz", self.bin_name, self.version),
+            format!("{}_-web.tar.gz", self.bin_name),
             self.dist_dir.join("web"),
             ["."],
         )?;
