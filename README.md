@@ -153,6 +153,15 @@ This will install the latest released version of the `TetaNES` binary to your
 `cargo` bin directory located at either `$HOME/.cargo/bin/` on a Unix-like
 platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
+Alternatively, if you have [`cargo binstall`](https://crates.io/crates/cargo-binstall/) installed:
+
+```sh
+cargo binstall tetanes
+```
+
+This will try to find the target binary for your platform from the latest
+[Release][] or install from source, similar to above.
+
 ### Usage
 
 ```text
