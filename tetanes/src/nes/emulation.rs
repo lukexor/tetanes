@@ -823,7 +823,7 @@ impl State {
         if self.audio.enabled() {
             self.audio.queued_time() >= self.audio.latency
         } else {
-            self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()
+            self.clock_time_accumulator > self.target_frame_duration.as_secs_f32()
         }
     }
 
