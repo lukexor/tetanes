@@ -413,7 +413,10 @@ impl Renderer {
                     }
                 }
                 RendererEvent::FrameStats(stats) => {
-                    self.gui.frame_stats = *stats;
+                    self.gui.frame_stats.push_back(*stats);
+                    if self.gui.frame_stats.len() > self.gui.frame_stats_size {
+                        self.gui.frame_stats.pop_front();
+                    }
                 }
                 RendererEvent::ShowMenubar(show) => {
                     if !show {

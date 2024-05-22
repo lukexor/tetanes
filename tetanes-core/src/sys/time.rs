@@ -4,8 +4,8 @@ use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
-        pub use web_time::{Duration, Instant};
+        pub use web_time::*;
     } else {
-        pub use std::time::{Duration, Instant};
+        pub use std::time::*;
     }
 }

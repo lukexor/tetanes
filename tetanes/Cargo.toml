@@ -52,6 +52,7 @@ crossbeam = "0.8"
 color-hex = "0.2"
 dirs.workspace = true
 egui = { version = "0.27", features = ["extra_debug_asserts", "log"] }
+egui_plot = "0.27"
 egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
 egui_extras = { version = "0.27", default-features = false, features = [
   "image",

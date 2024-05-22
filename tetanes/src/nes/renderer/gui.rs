@@ -23,9 +23,10 @@ use egui::{
     Rounding, ScrollArea, Sense, Slider, Stroke, TopBottomPanel, Ui, Vec2, ViewportClass, Visuals,
     Widget, WidgetText,
 };
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     mem,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -150,6 +151,8 @@ pub struct Gui {
     pub keybinds_tab: KeybindsTab,
     pub perf_stats_open: bool,
     pub perf_stats_plot: bool,
+    pub plot_fps: bool,
+    pub plot_frame_time: bool,
     pub preferences_open: bool,
     pub preferences_tab: PreferencesTab,
     pub update_window_open: bool,
@@ -167,7 +170,8 @@ pub struct Gui {
     pub audio_recording: bool,
     pub shortcut_keybinds: BTreeMap<String, Keybind>,
     pub joypad_keybinds: [BTreeMap<String, Keybind>; 4],
-    pub frame_stats: FrameStats,
+    pub frame_stats: VecDeque<FrameStats>,
+    pub frame_stats_size: usize,
     pub messages: Vec<(MessageType, String, Instant)>,
     pub loaded_rom: Option<LoadedRom>,
     pub about_homebrew_rom_open: Option<RomAsset>,
@@ -190,6 +194,7 @@ impl Gui {
     const MAX_MESSAGES: usize = 5;
     const MENU_WIDTH: f32 = 250.0;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
+    const DEFAULT_FRAME_STATS_SIZE: usize = 600;
 
     /// Create a gui `State`.
     pub fn new(
@@ -219,6 +224,7 @@ impl Gui {
         } else {
             None
         };
+
         Self {
             initialized: false,
             window,
@@ -234,6 +240,8 @@ impl Gui {
             keybinds_tab: KeybindsTab::Shortcuts,
             perf_stats_open: false,
             perf_stats_plot: false,
+            plot_fps: true,
+            plot_frame_time: false,
             preferences_open: false,
             preferences_tab: PreferencesTab::Emulation,
             update_window_open: false,
@@ -251,7 +259,8 @@ impl Gui {
             audio_recording: false,
             shortcut_keybinds: Self::shortcut_keybinds(&cfg.input.shortcuts),
             joypad_keybinds: Self::joypad_keybinds(&cfg.input.joypad_bindings),
-            frame_stats: FrameStats::new(),
+            frame_stats: VecDeque::with_capacity(Self::DEFAULT_FRAME_STATS_SIZE),
+            frame_stats_size: Self::DEFAULT_FRAME_STATS_SIZE,
             messages: Vec::new(),
             loaded_rom: None,
             about_homebrew_rom_open: None,
@@ -322,7 +331,7 @@ impl Gui {
 
         self.show_keybinds_viewport(ctx, gamepads, cfg);
 
-        self.show_performance_window(ctx, cfg);
+        self.show_performance_viewport(ctx, cfg);
         self.show_preferences_viewport(ctx, cfg);
         self.show_about_window(ctx);
         self.show_about_homebrew_window(ctx);
@@ -646,20 +655,17 @@ impl Gui {
         }
     }
 
-    fn show_performance_window(&mut self, ctx: &Context, cfg: &mut Config) {
+    fn show_performance_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
+        if !self.perf_stats_open {
+            return;
+        }
+
+        let title = "Performance Stats";
         let mut perf_stats_open = self.perf_stats_open;
-        egui::Window::new("Performance Stats")
+        egui::Window::new(title)
             .open(&mut perf_stats_open)
             .show(ctx, |ui| self.performance_stats(ui, cfg));
         self.perf_stats_open = perf_stats_open;
-
-        if self.perf_stats_open {
-            let mut perf_stats_plot = self.perf_stats_plot;
-            egui::Window::new("Performance Plot")
-                .open(&mut perf_stats_plot)
-                .show(ctx, |ui| self.performance_plot(ui, cfg));
-            self.perf_stats_plot = perf_stats_open;
-        }
     }
 
     fn show_preferences_viewport(&mut self, ctx: &Context, cfg: &mut Config) {
@@ -1521,7 +1527,7 @@ impl Gui {
         for (ty, message, _) in self.messages.iter().take(Self::MAX_MESSAGES) {
             let visuals = &ui.style().visuals;
             let (icon, color) = match ty {
-                MessageType::Info => ("ℹ", visuals.widgets.noninteractive.fg_stroke.color),
+                MessageType::Info => ("ℹ", visuals.noninteractive().fg_stroke.color),
                 MessageType::Warn => ("⚠", visuals.warn_fg_color),
                 MessageType::Error => ("❗", visuals.error_fg_color),
             };
@@ -1544,168 +1550,244 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(200.0, 0.0));
         ui.set_enabled(self.pending_keybind.is_none());
 
-        let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
-        grid.show(ui, |ui| {
-            ui.ctx().request_repaint_after(Duration::from_secs(1));
+        ui.horizontal(|ui| {
+            ui.toggle_value(&mut self.perf_stats_plot, "📊 Plot");
 
-            if let Some(sys) = &mut self.sys {
-                // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
-                // results
-                let sys_update_interval = Duration::from_secs(1);
-                assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-                if self.sys_updated.elapsed() >= sys_update_interval {
-                    sys.refresh_specifics(
-                        RefreshKind::new().with_processes(
-                            ProcessRefreshKind::new()
-                                .with_cpu()
-                                .with_memory()
-                                .with_disk_usage(),
-                        ),
-                    );
-                    self.sys_updated = Instant::now();
+            if self.perf_stats_plot {
+                let drag = DragValue::new(&mut self.frame_stats_size)
+                    .clamp_range(1..=18000)
+                    .speed(10)
+                    .suffix(" frames");
+                ui.add(drag);
+
+                if ui.button("🔄 Clear").clicked() {
+                    self.frame_stats.clear();
                 }
-            }
-
-            let good_color = if ui.style().visuals.dark_mode {
-                hex_color!("#b8cc52")
-            } else {
-                hex_color!("#86b300")
-            };
-            let warn_color = ui.style().visuals.warn_fg_color;
-            let bad_color = ui.style().visuals.error_fg_color;
-            let fps_color = |fps| match fps {
-                fps if fps < 30.0 => bad_color,
-                fps if fps < 60.0 => warn_color,
-                _ => good_color,
-            };
-            let frame_time_color = |time| match time {
-                time if time <= 1000.0 * 1.0 / 60.0 => good_color,
-                time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
-                _ => bad_color,
-            };
-            let cpu_color = |cpu| match cpu {
-                cpu if cpu <= 25.0 => good_color,
-                cpu if cpu <= 50.0 => warn_color,
-                _ => bad_color,
-            };
-
-            let fps = self.frame_stats.fps;
-            ui.strong("FPS:");
-            if fps.is_finite() {
-                ui.colored_label(fps_color(fps), format!("{fps:.2}"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let fps_min = self.frame_stats.fps_min;
-            ui.strong("FPS (min):");
-            if fps_min.is_finite() {
-                ui.colored_label(fps_color(fps_min), format!("{fps_min:.2}"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let frame_time = self.frame_stats.frame_time;
-            ui.strong("Frame Time:");
-            if frame_time.is_finite() {
-                ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            let frame_time_max = self.frame_stats.frame_time_max;
-            ui.strong("Frame Time (max):");
-            if frame_time_max.is_finite() {
-                ui.colored_label(
-                    frame_time_color(frame_time_max),
-                    format!("{frame_time_max:.2} ms"),
-                );
-            } else {
-                ui.label("N/A");
-            }
-            ui.end_row();
-
-            ui.strong("Frame Count:");
-            ui.label(format!("{}", self.frame_stats.frame_count));
-            ui.end_row();
-
-            if let Some(ref sys) = self.sys {
-                ui.label("");
-                ui.end_row();
-
-                match sys.process(Pid::from_u32(std::process::id())) {
-                    Some(proc) => {
-                        ui.strong("CPU:");
-                        let cpu_usage = proc.cpu_usage();
-                        ui.colored_label(cpu_color(cpu_usage), format!("{cpu_usage:.2}%"));
-                        ui.end_row();
-
-                        ui.strong("Memory:");
-                        ui.label(format!("{} MB", bytes_to_mb(proc.memory()),));
-                        ui.end_row();
-
-                        let du = proc.disk_usage();
-                        ui.strong("Disk read new/total:");
-                        ui.label(format!(
-                            "{:.2}/{:.2} MB",
-                            bytes_to_mb(du.read_bytes),
-                            bytes_to_mb(du.total_read_bytes)
-                        ));
-                        ui.end_row();
-
-                        ui.strong("Disk written new/total:");
-                        ui.label(format!(
-                            "{:.2}/{:.2} MB",
-                            bytes_to_mb(du.written_bytes),
-                            bytes_to_mb(du.total_written_bytes),
-                        ));
-                        ui.end_row();
-                    }
-                    None => todo!(),
-                }
-            }
-
-            ui.label("");
-            ui.end_row();
-
-            ui.strong("Run Time:");
-            ui.label(format!("{} s", self.start.elapsed().as_secs()));
-            ui.end_row();
-
-            let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
-                Some(Pos2 { x, y }) => {
-                    let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
-                        Some(Pos2 { x, y }) => format!("({x:03.0}, {y:03.0})"),
-                        None => "(000, 000)".to_string(),
-                    };
-                    (format!("({x:03.0}, {y:03.0})"), zapper_pos)
-                }
-                None => ("(000, 000)".to_string(), "(000, 000)".to_string()),
-            };
-
-            ui.strong("Cursor Pos:");
-            ui.label(cursor_pos);
-            ui.end_row();
-
-            if cfg.deck.zapper {
-                ui.strong("Zapper Pos:");
-                ui.label(zapper_pos);
-                ui.end_row();
             }
         });
 
         ui.separator();
 
-        ui.checkbox(&mut self.perf_stats_plot, "📊 Plot");
+        ui.horizontal(|ui| {
+            self.performance_stats_grid(ui, cfg);
+            if self.perf_stats_plot {
+                self.performance_plot(ui);
+            }
+        });
     }
 
-    fn performance_plot(&mut self, ui: &mut Ui, cfg: &Config) {}
+    fn performance_stats_grid(&mut self, ui: &mut Ui, cfg: &Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        ui.group(|ui| {
+            let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
+            grid.show(ui, |ui| {
+                ui.ctx().request_repaint_after(Duration::from_secs(1));
+
+                if let Some(sys) = &mut self.sys {
+                    // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
+                    // results
+                    let sys_update_interval = Duration::from_secs(1);
+                    assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+                    if self.sys_updated.elapsed() >= sys_update_interval {
+                        sys.refresh_specifics(
+                            RefreshKind::new().with_processes(
+                                ProcessRefreshKind::new()
+                                    .with_cpu()
+                                    .with_memory()
+                                    .with_disk_usage(),
+                            ),
+                        );
+                        self.sys_updated = Instant::now();
+                    }
+                }
+
+                let good_color = if ui.style().visuals.dark_mode {
+                    hex_color!("#b8cc52")
+                } else {
+                    hex_color!("#86b300")
+                };
+                let warn_color = ui.style().visuals.warn_fg_color;
+                let bad_color = ui.style().visuals.error_fg_color;
+                let fps_color = |fps| match fps {
+                    fps if fps < 30.0 => bad_color,
+                    fps if fps < 60.0 => warn_color,
+                    _ => good_color,
+                };
+                let frame_time_color = |time| match time {
+                    time if time <= 1000.0 * 1.0 / 60.0 => good_color,
+                    time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
+                    _ => bad_color,
+                };
+                let cpu_color = |cpu| match cpu {
+                    cpu if cpu <= 25.0 => good_color,
+                    cpu if cpu <= 50.0 => warn_color,
+                    _ => bad_color,
+                };
+
+                let frame_stats = self.frame_stats.back().copied().unwrap_or_default();
+
+                let fps = frame_stats.fps;
+                ui.strong("FPS:");
+                if fps.is_finite() {
+                    ui.colored_label(fps_color(fps), format!("{fps:.2}"));
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                let fps_min = frame_stats.fps_min;
+                ui.strong("FPS (min):");
+                if fps_min.is_finite() {
+                    ui.colored_label(fps_color(fps_min), format!("{fps_min:.2}"));
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                let frame_time = frame_stats.frame_time;
+                ui.strong("Frame Time:");
+                if frame_time.is_finite() {
+                    ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                let frame_time_max = frame_stats.frame_time_max;
+                ui.strong("Frame Time (max):");
+                if frame_time_max.is_finite() {
+                    ui.colored_label(
+                        frame_time_color(frame_time_max),
+                        format!("{frame_time_max:.2} ms"),
+                    );
+                } else {
+                    ui.label("N/A");
+                }
+                ui.end_row();
+
+                ui.strong("Frame Count:");
+                ui.label(format!("{}", frame_stats.frame_count));
+                ui.end_row();
+
+                if let Some(ref sys) = self.sys {
+                    ui.label("");
+                    ui.end_row();
+
+                    match sys.process(Pid::from_u32(std::process::id())) {
+                        Some(proc) => {
+                            ui.strong("CPU:");
+                            let cpu_usage = proc.cpu_usage();
+                            ui.colored_label(cpu_color(cpu_usage), format!("{cpu_usage:.2}%"));
+                            ui.end_row();
+
+                            ui.strong("Memory:");
+                            ui.label(format!("{} MB", bytes_to_mb(proc.memory()),));
+                            ui.end_row();
+
+                            let du = proc.disk_usage();
+                            ui.strong("Disk read new/total:");
+                            ui.label(format!(
+                                "{:.2}/{:.2} MB",
+                                bytes_to_mb(du.read_bytes),
+                                bytes_to_mb(du.total_read_bytes)
+                            ));
+                            ui.end_row();
+
+                            ui.strong("Disk written new/total:");
+                            ui.label(format!(
+                                "{:.2}/{:.2} MB",
+                                bytes_to_mb(du.written_bytes),
+                                bytes_to_mb(du.total_written_bytes),
+                            ));
+                            ui.end_row();
+                        }
+                        None => todo!(),
+                    }
+                }
+
+                ui.label("");
+                ui.end_row();
+
+                ui.strong("Run Time:");
+                ui.label(format!("{} s", self.start.elapsed().as_secs()));
+                ui.end_row();
+
+                let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
+                    Some(Pos2 { x, y }) => {
+                        let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
+                            Some(Pos2 { x, y }) => format!("({x:03.0}, {y:03.0})"),
+                            None => "(000, 000)".to_string(),
+                        };
+                        (format!("({x:03.0}, {y:03.0})"), zapper_pos)
+                    }
+                    None => ("(000, 000)".to_string(), "(000, 000)".to_string()),
+                };
+
+                ui.strong("Cursor Pos:");
+                ui.label(cursor_pos);
+                ui.end_row();
+
+                if cfg.deck.zapper {
+                    ui.strong("Zapper Pos:");
+                    ui.label(zapper_pos);
+                    ui.end_row();
+                }
+            });
+        });
+    }
+
+    fn performance_plot(&mut self, ui: &mut Ui) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let plot = Plot::new("performance_plot")
+            .legend(Legend::default())
+            .x_axis_label("timestamp")
+            .show_x(false)
+            .show_axes([false, true])
+            .width(600.0);
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.plot_fps, "FPS");
+                ui.checkbox(&mut self.plot_frame_time, "Frame Time");
+            });
+
+            ui.separator();
+
+            // TODO: remove allocations here
+            plot.show(ui, |plot_ui| {
+                if self.plot_fps {
+                    plot_ui.line(
+                        Line::new(PlotPoints::new(
+                            self.frame_stats
+                                .iter()
+                                .map(|stats| [stats.timestamp, stats.fps as f64])
+                                .collect(),
+                        ))
+                        .color(hex_color!("#ff6a00"))
+                        .name("FPS"),
+                    );
+                }
+                if self.plot_frame_time {
+                    plot_ui.line(
+                        Line::new(PlotPoints::new(
+                            self.frame_stats
+                                .iter()
+                                .map(|stats| [stats.timestamp, stats.frame_time as f64])
+                                .collect(),
+                        ))
+                        .color(hex_color!("#a9491f"))
+                        .name("FPS"),
+                    );
+                }
+            });
+        });
+    }
 
     fn preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
         #[cfg(feature = "profiling")]
@@ -1979,8 +2061,7 @@ impl Gui {
                             .speed(10)
                             .clamp_range(0..=8192)
                             .suffix(" samples");
-                        let res = ui.add(drag);
-                        if res.changed() {
+                        if ui.add(drag).changed() {
                             self.tx.nes_event(ConfigEvent::AudioBuffer(cfg.audio.buffer_size));
                         }
                         ui.end_row();

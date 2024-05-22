@@ -28,7 +28,7 @@ use tetanes_core::{
     control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
     ppu::Ppu,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
     video::Frame,
 };
 use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
@@ -38,28 +38,15 @@ use winit::{event::ElementState, event_loop::EventLoopProxy};
 pub mod replay;
 pub mod rewind;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 #[must_use]
 pub struct FrameStats {
-    pub timestamp: Instant,
+    pub timestamp: f64,
     pub fps: f32,
     pub fps_min: f32,
     pub frame_time: f32,
     pub frame_time_max: f32,
     pub frame_count: usize,
-}
-
-impl Default for FrameStats {
-    fn default() -> Self {
-        Self {
-            timestamp: Instant::now(),
-            fps: 0.0,
-            fps_min: 0.0,
-            frame_time: 0.0,
-            frame_time_max: 0.0,
-            frame_count: 0,
-        }
-    }
 }
 
 impl FrameStats {
@@ -80,7 +67,7 @@ pub struct FrameTimeDiag {
 
 impl FrameTimeDiag {
     const MAX_HISTORY: usize = 120;
-    const UPDATE_INTERVAL: Duration = Duration::from_millis(300);
+    const UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
     fn new() -> Self {
         Self {
@@ -107,15 +94,16 @@ impl FrameTimeDiag {
         }
     }
 
-    fn avg(&mut self) -> f32 {
+    fn avg(&mut self) -> Option<f32> {
         if !self.history.is_empty() {
             let now = Instant::now();
             if now > self.last_update + Self::UPDATE_INTERVAL {
                 self.last_update = now;
                 self.avg = self.sum / self.history.len() as f32;
+                return Some(self.avg);
             }
         }
-        self.avg
+        None
     }
 
     fn history(&self) -> impl Iterator<Item = &f32> {
@@ -583,7 +571,10 @@ impl State {
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
-        let frame_time = self.frame_time_diag.avg();
+
+        let Some(frame_time) = self.frame_time_diag.avg() else {
+            return;
+        };
         let frame_time_max = self
             .frame_time_diag
             .history()
@@ -596,14 +587,19 @@ impl State {
         if !fps_min.is_finite() {
             fps_min = 0.0;
         }
-        self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
-            timestamp: Instant::now(),
-            fps,
-            fps_min,
-            frame_time: frame_time * 1000.0,
-            frame_time_max: frame_time_max * 1000.0,
-            frame_count: self.frame_time_diag.frame_count,
-        }));
+        match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(duration_since_epoch) => {
+                self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
+                    timestamp: duration_since_epoch.as_secs_f64(),
+                    fps,
+                    fps_min,
+                    frame_time: frame_time * 1000.0,
+                    frame_time_max: frame_time_max * 1000.0,
+                    frame_count: self.frame_time_diag.frame_count,
+                }));
+            }
+            Err(err) => error!("failed to get duration since epoch: {err:?}"),
+        }
     }
 
     fn send_frame(&mut self) {
