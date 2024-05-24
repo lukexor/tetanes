@@ -34,7 +34,6 @@ rust_2021_compatibility = "warn"
 unused = "warn"
 
 [package.metadata.docs.rs]
-rustc-args = ["--cfg=web_sys_unstable_apis"]
 targets = ["wasm32-unknown-unknown"]
 
 [features]
@@ -112,6 +111,7 @@ web-sys = { version = "0.3", features = [
   "HtmlCanvasElement",
   "HtmlElement",
   "HtmlInputElement",
+  "HtmlDivElement",
   "Window",
 ] }
 wasm-bindgen = "0.2"

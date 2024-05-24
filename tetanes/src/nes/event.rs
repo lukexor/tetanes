@@ -627,12 +627,12 @@ impl Running {
         if let Some(action) = self.input_bindings.get(&input).copied() {
             trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
             let released = state == ElementState::Released;
-            let root_window = Some(window_id) == self.renderer.root_window_id();
+            let is_root_window = Some(window_id) == self.renderer.root_window_id();
             match action {
                 Action::Ui(ui_state) if released => match ui_state {
                     Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
-                        if root_window && self.renderer.rom_loaded() {
+                        if is_root_window && self.renderer.rom_loaded() {
                             self.paused = !self.paused;
                             self.nes_event(EmulationEvent::Pause(self.paused));
                         }
@@ -664,7 +664,7 @@ impl Running {
                     }
                 },
                 Action::Menu(menu) if released => self.nes_event(RendererEvent::Menu(menu)),
-                Action::Feature(feature) if root_window => match feature {
+                Action::Feature(feature) if is_root_window => match feature {
                     Feature::ToggleReplayRecording if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
@@ -719,7 +719,7 @@ impl Running {
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
-                    Setting::ToggleFullscreen if released && root_window => {
+                    Setting::ToggleFullscreen if released && is_root_window => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
                         self.renderer.set_fullscreen(self.cfg.renderer.fullscreen);
                     }
@@ -768,7 +768,7 @@ impl Running {
                         }
                     }
                     Setting::FastForward
-                        if !repeat && root_window && self.renderer.rom_loaded() =>
+                        if !repeat && is_root_window && self.renderer.rom_loaded() =>
                     {
                         let new_speed = if released { 1.0 } else { 2.0 };
                         let speed = self.cfg.emulation.speed;
@@ -787,7 +787,7 @@ impl Running {
                     DeckAction::Reset(kind) if released => {
                         self.nes_event(EmulationEvent::Reset(kind));
                     }
-                    DeckAction::Joypad((player, button)) if !repeat && root_window => {
+                    DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
                         self.nes_event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
@@ -810,7 +810,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::SaveState if released && root_window => {
+                    DeckAction::SaveState if released && is_root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
@@ -820,7 +820,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::LoadState if released && root_window => {
+                    DeckAction::LoadState if released && is_root_window => {
                         if platform::supports(platform::Feature::Filesystem) {
                             self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
@@ -874,7 +874,7 @@ impl Running {
                             format!("{kind:?} is not implemented yet"),
                         );
                     }
-                    Debug::Step(step) if (released | repeat) && root_window => {
+                    Debug::Step(step) if (released | repeat) && is_root_window => {
                         self.nes_event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),

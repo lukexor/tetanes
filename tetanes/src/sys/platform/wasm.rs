@@ -157,12 +157,8 @@ impl Initialize for Running {
         on_resize.forget();
 
         if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
-            tracing::info!(
-                "removing hidden class from loading status: {}",
-                html_ids::LOADING_STATUS
-            );
             if let Err(err) = status.class_list().add_1("hidden") {
-                tracing::info!("{err:?}");
+                tracing::error!("{err:?}");
                 on_error(&self.tx, err);
             }
         }

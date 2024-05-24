@@ -675,8 +675,12 @@ impl Renderer {
         let adapter_info = painter.render_state().map(|state| state.adapter.get_info());
         if let Some(info) = adapter_info {
             debug!(
-                "created new painter for {}. Backend: {}",
-                info.name,
+                "created new painter for adapter: `{}`. backend: `{}`",
+                if info.name.is_empty() {
+                    "unknown"
+                } else {
+                    &info.name
+                },
                 info.backend.to_str()
             );
         } else {
@@ -1125,6 +1129,7 @@ impl Renderer {
             let Viewport {
                 window: Some(window),
                 egui_state: Some(egui_state),
+                screenshot_requested,
                 ..
             } = viewport
             else {
@@ -1132,7 +1137,7 @@ impl Renderer {
             };
 
             let clipped_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
-            let screenshot_requested = std::mem::take(&mut viewport.screenshot_requested);
+            let screenshot_requested = std::mem::take(screenshot_requested);
             painter.borrow_mut().paint_and_update_textures(
                 viewport_id,
                 output.pixels_per_point,
