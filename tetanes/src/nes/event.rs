@@ -119,7 +119,6 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
-    UnfocusedPause(bool),
     Pause(bool),
     ReplayRecord(bool),
     Reset(ResetKind),

@@ -471,33 +471,6 @@ impl Renderer {
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
-            WindowEvent::Focused(focused) => {
-                let mut state = self.state.borrow_mut();
-                state.focused = focused.then(|| viewport_id).flatten();
-                if let Some(viewport) = viewport_id
-                    .as_ref()
-                    .and_then(|id| state.viewports.get_mut(id))
-                {
-                    if viewport.ids.this == ViewportId::ROOT && self.rom_loaded() {
-                        self.tx.nes_event(EmulationEvent::UnfocusedPause(!focused));
-                        self.gui.paused = !*focused;
-                    }
-                }
-            }
-            WindowEvent::Occluded(occluded) => {
-                let mut state = self.state.borrow_mut();
-                // Note: Does not trigger on all platforms
-                if let Some(viewport) = viewport_id
-                    .as_ref()
-                    .and_then(|id| state.viewports.get_mut(id))
-                {
-                    viewport.occluded = *occluded;
-                    if viewport.ids.this == ViewportId::ROOT && self.rom_loaded() {
-                        self.tx.nes_event(EmulationEvent::UnfocusedPause(*occluded));
-                        self.gui.paused = *occluded;
-                    }
-                }
-            }
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                 if let Some(viewport_id) = viewport_id {
                     let mut state = self.state.borrow_mut();
@@ -539,7 +512,7 @@ impl Renderer {
                                 if canvas_width < desired_window_size.x {
                                     let current_scale = cfg.renderer.scale;
                                     let actual_scale =
-                                        canvas_width as f32 / (aspect_ratio * Ppu::WIDTH as f32);
+                                        canvas_width / (aspect_ratio * Ppu::WIDTH as f32);
                                     if current_scale > actual_scale {
                                         let mut window_size =
                                             self.window_size_for_scale(cfg, actual_scale);

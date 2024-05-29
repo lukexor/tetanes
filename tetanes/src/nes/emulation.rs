@@ -239,7 +239,6 @@ pub struct State {
     clock_time_accumulator: f32,
     last_frame_time: Instant,
     frame_time_diag: FrameTimeDiag,
-    unfocused_paused: bool,
     paused: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -294,7 +293,6 @@ impl State {
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
-            unfocused_paused: false,
             paused: true,
             rewinding: false,
             rewind,
@@ -469,12 +467,6 @@ impl State {
                         }
                         Err(err) => self.on_error(err),
                     }
-                }
-            }
-            EmulationEvent::UnfocusedPause(paused) => {
-                self.unfocused_paused = *paused;
-                if self.control_deck.is_running() {
-                    self.audio.pause(self.unfocused_paused);
                 }
             }
             EmulationEvent::UnloadRom => self.unload_rom(),
@@ -846,9 +838,9 @@ impl State {
 
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
-        if self.paused || self.unfocused_paused || !self.control_deck.is_running() {
+        if self.paused || !self.control_deck.is_running() {
             // But if we're only running + paused and not occluded, send a frame
-            if self.paused && !self.unfocused_paused && self.control_deck.is_running() {
+            if self.paused && self.control_deck.is_running() {
                 self.send_frame();
             }
             thread::park_timeout(self.target_frame_duration - park_epsilon);
