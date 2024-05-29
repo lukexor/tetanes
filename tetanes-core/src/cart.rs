@@ -103,7 +103,7 @@ impl Cart {
             File::open(path)
                 .map_err(|err| Error::io(err, format!("failed to open rom {path:?}")))?,
         );
-        Self::from_rom(&path.to_string_lossy(), &mut rom, ram_state)
+        Self::from_rom(path.to_string_lossy(), &mut rom, ram_state)
     }
 
     /// Load `Cart` from ROM data.

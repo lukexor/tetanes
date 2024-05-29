@@ -30,7 +30,7 @@ where
         .compact()
         .with_line_number(true)
         .with_ansi(false)
-        .without_time()
+        .without_time() // Not available in wasm
         .with_writer(MakeWebConsoleWriter::new());
     let perf_layer = performance_layer().with_details_from_fields(Pretty::default());
     let registry = registry.with(console_layer).with(perf_layer);

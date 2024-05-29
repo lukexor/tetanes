@@ -104,6 +104,24 @@ pub enum ConfigEvent {
     ZapperConnected(bool),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use]
+pub enum Mode {
+    Running,
+    ManuallyPaused,
+    Paused,
+}
+
+impl Mode {
+    pub const fn paused(&self) -> bool {
+        matches!(self, Self::ManuallyPaused | Self::Paused)
+    }
+
+    pub const fn manually_paused(&self) -> bool {
+        matches!(self, Self::ManuallyPaused)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum EmulationEvent {
@@ -119,7 +137,7 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
-    Pause(bool),
+    Mode(Mode),
     ReplayRecord(bool),
     Reset(ResetKind),
     Rewinding(bool),
@@ -192,7 +210,7 @@ impl Nes {
         puffin::profile_function!();
 
         if !matches!(event, Event::NewEvents(..) | Event::AboutToWait) {
-            trace!("event: {:?}", event);
+            trace!("event: {event:?}");
         }
 
         match event {
@@ -271,7 +289,6 @@ impl Nes {
                     return true;
                 }
                 next_repaint_time = None;
-                event_loop.set_control_flow(ControlFlow::Poll);
 
                 if let Some(window) = state.renderer.window(*window_id) {
                     if !window.is_minimized().unwrap_or(false) {
@@ -284,9 +301,10 @@ impl Nes {
                 }
             });
 
-            if let Some(next_repaint_time) = next_repaint_time {
-                event_loop.set_control_flow(ControlFlow::WaitUntil(next_repaint_time));
-            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(match next_repaint_time {
+                Some(next_repaint_time) => next_repaint_time,
+                None => Instant::now() + Duration::from_millis(16),
+            }));
         }
     }
 }
@@ -493,8 +511,8 @@ impl Running {
             }
             UiEvent::FileDialogCancelled => {
                 if self.renderer.rom_loaded() {
-                    self.paused = false;
-                    self.nes_event(EmulationEvent::Pause(self.paused));
+                    self.mode = Mode::Running;
+                    self.nes_event(EmulationEvent::Mode(self.mode));
                 }
             }
             UiEvent::Terminate => (),
@@ -632,14 +650,17 @@ impl Running {
                     Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
-                            self.paused = !self.paused;
-                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            self.mode = match self.mode {
+                                Mode::Running => Mode::ManuallyPaused,
+                                Mode::ManuallyPaused | Mode::Paused => Mode::Running,
+                            };
+                            self.nes_event(EmulationEvent::Mode(self.mode));
                         }
                     }
                     Ui::LoadRom => {
                         if self.renderer.rom_loaded() {
-                            self.paused = true;
-                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            self.mode = Mode::Paused;
+                            self.nes_event(EmulationEvent::Mode(self.mode));
                         }
                         // NOTE: Due to some platforms file dialogs blocking the event loop,
                         // loading requires a round-trip in order for the above pause to
@@ -653,8 +674,8 @@ impl Running {
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
-                            self.paused = true;
-                            self.nes_event(EmulationEvent::Pause(self.paused));
+                            self.mode = Mode::Paused;
+                            self.nes_event(EmulationEvent::Mode(self.mode));
                             // NOTE: Due to some platforms file dialogs blocking the event loop,
                             // loading requires a round-trip in order for the above pause to
                             // get processed.

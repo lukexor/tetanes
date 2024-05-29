@@ -3,7 +3,9 @@ use crate::{
         action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui as UiAction},
         config::Config,
         emulation::FrameStats,
-        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        event::{
+            ConfigEvent, EmulationEvent, Mode, NesEvent, RendererEvent, SendNesEvent, UiEvent,
+        },
         input::{ActionBindings, Gamepads, Input},
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
@@ -139,7 +141,7 @@ pub struct Gui {
     pub title: String,
     pub tx: EventLoopProxy<NesEvent>,
     pub texture: SizedTexture,
-    pub paused: bool,
+    pub mode: Mode,
     pub menu_height: f32,
     pub nes_frame: Rect,
     pub pending_genie_entry: PendingGenieEntry,
@@ -222,7 +224,7 @@ impl Gui {
             title: Config::WINDOW_TITLE.to_string(),
             tx,
             texture,
-            paused: false,
+            mode: Mode::Running,
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
             pending_genie_entry: PendingGenieEntry::empty(),
@@ -860,8 +862,8 @@ impl Gui {
             Button::new("📂 Load ROM...").shortcut_text(self.fmt_shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
-                self.paused = true;
-                self.tx.nes_event(EmulationEvent::Pause(true));
+                self.mode = Mode::Paused;
+                self.tx.nes_event(EmulationEvent::Mode(Mode::Paused));
             }
             // NOTE: Due to some platforms file dialogs blocking the event loop,
             // loading requires a round-trip in order for the above pause to
@@ -888,8 +890,8 @@ impl Gui {
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.paused = true;
-                self.tx.nes_event(EmulationEvent::Pause(true));
+                self.mode = Mode::Paused;
+                self.tx.nes_event(EmulationEvent::Mode(Mode::Paused));
                 // NOTE: Due to some platforms file dialogs blocking the event loop,
                 // loading requires a round-trip in order for the above pause to
                 // get processed.
@@ -991,7 +993,7 @@ impl Gui {
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-            let button = Button::new(if self.paused {
+            let button = Button::new(if self.mode.paused() {
                 "▶ Resume"
             } else {
                 "⏸ Pause"
@@ -999,8 +1001,11 @@ impl Gui {
             .shortcut_text(self.fmt_shortcut(UiAction::TogglePause));
             let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.paused = !self.paused;
-                self.tx.nes_event(EmulationEvent::Pause(self.paused));
+                self.mode = match self.mode {
+                    Mode::Running => Mode::ManuallyPaused,
+                    Mode::ManuallyPaused | Mode::Paused => Mode::Running,
+                };
+                self.tx.nes_event(EmulationEvent::Mode(self.mode));
                 ui.close_menu();
             };
         });
@@ -1490,13 +1495,13 @@ impl Gui {
         }
 
         let mut frame = Frame::none();
-        if self.paused {
+        if self.mode.paused() {
             frame = Frame::dark_canvas(ui.style()).multiply_with_opacity(0.7);
         }
 
         frame.show(ui, |ui| {
             ui.with_layout(Layout::centered_and_justified(Direction::TopDown), |ui| {
-                if self.paused {
+                if self.mode.paused() {
                     ui.heading(RichText::new("⏸").size(40.0));
                 }
             });

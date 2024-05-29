@@ -15,3 +15,8 @@ where
 pub fn park_timeout(dur: Duration) {
     thread::park_timeout_impl(dur);
 }
+
+/// Sleeps the current thread for the specified duration by yielding.
+pub async fn sleep(dur: Duration) {
+    thread::sleep_impl(dur).await
+}

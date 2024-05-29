@@ -23,3 +23,9 @@ pub fn park_timeout_impl(dur: Duration) {
         timeout_remaining = dur - elapsed;
     }
 }
+
+/// Sleeps the current thread for the specified duration by yielding.
+pub async fn sleep_impl(dur: Duration) {
+    // TODO: Async is a lie and is only required to allow the web impl to be non-blocking
+    thread::sleep(dur);
+}

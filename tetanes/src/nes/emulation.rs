@@ -4,7 +4,9 @@ use crate::{
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
-        event::{ConfigEvent, EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        event::{
+            ConfigEvent, EmulationEvent, Mode, NesEvent, RendererEvent, SendNesEvent, UiEvent,
+        },
         renderer::{gui::MessageType, FrameRecycle},
     },
     thread,
@@ -239,7 +241,7 @@ pub struct State {
     clock_time_accumulator: f32,
     last_frame_time: Instant,
     frame_time_diag: FrameTimeDiag,
-    paused: bool,
+    mode: Mode,
     rewinding: bool,
     rewind: Rewind,
     record: Record,
@@ -293,7 +295,7 @@ impl State {
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
-            paused: true,
+            mode: Mode::Paused,
             rewinding: false,
             rewind,
             record: Record::new(),
@@ -321,7 +323,7 @@ impl State {
     ) -> Option<T> {
         writer(&mut self.control_deck)
             .map_err(|err| {
-                self.pause(true);
+                self.set_mode(Mode::Paused);
                 self.on_error(err);
             })
             .ok()
@@ -418,9 +420,9 @@ impl State {
             }
             EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
             EmulationEvent::LoadState(slot) => self.load_state(*slot),
-            EmulationEvent::Pause(paused) => {
+            EmulationEvent::Mode(mode) => {
                 if self.control_deck.is_running() {
-                    self.pause(*paused);
+                    self.set_mode(*mode);
                 }
             }
             EmulationEvent::ReplayRecord(recording) => {
@@ -432,7 +434,7 @@ impl State {
                 self.frame_time_diag.reset();
                 if self.control_deck.is_running() {
                     self.control_deck.reset(*kind);
-                    self.pause(false);
+                    self.set_mode(Mode::Running);
                     match kind {
                         ResetKind::Soft => self.add_message(MessageType::Info, "Reset"),
                         ResetKind::Hard => self.add_message(MessageType::Info, "Power Cycled"),
@@ -612,24 +614,21 @@ impl State {
         }
     }
 
-    fn pause(&mut self, paused: bool) {
+    fn set_mode(&mut self, mode: Mode) {
         if !self.control_deck.cpu_corrupted() {
-            self.paused = paused;
-            if self.paused {
+            self.mode = mode;
+            if self.mode.paused() {
                 if let Some(rom) = self.control_deck.loaded_rom() {
                     if let Err(err) = self.record.stop(&rom.name) {
                         self.on_error(err);
                     }
                 }
-            }
-            self.audio.pause(self.paused);
-            if !self.paused {
+            } else {
                 self.last_auto_save = Instant::now();
                 // To avoid having a large dip in frame stats when unpausing
                 self.last_frame_time = Instant::now();
             }
-        } else {
-            self.paused = true;
+            self.audio.pause(self.mode.paused());
         }
     }
 
@@ -691,7 +690,7 @@ impl State {
         if let Err(err) = self.audio.start() {
             self.on_error(err);
         }
-        self.pause(false);
+        self.set_mode(Mode::Running);
         self.frame_time_diag.reset();
         self.last_auto_save = Instant::now();
         // To avoid having a large dip in frame stats after loading
@@ -721,7 +720,7 @@ impl State {
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
         self.control_deck.load_cpu(start);
-        self.pause(false);
+        self.set_mode(Mode::Running);
     }
 
     fn load_replay_path(&mut self, path: impl AsRef<Path>) {
@@ -810,18 +809,19 @@ impl State {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn should_park(&self) -> bool {
-        if self.audio.enabled() {
-            self.audio.queued_time() >= self.audio.latency
+    fn park_timeout(&self) -> Option<Duration> {
+        if self.rewinding || !self.audio.enabled() {
+            (self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()).then(|| {
+                let park_epsilon = Duration::from_millis(1);
+                Duration::from_secs_f32(
+                    self.target_frame_duration.as_secs_f32() - self.clock_time_accumulator,
+                )
+                .saturating_sub(park_epsilon)
+            })
         } else {
-            self.clock_time_accumulator > self.target_frame_duration.as_secs_f32()
+            (self.audio.queued_time() >= self.audio.latency)
+                .then(|| self.audio.queued_time() - self.audio.latency)
         }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn should_park(&self) -> bool {
-        self.audio.enabled() && self.audio.queued_time() >= self.audio.latency
     }
 
     fn clock_frame(&mut self) {
@@ -830,48 +830,43 @@ impl State {
 
         let last_clock_duration = self.last_clock_time.elapsed();
         self.last_clock_time = Instant::now();
-        let frame_duration_secs = last_clock_duration.as_secs_f32();
-        self.clock_time_accumulator += frame_duration_secs;
+        self.clock_time_accumulator += last_clock_duration.as_secs_f32();
         if self.clock_time_accumulator > 0.020 {
             self.clock_time_accumulator = 0.020;
         }
 
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
-        if self.paused || !self.control_deck.is_running() {
-            // But if we're only running + paused and not occluded, send a frame
-            if self.paused && self.control_deck.is_running() {
-                self.send_frame();
-            }
+        if self.mode.paused() || !self.control_deck.is_running() {
             thread::park_timeout(self.target_frame_duration - park_epsilon);
             return;
         }
-        if !self.rewinding && self.should_park() {
-            thread::park_timeout(self.audio.queued_time().saturating_sub(self.audio.latency));
+        if let Some(park_timeout) = self.park_timeout() {
+            thread::park_timeout(park_timeout);
             return;
-        }
-
-        // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
-        // not rewinding, otherwise fall back to time-based clocking
-        // let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
-        let mut run_ahead = self.run_ahead;
-        if self.speed > 1.0 {
-            run_ahead = 0;
         }
 
         if self.rewinding {
             match self.rewind.pop() {
                 Some(cpu) => {
+                    self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
                     self.control_deck.load_cpu(cpu);
                     self.send_frame();
                     self.update_frame_stats();
-                    thread::park_timeout(self.target_frame_duration - park_epsilon);
                 }
                 None => self.rewinding = false,
             }
         } else {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
                 self.on_emulation_event(&event);
+            }
+
+            // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
+            // not rewinding, otherwise fall back to time-based clocking
+            // let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
+            let mut run_ahead = self.run_ahead;
+            if self.speed > 1.0 {
+                run_ahead = 0;
             }
             let res = self.control_deck.clock_frame_ahead(
                 run_ahead,
@@ -881,7 +876,7 @@ impl State {
                         frame.clear();
                         frame.extend_from_slice(frame_buffer);
                     };
-                    self.clock_time_accumulator -= frame_duration_secs;
+                    self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
 
                     // Indicate we want to redraw to ensure there's a frame slot made available if
                     // the pool is already full
@@ -889,6 +884,7 @@ impl State {
                         viewport_id: ViewportId::ROOT,
                         when: Instant::now(),
                     });
+
                     // IMPORTANT: Wasm can't block
                     if self.audio.enabled() || cfg!(target_arch = "wasm32") {
                         // If audio is enabled or wasm, frame rate is controlled by park_timeout
@@ -920,7 +916,7 @@ impl State {
                     }
                 }
                 Err(err) => {
-                    self.pause(true);
+                    self.set_mode(Mode::Paused);
                     self.on_error(err);
                 }
             }

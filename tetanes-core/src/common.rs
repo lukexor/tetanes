@@ -324,7 +324,7 @@ pub(crate) mod tests {
             filter: VideoFilter::Pixellate,
             ..Default::default()
         });
-        deck.load_rom(&path.to_string_lossy(), &mut rom)
+        deck.load_rom(path.to_string_lossy(), &mut rom)
             .expect("failed to load rom");
         deck
     }

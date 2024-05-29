@@ -1,7 +1,7 @@
 use crate::{
     nes::{
         config::Config,
-        event::{EmulationEvent, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        event::{EmulationEvent, Mode, NesEvent, RendererEvent, SendNesEvent, UiEvent},
         input::Gamepads,
         renderer::{
             gui::{Gui, Menu, MessageType},
@@ -20,7 +20,11 @@ use egui_wgpu::{winit::Painter, RenderState};
 use egui_winit::EventResponse;
 use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
-use tetanes_core::{ppu::Ppu, time::Instant, video::Frame};
+use tetanes_core::{
+    ppu::Ppu,
+    time::{Duration, Instant},
+    video::Frame,
+};
 use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
@@ -28,7 +32,7 @@ use thingbuf::{
 use tracing::{debug, error, trace, warn};
 use winit::{
     event::WindowEvent,
-    event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{EventLoopProxy, EventLoopWindowTarget},
     window::{Theme, Window, WindowId},
 };
 
@@ -365,8 +369,8 @@ impl Renderer {
                 EmulationEvent::AudioRecord(recording) => {
                     self.gui.audio_recording = *recording;
                 }
-                EmulationEvent::Pause(paused) => {
-                    self.gui.paused = *paused;
+                EmulationEvent::Mode(mode) => {
+                    self.gui.mode = *mode;
                 }
                 _ => (),
             },
@@ -402,12 +406,13 @@ impl Renderer {
                     self.gui.resize_texture = true;
                 }
                 RendererEvent::RomUnloaded => {
-                    self.gui.paused = false;
+                    self.gui.mode = Mode::Running;
                     self.gui.loaded_rom = None;
                     self.gui.title = Config::WINDOW_TITLE.to_string();
+                    self.ctx.request_repaint_of(ViewportId::ROOT);
                 }
                 RendererEvent::RomLoaded(rom) => {
-                    self.gui.paused = false;
+                    self.gui.mode = Mode::Running;
                     self.gui.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.gui.loaded_rom = Some(rom.clone());
                     if self.gui.loaded_rom.as_ref().map(|rom| rom.region) != Some(rom.region) {
@@ -417,6 +422,7 @@ impl Renderer {
                     if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                        self.ctx.request_repaint_of(ViewportId::ROOT);
                     }
                 }
                 RendererEvent::Menu(menu) => match menu {
@@ -471,6 +477,30 @@ impl Renderer {
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
+            // Note: Does not trigger on all platforms
+            WindowEvent::Occluded(occluded) => {
+                let mut state = self.state.borrow_mut();
+                if let Some(viewport) = viewport_id
+                    .as_ref()
+                    .and_then(|id| state.viewports.get_mut(id))
+                {
+                    viewport.occluded = *occluded;
+                    if viewport.ids.this == ViewportId::ROOT
+                        && self.rom_loaded()
+                        && (*occluded || (!occluded && !self.gui.mode.manually_paused()))
+                    {
+                        let mode = if self.gui.mode.manually_paused() {
+                            self.gui.mode
+                        } else if *occluded {
+                            Mode::Paused
+                        } else {
+                            Mode::Running
+                        };
+                        self.tx.nes_event(EmulationEvent::Mode(mode));
+                        self.gui.mode = mode;
+                    }
+                }
+            }
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
                 if let Some(viewport_id) = viewport_id {
                     let mut state = self.state.borrow_mut();
@@ -589,7 +619,7 @@ impl Renderer {
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx.nes_event(EmulationEvent::Pause(true));
+        self.tx.nes_event(EmulationEvent::Mode(Mode::Paused));
         self.gui.error = Some(err.to_string());
     }
 
@@ -628,6 +658,16 @@ impl Renderer {
         Ok((window, viewport_builder))
     }
 
+    pub async fn wait_for_window(window: &Arc<Window>) {
+        loop {
+            let size = window.inner_size();
+            if size.width > 0 && size.height > 0 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
         use wgpu::Backends;
         // TODO: Support webgpu when more widely supported
@@ -643,6 +683,10 @@ impl Renderer {
             None,
             false,
         );
+
+        // The window must be ready with a non-zero size before `Painter::set_window` is called,
+        // otherwise the wgpu surface won't be configured correctly.
+        Self::wait_for_window(&window).await;
         painter.set_window(ViewportId::ROOT, Some(window)).await?;
 
         let adapter_info = painter.render_state().map(|state| state.adapter.get_info());
@@ -954,7 +998,6 @@ impl Renderer {
         self.initialize_all_windows(event_loop);
 
         if self.all_viewports_occluded() {
-            event_loop.set_control_flow(ControlFlow::Wait);
             return Ok(());
         }
 
@@ -1054,7 +1097,7 @@ impl Renderer {
                     );
                 }
                 Err(err) => match err {
-                    TryRecvError::Empty if self.rom_loaded() && !self.gui.paused => {
+                    TryRecvError::Empty if self.rom_loaded() && !self.gui.mode.paused() => {
                         debug!("missed frame");
                     }
                     TryRecvError::Closed => {
