@@ -24,7 +24,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 109] = [
+    pub const BINDABLE: [Self; 111] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -40,6 +40,8 @@ impl Action {
         Self::Feature(Feature::InstantRewind),
         Self::Feature(Feature::TakeScreenshot),
         Self::Setting(Setting::ToggleFullscreen),
+        Self::Setting(Setting::ToggleEmbedViewports),
+        Self::Setting(Setting::ToggleAlwaysOnTop),
         Self::Setting(Setting::ToggleAudio),
         Self::Setting(Setting::ToggleCycleAccurate),
         Self::Setting(Setting::ToggleRewinding),
@@ -184,6 +186,8 @@ impl AsRef<str> for Action {
             },
             Action::Setting(setting) => match setting {
                 Setting::ToggleFullscreen => "Toggle Fullscreen",
+                Setting::ToggleEmbedViewports => "Toggle Embed Viewports",
+                Setting::ToggleAlwaysOnTop => "Toggle Always On Top",
                 Setting::ToggleAudio => "Toggle Audio",
                 Setting::ToggleCycleAccurate => "Toggle Cycle Accurate",
                 Setting::ToggleRewinding => "Toggle Rewinding",
@@ -343,6 +347,8 @@ pub enum Feature {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Setting {
     ToggleFullscreen,
+    ToggleEmbedViewports,
+    ToggleAlwaysOnTop,
     ToggleAudio,
     ToggleCycleAccurate,
     ToggleRewinding,

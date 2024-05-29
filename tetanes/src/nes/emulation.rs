@@ -820,7 +820,9 @@ impl State {
             })
         } else {
             (self.audio.queued_time() >= self.audio.latency)
-                .then(|| self.audio.queued_time() - self.audio.latency)
+                // Even though we just did a check for >=, audio is still being consumed so this
+                // could underflow
+                .then(|| self.audio.queued_time().saturating_sub(self.audio.latency))
         }
     }
 

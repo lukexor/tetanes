@@ -157,6 +157,7 @@ pub enum RendererEvent {
     FrameStats(FrameStats),
     ShowMenubar(bool),
     ScaleChanged,
+    ToggleFullscreen,
     ResourcesReady,
     RequestRedraw {
         viewport_id: ViewportId,
@@ -421,11 +422,7 @@ impl Running {
                 if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
                     self.emulation.on_event(&event);
                 }
-                self.renderer.on_event(
-                    &event,
-                    #[cfg(target_arch = "wasm32")]
-                    &self.cfg,
-                );
+                self.renderer.on_event(&event, &self.cfg);
 
                 match event {
                     NesEvent::Config(ConfigEvent::InputBindings) => {
@@ -525,11 +522,7 @@ impl Running {
         trace!("Nes event: {event:?}");
 
         self.emulation.on_event(&event);
-        self.renderer.on_event(
-            &event,
-            #[cfg(target_arch = "wasm32")]
-            &self.cfg,
-        );
+        self.renderer.on_event(&event, &self.cfg);
         match event {
             NesEvent::Ui(event) => self.on_ui_event(event),
             NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
@@ -739,9 +732,22 @@ impl Running {
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
-                    Setting::ToggleFullscreen if released && is_root_window => {
+                    Setting::ToggleFullscreen if released => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
-                        self.renderer.set_fullscreen(self.cfg.renderer.fullscreen);
+                        self.renderer.set_fullscreen(
+                            self.cfg.renderer.fullscreen,
+                            self.cfg.renderer.embed_viewports,
+                        );
+                    }
+                    Setting::ToggleEmbedViewports if released => {
+                        self.cfg.renderer.embed_viewports = !self.cfg.renderer.embed_viewports;
+                        self.renderer
+                            .set_embed_viewports(self.cfg.renderer.embed_viewports);
+                    }
+                    Setting::ToggleAlwaysOnTop if released => {
+                        self.cfg.renderer.always_on_top = !self.cfg.renderer.always_on_top;
+                        self.renderer
+                            .set_always_on_top(self.cfg.renderer.always_on_top);
                     }
                     Setting::ToggleAudio if released => {
                         self.cfg.audio.enabled = !self.cfg.audio.enabled;

@@ -14,7 +14,7 @@ use crate::{
 use egui::{
     ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
     ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
-    ViewportIdSet, ViewportInfo, ViewportOutput,
+    ViewportIdSet, ViewportInfo, ViewportOutput, WindowLevel,
 };
 use egui_wgpu::{winit::Painter, RenderState};
 use egui_winit::EventResponse;
@@ -349,18 +349,39 @@ impl Renderer {
     }
 
     pub fn fullscreen(&self) -> bool {
-        self.root_viewport(|viewport| viewport.info.fullscreen)
+        // viewport.info.fullscreen is sometimes stale, so rely on the actual winit state
+        self.root_viewport(|viewport| viewport.window.as_ref().map(|w| w.fullscreen().is_some()))
             .flatten()
             .unwrap_or(false)
     }
 
-    pub fn set_fullscreen(&mut self, fullscreen: bool) {
+    pub fn set_fullscreen(&mut self, fullscreen: bool, embed_viewports: bool) {
+        if platform::supports(platform::Feature::Viewports) {
+            self.ctx.set_embed_viewports(fullscreen || embed_viewports);
+        }
+        self.ctx
+            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
         self.ctx
             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Fullscreen(fullscreen));
     }
 
+    pub fn set_embed_viewports(&mut self, embed: bool) {
+        self.ctx.set_embed_viewports(embed);
+    }
+
+    pub fn set_always_on_top(&mut self, always_on_top: bool) {
+        self.ctx.send_viewport_cmd_to(
+            ViewportId::ROOT,
+            ViewportCommand::WindowLevel(if always_on_top {
+                WindowLevel::AlwaysOnTop
+            } else {
+                WindowLevel::Normal
+            }),
+        );
+    }
+
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent, #[cfg(target_arch = "wasm32")] cfg: &Config) {
+    pub fn on_event(&mut self, event: &NesEvent, cfg: &Config) {
         match event {
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
@@ -404,6 +425,9 @@ impl Renderer {
                     // Handles increment/decrement scale action bindings
                     self.gui.resize_window = true;
                     self.gui.resize_texture = true;
+                }
+                RendererEvent::ToggleFullscreen => {
+                    self.set_fullscreen(cfg.renderer.fullscreen, cfg.renderer.embed_viewports);
                 }
                 RendererEvent::RomUnloaded => {
                     self.gui.mode = Mode::Running;
@@ -629,7 +653,7 @@ impl Renderer {
         cfg: &Config,
     ) -> anyhow::Result<(Window, ViewportBuilder)> {
         let window_size = cfg.window_size(cfg.deck.region.aspect_ratio());
-        let viewport_builder = ViewportBuilder::default()
+        let mut viewport_builder = ViewportBuilder::default()
             .with_app_id(Config::WINDOW_TITLE)
             .with_title(Config::WINDOW_TITLE)
             .with_active(true)
@@ -638,6 +662,9 @@ impl Renderer {
             .with_min_inner_size(Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32))
             .with_fullscreen(cfg.renderer.fullscreen)
             .with_resizable(true);
+        if cfg.renderer.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
 
         let window_builder =
             egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
@@ -1117,6 +1144,7 @@ impl Renderer {
             }
         }
 
+        let always_on_top = cfg.renderer.always_on_top;
         let output = self.ctx.run(raw_input, |ctx| {
             if let Some(viewport_ui_cb) = viewport_ui_cb {
                 viewport_ui_cb(ctx);
@@ -1177,6 +1205,23 @@ impl Renderer {
             viewports.retain(|id, _| active_viewports_ids.contains(id));
             viewport_from_window.retain(|_, id| active_viewports_ids.contains(id));
             painter.borrow_mut().gc_viewports(&active_viewports_ids);
+
+            // Update viewports
+            for (viewport_id, viewport) in viewports {
+                if self.gui.debug_gui {
+                    egui::Window::new("Viewport Info").show(&self.ctx, |ui| viewport.info.ui(ui));
+                }
+                if always_on_top != cfg.renderer.always_on_top {
+                    self.ctx.send_viewport_cmd_to(
+                        *viewport_id,
+                        ViewportCommand::WindowLevel(if cfg.renderer.always_on_top {
+                            WindowLevel::AlwaysOnTop
+                        } else {
+                            WindowLevel::Normal
+                        }),
+                    );
+                }
+            }
         }
 
         Ok(())

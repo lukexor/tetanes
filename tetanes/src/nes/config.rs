@@ -84,6 +84,7 @@ impl Default for EmulationConfig {
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct RendererConfig {
     pub fullscreen: bool,
+    pub always_on_top: bool,
     pub hide_overscan: bool,
     pub scale: f32,
     pub recent_roms: HashSet<PathBuf>,
@@ -99,6 +100,7 @@ impl Default for RendererConfig {
     fn default() -> Self {
         Self {
             fullscreen: false,
+            always_on_top: false,
             hide_overscan: true,
             scale: if cfg!(target_arch = "wasm32") {
                 2.0

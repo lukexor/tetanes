@@ -20,8 +20,8 @@ use egui::{
     Align, Align2, Area, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
     DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Id, Image, Key,
     KeyboardShortcut, Layout, Modifiers, Order, PointerButton, Pos2, Rect, Response, RichText,
-    Rounding, ScrollArea, Sense, Slider, Stroke, TopBottomPanel, Ui, Vec2, ViewportClass,
-    ViewportCommand, ViewportId, Visuals, Widget, WidgetText,
+    Rounding, ScrollArea, Sense, Slider, Stroke, TopBottomPanel, Ui, Vec2, ViewportClass, Visuals,
+    Widget, WidgetText,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -158,7 +158,7 @@ pub struct Gui {
     pub debugger_open: bool,
     pub ppu_viewer_open: bool,
     pub apu_mixer_open: bool,
-    pub debug_on_hover: bool,
+    pub debug_gui: bool,
     pub loaded_region: NesRegion,
     pub resize_window: bool,
     pub resize_texture: bool,
@@ -241,7 +241,7 @@ impl Gui {
             debugger_open: false,
             ppu_viewer_open: false,
             apu_mixer_open: false,
-            debug_on_hover: false,
+            debug_gui: false,
             loaded_region: cfg.deck.region,
             resize_window: false,
             resize_texture: false,
@@ -658,10 +658,14 @@ impl Gui {
         }
 
         let title = "Preferences";
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
+        if cfg.renderer.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
         // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("preferences"),
-            egui::ViewportBuilder::default().with_title(title),
+            viewport_builder,
             |ctx, class| {
                 if class == ViewportClass::Embedded {
                     let mut preferences_open = self.preferences_open;
@@ -693,10 +697,14 @@ impl Gui {
         }
 
         let title = "Keybinds";
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
+        if cfg.renderer.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
         // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("keybinds"),
-            egui::ViewportBuilder::default().with_title(title),
+            viewport_builder,
             |ctx, class| {
                 if class == ViewportClass::Embedded {
                     let mut keybinds_open = self.keybinds_open;
@@ -1218,22 +1226,8 @@ impl Gui {
         ui.separator();
 
         self.fullscreen_checkbox(ui, cfg, ShowShortcut::Yes);
-
-        if platform::supports(platform::Feature::Viewports) {
-            ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
-                let mut embed_viewports = ui.ctx().embed_viewports();
-                // icon: maximize
-                let res = ui
-                    .checkbox(&mut embed_viewports, "🗖 Embed viewports")
-                    .on_disabled_hover_text(
-                        "Non-embedded viewports are not supported while in fullscreen.",
-                    );
-                if res.clicked() {
-                    cfg.renderer.embed_viewports = embed_viewports;
-                    ui.ctx().set_embed_viewports(embed_viewports);
-                }
-            });
-        }
+        self.embed_viewports_checkbox(ui, cfg, ShowShortcut::Yes);
+        self.always_on_top_checkbox(ui, cfg, ShowShortcut::Yes);
 
         ui.separator();
 
@@ -1270,9 +1264,9 @@ impl Gui {
 
         #[cfg(debug_assertions)]
         {
-            let res = ui.checkbox(&mut self.debug_on_hover, "Debug on Hover");
+            let res = ui.checkbox(&mut self.debug_gui, "Debug GUI");
             if res.clicked() {
-                ui.ctx().set_debug_on_hover(self.debug_on_hover);
+                ui.ctx().set_debug_on_hover(self.debug_gui);
             }
         }
 
@@ -2006,9 +2000,11 @@ impl Gui {
                 ui.end_row();
 
                 self.messages_checkbox(ui, cfg, ShowShortcut::No);
+                self.embed_viewports_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
 
                 self.overscan_checkbox(ui, cfg, ShowShortcut::No);
+                self.always_on_top_checkbox(ui, cfg, ShowShortcut::No);
                 ui.end_row();
             });
 
@@ -2589,15 +2585,48 @@ impl Gui {
         let checkbox = Checkbox::new(&mut cfg.renderer.fullscreen, format!("{icon}Fullscreen"))
             .shortcut_text(shortcut_txt);
         if ui.add(checkbox).clicked() {
-            let ctx = ui.ctx();
-            if platform::supports(platform::Feature::Viewports) {
-                ctx.set_embed_viewports(cfg.renderer.fullscreen || cfg.renderer.embed_viewports);
-            }
-            ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-            ctx.send_viewport_cmd_to(
-                ViewportId::ROOT,
-                ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
-            );
+            self.tx.nes_event(RendererEvent::ToggleFullscreen);
+        }
+    }
+
+    fn embed_viewports_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
+        if platform::supports(platform::Feature::Viewports) {
+            ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
+                let shortcut_txt = shortcut
+                    .then(|| self.fmt_shortcut(Setting::ToggleEmbedViewports))
+                    .unwrap_or_default();
+                // icon: maximize
+                let icon = shortcut.then(|| "🗖 ").unwrap_or_default();
+                let mut embed_viewports = ui.ctx().embed_viewports();
+                let checkbox =
+                    Checkbox::new(&mut embed_viewports, format!("{icon}Embed Viewports"))
+                        .shortcut_text(shortcut_txt);
+                let res = ui.add(checkbox).on_disabled_hover_text(
+                    "Non-embedded viewports are not supported while in fullscreen.",
+                );
+                if res.clicked() {
+                    cfg.renderer.embed_viewports = embed_viewports;
+                    ui.ctx().set_embed_viewports(embed_viewports);
+                }
+            });
+        }
+    }
+
+    fn always_on_top_checkbox(&mut self, ui: &mut Ui, cfg: &mut Config, shortcut: ShowShortcut) {
+        if platform::supports(platform::Feature::Viewports) {
+            let shortcut_txt = shortcut
+                .then(|| self.fmt_shortcut(Setting::ToggleAlwaysOnTop))
+                .unwrap_or_default();
+            let icon = shortcut.then(|| "🔝 ").unwrap_or_default();
+            let checkbox = Checkbox::new(
+                &mut cfg.renderer.always_on_top,
+                format!("{icon}Always on Top"),
+            )
+            .shortcut_text(shortcut_txt);
+            // FIXME: Currently when not using embeded viewports, toggling always on top from
+            // the preferences window will focus the primary window, potentially obscuring the
+            // preferences window
+            ui.add(checkbox);
         }
     }
 
