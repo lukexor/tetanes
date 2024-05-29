@@ -215,6 +215,10 @@ pub struct ControlDeck {
     auto_detect_region: bool,
     /// Remaining CPU cycles to execute used to clock a given number of seconds.
     cycles_remaining: f32,
+    /// Emulated frame speed ranging from 0.25 to 2.0.
+    frame_speed: f32,
+    /// Accumulated frame speed to account for slower 1x speeds.
+    frame_accumulator: f32,
     /// NES CPU.
     cpu: Cpu,
 }
@@ -263,6 +267,8 @@ impl ControlDeck {
             mapper_revisions: cfg.mapper_revisions,
             auto_detect_region: cfg.region.is_auto(),
             cycles_remaining: 0.0,
+            frame_speed: 1.0,
+            frame_accumulator: 0.0,
             cpu,
         }
     }
@@ -619,10 +625,23 @@ impl ControlDeck {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        // Frames that aren't multiples of the default render 1 more/less frames
+        // every other frame
+        // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
+        // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
+        self.frame_accumulator += self.frame_speed;
+        let mut frames_to_clock = 0;
+        while self.frame_accumulator >= 1.0 {
+            self.frame_accumulator -= 1.0;
+            frames_to_clock += 1;
+        }
+
         let mut total_cycles = 0;
-        let frame = self.frame_number();
-        while frame == self.frame_number() {
-            total_cycles += self.clock_instr()?;
+        for _ in 0..frames_to_clock {
+            let frame = self.frame_number();
+            while frame == self.frame_number() {
+                total_cycles += self.clock_instr()?;
+            }
         }
         self.cpu.bus.apu.clock_flush();
 
@@ -916,6 +935,7 @@ impl ControlDeck {
     /// Set the emulation speed.
     #[inline]
     pub fn set_frame_speed(&mut self, speed: f32) {
+        self.frame_speed = speed;
         self.cpu.bus.apu.set_frame_speed(speed);
     }
 
