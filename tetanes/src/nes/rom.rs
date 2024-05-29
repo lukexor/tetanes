@@ -77,7 +77,7 @@ macro_rules! rom_assets {
     )*]};
 }
 
-pub const HOMEBREW_ROMS: [RomAsset; 17] = rom_assets!(
+pub const HOMEBREW_ROMS: [RomAsset; 18] = rom_assets!(
     (
         "Alter Ego",
         "alter_ego.nes",
@@ -131,6 +131,17 @@ Cheril can also regain her vitality by means of a special action we won’t reve
 
 You can choose the difficulty level, but the easiest level won’t show the real ending.",
         "https://forums.nesdev.org/viewtopic.php?t=15367",
+    ),
+    (
+        "Data Man Demo",
+        "data_man_demo.nes",
+        "Darkbits (Olof Naessen, Per Larsson, Ted Steen)",
+        "Do you have what it takes to save the System?
+
+The Master and his evil minions have invaded the system and will not stop until every piece of data is corrupted. It’s up to you to save it before time runs out and the system crashes!
+
+It won’t be easy. You’ll have to protect the Central Processing Unit from hordes of attacking minions and ultimately from the Master himself. Face it alone, or with a friend!",
+        "https://www.brokestudio.fr/product/data-man-nes",
     ),
     (
         "Dushlan",
@@ -192,8 +203,8 @@ Can you help Hekl defeat the enemies that Amondus has populated throughout the l
         "https://forums.nesdev.org/viewtopic.php?t=13450",
     ),
     (
-        "Nebs 'n Debs",
-        "nebs_n_debs.nes",
+        "Nebs 'n Debs Demo",
+        "nebs_n_debs_demo.nes",
         "Dullahan Software",
         "Run, jump, and dash your way through 12 levels as you search for the missing parts of Debs's ship to escape the hostile alien planet Vespasian 7MV! Nebs 'n Debs runs on the same type of game cartridge as the original Super Mario Bros.",
         "https://dullahan-software.itch.io/nebs-n-debs",
