@@ -97,10 +97,12 @@ web-sys = { workspace = true, features = [
   "File",
   "FileList",
   "FileReader",
+  "HtmlAnchorElement",
   "HtmlCanvasElement",
   "HtmlElement",
   "HtmlInputElement",
   "HtmlDivElement",
+  "Navigator",
   "Window",
 ] }
 wasm-bindgen = "0.2"

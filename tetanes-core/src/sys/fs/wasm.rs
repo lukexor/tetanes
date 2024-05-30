@@ -25,7 +25,7 @@ fn local_storage() -> Result<web_sys::Storage> {
         .local_storage()
         .map_err(|err| {
             tracing::error!("failed to get local storage: {err:?}");
-            Error::custom(format!("failed to get storage"))
+            Error::custom("failed to get storage")
         })?
         .ok_or_else(|| Error::custom("no storage available"))
 }
