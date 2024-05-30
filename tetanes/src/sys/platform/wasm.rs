@@ -169,6 +169,10 @@ impl Initialize for Running {
         }
         on_resize.forget();
 
+        if let Some(version) = document.get_element_by_id(html_ids::VERSION) {
+            version.set_inner_html(concat!("v", env!("CARGO_PKG_VERSION")));
+        }
+
         if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
             if let Err(err) = status.class_list().add_1("hidden") {
                 tracing::error!("{err:?}");
@@ -203,6 +207,7 @@ mod html_ids {
     pub(super) const LOADING_STATUS: &str = "loading-status";
     pub(super) const ROM_INPUT: &str = "load-rom";
     pub(super) const REPLAY_INPUT: &str = "load-replay";
+    pub(super) const VERSION: &str = "version";
 }
 
 pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {

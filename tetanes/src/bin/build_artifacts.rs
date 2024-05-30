@@ -148,10 +148,9 @@ impl Build {
             cmd.arg(file.as_ref());
         }
         cmd.spawn()?.wait()?;
-        let tgz_sha_name = format!("{tgz_name}-sha256.txt");
         self.write_sha256(
             self.dist_dir.join(tgz_name),
-            self.dist_dir.join(tgz_sha_name),
+            self.dist_dir.join(format!("{tgz_name}-sha256.txt")),
         )?;
 
         Ok(())
@@ -173,7 +172,7 @@ impl Build {
 
         self.tar_gz(
             format!(
-                "{}_{}-unknown-linux-gnu.tar.gz",
+                "{}-{}-unknown-linux-gnu.tar.gz",
                 self.bin_name, self.target_arch
             ),
             &build_dir,
@@ -183,16 +182,15 @@ impl Build {
         println!("creating deb...");
 
         // NOTE: 1- is the deb revision number
-        let deb_name = format!("{}_1-amd64.deb", self.bin_name);
+        let deb_name = format!("{}-1-amd64.deb", self.bin_name);
         Command::new("cargo")
             .args(["deb", "-p", "tetanes", "-o"])
             .arg(self.dist_dir.join(&deb_name))
             .spawn()?
             .wait()?;
-        let deb_sha_name = format!("{deb_name}-sha256.txt");
         self.write_sha256(
             self.dist_dir.join(&deb_name),
-            self.dist_dir.join(deb_sha_name),
+            self.dist_dir.join(format!("{deb_name}-sha256.txt")),
         )?;
 
         println!("creating AppImage...");
@@ -216,12 +214,11 @@ impl Build {
         .spawn()?
         .wait()?;
 
-        let app_image_name = format!("{}_{}.AppImage", self.bin_name, self.target_arch);
+        let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.target_arch);
         fs::rename(&app_image_name, self.dist_dir.join(&app_image_name))?;
-        let app_image_sha_name = format!("{app_image_name}-sha256.txt");
         self.write_sha256(
             self.dist_dir.join(&app_image_name),
-            self.dist_dir.join(app_image_sha_name),
+            self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
         )?;
 
         Ok(())
@@ -234,9 +231,9 @@ impl Build {
 
         println!("creating macos app...");
 
-        let artifact_name = format!("{}_{}", self.bin_name, self.target_arch);
+        let artifact_name = format!("{}-{}", self.bin_name, self.target_arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
-        let dmg_name = format!("{artifact_name}-Uncompressed.dmg");
+        let dmg_name = format!("{artifact_name}-uncompressed.dmg");
         let dmg_name_compressed = format!("{artifact_name}.dmg");
 
         println!("creating dmg volume: {dmg_name_compressed}");
@@ -345,7 +342,7 @@ impl Build {
             .wait()?;
 
         self.tar_gz(
-            format!("{}_{}-apple-darwin.tar.gz", self.bin_name, self.target_arch),
+            format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.target_arch),
             &volume,
             [&format!("{}.app", self.app_name)],
         )?;
@@ -370,10 +367,10 @@ impl Build {
             build_dir.join(&dmg_name_compressed),
             self.dist_dir.join(&dmg_name_compressed),
         )?;
-        let dmg_sha_name = format!("{artifact_name}-sha256.txt");
         self.write_sha256(
             self.dist_dir.join(&dmg_name_compressed),
-            self.dist_dir.join(dmg_sha_name),
+            self.dist_dir
+                .join(format!("{dmg_name_compressed}-sha256.txt")),
         )?;
 
         println!("cleaning up...");
@@ -390,7 +387,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("wix")?;
 
-        let installer_name = format!("{}_{}-pc-windows-msvc.msi", self.bin_name, self.target_arch);
+        let installer_name = format!("{}-{}.msi", self.bin_name, self.target_arch);
 
         println!("building installer...");
 
@@ -405,10 +402,9 @@ impl Build {
             build_dir.join(&installer_name),
             self.dist_dir.join(&installer_name),
         )?;
-        let sha_name = format!("{installer_name}-sha256.txt");
         self.write_sha256(
             self.dist_dir.join(&installer_name),
-            self.dist_dir.join(sha_name),
+            self.dist_dir.join(format!("{installer_name}-sha256.txt")),
         )?;
 
         Ok(())
@@ -419,7 +415,7 @@ impl Build {
         println!("compressing web artifacts...");
 
         self.tar_gz(
-            format!("{}_-web.tar.gz", self.bin_name),
+            format!("{}-web.tar.gz", self.bin_name),
             self.dist_dir.join("web"),
             ["."],
         )?;
