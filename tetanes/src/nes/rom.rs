@@ -141,7 +141,7 @@ You can choose the difficulty level, but the easiest level won’t show the real
 The Master and his evil minions have invaded the system and will not stop until every piece of data is corrupted. It’s up to you to save it before time runs out and the system crashes!
 
 It won’t be easy. You’ll have to protect the Central Processing Unit from hordes of attacking minions and ultimately from the Master himself. Face it alone, or with a friend!",
-        "https://www.brokestudio.fr/product/data-man-nes",
+        "https://datamangame.com/",
     ),
     (
         "Dushlan",
