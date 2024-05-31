@@ -1,7 +1,7 @@
 use crate::{
     nes::{
         config::Config,
-        event::{EmulationEvent, Mode, NesEvent, RendererEvent, SendNesEvent, UiEvent},
+        event::{EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent},
         input::Gamepads,
         renderer::{
             gui::{Gui, Menu, MessageType},
@@ -29,7 +29,7 @@ use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, warn};
 use winit::{
     event::WindowEvent,
     event_loop::{EventLoopProxy, EventLoopWindowTarget},
@@ -390,8 +390,8 @@ impl Renderer {
                 EmulationEvent::AudioRecord(recording) => {
                     self.gui.audio_recording = *recording;
                 }
-                EmulationEvent::Mode(mode) => {
-                    self.gui.mode = *mode;
+                EmulationEvent::RunState(mode) => {
+                    self.gui.run_state = *mode;
                 }
                 _ => (),
             },
@@ -430,13 +430,12 @@ impl Renderer {
                     self.set_fullscreen(cfg.renderer.fullscreen, cfg.renderer.embed_viewports);
                 }
                 RendererEvent::RomUnloaded => {
-                    self.gui.mode = Mode::Running;
+                    self.gui.run_state = RunState::Running;
                     self.gui.loaded_rom = None;
                     self.gui.title = Config::WINDOW_TITLE.to_string();
-                    self.ctx.request_repaint_of(ViewportId::ROOT);
                 }
                 RendererEvent::RomLoaded(rom) => {
-                    self.gui.mode = Mode::Running;
+                    self.gui.run_state = RunState::Running;
                     self.gui.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.gui.loaded_rom = Some(rom.clone());
                     if self.gui.loaded_rom.as_ref().map(|rom| rom.region) != Some(rom.region) {
@@ -446,7 +445,6 @@ impl Renderer {
                     if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                        self.ctx.request_repaint_of(ViewportId::ROOT);
                     }
                 }
                 RendererEvent::Menu(menu) => match menu {
@@ -509,20 +507,6 @@ impl Renderer {
                     .and_then(|id| state.viewports.get_mut(id))
                 {
                     viewport.occluded = *occluded;
-                    if viewport.ids.this == ViewportId::ROOT
-                        && self.rom_loaded()
-                        && (*occluded || (!occluded && !self.gui.mode.manually_paused()))
-                    {
-                        let mode = if self.gui.mode.manually_paused() {
-                            self.gui.mode
-                        } else if *occluded {
-                            Mode::Paused
-                        } else {
-                            Mode::Running
-                        };
-                        self.tx.nes_event(EmulationEvent::Mode(mode));
-                        self.gui.mode = mode;
-                    }
                 }
             }
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
@@ -643,7 +627,8 @@ impl Renderer {
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx.nes_event(EmulationEvent::Mode(Mode::Paused));
+        self.tx
+            .nes_event(EmulationEvent::RunState(RunState::Paused));
         self.gui.error = Some(err.to_string());
     }
 
@@ -1112,7 +1097,13 @@ impl Renderer {
         // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
         // resize tied to a configuration change.
         if let Some(render_state) = &self.render_state {
-            match self.frame_rx.try_recv() {
+            // We only care about the latest frame
+            let mut frame_buffer = self.frame_rx.try_recv_ref();
+            while !self.frame_rx.is_empty() {
+                debug!("dropped frame");
+                frame_buffer = self.frame_rx.try_recv_ref();
+            }
+            match frame_buffer {
                 Ok(frame_buffer) => {
                     self.texture.update(
                         &render_state.queue,
@@ -1123,24 +1114,12 @@ impl Renderer {
                         },
                     );
                 }
-                Err(err) => match err {
-                    TryRecvError::Empty if self.rom_loaded() && !self.gui.mode.paused() => {
-                        debug!("missed frame");
-                    }
-                    TryRecvError::Closed => {
-                        error!("frame channel closed unexpectedly, exiting");
-                        event_loop.exit();
-                        return Ok(());
-                    }
-                    _ => (),
-                },
-            }
-            if !self.frame_rx.is_empty() {
-                trace!("behind {} frames", self.frame_rx.len());
-                self.tx.nes_event(RendererEvent::RequestRedraw {
-                    viewport_id: ViewportId::ROOT,
-                    when: Instant::now(),
-                });
+                Err(TryRecvError::Closed) => {
+                    error!("frame channel closed unexpectedly, exiting");
+                    event_loop.exit();
+                    return Ok(());
+                }
+                _ => (),
             }
         }
 
@@ -1179,6 +1158,8 @@ impl Renderer {
             else {
                 return Ok(());
             };
+
+            window.pre_present_notify();
 
             let clipped_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
             let screenshot_requested = std::mem::take(screenshot_requested);

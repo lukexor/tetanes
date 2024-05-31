@@ -5,7 +5,7 @@ use crate::{
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
         event::{
-            ConfigEvent, EmulationEvent, Mode, NesEvent, RendererEvent, SendNesEvent, UiEvent,
+            ConfigEvent, EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent,
         },
         renderer::{gui::MessageType, FrameRecycle},
     },
@@ -38,14 +38,28 @@ use winit::{event::ElementState, event_loop::EventLoopProxy};
 pub mod replay;
 pub mod rewind;
 
-#[derive(Default, Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[must_use]
 pub struct FrameStats {
+    pub timestamp: Instant,
     pub fps: f32,
     pub fps_min: f32,
     pub frame_time: f32,
     pub frame_time_max: f32,
     pub frame_count: usize,
+}
+
+impl Default for FrameStats {
+    fn default() -> Self {
+        Self {
+            timestamp: Instant::now(),
+            fps: 0.0,
+            fps_min: 0.0,
+            frame_time: 0.0,
+            frame_time_max: 0.0,
+            frame_count: 0,
+        }
+    }
 }
 
 impl FrameStats {
@@ -241,7 +255,7 @@ pub struct State {
     clock_time_accumulator: f32,
     last_frame_time: Instant,
     frame_time_diag: FrameTimeDiag,
-    mode: Mode,
+    run_state: RunState,
     rewinding: bool,
     rewind: Rewind,
     record: Record,
@@ -295,7 +309,7 @@ impl State {
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
-            mode: Mode::Paused,
+            run_state: RunState::Paused,
             rewinding: false,
             rewind,
             record: Record::new(),
@@ -323,7 +337,7 @@ impl State {
     ) -> Option<T> {
         writer(&mut self.control_deck)
             .map_err(|err| {
-                self.set_mode(Mode::Paused);
+                self.set_run_state(RunState::Paused);
                 self.on_error(err);
             })
             .ok()
@@ -420,11 +434,7 @@ impl State {
             }
             EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
             EmulationEvent::LoadState(slot) => self.load_state(*slot),
-            EmulationEvent::Mode(mode) => {
-                if self.control_deck.is_running() {
-                    self.set_mode(*mode);
-                }
-            }
+            EmulationEvent::RunState(mode) => self.set_run_state(*mode),
             EmulationEvent::ReplayRecord(recording) => {
                 if self.control_deck.is_running() {
                     self.replay_record(*recording);
@@ -434,7 +444,7 @@ impl State {
                 self.frame_time_diag.reset();
                 if self.control_deck.is_running() {
                     self.control_deck.reset(*kind);
-                    self.set_mode(Mode::Running);
+                    self.set_run_state(RunState::Running);
                     match kind {
                         ResetKind::Soft => self.add_message(MessageType::Info, "Reset"),
                         ResetKind::Hard => self.add_message(MessageType::Info, "Power Cycled"),
@@ -587,6 +597,7 @@ impl State {
             fps_min = 0.0;
         }
         self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
+            timestamp: Instant::now(),
             fps,
             fps_min,
             frame_time: frame_time * 1000.0,
@@ -614,10 +625,10 @@ impl State {
         }
     }
 
-    fn set_mode(&mut self, mode: Mode) {
+    fn set_run_state(&mut self, mode: RunState) {
         if !self.control_deck.cpu_corrupted() {
-            self.mode = mode;
-            if self.mode.paused() {
+            self.run_state = mode;
+            if self.run_state.paused() {
                 if let Some(rom) = self.control_deck.loaded_rom() {
                     if let Err(err) = self.record.stop(&rom.name) {
                         self.on_error(err);
@@ -628,7 +639,7 @@ impl State {
                 // To avoid having a large dip in frame stats when unpausing
                 self.last_frame_time = Instant::now();
             }
-            self.audio.pause(self.mode.paused());
+            self.audio.pause(self.run_state.paused());
         }
     }
 
@@ -674,6 +685,10 @@ impl State {
                 self.on_error(err);
             }
             self.tx.nes_event(RendererEvent::RomUnloaded);
+            self.tx.nes_event(RendererEvent::RequestRedraw {
+                viewport_id: ViewportId::ROOT,
+                when: Instant::now(),
+            });
             self.frame_time_diag.reset();
         }
     }
@@ -686,11 +701,15 @@ impl State {
                 }
             }
         }
-        self.tx.nes_event(RendererEvent::RomLoaded(rom));
         if let Err(err) = self.audio.start() {
             self.on_error(err);
         }
-        self.set_mode(Mode::Running);
+        self.set_run_state(RunState::Running);
+        self.tx.nes_event(RendererEvent::RomLoaded(rom));
+        self.tx.nes_event(RendererEvent::RequestRedraw {
+            viewport_id: ViewportId::ROOT,
+            when: Instant::now(),
+        });
         self.frame_time_diag.reset();
         self.last_auto_save = Instant::now();
         // To avoid having a large dip in frame stats after loading
@@ -720,7 +739,7 @@ impl State {
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
         self.control_deck.load_cpu(start);
-        self.set_mode(Mode::Running);
+        self.set_run_state(RunState::Running);
     }
 
     fn load_replay_path(&mut self, path: impl AsRef<Path>) {
@@ -810,16 +829,19 @@ impl State {
     }
 
     fn park_timeout(&self) -> Option<Duration> {
-        if self.rewinding || !self.audio.enabled() {
+        let park_epsilon = Duration::from_millis(1);
+        // Park if we're paused, occluded, or not running
+        if self.run_state.paused() || !self.control_deck.is_running() {
+            Some(self.target_frame_duration - park_epsilon)
+        } else if self.rewinding || !self.audio.enabled() {
             (self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()).then(|| {
-                let park_epsilon = Duration::from_millis(1);
                 Duration::from_secs_f32(
                     self.target_frame_duration.as_secs_f32() - self.clock_time_accumulator,
                 )
                 .saturating_sub(park_epsilon)
             })
         } else {
-            (self.audio.queued_time() >= self.audio.latency)
+            (self.audio.queued_time() > self.audio.latency)
                 // Even though we just did a check for >=, audio is still being consumed so this
                 // could underflow
                 .then(|| self.audio.queued_time().saturating_sub(self.audio.latency))
@@ -837,13 +859,11 @@ impl State {
             self.clock_time_accumulator = 0.020;
         }
 
-        let park_epsilon = Duration::from_millis(1);
-        // Park if we're paused, occluded, or not running
-        if self.mode.paused() || !self.control_deck.is_running() {
-            thread::park_timeout(self.target_frame_duration - park_epsilon);
-            return;
-        }
         if let Some(park_timeout) = self.park_timeout() {
+            self.tx.nes_event(RendererEvent::RequestRedraw {
+                viewport_id: ViewportId::ROOT,
+                when: Instant::now() + park_timeout,
+            });
             thread::park_timeout(park_timeout);
             return;
         }
@@ -918,7 +938,7 @@ impl State {
                     }
                 }
                 Err(err) => {
-                    self.set_mode(Mode::Paused);
+                    self.set_run_state(RunState::Paused);
                     self.on_error(err);
                 }
             }

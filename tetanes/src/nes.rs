@@ -2,7 +2,7 @@
 
 use crate::{
     nes::{
-        event::{Mode, RendererEvent, SendNesEvent, UiEvent},
+        event::{RendererEvent, RunState, SendNesEvent, UiEvent},
         input::{Gamepads, InputBindings},
         renderer::{FrameRecycle, Resources},
     },
@@ -80,7 +80,7 @@ pub(crate) struct Running {
     pub(crate) input_bindings: InputBindings,
     pub(crate) gamepads: Gamepads,
     pub(crate) modifiers: Modifiers,
-    pub(crate) mode: Mode,
+    pub(crate) run_state: RunState,
     pub(crate) replay_recording: bool,
     pub(crate) audio_recording: bool,
     pub(crate) rewinding: bool,
@@ -196,7 +196,7 @@ impl Nes {
                     input_bindings,
                     gamepads,
                     modifiers: Modifiers::default(),
-                    mode: Mode::Running,
+                    run_state: RunState::Running,
                     replay_recording: false,
                     audio_recording: false,
                     rewinding: false,

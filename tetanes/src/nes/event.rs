@@ -106,15 +106,19 @@ pub enum ConfigEvent {
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub enum Mode {
+pub enum RunState {
     Running,
     ManuallyPaused,
     Paused,
 }
 
-impl Mode {
+impl RunState {
     pub const fn paused(&self) -> bool {
         matches!(self, Self::ManuallyPaused | Self::Paused)
+    }
+
+    pub const fn auto_paused(&self) -> bool {
+        matches!(self, Self::Paused)
     }
 
     pub const fn manually_paused(&self) -> bool {
@@ -137,7 +141,7 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
-    Mode(Mode),
+    RunState(RunState),
     ReplayRecord(bool),
     Reset(ResetKind),
     Rewinding(bool),
@@ -244,9 +248,11 @@ impl Nes {
                     event_loop.exit();
                     return;
                 }
+
                 // Disable device events to save some cpu as they're mostly duplicated in
                 // WindowEvents
                 event_loop.listen_device_events(DeviceEvents::Never);
+
                 if let State::Running(state) = &mut self.state {
                     if let Some(window) = state
                         .renderer
@@ -347,8 +353,6 @@ impl Running {
                         }
                     }
                 }
-
-                self.emulation.clock_frame();
             }
             Event::WindowEvent {
                 window_id, event, ..
@@ -366,6 +370,8 @@ impl Running {
                 if !res.consumed {
                     match event {
                         WindowEvent::RedrawRequested => {
+                            self.emulation.clock_frame();
+
                             self.repaint_times.remove(&window_id);
                             if let Err(err) = self.renderer.redraw(
                                 window_id,
@@ -384,12 +390,37 @@ impl Running {
                         WindowEvent::Focused(focused) => {
                             if focused {
                                 self.repaint_times.insert(window_id, Instant::now());
+                                if self.renderer.rom_loaded() && self.run_state.auto_paused() {
+                                    self.run_state = RunState::Running;
+                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                }
+                            } else if self
+                                .renderer
+                                .window(window_id)
+                                .and_then(|win| win.is_minimized())
+                                .unwrap_or(false)
+                            {
+                                self.repaint_times.remove(&window_id);
+                                if self.renderer.rom_loaded() {
+                                    self.run_state = RunState::Paused;
+                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                }
                             }
                         }
                         WindowEvent::Occluded(occluded) => {
-                            // Note: Does not trigger on all platforms
-                            if !occluded {
+                            // Note: Does not trigger on all platforms (e.g. linux)
+                            if occluded {
+                                self.repaint_times.remove(&window_id);
+                                if self.renderer.rom_loaded() {
+                                    self.run_state = RunState::Paused;
+                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                }
+                            } else {
                                 self.repaint_times.insert(window_id, Instant::now());
+                                if self.renderer.rom_loaded() && self.run_state.auto_paused() {
+                                    self.run_state = RunState::Running;
+                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                }
                             }
                         }
                         WindowEvent::KeyboardInput { event, .. } => {
@@ -508,8 +539,8 @@ impl Running {
             }
             UiEvent::FileDialogCancelled => {
                 if self.renderer.rom_loaded() {
-                    self.mode = Mode::Running;
-                    self.nes_event(EmulationEvent::Mode(self.mode));
+                    self.run_state = RunState::Running;
+                    self.nes_event(EmulationEvent::RunState(self.run_state));
                 }
             }
             UiEvent::Terminate => (),
@@ -643,17 +674,17 @@ impl Running {
                     Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
-                            self.mode = match self.mode {
-                                Mode::Running => Mode::ManuallyPaused,
-                                Mode::ManuallyPaused | Mode::Paused => Mode::Running,
+                            self.run_state = match self.run_state {
+                                RunState::Running => RunState::ManuallyPaused,
+                                RunState::ManuallyPaused | RunState::Paused => RunState::Running,
                             };
-                            self.nes_event(EmulationEvent::Mode(self.mode));
+                            self.nes_event(EmulationEvent::RunState(self.run_state));
                         }
                     }
                     Ui::LoadRom => {
                         if self.renderer.rom_loaded() {
-                            self.mode = Mode::Paused;
-                            self.nes_event(EmulationEvent::Mode(self.mode));
+                            self.run_state = RunState::Paused;
+                            self.nes_event(EmulationEvent::RunState(self.run_state));
                         }
                         // NOTE: Due to some platforms file dialogs blocking the event loop,
                         // loading requires a round-trip in order for the above pause to
@@ -667,8 +698,8 @@ impl Running {
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
-                            self.mode = Mode::Paused;
-                            self.nes_event(EmulationEvent::Mode(self.mode));
+                            self.run_state = RunState::Paused;
+                            self.nes_event(EmulationEvent::RunState(self.run_state));
                             // NOTE: Due to some platforms file dialogs blocking the event loop,
                             // loading requires a round-trip in order for the above pause to
                             // get processed.
