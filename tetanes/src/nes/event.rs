@@ -483,6 +483,9 @@ impl Running {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
 
+                if let Err(err) = self.renderer.save() {
+                    error!("failed to save rendererer state: {err:?}");
+                }
                 self.renderer.destroy();
 
                 if let Err(err) = self.cfg.save() {
