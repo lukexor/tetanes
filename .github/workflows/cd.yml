@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-and-upload-artifacts:
     name: Build & Upload Artifacts (${{ matrix.target }})
-    if: startsWith(github.event.release.name, 'tetanes')
+    # if: startsWith(github.event.release.name, 'tetanes')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
