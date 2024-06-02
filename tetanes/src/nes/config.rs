@@ -241,38 +241,49 @@ impl Config {
     pub const FILENAME: &'static str = "config.json";
 
     #[must_use]
-    pub fn default_config_dir() -> Option<PathBuf> {
-        dirs::config_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    pub fn default_config_dir() -> PathBuf {
+        dirs::config_local_dir().map_or_else(
+            || PathBuf::from("config"),
+            |dir| dir.join(DeckConfig::BASE_DIR),
+        )
     }
 
     #[must_use]
-    pub fn default_data_dir() -> Option<PathBuf> {
-        dirs::data_local_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    pub fn default_data_dir() -> PathBuf {
+        dirs::data_local_dir().map_or_else(
+            || PathBuf::from("data"),
+            |dir| dir.join(DeckConfig::BASE_DIR),
+        )
     }
 
     #[must_use]
-    pub fn default_picture_dir() -> Option<PathBuf> {
-        dirs::picture_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    pub fn default_picture_dir() -> PathBuf {
+        dirs::picture_dir().map_or_else(
+            || PathBuf::from("pictures"),
+            |dir| dir.join(DeckConfig::BASE_DIR),
+        )
     }
 
     #[must_use]
-    pub fn default_audio_dir() -> Option<PathBuf> {
-        dirs::audio_dir().map(|dir| dir.join(DeckConfig::BASE_DIR))
+    pub fn default_audio_dir() -> PathBuf {
+        dirs::audio_dir().map_or_else(
+            || PathBuf::from("music"),
+            |dir| dir.join(DeckConfig::BASE_DIR),
+        )
     }
 
     #[must_use]
-    pub fn config_path() -> Option<PathBuf> {
-        Self::default_config_dir().map(|dir| dir.join(Self::FILENAME))
+    pub fn config_path() -> PathBuf {
+        Self::default_config_dir().join(Self::FILENAME)
     }
 
     #[must_use]
-    pub fn save_path(name: &str, slot: u8) -> Option<PathBuf> {
-        Self::default_data_dir().map(|dir| {
-            dir.join(Self::SAVE_DIR)
-                .join(name)
-                .join(format!("slot-{}", slot))
-                .with_extension("sav")
-        })
+    pub fn save_path(name: &str, slot: u8) -> PathBuf {
+        Self::default_data_dir()
+            .join(Self::SAVE_DIR)
+            .join(name)
+            .join(format!("slot-{}", slot))
+            .with_extension("sav")
     }
 
     pub fn reset(&mut self) {
@@ -280,31 +291,27 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        if let Some(path) = Config::config_path() {
-            let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
-            fs::save_raw(path, &data).context("failed to save config")?;
-            info!("Saved configuration");
-        }
+        let path = Config::config_path();
+        let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
+        fs::save_raw(path, &data).context("failed to save config")?;
+        info!("Saved configuration");
 
         Ok(())
     }
 
     pub fn load(path: Option<PathBuf>) -> Self {
-        path.or_else(Config::config_path)
-            .and_then(|path| {
-                path.exists().then(|| {
-                    info!("Loading saved configuration");
-                    fs::load_raw(&path)
-                        .context("failed to load config")
-                        .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
-                        .with_context(|| format!("failed to parse {path:?}"))
-                        .unwrap_or_else(|err| {
-                            error!(
-                                "Invalid config: {path:?}, reverting to defaults. Error: {err:?}",
-                            );
-                            Self::default()
-                        })
-                })
+        let path = path.unwrap_or_else(Config::config_path);
+        fs::exists(&path)
+            .then(|| {
+                info!("Loading saved configuration");
+                fs::load_raw(&path)
+                    .context("failed to load config")
+                    .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
+                    .with_context(|| format!("failed to parse {path:?}"))
+                    .unwrap_or_else(|err| {
+                        error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
+                        Self::default()
+                    })
             })
             .unwrap_or_else(|| {
                 info!("Loading default configuration");

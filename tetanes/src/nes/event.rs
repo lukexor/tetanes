@@ -506,7 +506,7 @@ impl Running {
                         .renderer
                         .roms_path
                         .as_ref()
-                        .map(|p| p.to_path_buf()),
+                        .map_or_else(|| PathBuf::from("."), |p| p.to_path_buf()),
                 ) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
@@ -852,7 +852,7 @@ impl Running {
                     | DeckAction::ZapperAimOffscreen
                     | DeckAction::ZapperTrigger => (),
                     DeckAction::SetSaveSlot(slot) if released => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if platform::supports(platform::Feature::Storage) {
                             if self.cfg.emulation.save_slot != slot {
                                 self.cfg.emulation.save_slot = slot;
                                 self.renderer.add_message(
@@ -868,7 +868,7 @@ impl Running {
                         }
                     }
                     DeckAction::SaveState if released && is_root_window => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if platform::supports(platform::Feature::Storage) {
                             self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(
@@ -878,7 +878,7 @@ impl Running {
                         }
                     }
                     DeckAction::LoadState if released && is_root_window => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if platform::supports(platform::Feature::Storage) {
                             self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(

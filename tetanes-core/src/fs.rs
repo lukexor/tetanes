@@ -116,6 +116,9 @@ where
     let mut writer = fs::writer_impl(path)?;
     write_header(&mut writer).map_err(Error::WriteHeaderFailed)?;
     encode(&mut writer, &data).map_err(Error::EncodingFailed)?;
+    writer
+        .flush()
+        .map_err(|err| Error::io(err, "failed to save data"))?;
     Ok(())
 }
 
@@ -123,6 +126,9 @@ pub fn save_raw(path: impl AsRef<Path>, value: &[u8]) -> Result<()> {
     let mut writer = fs::writer_impl(path)?;
     writer
         .write_all(value)
+        .map_err(|err| Error::io(err, "failed to save data"))?;
+    writer
+        .flush()
         .map_err(|err| Error::io(err, "failed to save data"))?;
     Ok(())
 }
@@ -158,6 +164,10 @@ pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 
 pub fn clear_dir(path: impl AsRef<Path>) -> Result<()> {
     fs::clear_dir_impl(path)
+}
+
+pub fn exists(path: &Path) -> bool {
+    fs::exists_impl(path)
 }
 
 pub fn filename(path: &Path) -> &str {

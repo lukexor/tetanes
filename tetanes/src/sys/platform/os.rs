@@ -13,7 +13,7 @@ use winit::{
 pub const fn supports_impl(feature: Feature) -> bool {
     match feature {
         Feature::Suspend => cfg!(target_os = "android"),
-        Feature::Filesystem | Feature::Viewports => true,
+        Feature::Filesystem | Feature::Storage | Feature::Viewports => true,
     }
 }
 
@@ -21,14 +21,12 @@ pub fn open_file_dialog_impl(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: Option<PathBuf>,
+    dir: PathBuf,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let mut dialog = rfd::FileDialog::new()
+    let dialog = rfd::FileDialog::new()
         .set_title(title)
+        .set_directory(dir)
         .add_filter(name, extensions);
-    if let Some(dir) = dir {
-        dialog = dialog.set_directory(dir);
-    }
     Ok(dialog.pick_file())
 }
 

@@ -11,7 +11,7 @@ use crate::{
     },
     thread,
 };
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use chrono::Local;
 use crossbeam::channel;
 use egui::ViewportId;
@@ -645,25 +645,28 @@ impl State {
 
     fn save_state(&mut self, slot: u8, auto: bool) {
         if let Some(rom) = self.control_deck.loaded_rom() {
-            if let Some(data_dir) = Config::save_path(&rom.name, slot) {
-                match self.control_deck.save_state(data_dir) {
-                    Ok(_) => {
-                        if !auto {
-                            self.add_message(MessageType::Info, format!("State {slot} Saved"));
-                        }
+            let data_dir = Config::save_path(&rom.name, slot);
+            match self.control_deck.save_state(data_dir) {
+                Ok(_) => {
+                    if !auto {
+                        self.add_message(MessageType::Info, format!("State {slot} Saved"));
                     }
-                    Err(err) => self.on_error(err),
                 }
+                Err(err) => self.on_error(err),
             }
         }
     }
 
     fn load_state(&mut self, slot: u8) {
         if let Some(rom) = self.control_deck.loaded_rom() {
-            if let Some(path) = Config::save_path(&rom.name, slot) {
-                match self.control_deck.load_state(path) {
-                    Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
-                    Err(err) => self.on_error(err),
+            let save_path = Config::save_path(&rom.name, slot);
+            match self.control_deck.load_state(save_path) {
+                Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
+                Err(control_deck::Error::NoSaveStateFound) => {
+                    self.add_message(MessageType::Warn, format!("State {slot} Not Found"));
+                }
+                Err(err) => {
+                    self.on_error(err);
                 }
             }
         }
@@ -672,10 +675,9 @@ impl State {
     fn unload_rom(&mut self) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if self.auto_save {
-                if let Some(path) = Config::save_path(&rom.name, self.save_slot) {
-                    if let Err(err) = self.control_deck.save_state(path) {
-                        self.on_error(err);
-                    }
+                let save_path = Config::save_path(&rom.name, self.save_slot);
+                if let Err(err) = self.control_deck.save_state(save_path) {
+                    self.on_error(err);
                 }
             }
             self.replay_record(false);
@@ -695,10 +697,9 @@ impl State {
 
     fn on_load_rom(&mut self, rom: LoadedRom) {
         if self.auto_load {
-            if let Some(path) = Config::save_path(&rom.name, self.save_slot) {
-                if let Err(err) = self.control_deck.load_state(path) {
-                    error!("failed to load state: {err:?}");
-                }
+            let save_path = Config::save_path(&rom.name, self.save_slot);
+            if let Err(err) = self.control_deck.load_state(save_path) {
+                error!("failed to load state: {err:?}");
             }
         }
         if let Err(err) = self.audio.start() {
@@ -805,27 +806,23 @@ impl State {
     }
 
     fn save_screenshot(&mut self) -> anyhow::Result<PathBuf> {
-        match Config::default_picture_dir() {
-            Some(picture_dir) => {
-                let filename = picture_dir
-                    .join(
-                        Local::now()
-                            .format("screenshot_%Y-%m-%d_at_%H_%M_%S")
-                            .to_string(),
-                    )
-                    .with_extension("png");
-                let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
-                    Ppu::WIDTH,
-                    Ppu::HEIGHT,
-                    self.control_deck.frame_buffer(),
-                )
-                .ok_or_else(|| anyhow!("failed to create image buffer"))?;
+        let picture_dir = Config::default_picture_dir();
+        let filename = picture_dir
+            .join(
+                Local::now()
+                    .format("screenshot_%Y-%m-%d_at_%H_%M_%S")
+                    .to_string(),
+            )
+            .with_extension("png");
+        let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
+            Ppu::WIDTH,
+            Ppu::HEIGHT,
+            self.control_deck.frame_buffer(),
+        )
+        .ok_or_else(|| anyhow!("failed to create image buffer"))?;
 
-                // TODO: provide wasm download
-                Ok(image.save(&filename).map(|_| filename)?)
-            }
-            None => bail!("failed to find default picture directory"),
-        }
+        // TODO: provide wasm download
+        Ok(image.save(&filename).map(|_| filename)?)
     }
 
     fn park_timeout(&self) -> Option<Duration> {
@@ -932,7 +929,7 @@ impl State {
                         self.rewind.set_enabled(false);
                         self.on_error(err);
                     }
-                    if self.last_auto_save.elapsed() > self.auto_save_interval {
+                    if self.auto_save && self.last_auto_save.elapsed() > self.auto_save_interval {
                         self.last_auto_save = Instant::now();
                         self.save_state(self.save_slot, true);
                     }

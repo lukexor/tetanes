@@ -30,3 +30,8 @@ pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
     remove_dir_all(path)
         .map_err(|source| Error::io(source, format!("failed to remove directory {path:?}")))
 }
+
+pub fn exists_impl(path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+    path.exists()
+}

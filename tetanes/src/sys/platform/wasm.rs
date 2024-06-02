@@ -17,30 +17,40 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub const fn supports_impl(_feature: Feature) -> bool {
-    false
+pub const fn supports_impl(feature: Feature) -> bool {
+    match feature {
+        Feature::Storage => true,
+        Feature::Filesystem | Feature::Viewports | Feature::Suspend => false,
+    }
 }
 
 pub fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
     extensions: &[impl ToString],
-    _dir: Option<PathBuf>,
+    _dir: PathBuf,
 ) -> anyhow::Result<Option<PathBuf>> {
     let input_id = match extensions[0].to_string().as_str() {
         "nes" => html_ids::ROM_INPUT,
         "replay" => html_ids::REPLAY_INPUT,
         _ => bail!("unsupported file extension"),
     };
+
     let input = web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| document.get_element_by_id(input_id))
         .and_then(|input| input.dyn_into::<HtmlInputElement>().ok());
     match input {
-        Some(input) => input.click(),
+        Some(input) => {
+            // To prevent event loop receiving events while dialog is open
+            if let Some(canvas) = get_canvas() {
+                let _ = canvas.blur();
+            }
+            input.click();
+        }
         None => bail!("failed to find file input element"),
     }
-    focus_canvas();
+
     Ok(None)
 }
 
@@ -110,7 +120,10 @@ impl Initialize for Running {
 
             let on_cancel = Closure::<dyn FnMut(_)>::new({
                 let tx = self.tx.clone();
-                move |_: web_sys::Event| tx.nes_event(UiEvent::FileDialogCancelled)
+                move |_: web_sys::Event| {
+                    focus_canvas();
+                    tx.nes_event(UiEvent::FileDialogCancelled);
+                }
             });
 
             let input = document
