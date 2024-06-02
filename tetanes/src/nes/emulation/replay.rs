@@ -56,24 +56,24 @@ impl Record {
         let Some(start) = self.start.take() else {
             return Ok(None);
         };
+
         if self.events.is_empty() {
             tracing::debug!("not saving - no replay events");
             return Ok(None);
         }
-        if let Some(dir) = Config::default_data_dir() {
-            let path = dir
-                .join(
-                    Local::now()
-                        .format(&format!("tetanes_replay_{name}_%Y-%m-%d_%H.%M.%S"))
-                        .to_string(),
-                )
-                .with_extension("replay");
-            let events = std::mem::take(&mut self.events);
-            fs::save(&path, &State((start, events)))?;
-            Ok(Some(path))
-        } else {
-            Err(anyhow::anyhow!("failed to find document directory"))
-        }
+
+        let replay_path = Config::default_data_dir()
+            .join(
+                Local::now()
+                    .format(&format!("tetanes_replay_{name}_%Y-%m-%d_%H.%M.%S"))
+                    .to_string(),
+            )
+            .with_extension("replay");
+        let events = std::mem::take(&mut self.events);
+
+        fs::save(&replay_path, &State((start, events)))?;
+
+        Ok(Some(replay_path))
     }
 }
 

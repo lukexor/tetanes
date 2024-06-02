@@ -934,7 +934,9 @@ impl Gui {
             });
 
             ui.separator();
+        }
 
+        if platform::supports(platform::Feature::Storage) {
             ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
                 let button = Button::new("💾 Save State")
                     .shortcut_text(self.fmt_shortcut(DeckAction::SaveState));
@@ -963,7 +965,10 @@ impl Gui {
             ui.menu_button("󾠬 Save Slot...", |ui| {
                 self.save_slot_radio(ui, cfg, ShowShortcut::Yes);
             });
+        }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        {
             ui.separator();
 
             let button = Button::new("⎆ Quit").shortcut_text(self.fmt_shortcut(UiAction::Quit));
@@ -1036,25 +1041,23 @@ impl Gui {
         ui.separator();
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
-            if platform::supports(platform::Feature::Filesystem) {
-                ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
-                    let button = Button::new("⟲ Instant Rewind")
-                        .shortcut_text(self.fmt_shortcut(Feature::InstantRewind));
-                    let disabled_hover_text = if self.loaded_rom.is_none() {
-                        Self::NO_ROM_LOADED
-                    } else {
-                        "Rewind can be enabled under the `Config` menu."
-                    };
-                    let res = ui
-                        .add(button)
-                        .on_hover_text("Instantly rewind state to a previous point.")
-                        .on_disabled_hover_text(disabled_hover_text);
-                    if res.clicked() {
-                        self.tx.nes_event(EmulationEvent::InstantRewind);
-                        ui.close_menu();
-                    };
-                });
-            }
+            ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
+                let button = Button::new("⟲ Instant Rewind")
+                    .shortcut_text(self.fmt_shortcut(Feature::InstantRewind));
+                let disabled_hover_text = if self.loaded_rom.is_none() {
+                    Self::NO_ROM_LOADED
+                } else {
+                    "Rewind can be enabled under the `Config` menu."
+                };
+                let res = ui
+                    .add(button)
+                    .on_hover_text("Instantly rewind state to a previous point.")
+                    .on_disabled_hover_text(disabled_hover_text);
+                if res.clicked() {
+                    self.tx.nes_event(EmulationEvent::InstantRewind);
+                    ui.close_menu();
+                };
+            });
 
             let button = Button::new("🔃 Reset")
                 .shortcut_text(self.fmt_shortcut(DeckAction::Reset(ResetKind::Soft)));
@@ -1727,22 +1730,18 @@ impl Gui {
                     self.joypad_keybinds = Self::joypad_keybinds(&cfg.input.joypad_bindings);
                     self.tx.nes_event(ConfigEvent::InputBindings);
                 }
-                if platform::supports(platform::Feature::Filesystem) {
-                    if let Some(data_dir) = Config::default_data_dir() {
-                        if ui.button("Clear Save States").clicked() {
-                            match fs::clear_dir(data_dir) {
-                                Ok(_) => {
-                                    self.add_message(MessageType::Info, "Save States cleared.")
-                                }
-                                Err(_) => self.add_message(
-                                    MessageType::Error,
-                                    "Failed to clear Save States.",
-                                ),
+                if platform::supports(platform::Feature::Storage) {
+                    let data_dir = Config::default_data_dir();
+                    if ui.button("Clear Save States").clicked() {
+                        match fs::clear_dir(data_dir) {
+                            Ok(_) => self.add_message(MessageType::Info, "Save States cleared."),
+                            Err(_) => {
+                                self.add_message(MessageType::Error, "Failed to clear Save States.")
                             }
                         }
-                        if ui.button("Clear Recent ROMs").clicked() {
-                            cfg.renderer.recent_roms.clear();
-                        }
+                    }
+                    if ui.button("Clear Recent ROMs").clicked() {
+                        cfg.renderer.recent_roms.clear();
                     }
                 }
             });
@@ -2249,29 +2248,25 @@ impl Gui {
                     ui.horizontal_wrapped(|ui| {
                         let grid = Grid::new("directories").num_columns(2).spacing([40.0, 6.0]);
                         grid.show(ui, |ui| {
-                            if let Some(config_dir) = Config::default_config_dir() {
-                                ui.strong("Preferences:");
-                                ui.label(format!("{}", config_dir.display()));
-                                ui.end_row();
-                            }
+                            let config_dir = Config::default_config_dir();
+                            ui.strong("Preferences:");
+                            ui.label(format!("{}", config_dir.display()));
+                            ui.end_row();
 
-                            if let Some(data_dir) = Config::default_data_dir() {
-                                ui.strong("Save States/RAM, Replays: ");
-                                ui.label(format!("{}", data_dir.display()));
-                                ui.end_row();
-                            }
+                            let data_dir = Config::default_data_dir();
+                            ui.strong("Save States/RAM, Replays: ");
+                            ui.label(format!("{}", data_dir.display()));
+                            ui.end_row();
 
-                            if let Some(picture_dir) = Config::default_picture_dir() {
-                                ui.strong("Screenshots: ");
-                                ui.label(format!("{}", picture_dir.display()));
-                                ui.end_row();
-                            }
+                            let picture_dir = Config::default_picture_dir();
+                            ui.strong("Screenshots: ");
+                            ui.label(format!("{}", picture_dir.display()));
+                            ui.end_row();
 
-                            if let Some(audio_dir) = Config::default_audio_dir() {
-                                ui.strong("Audio Recordings: ");
-                                ui.label(format!("{}", audio_dir.display()));
-                                ui.end_row();
-                            }
+                            let audio_dir = Config::default_audio_dir();
+                            ui.strong("Audio Recordings: ");
+                            ui.label(format!("{}", audio_dir.display()));
+                            ui.end_row();
                         });
                     });
                 }

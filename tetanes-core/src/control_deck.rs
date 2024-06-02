@@ -39,6 +39,9 @@ pub enum Error {
     /// Save state error.
     #[error("save state error: {0:?}")]
     SaveState(fs::Error),
+    /// When trying to load a save state that doesn't exist.
+    #[error("no save state found")]
+    NoSaveStateFound,
     /// Operational error indicating a ROM must be loaded first.
     #[error("no rom is loaded")]
     RomNotLoaded,
@@ -133,7 +136,7 @@ pub struct Config {
     /// Headless mode.
     pub headless_mode: HeadlessMode,
     /// Data directory for storing battery-backed RAM.
-    pub data_dir: Option<PathBuf>,
+    pub data_dir: PathBuf,
     /// Which mapper revisions to emulate for any ROM loaded that uses this mapper.
     pub mapper_revisions: MapperRevisionsConfig,
     /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
@@ -152,15 +155,15 @@ impl Config {
     /// Returns the default directory where TetaNES data is stored.
     #[inline]
     #[must_use]
-    pub fn default_data_dir() -> Option<PathBuf> {
-        dirs::data_local_dir().map(|dir| dir.join(Self::BASE_DIR))
+    pub fn default_data_dir() -> PathBuf {
+        dirs::data_local_dir().map_or_else(|| PathBuf::from("data"), |dir| dir.join(Self::BASE_DIR))
     }
 
     /// Returns the directory used to store battery-backed Cart RAM.
     #[inline]
     #[must_use]
-    pub fn sram_dir(&self) -> Option<PathBuf> {
-        self.data_dir.as_ref().map(|dir| dir.join(Self::SRAM_DIR))
+    pub fn sram_dir(&self) -> PathBuf {
+        self.data_dir.join(Self::SRAM_DIR)
     }
 }
 
@@ -208,7 +211,7 @@ pub struct ControlDeck {
     /// The currently loaded ROM [`Cart`], if any.
     loaded_rom: Option<LoadedRom>,
     /// Directory for storing battery-backed Cart RAM if a ROM is loaded.
-    sram_dir: Option<PathBuf>,
+    sram_dir: PathBuf,
     /// Mapper revisions to emulate for any ROM loaded that matches the given mappers.
     mapper_revisions: MapperRevisionsConfig,
     /// Whether to auto-detect the region based on the loaded Cart.
@@ -276,8 +279,8 @@ impl ControlDeck {
     /// Returns the path to the SRAM save file for a given ROM name which is used to store
     /// battery-backed Cart RAM. Returns `None` when the current platform doesn't have a
     /// `data` directory and no custom `data_dir` was configured.
-    pub fn sram_dir(&self, name: &str) -> Option<PathBuf> {
-        self.sram_dir.as_ref().map(|dir| dir.join(name))
+    pub fn sram_dir(&self, name: &str) -> PathBuf {
+        self.sram_dir.join(name)
     }
 
     /// Loads a ROM cartridge into memory
@@ -304,10 +307,9 @@ impl ControlDeck {
         self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
         self.running = true;
-        if let Some(dir) = self.sram_dir(&name) {
-            if let Err(err) = self.load_sram(dir) {
-                error!("failed to load SRAM: {err:?}");
-            }
+        let sram_dir = self.sram_dir(&name);
+        if let Err(err) = self.load_sram(sram_dir) {
+            error!("failed to load SRAM: {err:?}");
         }
         self.loaded_rom = Some(loaded_rom.clone());
         Ok(loaded_rom)
@@ -336,10 +338,9 @@ impl ControlDeck {
     /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
     pub fn unload_rom(&mut self) -> Result<()> {
         if let Some(rom) = &self.loaded_rom {
-            if let Some(dir) = self.sram_dir(&rom.name) {
-                if let Err(err) = self.save_sram(dir) {
-                    error!("failed to save SRAM: {err:?}");
-                }
+            let sram_dir = self.sram_dir(&rom.name);
+            if let Err(err) = self.save_sram(sram_dir) {
+                error!("failed to save SRAM: {err:?}");
             }
         }
         self.loaded_rom = None;
@@ -515,7 +516,7 @@ impl ControlDeck {
             return Err(Error::RomNotLoaded);
         };
         let path = path.as_ref();
-        if path.exists() {
+        if fs::exists(path) {
             fs::load::<Cpu>(path)
                 .map_err(Error::SaveState)
                 .map(|mut cpu| {
@@ -523,7 +524,7 @@ impl ControlDeck {
                     self.load_cpu(cpu)
                 })
         } else {
-            Ok(())
+            Err(Error::NoSaveStateFound)
         }
     }
 

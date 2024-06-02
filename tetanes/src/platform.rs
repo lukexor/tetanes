@@ -26,7 +26,7 @@ pub fn open_file_dialog(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: Option<PathBuf>,
+    dir: PathBuf,
 ) -> anyhow::Result<Option<PathBuf>> {
     platform::open_file_dialog_impl(title, name, extensions, dir)
 }
@@ -35,6 +35,7 @@ pub fn open_file_dialog(
 #[must_use]
 pub enum Feature {
     Filesystem,
+    Storage,
     Viewports,
     Suspend,
 }

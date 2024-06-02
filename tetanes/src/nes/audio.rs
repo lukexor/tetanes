@@ -499,34 +499,32 @@ impl Mixer {
 
     fn start_recording(&mut self) -> anyhow::Result<()> {
         let _ = self.stop_recording();
-        if let Some(dir) = Config::default_audio_dir() {
-            let path = dir
-                .join(
-                    chrono::Local::now()
-                        .format("recording_%Y-%m-%d_at_%H_%M_%S")
-                        .to_string(),
-                )
-                .with_extension("wav");
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!(
-                            "failed to create audio recording directory: {}",
-                            parent.display()
-                        )
-                    })?;
-                }
+        let path = Config::default_audio_dir()
+            .join(
+                chrono::Local::now()
+                    .format("recording_%Y-%m-%d_at_%H_%M_%S")
+                    .to_string(),
+            )
+            .with_extension("wav");
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!(
+                        "failed to create audio recording directory: {}",
+                        parent.display()
+                    )
+                })?;
             }
-            let spec = hound::WavSpec {
-                channels: self.channels,
-                sample_rate: self.sample_rate,
-                bits_per_sample: 32,
-                sample_format: hound::SampleFormat::Float,
-            };
-            let writer = hound::WavWriter::create(&path, spec)
-                .context("failed to create audio recording")?;
-            self.recording = Some((path, writer));
         }
+        let spec = hound::WavSpec {
+            channels: self.channels,
+            sample_rate: self.sample_rate,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let writer =
+            hound::WavWriter::create(&path, spec).context("failed to create audio recording")?;
+        self.recording = Some((path, writer));
         Ok(())
     }
 

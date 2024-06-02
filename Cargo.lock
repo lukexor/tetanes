@@ -3656,6 +3656,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "web-sys",
  "web-time",
 ]
 
