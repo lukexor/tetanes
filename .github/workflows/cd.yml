@@ -4,7 +4,8 @@ name: CD
 # yamllint disable-line rule:truthy
 on:
   push:
-    branches: [main]
+    # FIXME: Temporarily run on ci-fixes branch while testing
+    branches: [main, ci-fixes]
 
 permissions:
   pull-requests: write
@@ -60,6 +61,12 @@ jobs:
         run: cargo run --bin build_artifacts web
       - if: ${{ !startsWith(matrix.os, 'wasm32') }}
         run: cargo run --bin build_artifacts
-      - run: |
+      - uses: actions/upload-artifact@v4
+        name: "Upload artifacts"
+        with:
+          name: ${{ matrix.target }}-artifacts
+          path: dist/
+      - if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
           version=$(grep '^version' Cargo.toml | awk -F '"' '{ print $2 }')
           gh release upload ${version} dist/* --clobber
