@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use cfg_if::cfg_if;
+use clap::Parser;
 use std::{
     env,
     ffi::OsStr,
@@ -9,6 +10,14 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output},
 };
+
+/// CLI options
+#[derive(Parser, Debug)]
+#[must_use]
+pub struct Args {
+    #[clap(long)]
+    target: String,
+}
 
 /// Build context with required variables and platform targets.
 #[derive(Debug)]
@@ -18,26 +27,33 @@ struct Build {
     bin_name: &'static str,
     bin_path: PathBuf,
     app_name: &'static str,
-    target_arch: &'static str,
+    arch: &'static str,
+    target_arch: String,
     cargo_target_dir: PathBuf,
     dist_dir: PathBuf,
 }
 
 fn main() -> anyhow::Result<()> {
-    let build = Build::new()?;
+    let args = Args::parse();
+    let build = Build::new(args.target)?;
 
     println!("building artifacts: {build:?}...");
 
-    if env::args().nth(1).as_deref() == Some("web") {
+    if build.target_arch == "wasm32-unknown-unknown" {
         build.make("build-web")?;
         build.compress_web_artifacts()?;
     } else {
+        let build_cmd = if std::env::var("CROSS").is_ok() {
+            "build-cross"
+        } else {
+            "build"
+        };
         cfg_if! {
             if #[cfg(target_os = "linux")] {
-                build.make("build")?;
+                build.make(build_cmd)?;
                 build.create_linux_artifacts()?;
             } else if #[cfg(target_os = "macos")] {
-                build.make("build")?;
+                build.make(build_cmd)?;
                 build.create_macos_app()?;
             } else if #[cfg(target_os = "windows")] {
                 build.create_windows_installer()?;
@@ -51,7 +67,7 @@ fn main() -> anyhow::Result<()> {
 impl Build {
     /// Create a new build context by cleaning up any previous artifacts and ensuring the
     /// dist directory is created.
-    fn new() -> anyhow::Result<Self> {
+    fn new(target_arch: String) -> anyhow::Result<Self> {
         let dist_dir = PathBuf::from("dist");
 
         let _ = remove_dir_all(&dist_dir); // ignore if not found
@@ -64,17 +80,19 @@ impl Build {
         Ok(Build {
             version: env!("CARGO_PKG_VERSION"),
             bin_name,
-            bin_path: cargo_target_dir.join("dist").join(bin_name),
+            bin_path: cargo_target_dir
+                .join(&target_arch)
+                .join("dist")
+                .join(bin_name),
             app_name: "TetaNES",
-            target_arch: if cfg!(target_arch = "x86_64") {
+            arch: if target_arch.starts_with("x86_64") {
                 "x86_64"
-            } else if cfg!(target_arch = "aarch64") {
+            } else if target_arch.starts_with("aarch64") {
                 "aarch64"
-            } else if cfg!(target_arch = "wasm32") {
-                "wasm32"
             } else {
-                panic!("unsupported target arch");
+                panic!("unsupported target_arch: {target_arch}")
             },
+            target_arch,
             cargo_target_dir,
             dist_dir: PathBuf::from("dist"),
         })
@@ -86,7 +104,7 @@ impl Build {
     fn make(&self, cmd: impl AsRef<OsStr>) -> anyhow::Result<ExitStatus> {
         let cmd = cmd.as_ref();
         // TODO: disable lto and make pgo build
-        cmd_spawn_wait(Command::new("cargo").args(["make", "-v"]).arg(cmd))
+        cmd_spawn_wait(Command::new("cargo").arg("make").arg(cmd))
     }
 
     /// Create a dist directory for artifacts.
@@ -171,10 +189,7 @@ impl Build {
         copy(&self.bin_path, &build_bin_path)?;
 
         self.tar_gz(
-            format!(
-                "{}-{}-unknown-linux-gnu.tar.gz",
-                self.bin_name, self.target_arch
-            ),
+            format!("{}-{}-unknown-linux-gnu.tar.gz", self.bin_name, self.arch),
             &build_dir,
             ["."],
         )?;
@@ -184,7 +199,19 @@ impl Build {
         let deb_path_dist = self.dist_dir.join(&deb_name);
         cmd_spawn_wait(
             Command::new("cargo")
-                .args(["deb", "-p", "tetanes", "-o"])
+                .args([
+                    "deb",
+                    "-v",
+                    "-p",
+                    "tetanes",
+                    "--profile",
+                    "dist",
+                    "--target",
+                    &self.target_arch,
+                    "--no-build", // already built
+                    "--no-strip", // already stripped
+                    "-o",
+                ])
                 .arg(&deb_path_dist),
         )?;
         self.write_sha256(
@@ -192,27 +219,31 @@ impl Build {
             self.dist_dir.join(format!("{deb_name}-sha256.txt")),
         )?;
 
-        let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.target_arch);
+        let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.arch);
         let app_dir = build_dir.join("AppDir");
         let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
         cmd_spawn_wait(
             Command::new(&linuxdeploy_cmd)
                 .arg("-e")
                 .arg(&self.bin_path)
-                .args(["-i", "assets/linux/icon.png", "-d"])
-                .arg(&desktop_name)
-                .arg("--appdir")
+                .args([
+                    "-i",
+                    "assets/linux/icon.png",
+                    "-d",
+                    &desktop_name,
+                    "--appdir",
+                ])
                 .arg(&app_dir)
                 .args(["--output", "appimage"]),
         )?;
 
         // NOTE: AppImage name is derived from tetanes.desktop
-        let app_image_name = format!("{}-{}.AppImage", self.app_name, self.target_arch);
+        let app_image_name = format!("{}-{}.AppImage", self.app_name, self.arch);
         let app_image_path = PathBuf::from(&app_image_name);
         // Rename to lowercase
         let app_image_path_dist = self
             .dist_dir
-            .join(format!("{}-{}.AppImage", self.bin_name, self.target_arch));
+            .join(format!("{}-{}.AppImage", self.bin_name, self.arch));
         rename(&app_image_path, &app_image_path_dist)?;
         self.write_sha256(
             &app_image_path_dist,
@@ -227,7 +258,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("macos")?;
 
-        let artifact_name = format!("{}-{}", self.bin_name, self.target_arch);
+        let artifact_name = format!("{}-{}", self.bin_name, self.arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
         let dmg_path = build_dir.join(&dmg_name);
@@ -240,8 +271,7 @@ impl Build {
         }
         cmd_spawn_wait(
             Command::new("hdiutil")
-                .args(["create", "-size", "50m", "-volname"])
-                .arg(&artifact_name)
+                .args(["create", "-size", "50m", "-volname", &artifact_name])
                 .arg(&dmg_path),
         )?;
         cmd_spawn_wait(Command::new("hdiutil").arg("attach").arg(&dmg_path))?;
@@ -330,7 +360,7 @@ impl Build {
         )?;
 
         self.tar_gz(
-            format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.target_arch),
+            format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.arch),
             &volume,
             [&format!("{}.app", self.app_name)],
         )?;
@@ -356,12 +386,23 @@ impl Build {
     fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
-        let installer_name = format!("{}-{}.msi", self.bin_name, self.target_arch);
+        let installer_name = format!("{}-{}.msi", self.bin_name, self.arch);
         let installer_path_dist = self.dist_dir.join(&installer_name);
 
         cmd_spawn_wait(
             Command::new("cargo")
-                .args(["wix", "-v", "-p", "tetanes", "--nocapture", "-o"])
+                .args([
+                    "wix",
+                    "-v",
+                    "-p",
+                    "tetanes",
+                    "--profile",
+                    "dist",
+                    "--target",
+                    &self.target_arch,
+                    "--nocapture",
+                    "-o",
+                ])
                 .arg(&installer_path_dist),
         )?;
 
@@ -435,6 +476,7 @@ fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> anyhow::Result<(
 }
 
 /// Helper function to `read_to_string` and report contextual errors.
+#[cfg(target_os = "macos")]
 fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
     let path = path.as_ref();
 

@@ -22,12 +22,10 @@ jobs:
         include:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-          # TODO
           # - target: aarch64-pc-windows-msvc
           #   os: windows-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          # TODO
           # - target: aarch64-unknown-linux-gnu
           #   os: ubuntu-latest
           - target: x86_64-apple-darwin
@@ -48,15 +46,11 @@ jobs:
         uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
-      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.os, 'aarch64') }}
-        run: echo "DEB_ARCH=arm64" >> $GITHUB_ENV
-      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.os, 'x86_64') }}
-        run: echo "DEB_ARCH=amd64" >> $GITHUB_ENV
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          dpkg --add-architecture $DEB_ARCH
-          sudo apt update
-          sudo apt install -y libudev-dev:$DEB_ARCH libasound2-dev:$DEB_ARCH libssl-dev:$DEB_ARCH libfuse2:$DEB_ARCH build-essential pkg-config
+      # - uses: baptiste0928/cargo-install@v3
+      #   with:
+      #     crate: cross
+      #     git: https://github.com/cross-rs/cross
+      #     commit: 19be834
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
@@ -68,10 +62,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-wix
-      - if: startsWith(matrix.target, 'wasm32')
-        run: cargo run --bin build_artifacts web
-      - if: ${{ !startsWith(matrix.target, 'wasm32') }}
-        run: cargo run --bin build_artifacts
+      - run: |
+          # export CROSS_CONTAINER_IN_CONTAINER=true
+          # export CROSS=1
+          cargo make build-artifacts -- --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         name: "Upload artifacts"
         with:

@@ -77,6 +77,26 @@ strip = true
 [profile.dev.package."*"]
 opt-level = 3
 
+[workspace.metadata.cross.target.x86_64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
+
+[workspace.metadata.cross.target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
+
 [workspace.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
