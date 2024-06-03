@@ -23,6 +23,8 @@ struct Build {
 fn main() -> anyhow::Result<()> {
     let build = Build::new()?;
 
+    println!("building artifacts: {build:?}...");
+
     if env::args().nth(1).as_deref() == Some("web") {
         build.make("build-web")?;
         build.compress_web_artifacts()?;
@@ -361,7 +363,7 @@ impl Build {
         copy(
             build_dir.join(&installer_name),
             self.dist_dir.join(&installer_name),
-        );
+        )?;
         self.write_sha256(
             self.dist_dir.join(&installer_name),
             self.dist_dir.join(format!("{installer_name}-sha256.txt")),
@@ -393,6 +395,7 @@ fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<u64> {
 }
 
 /// Helper function to `rename` a file and report contextual errors.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn rename(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dst = dst.as_ref();
