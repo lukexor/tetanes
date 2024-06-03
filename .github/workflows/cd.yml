@@ -42,7 +42,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-      - uses: taiki-e/setup-cross-toolchain-action@v1
+      - if: ${{ !startsWith(matrix.target, 'wasm32') }}
+        uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
       - if: startsWith(matrix.os, 'ubuntu')
