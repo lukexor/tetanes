@@ -13,7 +13,6 @@ struct Build {
     #[cfg(target_os = "macos")]
     version: &'static str,
     bin_name: &'static str,
-    #[cfg(target_os = "macos")]
     app_name: &'static str,
     target_arch: &'static str,
     cargo_target_dir: PathBuf,
@@ -58,7 +57,6 @@ impl Build {
             #[cfg(target_os = "macos")]
             version: env!("CARGO_PKG_VERSION"),
             bin_name: env!("CARGO_PKG_NAME"),
-            #[cfg(target_os = "macos")]
             app_name: "TetaNES",
             target_arch: if cfg!(target_arch = "x86_64") {
                 "x86_64"
@@ -183,20 +181,19 @@ impl Build {
 
         // NOTE: 1- is the deb revision number
         let deb_name = format!("{}-1-amd64.deb", self.bin_name);
-        let deb_path = self.dist_dir.join(&deb_name);
+        let deb_path_dist = self.dist_dir.join(&deb_name);
         cmd_spawn_wait(
             Command::new("cargo")
                 .args(["deb", "-p", "tetanes", "-o"])
-                .arg(&deb_path),
+                .arg(&deb_path_dist),
         )?;
         self.write_sha256(
-            self.dist_dir.join(&deb_name),
+            &deb_path_dist,
             self.dist_dir.join(format!("{deb_name}-sha256.txt")),
         )?;
 
-        let app_dir = build_dir.join("AppDir");
-
         let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.target_arch);
+        let app_dir = build_dir.join("AppDir");
         let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
         cmd_spawn_wait(
             Command::new(&linuxdeploy_cmd)
@@ -209,10 +206,16 @@ impl Build {
                 .args(["--output", "appimage"]),
         )?;
 
-        let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.target_arch);
-        rename(&app_image_name, self.dist_dir.join(&app_image_name))?;
+        // NOTE: AppImage name is derived from tetanes.desktop
+        let app_image_name = format!("{}-{}.AppImage", self.app_name, self.target_arch);
+        let app_image_path = PathBuf::from(&app_image_name);
+        // Rename to lowercase
+        let app_image_path_dist = self
+            .dist_dir
+            .join(format!("{}-{}.AppImage", self.bin_name, self.target_arch));
+        rename(&app_image_path, &app_image_path_dist)?;
         self.write_sha256(
-            self.dist_dir.join(&app_image_name),
+            &app_image_path_dist,
             self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
         )
     }
@@ -230,6 +233,7 @@ impl Build {
         let dmg_path = build_dir.join(&dmg_name);
         let dmg_name_compressed = format!("{artifact_name}.dmg");
         let dmg_path_compressed = build_dir.join(&dmg_name_compressed);
+        let dmg_path_dist = self.dist_dir.join(&dmg_name_compressed);
 
         if let Err(err) = cmd_status(Command::new("hdiutil").arg("detach").arg(&volume)) {
             eprintln!("failed to detach volume: {err:?}");
@@ -339,7 +343,6 @@ impl Build {
                 .arg(&dmg_path),
         )?;
 
-        let dmg_path_dist = self.dist_dir.join(&dmg_name_compressed);
         rename(&dmg_path_compressed, &dmg_path_dist)?;
         self.write_sha256(
             &dmg_path_dist,
@@ -355,17 +358,20 @@ impl Build {
 
         let build_dir = self.create_build_dir("wix")?;
 
-        let installer_name = format!("{}-{}.msi", self.bin_name, self.target_arch);
+        // NOTE: installer name is derived from main.wix
+        let installer_name = format!("{}-{}.msi", self.app_name, self.target_arch);
+        let installer_path = build_dir.join(&installer_name);
+        // Rename to lowercase
+        let installer_path_dist = self
+            .dist_dir
+            .join(format!("{}-{}.msi", self.bin_name, self.target_arch));
 
         cmd_spawn_wait(Command::new("cargo").args(["wix", "-p", "tetanes", "--nocapture"]))?;
 
         // TODO: maybe zip installer?
-        copy(
-            build_dir.join(&installer_name),
-            self.dist_dir.join(&installer_name),
-        )?;
+        copy(&installer_path, &installer_path_dist)?;
         self.write_sha256(
-            self.dist_dir.join(&installer_name),
+            &installer_path_dist,
             self.dist_dir.join(format!("{installer_name}-sha256.txt")),
         )
     }
