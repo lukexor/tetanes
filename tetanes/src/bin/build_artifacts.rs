@@ -3,7 +3,7 @@ use cfg_if::cfg_if;
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, ExitStatus, Output},
 };
 
 /// Build context with required variables and platform targets.
@@ -26,17 +26,17 @@ fn main() -> anyhow::Result<()> {
     if env::args().nth(1).as_deref() == Some("web") {
         build.make("build-web")?;
         build.compress_web_artifacts()?;
-    }
-
-    cfg_if! {
-        if #[cfg(target_os = "linux")] {
-            build.make("build")?;
-            build.create_linux_artifacts()?;
-        } else if #[cfg(target_os = "macos")] {
-            build.make("build")?;
-            build.create_macos_app()?;
-        } else if #[cfg(target_os = "windows")] {
-            build.create_windows_installer()?;
+    } else {
+        cfg_if! {
+            if #[cfg(target_os = "linux")] {
+                build.make("build")?;
+                build.create_linux_artifacts()?;
+            } else if #[cfg(target_os = "macos")] {
+                build.make("build")?;
+                build.create_macos_app()?;
+            } else if #[cfg(target_os = "windows")] {
+                build.create_windows_installer()?;
+            }
         }
     }
 
@@ -84,7 +84,7 @@ impl Build {
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    fn make(&self, cmd: &'static str) -> anyhow::Result<()> {
+    fn make(&self, cmd: &'static str) -> anyhow::Result<ExitStatus> {
         // TODO: disable lto and make pgo build
         cmd_spawn_wait(Command::new("cargo").args(["make", cmd]))
     }
@@ -127,9 +127,7 @@ impl Build {
 
         println!("sha256: {sha256}");
 
-        write(output, shasum.stdout)?;
-
-        Ok(())
+        write(output, shasum.stdout)
     }
 
     /// Create a Gzipped tarball.
@@ -155,9 +153,7 @@ impl Build {
         self.write_sha256(
             tgz_path,
             self.dist_dir.join(format!("{tgz_name}-sha256.txt")),
-        )?;
-
-        Ok(())
+        )
     }
 
     /// Create linux artifacts (.tar.gz, .deb and .AppImage).
@@ -216,9 +212,7 @@ impl Build {
         self.write_sha256(
             self.dist_dir.join(&app_image_name),
             self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
-        )?;
-
-        Ok(())
+        )
     }
 
     /// Create macOS artifacts (.app in a .tar.gz and separate .dmg).
@@ -349,9 +343,7 @@ impl Build {
             &dmg_path_dist,
             self.dist_dir
                 .join(format!("{dmg_name_compressed}-sha256.txt")),
-        )?;
-
-        Ok(())
+        )
     }
 
     /// Create Windows artifacts (.msi).
@@ -373,9 +365,7 @@ impl Build {
         self.write_sha256(
             self.dist_dir.join(&installer_name),
             self.dist_dir.join(format!("{installer_name}-sha256.txt")),
-        )?;
-
-        Ok(())
+        )
     }
 
     /// Compress web artifacts (.tar.gz).
@@ -388,21 +378,18 @@ impl Build {
             ["."],
         )?;
 
-        remove_dir_all(self.dist_dir.join("web"))?;
-
-        Ok(())
+        remove_dir_all(self.dist_dir.join("web"))
     }
 }
 
 /// Helper function to `copy` a file and report contextual errors.
-fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
+fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<u64> {
     let src = src.as_ref();
     let dst = dst.as_ref();
 
     println!("copying: {src:?} to {dst:?}");
 
-    fs::copy(src, dst).with_context(|| format!("failed to copy {src:?} to {dst:?}"))?;
-    Ok(())
+    fs::copy(src, dst).with_context(|| format!("failed to copy {src:?} to {dst:?}"))
 }
 
 /// Helper function to `rename` a file and report contextual errors.
@@ -412,8 +399,7 @@ fn rename(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
 
     println!("renaming: {src:?} to {dst:?}");
 
-    fs::rename(src, dst).with_context(|| format!("failed to rename {src:?} to {dst:?}"))?;
-    Ok(())
+    fs::rename(src, dst).with_context(|| format!("failed to rename {src:?} to {dst:?}"))
 }
 
 /// Helper function to `create_dir_all` a directory and report contextual errors.
@@ -422,8 +408,7 @@ fn create_dir_all(dir: impl AsRef<Path>) -> anyhow::Result<()> {
 
     println!("creating dir: {dir:?}");
 
-    fs::create_dir_all(dir).with_context(|| format!("failed to create {dir:?}"))?;
-    Ok(())
+    fs::create_dir_all(dir).with_context(|| format!("failed to create {dir:?}"))
 }
 
 /// Helper function to `remove_dir_all` a directory and report contextual errors.
@@ -432,8 +417,7 @@ fn remove_dir_all(dir: impl AsRef<Path>) -> anyhow::Result<()> {
 
     println!("removing dir: {dir:?}");
 
-    fs::remove_dir_all(dir).with_context(|| format!("failed to remove {dir:?}"))?;
-    Ok(())
+    fs::remove_dir_all(dir).with_context(|| format!("failed to remove {dir:?}"))
 }
 
 /// Helper function to `write` to a file and report contextual errors.
@@ -443,19 +427,17 @@ fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> anyhow::Result<(
     println!("writing to path: {path:?}");
 
     let contents = contents.as_ref();
-    fs::write(path, contents).with_context(|| format!("failed to write to {path:?}"))?;
-    Ok(())
+    fs::write(path, contents).with_context(|| format!("failed to write to {path:?}"))
 }
 
 /// Helper function to `read_to_string` and report contextual errors.
 #[cfg(target_os = "macos")]
-fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<()> {
+fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
     let path = path.as_ref();
 
     println!("reading to string: {path:?}");
 
-    fs::read_to_string(path).with_context(|| format!("failed to read {path:?}"))?;
-    Ok(())
+    fs::read_to_string(path).with_context(|| format!("failed to read {path:?}"))
 }
 
 /// Helper function to `symlink` and report contextual errors.
@@ -468,19 +450,17 @@ fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
 
     println!("symlinking: {src:?} to {dst:?}");
 
-    symlink(src, dst).with_context(|| format!("failed to symlink {src:?} to {dst:?}"))?;
+    symlink(src, dst).with_context(|| format!("failed to symlink {src:?} to {dst:?}"))
 }
 
 /// Helper function to `spawn` [`Command`] and `wait` while reporting contextual errors.
-fn cmd_spawn_wait(cmd: &mut Command) -> anyhow::Result<()> {
+fn cmd_spawn_wait(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     println!("running: {cmd:?}");
 
     cmd.spawn()
         .with_context(|| format!("failed to spawn {cmd:?}"))?
         .wait()
-        .with_context(|| format!("failed to run {cmd:?}"))?;
-
-    Ok(())
+        .with_context(|| format!("failed to run {cmd:?}"))
 }
 
 /// Helper function to run [`Command`] with `output` while reporting contextual errors.
@@ -493,7 +473,7 @@ fn cmd_output(cmd: &mut Command) -> anyhow::Result<Output> {
 
 /// Helper function to run [`Command`] with `status` while reporting contextual errors.
 #[cfg(target_os = "macos")]
-fn cmd_status(cmd: &mut Command) -> anyhow::Result<std::process::ExitStatus> {
+fn cmd_status(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     println!("running: {cmd:?}");
 
     cmd.status()
