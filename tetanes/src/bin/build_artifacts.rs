@@ -1,10 +1,12 @@
+use anyhow::Context;
 use cfg_if::cfg_if;
 use std::{
-    env, fs, io,
+    env, fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
+/// Build context with required variables and platform targets.
 #[derive(Debug)]
 #[must_use]
 struct Build {
@@ -18,7 +20,7 @@ struct Build {
     dist_dir: PathBuf,
 }
 
-fn main() -> io::Result<()> {
+fn main() -> anyhow::Result<()> {
     let build = Build::new()?;
 
     if env::args().nth(1).as_deref() == Some("web") {
@@ -42,11 +44,13 @@ fn main() -> io::Result<()> {
 }
 
 impl Build {
-    fn new() -> io::Result<Self> {
+    /// Create a new build context by cleaning up any previous artifacts and ensuring the
+    /// dist directory is created.
+    fn new() -> anyhow::Result<Self> {
         let dist_dir = PathBuf::from("dist");
 
-        let _ = fs::remove_dir_all(&dist_dir); // ignore if not found
-        fs::create_dir_all(&dist_dir)?;
+        let _ = remove_dir_all(&dist_dir); // ignore if not found
+        create_dir_all(&dist_dir)?;
 
         Ok(Build {
             #[cfg(target_os = "macos")]
@@ -70,6 +74,9 @@ impl Build {
         })
     }
 
+    /// Path to the binary executable built with `cargo`. Windows and wasm32 target build steps
+    /// already include the binary.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn bin_path(&self) -> PathBuf {
         self.cargo_target_dir.join("dist").join(self.bin_name)
     }
@@ -77,98 +84,95 @@ impl Build {
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    fn make(&self, cmd: &'static str) -> io::Result<()> {
+    fn make(&self, cmd: &'static str) -> anyhow::Result<()> {
         // TODO: disable lto and make pgo build
-        Command::new("cargo").args(["make", cmd]).spawn()?.wait()?;
-
-        Ok(())
+        cmd_spawn_wait(Command::new("cargo").args(["make", cmd]))
     }
 
     /// Create a dist directory for artifacts.
-    fn create_build_dir(&self, dir: impl AsRef<Path>) -> io::Result<PathBuf> {
+    fn create_build_dir(&self, dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
         let build_dir = self.cargo_target_dir.join(dir);
 
         println!("creating build directory: {build_dir:?}");
 
-        let _ = fs::remove_dir_all(&build_dir); // ignore if not found
-        fs::create_dir_all(&build_dir)?;
+        let _ = remove_dir_all(&build_dir); // ignore if not found
+        create_dir_all(&build_dir)?;
 
         Ok(build_dir)
     }
 
     /// Write out a SHA256 checksum for a file.
-    fn write_sha256(&self, file: impl AsRef<Path>, output: impl AsRef<Path>) -> io::Result<()> {
+    fn write_sha256(&self, file: impl AsRef<Path>, output: impl AsRef<Path>) -> anyhow::Result<()> {
         let file = file.as_ref();
         let output = output.as_ref();
-
-        println!("writing sha256 for {file:?}");
 
         let shasum = {
             cfg_if! {
                 if #[cfg(target_os = "windows")] {
-                    Command::new("powershell")
+                    cmd_output(Command::new("powershell")
                         .arg("-Command")
-                        .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display()))
-                        .output()?
+                        .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display())))?
                 } else {
-                    Command::new("shasum")
+                    cmd_output(Command::new("shasum")
                         .current_dir(file.parent().expect("parent directory"))
                         .args(["-a", "256"])
-                        .arg(file.file_name().expect("filename"))
-                        .output()?
+                        .arg(file.file_name().expect("filename")))?
                 }
             }
         };
         let sha256 = std::str::from_utf8(&shasum.stdout)
-            .expect("valid stdout")
+            .with_context(|| format!("invalid sha output for {file:?}"))?
             .trim()
             .to_owned();
 
         println!("sha256: {sha256}");
 
-        fs::write(output, shasum.stdout)?;
+        write(output, shasum.stdout)?;
 
         Ok(())
     }
 
+    /// Create a Gzipped tarball.
     fn tar_gz(
         &self,
         tgz_name: impl AsRef<str>,
         directory: impl AsRef<Path>,
         files: impl IntoIterator<Item = impl AsRef<Path>>,
-    ) -> io::Result<()> {
-        println!("creating tarball...");
-
+    ) -> anyhow::Result<()> {
+        let directory = directory.as_ref();
         let tgz_name = tgz_name.as_ref();
+        let tgz_path = self.dist_dir.join(tgz_name);
+
         let mut cmd = Command::new("tar");
         cmd.arg("-czvf")
-            .arg(self.dist_dir.join(tgz_name))
-            .arg(format!("--directory={}", directory.as_ref().display()));
+            .arg(&tgz_path)
+            .arg(format!("--directory={}", directory.display()));
         for file in files {
             cmd.arg(file.as_ref());
         }
-        cmd.spawn()?.wait()?;
+
+        cmd_spawn_wait(&mut cmd)?;
         self.write_sha256(
-            self.dist_dir.join(tgz_name),
+            tgz_path,
             self.dist_dir.join(format!("{tgz_name}-sha256.txt")),
         )?;
 
         Ok(())
     }
 
-    /// Create linux artifacts.
+    /// Create linux artifacts (.tar.gz, .deb and .AppImage).
     #[cfg(target_os = "linux")]
-    fn create_linux_artifacts(&self) -> io::Result<()> {
+    fn create_linux_artifacts(&self) -> anyhow::Result<()> {
         println!("creating linux artifacts...");
 
         let build_dir = self.create_build_dir("linux")?;
 
-        println!("creating tarball...");
+        copy("README.md", build_dir.join("README.md"))?;
+        copy("LICENSE-MIT", build_dir.join("LICENSE-MIT"))?;
+        copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
 
-        fs::copy("README.md", build_dir.join("README.md"))?;
-        fs::copy("LICENSE-MIT", build_dir.join("LICENSE-MIT"))?;
-        fs::copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
-        fs::copy(self.bin_path(), build_dir.join(self.bin_name))?;
+        let build_bin_path = build_dir.join(self.bin_name);
+        copy(self.bin_path(), &build_bin_path)?;
 
         self.tar_gz(
             format!(
@@ -179,43 +183,36 @@ impl Build {
             ["."],
         )?;
 
-        println!("creating deb...");
-
         // NOTE: 1- is the deb revision number
         let deb_name = format!("{}-1-amd64.deb", self.bin_name);
-        Command::new("cargo")
-            .args(["deb", "-p", "tetanes", "-o"])
-            .arg(self.dist_dir.join(&deb_name))
-            .spawn()?
-            .wait()?;
+        let deb_path = self.dist_dir.join(&deb_name);
+        cmd_spawn_wait(
+            Command::new("cargo")
+                .args(["deb", "-p", "tetanes", "-o"])
+                .arg(&deb_path),
+        )?;
         self.write_sha256(
             self.dist_dir.join(&deb_name),
             self.dist_dir.join(format!("{deb_name}-sha256.txt")),
         )?;
 
-        println!("creating AppImage...");
-
         let app_dir = build_dir.join("AppDir");
 
-        Command::new(format!(
-            "vendored/linuxdeploy-{}.AppImage",
-            self.target_arch
-        ))
-        .arg("-e")
-        .arg(self.bin_path())
-        .arg("-i")
-        .arg("assets/linux/icon.png")
-        .arg("-d")
-        .arg("assets/linux/TetaNES.desktop")
-        .arg("--appdir")
-        .arg(&app_dir)
-        .arg("--output")
-        .arg("appimage")
-        .spawn()?
-        .wait()?;
+        let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.target_arch);
+        let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
+        cmd_spawn_wait(
+            Command::new(&linuxdeploy_cmd)
+                .arg("-e")
+                .arg(self.bin_path())
+                .args(["-i", "assets/linux/icon.png", "-d"])
+                .arg(&desktop_name)
+                .arg("--appdir")
+                .arg(&app_dir)
+                .args(["--output", "appimage"]),
+        )?;
 
         let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.target_arch);
-        fs::rename(&app_image_name, self.dist_dir.join(&app_image_name))?;
+        rename(&app_image_name, self.dist_dir.join(&app_image_name))?;
         self.write_sha256(
             self.dist_dir.join(&app_image_name),
             self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
@@ -224,65 +221,56 @@ impl Build {
         Ok(())
     }
 
-    /// Create macOS app.
+    /// Create macOS artifacts (.app in a .tar.gz and separate .dmg).
     #[cfg(target_os = "macos")]
-    fn create_macos_app(&self) -> io::Result<()> {
-        use std::os::unix::fs::symlink;
-
+    fn create_macos_app(&self) -> anyhow::Result<()> {
         println!("creating macos app...");
+
+        let build_dir = self.create_build_dir("macos")?;
 
         let artifact_name = format!("{}-{}", self.bin_name, self.target_arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
+        let dmg_path = build_dir.join(&dmg_name);
         let dmg_name_compressed = format!("{artifact_name}.dmg");
+        let dmg_path_compressed = build_dir.join(&dmg_name_compressed);
 
-        println!("creating dmg volume: {dmg_name_compressed}");
-
-        let build_dir = self.create_build_dir("macos")?;
-
-        let _ = Command::new("hdiutil").arg("detach").arg(&volume).status();
-        Command::new("hdiutil")
-            .args(["create", "-size", "50m", "-volname"])
-            .arg(&artifact_name)
-            .arg(build_dir.join(&dmg_name))
-            .spawn()?
-            .wait()?;
-        Command::new("hdiutil")
-            .arg("attach")
-            .arg(build_dir.join(&dmg_name))
-            .spawn()?
-            .wait()?;
-
-        println!("creating directories: {volume:?}");
+        if let Err(err) = cmd_status(Command::new("hdiutil").arg("detach").arg(&volume)) {
+            eprintln!("failed to detach volume: {err:?}");
+        }
+        cmd_spawn_wait(
+            Command::new("hdiutil")
+                .args(["create", "-size", "50m", "-volname"])
+                .arg(&artifact_name)
+                .arg(&dmg_path),
+        )?;
+        cmd_spawn_wait(Command::new("hdiutil").arg("attach").arg(&dmg_path))?;
 
         let app_dir = volume.join(format!("{}.app", self.app_name));
-        fs::create_dir_all(app_dir.join("Contents/MacOS"))?;
-        fs::create_dir_all(app_dir.join("Contents/Resources"))?;
-        fs::create_dir_all(volume.join(".Picture"))?;
+        create_dir_all(app_dir.join("Contents/MacOS"))?;
+        create_dir_all(app_dir.join("Contents/Resources"))?;
+        create_dir_all(volume.join(".Picture"))?;
 
         println!("updating Info.plist version: {}", self.version);
 
-        let mut info_plist = fs::read_to_string("assets/macos/Info.plist")?;
+        let mut info_plist = read_to_string("assets/macos/Info.plist")?;
         info_plist = info_plist.replace("%VERSION%", self.version);
-        fs::write(app_dir.join("Contents/Info.plist"), info_plist)?;
-
-        println!("copying assets...");
+        write(app_dir.join("Contents/Info.plist"), info_plist)?;
 
         // TODO: maybe include readme/license?
-        fs::copy(
+        copy(
             "assets/macos/Icon.icns",
             app_dir.join("Contents/Resources/Icon.icns"),
         )?;
-        fs::copy(
+        copy(
             "assets/macos/background.png",
             volume.join(".Picture/background.png"),
         )?;
-        fs::copy(
+        copy(
             self.bin_path(),
             app_dir.join("Contents/MacOS").join(self.bin_name),
         )?;
 
-        println!("creating /Applications symlink...");
         symlink("/Applications", volume.join("Applications"))?;
 
         println!("configuring app bundle window...");
@@ -321,25 +309,25 @@ impl Build {
             app_name = self.app_name,
             volume = volume.display()
         );
-        Command::new("osascript")
-            .arg("-e")
-            .arg(&configure_bundle_script)
-            .spawn()?
-            .wait()?;
+        cmd_spawn_wait(
+            Command::new("osascript")
+                .arg("-e")
+                .arg(&configure_bundle_script),
+        )?;
 
-        println!("signing code...");
-        Command::new("codesign")
-            .args(["--force", "--sign", "-"])
-            .arg(app_dir.join("Contents/MacOS").join(self.bin_name))
-            .spawn()?
-            .wait()?;
+        let bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
+        cmd_spawn_wait(
+            Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&bin_path),
+        )?;
         // TODO: fix
         // ensure spctl --assess --type execute "${VOLUME}/${APP_NAME}.app"
-        Command::new("codesign")
-            .args(["--verify", "--strict", "--verbose=2"])
-            .arg(app_dir.join("Contents/MacOS").join(self.bin_name))
-            .spawn()?
-            .wait()?;
+        cmd_spawn_wait(
+            Command::new("codesign")
+                .args(["--verify", "--strict", "--verbose=2"])
+                .arg(&bin_path),
+        )?;
 
         self.tar_gz(
             format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.target_arch),
@@ -347,61 +335,41 @@ impl Build {
             [&format!("{}.app", self.app_name)],
         )?;
 
-        println!("compressing dmg...");
-
-        Command::new("hdiutil")
-            .arg("detach")
-            .arg(&volume)
-            .spawn()?
-            .wait()?;
-        Command::new("hdiutil")
-            .args(["convert", "-format", "UDBZ", "-o"])
-            .arg(build_dir.join(&dmg_name_compressed))
-            .arg(build_dir.join(&dmg_name))
-            .spawn()?
-            .wait()?;
-
-        println!("writing artifacts...");
-
-        fs::copy(
-            build_dir.join(&dmg_name_compressed),
-            self.dist_dir.join(&dmg_name_compressed),
+        cmd_spawn_wait(Command::new("hdiutil").arg("detach").arg(&volume))?;
+        cmd_spawn_wait(
+            Command::new("hdiutil")
+                .args(["convert", "-format", "UDBZ", "-o"])
+                .arg(&dmg_path_compressed)
+                .arg(&dmg_path),
         )?;
+
+        let dmg_path_dist = self.dist_dir.join(&dmg_name_compressed);
+        rename(&dmg_path_compressed, &dmg_path_dist)?;
         self.write_sha256(
-            self.dist_dir.join(&dmg_name_compressed),
+            &dmg_path_dist,
             self.dist_dir
                 .join(format!("{dmg_name_compressed}-sha256.txt")),
         )?;
 
-        println!("cleaning up...");
-
-        fs::remove_file(build_dir.join(&dmg_name))?;
-
         Ok(())
     }
 
-    /// Create Windows installer.
+    /// Create Windows artifacts (.msi).
     #[cfg(target_os = "windows")]
-    fn create_windows_installer(&self) -> io::Result<()> {
+    fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
         let build_dir = self.create_build_dir("wix")?;
 
         let installer_name = format!("{}-{}.msi", self.bin_name, self.target_arch);
 
-        println!("building installer...");
+        cmd_spawn_wait(Command::new("cargo").args(["wix", "-p", "tetanes", "--nocapture"]))?;
 
-        Command::new("cargo")
-            .args(["wix", "-p", "tetanes", "--nocapture"])
-            .spawn()?
-            .wait()?;
-
-        println!("writing artifacts...");
-
-        fs::copy(
+        // TODO: maybe zip installer?
+        copy(
             build_dir.join(&installer_name),
             self.dist_dir.join(&installer_name),
-        )?;
+        );
         self.write_sha256(
             self.dist_dir.join(&installer_name),
             self.dist_dir.join(format!("{installer_name}-sha256.txt")),
@@ -410,8 +378,8 @@ impl Build {
         Ok(())
     }
 
-    /// Compress web artifacts.
-    fn compress_web_artifacts(&self) -> io::Result<()> {
+    /// Compress web artifacts (.tar.gz).
+    fn compress_web_artifacts(&self) -> anyhow::Result<()> {
         println!("compressing web artifacts...");
 
         self.tar_gz(
@@ -420,10 +388,114 @@ impl Build {
             ["."],
         )?;
 
-        println!("cleaning up...");
-
-        fs::remove_dir_all(self.dist_dir.join("web"))?;
+        remove_dir_all(self.dist_dir.join("web"))?;
 
         Ok(())
     }
+}
+
+/// Helper function to `copy` a file and report contextual errors.
+fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+
+    println!("copying: {src:?} to {dst:?}");
+
+    fs::copy(src, dst).with_context(|| format!("failed to copy {src:?} to {dst:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `rename` a file and report contextual errors.
+fn rename(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+
+    println!("renaming: {src:?} to {dst:?}");
+
+    fs::rename(src, dst).with_context(|| format!("failed to rename {src:?} to {dst:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `create_dir_all` a directory and report contextual errors.
+fn create_dir_all(dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    let dir = dir.as_ref();
+
+    println!("creating dir: {dir:?}");
+
+    fs::create_dir_all(dir).with_context(|| format!("failed to create {dir:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `remove_dir_all` a directory and report contextual errors.
+fn remove_dir_all(dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    let dir = dir.as_ref();
+
+    println!("removing dir: {dir:?}");
+
+    fs::remove_dir_all(dir).with_context(|| format!("failed to remove {dir:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `write` to a file and report contextual errors.
+fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> anyhow::Result<()> {
+    let path = path.as_ref();
+
+    println!("writing to path: {path:?}");
+
+    let contents = contents.as_ref();
+    fs::write(path, contents).with_context(|| format!("failed to write to {path:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `read_to_string` and report contextual errors.
+#[cfg(target_os = "macos")]
+fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<()> {
+    let path = path.as_ref();
+
+    println!("reading to string: {path:?}");
+
+    fs::read_to_string(path).with_context(|| format!("failed to read {path:?}"))?;
+    Ok(())
+}
+
+/// Helper function to `symlink` and report contextual errors.
+#[cfg(target_os = "macos")]
+fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+
+    println!("symlinking: {src:?} to {dst:?}");
+
+    symlink(src, dst).with_context(|| format!("failed to symlink {src:?} to {dst:?}"))?;
+}
+
+/// Helper function to `spawn` [`Command`] and `wait` while reporting contextual errors.
+fn cmd_spawn_wait(cmd: &mut Command) -> anyhow::Result<()> {
+    println!("running: {cmd:?}");
+
+    cmd.spawn()
+        .with_context(|| format!("failed to spawn {cmd:?}"))?
+        .wait()
+        .with_context(|| format!("failed to run {cmd:?}"))?;
+
+    Ok(())
+}
+
+/// Helper function to run [`Command`] with `output` while reporting contextual errors.
+fn cmd_output(cmd: &mut Command) -> anyhow::Result<Output> {
+    println!("running: {cmd:?}");
+
+    cmd.output()
+        .with_context(|| format!("failed to run {cmd:?}"))
+}
+
+/// Helper function to run [`Command`] with `status` while reporting contextual errors.
+#[cfg(target_os = "macos")]
+fn cmd_status(cmd: &mut Command) -> anyhow::Result<std::process::ExitStatus> {
+    println!("running: {cmd:?}");
+
+    cmd.status()
+        .with_context(|| format!("failed to run {cmd:?}"))
 }

@@ -68,5 +68,4 @@ jobs:
           path: dist/
       - if: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          version=$(grep '^version' Cargo.toml | awk -F '"' '{ print $2 }')
-          gh release upload ${version} dist/* --clobber
+          gh release upload ${{ github.event.release.tag_name }} dist/* --clobber
