@@ -13,8 +13,10 @@ struct Build {
     #[cfg(target_os = "macos")]
     version: &'static str,
     bin_name: &'static str,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     app_name: &'static str,
     target_arch: &'static str,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     cargo_target_dir: PathBuf,
     dist_dir: PathBuf,
 }
@@ -57,6 +59,7 @@ impl Build {
             #[cfg(target_os = "macos")]
             version: env!("CARGO_PKG_VERSION"),
             bin_name: env!("CARGO_PKG_NAME"),
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             app_name: "TetaNES",
             target_arch: if cfg!(target_arch = "x86_64") {
                 "x86_64"
@@ -67,6 +70,7 @@ impl Build {
             } else {
                 panic!("unsupported target arch");
             },
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             cargo_target_dir: PathBuf::from(
                 env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()),
             ),
@@ -90,6 +94,7 @@ impl Build {
     }
 
     /// Create a dist directory for artifacts.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn create_build_dir(&self, dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
         let build_dir = self.cargo_target_dir.join(dir);
 
@@ -356,20 +361,16 @@ impl Build {
     fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
-        let build_dir = self.create_build_dir("wix")?;
+        let installer_name = format!("{}-{}.msi", self.bin_name, self.target_arch);
+        let installer_path_dist = self.dist_dir.join(&installer_name);
 
-        // NOTE: installer name is derived from main.wix
-        let installer_name = format!("{}-{}.msi", self.app_name, self.target_arch);
-        let installer_path = build_dir.join(&installer_name);
-        // Rename to lowercase
-        let installer_path_dist = self
-            .dist_dir
-            .join(format!("{}-{}.msi", self.bin_name, self.target_arch));
-
-        cmd_spawn_wait(Command::new("cargo").args(["wix", "-p", "tetanes", "--nocapture"]))?;
+        cmd_spawn_wait(
+            Command::new("cargo")
+                .args(["wix", "-p", "tetanes", "--nocapture", "-o"])
+                .arg(&installer_path_dist),
+        )?;
 
         // TODO: maybe zip installer?
-        copy(&installer_path, &installer_path_dist)?;
         self.write_sha256(
             &installer_path_dist,
             self.dist_dir.join(format!("{installer_name}-sha256.txt")),
@@ -391,6 +392,7 @@ impl Build {
 }
 
 /// Helper function to `copy` a file and report contextual errors.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<u64> {
     let src = src.as_ref();
     let dst = dst.as_ref();
