@@ -1,7 +1,11 @@
+#![allow(unused)]
+
 use anyhow::Context;
 use cfg_if::cfg_if;
 use std::{
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output},
 };
@@ -10,13 +14,11 @@ use std::{
 #[derive(Debug)]
 #[must_use]
 struct Build {
-    #[cfg(target_os = "macos")]
     version: &'static str,
     bin_name: &'static str,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    bin_path: PathBuf,
     app_name: &'static str,
     target_arch: &'static str,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     cargo_target_dir: PathBuf,
     dist_dir: PathBuf,
 }
@@ -55,11 +57,14 @@ impl Build {
         let _ = remove_dir_all(&dist_dir); // ignore if not found
         create_dir_all(&dist_dir)?;
 
+        let bin_name = env!("CARGO_PKG_NAME");
+        let cargo_target_dir =
+            PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
+
         Ok(Build {
-            #[cfg(target_os = "macos")]
             version: env!("CARGO_PKG_VERSION"),
-            bin_name: env!("CARGO_PKG_NAME"),
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            bin_name,
+            bin_path: cargo_target_dir.join("dist").join(bin_name),
             app_name: "TetaNES",
             target_arch: if cfg!(target_arch = "x86_64") {
                 "x86_64"
@@ -70,31 +75,21 @@ impl Build {
             } else {
                 panic!("unsupported target arch");
             },
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            cargo_target_dir: PathBuf::from(
-                env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()),
-            ),
+            cargo_target_dir,
             dist_dir: PathBuf::from("dist"),
         })
-    }
-
-    /// Path to the binary executable built with `cargo`. Windows and wasm32 target build steps
-    /// already include the binary.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn bin_path(&self) -> PathBuf {
-        self.cargo_target_dir.join("dist").join(self.bin_name)
     }
 
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    fn make(&self, cmd: &'static str) -> anyhow::Result<ExitStatus> {
+    fn make(&self, cmd: impl AsRef<OsStr>) -> anyhow::Result<ExitStatus> {
+        let cmd = cmd.as_ref();
         // TODO: disable lto and make pgo build
-        cmd_spawn_wait(Command::new("cargo").args(["make", cmd]))
+        cmd_spawn_wait(Command::new("cargo").args(["make", "-v"]).arg(cmd))
     }
 
     /// Create a dist directory for artifacts.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn create_build_dir(&self, dir: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
         let build_dir = self.cargo_target_dir.join(dir);
 
@@ -173,7 +168,7 @@ impl Build {
         copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
 
         let build_bin_path = build_dir.join(self.bin_name);
-        copy(self.bin_path(), &build_bin_path)?;
+        copy(&self.bin_path, &build_bin_path)?;
 
         self.tar_gz(
             format!(
@@ -203,7 +198,7 @@ impl Build {
         cmd_spawn_wait(
             Command::new(&linuxdeploy_cmd)
                 .arg("-e")
-                .arg(self.bin_path())
+                .arg(&self.bin_path)
                 .args(["-i", "assets/linux/icon.png", "-d"])
                 .arg(&desktop_name)
                 .arg("--appdir")
@@ -272,7 +267,7 @@ impl Build {
             volume.join(".Picture/background.png"),
         )?;
         copy(
-            self.bin_path(),
+            &self.bin_path,
             app_dir.join("Contents/MacOS").join(self.bin_name),
         )?;
 
@@ -320,18 +315,18 @@ impl Build {
                 .arg(&configure_bundle_script),
         )?;
 
-        let bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
+        let app_bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
         cmd_spawn_wait(
             Command::new("codesign")
                 .args(["--force", "--sign", "-"])
-                .arg(&bin_path),
+                .arg(&app_bin_path),
         )?;
         // TODO: fix
         // ensure spctl --assess --type execute "${VOLUME}/${APP_NAME}.app"
         cmd_spawn_wait(
             Command::new("codesign")
                 .args(["--verify", "--strict", "--verbose=2"])
-                .arg(&bin_path),
+                .arg(&app_bin_path),
         )?;
 
         self.tar_gz(
@@ -366,7 +361,7 @@ impl Build {
 
         cmd_spawn_wait(
             Command::new("cargo")
-                .args(["wix", "-p", "tetanes", "--nocapture", "-o"])
+                .args(["wix", "-v", "-p", "tetanes", "--nocapture", "-o"])
                 .arg(&installer_path_dist),
         )?;
 
@@ -392,7 +387,6 @@ impl Build {
 }
 
 /// Helper function to `copy` a file and report contextual errors.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<u64> {
     let src = src.as_ref();
     let dst = dst.as_ref();
@@ -403,7 +397,6 @@ fn copy(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<u64> {
 }
 
 /// Helper function to `rename` a file and report contextual errors.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn rename(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     let src = src.as_ref();
     let dst = dst.as_ref();
@@ -442,7 +435,6 @@ fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> anyhow::Result<(
 }
 
 /// Helper function to `read_to_string` and report contextual errors.
-#[cfg(target_os = "macos")]
 fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
     let path = path.as_ref();
 
@@ -452,7 +444,6 @@ fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
 }
 
 /// Helper function to `symlink` and report contextual errors.
-#[cfg(target_os = "macos")]
 fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     use std::os::unix::fs::symlink;
 
@@ -483,7 +474,6 @@ fn cmd_output(cmd: &mut Command) -> anyhow::Result<Output> {
 }
 
 /// Helper function to run [`Command`] with `status` while reporting contextual errors.
-#[cfg(target_os = "macos")]
 fn cmd_status(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     println!("running: {cmd:?}");
 
