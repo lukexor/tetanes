@@ -56,16 +56,24 @@ jobs:
           crate: cross
           git: https://github.com/cross-rs/cross
           commit: 19be834
-      - uses: taiki-e/install-action@cargo-make
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
       # Build `.deb`
       - if: startsWith(matrix.os, 'ubuntu')
-        uses: taiki-e/install-action@cargo-deb
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
       # Build `.msi`
       - if: startsWith(matrix.os, 'windows')
-        uses: taiki-e/install-action@cargo-wix
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-wix
       # Build `.wasm`
       - if: startsWith(matrix.target, 'wasm32')
-        uses: taiki-e/install-action@trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
       # Install linux dependencies
       - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.os, 'aarch64')
         run: echo "DEB_ARCH=arm64" >> $GITHUB_ENV
