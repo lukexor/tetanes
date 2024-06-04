@@ -486,6 +486,7 @@ fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
 }
 
 /// Helper function to `symlink` and report contextual errors.
+#[cfg(unix)]
 fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     use std::os::unix::fs::symlink;
 

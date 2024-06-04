@@ -51,6 +51,10 @@ jobs:
       #     crate: cross
       #     git: https://github.com/cross-rs/cross
       #     commit: 19be834
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 build-essential pkg-config
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
