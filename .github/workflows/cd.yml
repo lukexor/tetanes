@@ -76,8 +76,7 @@ jobs:
         with:
           tool: trunk
       # Install linux dependencies
-      # aarch64 will rely on cross image pre-build
-      - if: startsWith(matrix.os, 'ubuntu') && !startsWith(matrix.os, 'aarch64')
+      - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
