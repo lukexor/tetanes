@@ -22,6 +22,9 @@ pub struct Args {
     /// `cross`. e.g. `aarch64-unknown-linux-gnu`.
     #[clap(long)]
     cross: bool,
+    /// Clean `dist` directory before building.
+    #[clap(long)]
+    clean: bool,
 }
 
 /// Build context with required variables and platform targets.
@@ -34,6 +37,7 @@ struct Build {
     app_name: &'static str,
     arch: &'static str,
     target_arch: String,
+    #[cfg(target_os = "linux")]
     cross: bool,
     cargo_target_dir: PathBuf,
     dist_dir: PathBuf,
@@ -49,10 +53,12 @@ fn main() -> anyhow::Result<()> {
         build.make(["build-web"])?;
         build.compress_web_artifacts()?;
     } else {
+        let build_args = vec!["build", "--target", &build.target_arch];
+        #[cfg(target_os = "linux")]
         let build_args = if build.cross {
             vec!["build-cross"]
         } else {
-            vec!["build", "--target", &build.target_arch]
+            build_args
         };
         cfg_if! {
             if #[cfg(target_os = "linux")] {
@@ -76,7 +82,9 @@ impl Build {
     fn new(args: Args) -> anyhow::Result<Self> {
         let dist_dir = PathBuf::from("dist");
 
-        let _ = remove_dir_all(&dist_dir); // ignore if not found
+        if args.clean {
+            let _ = remove_dir_all(&dist_dir); // ignore if not found
+        }
         create_dir_all(&dist_dir)?;
 
         let bin_name = env!("CARGO_PKG_NAME");
@@ -102,6 +110,7 @@ impl Build {
                 panic!("unsupported target_arch: {target_arch}")
             },
             target_arch,
+            #[cfg(target_os = "linux")]
             cross: args.cross,
             cargo_target_dir,
             dist_dir: PathBuf::from("dist"),
