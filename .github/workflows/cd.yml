@@ -77,7 +77,7 @@ jobs:
       # Install linux dependencies
       - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.os, 'aarch64')
         run: echo "DEB_ARCH=arm64" >> $GITHUB_ENV
-      - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.os, 'x86_64')
+      - if: startsWith(matrix.os, 'ubuntu') && (startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32'))
         run: echo "DEB_ARCH=amd64" >> $GITHUB_ENV
       - if: startsWith(matrix.os, 'ubuntu')
         run: |
