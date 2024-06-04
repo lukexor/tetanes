@@ -66,14 +66,14 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: trunk
-      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, x86_64) }}
+      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'x86_64') }}
         run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 build-essential pkg-config
-      - if: ${{ startsWith(matrix.os, 'macos') || startsWith(matrix.target, x86_64) || startsWith(matrix.target, wasm32) }}
+      - if: ${{ startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32') }}
         run: |
           cargo make build-artifacts -- --target ${{ matrix.target }}
-      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, aarch64) }}
+      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64') }}
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           cargo make build-artifacts -- --target ${{ matrix.target }} --cross
