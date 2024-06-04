@@ -11,6 +11,7 @@ use crate::{
     platform::{self, BuilderExt},
     thread,
 };
+use anyhow::Context;
 use egui::{
     ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
     ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
@@ -21,6 +22,7 @@ use egui_winit::EventResponse;
 use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
 use tetanes_core::{
+    fs,
     ppu::Ppu,
     time::{Duration, Instant},
     video::Frame,
@@ -29,7 +31,7 @@ use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use winit::{
     event::WindowEvent,
     event_loop::{EventLoopProxy, EventLoopWindowTarget},
@@ -255,6 +257,10 @@ impl Renderer {
                     warn!("set_immediate_viewport_renderer called after window closed");
                 }
             });
+        }
+
+        if let Err(err) = Self::load(&ctx) {
+            tracing::error!("{err:?}");
         }
 
         Ok(Self {
@@ -630,6 +636,31 @@ impl Renderer {
         self.tx
             .nes_event(EmulationEvent::RunState(RunState::Paused));
         self.gui.error = Some(err.to_string());
+    }
+
+    pub fn load(ctx: &egui::Context) -> anyhow::Result<()> {
+        let path = Config::default_config_dir().join("gui.dat");
+        if fs::exists(&path) {
+            let data = fs::load_raw(path).context("failed to load gui memory")?;
+            let memory = bincode::deserialize(&data).context("failed to deserialize gui memory")?;
+            ctx.memory_mut(|mem| {
+                *mem = memory;
+            });
+            info!("Loaded UI state");
+        }
+        Ok(())
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let path = Config::default_config_dir().join("gui.dat");
+        self.ctx.memory(|mem| {
+            let data = bincode::serialize(&mem).context("failed to serialize gui memory")?;
+            fs::save_raw(path, &data).context("failed to save gui memory")
+        })?;
+
+        info!("Saved UI state");
+
+        Ok(())
     }
 
     pub fn create_window(

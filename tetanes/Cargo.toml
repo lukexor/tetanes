@@ -79,7 +79,11 @@ crossbeam = "0.8"
 # TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
 color-hex = "0.2"
 dirs.workspace = true
-egui = { version = "0.27", features = ["extra_debug_asserts", "log"] }
+egui = { version = "0.27", features = [
+  "extra_debug_asserts",
+  "log",
+  "persistence",
+] }
 egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
 egui_extras = { version = "0.27", default-features = false, features = [
   "image",
