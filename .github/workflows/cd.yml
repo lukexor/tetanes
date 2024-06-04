@@ -22,8 +22,9 @@ jobs:
         include:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
+          # TODO: windows aarch64
+          # - target: aarch64-pc-windows-msvc
+          #   os: windows-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
@@ -75,15 +76,11 @@ jobs:
         with:
           tool: trunk
       # Install linux dependencies
-      - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64')
-        run: echo "DEB_ARCH=arm64" >> $GITHUB_ENV
-      - if: startsWith(matrix.os, 'ubuntu') && (startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32'))
-        run: echo "DEB_ARCH=amd64" >> $GITHUB_ENV
-      - if: startsWith(matrix.os, 'ubuntu')
+      # aarch64 will rely on cross image pre-build
+      - if: startsWith(matrix.os, 'ubuntu') && !startsWith(matrix.os, 'aarch64')
         run: |
-          sudo dpkg --add-architecture $DEB_ARCH
           sudo apt update
-          sudo apt install -y libudev-dev:$DEB_ARCH libasound2-dev:$DEB_ARCH libssl-dev:$DEB_ARCH libfuse2:$DEB_ARCH
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
       # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
       - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
         run: |
