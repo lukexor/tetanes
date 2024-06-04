@@ -15,8 +15,13 @@ use std::{
 #[derive(Parser, Debug)]
 #[must_use]
 pub struct Args {
+    /// Target platform to build for. e.g. `x86_64-unknown-linux-gnu`.
     #[clap(long)]
     target: String,
+    /// Build for a target platform different from the host using
+    /// `cross`. e.g. `aarch64-unknown-linux-gnu`.
+    #[clap(long)]
+    cross: bool,
 }
 
 /// Build context with required variables and platform targets.
@@ -40,17 +45,17 @@ fn main() -> anyhow::Result<()> {
     println!("building artifacts: {build:?}...");
 
     if build.target_arch == "wasm32-unknown-unknown" {
-        build.make("build-web")?;
+        build.make(["build-web"])?;
         build.compress_web_artifacts()?;
     } else {
-        let build_cmd = if std::env::var("CROSS").is_ok() {
-            "build-cross"
+        let build_args = if args.cross {
+            vec!["build-cross"]
         } else {
-            "build"
+            vec!["build", "--target", &build.target_arch]
         };
         cfg_if! {
             if #[cfg(target_os = "linux")] {
-                build.make(build_cmd)?;
+                build.make(build_args)?;
                 build.create_linux_artifacts()?;
             } else if #[cfg(target_os = "macos")] {
                 build.make(build_cmd)?;
@@ -103,10 +108,17 @@ impl Build {
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    fn make(&self, cmd: impl AsRef<OsStr>) -> anyhow::Result<ExitStatus> {
-        let cmd = cmd.as_ref();
+    fn make(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    ) -> anyhow::Result<ExitStatus> {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("make");
+        for arg in args {
+            cmd.arg(arg);
+        }
         // TODO: disable lto and make pgo build
-        cmd_spawn_wait(Command::new("cargo").arg("make").arg(cmd))
+        cmd_spawn_wait(&mut cmd)
     }
 
     /// Create a dist directory for artifacts.
@@ -240,12 +252,10 @@ impl Build {
         )?;
 
         // NOTE: AppImage name is derived from tetanes.desktop
-        let app_image_name = format!("{}-{}.AppImage", self.app_name, self.arch);
-        let app_image_path = PathBuf::from(&app_image_name);
         // Rename to lowercase
-        let app_image_path_dist = self
-            .dist_dir
-            .join(format!("{}-{}.AppImage", self.bin_name, self.arch));
+        let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.arch);
+        let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
+        let app_image_path_dist = self.dist_dir.join(&app_image_name);
         rename(&app_image_path, &app_image_path_dist)?;
         self.write_sha256(
             &app_image_path_dist,
@@ -262,6 +272,7 @@ impl Build {
 
         let artifact_name = format!("{}-{}", self.bin_name, self.arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
+        let app_name = format!("{}.app", self.app_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
         let dmg_path = build_dir.join(&dmg_name);
         let dmg_name_compressed = format!("{artifact_name}.dmg");
@@ -278,7 +289,7 @@ impl Build {
         )?;
         cmd_spawn_wait(Command::new("hdiutil").arg("attach").arg(&dmg_path))?;
 
-        let app_dir = volume.join(format!("{}.app", self.app_name));
+        let app_dir = volume.join(&app_name);
         create_dir_all(app_dir.join("Contents/MacOS"))?;
         create_dir_all(app_dir.join("Contents/Resources"))?;
         create_dir_all(volume.join(".Picture"))?;
@@ -325,7 +336,7 @@ impl Build {
                     set arrangement of the icon view options of container window to not arranged
                     set position of item ".Picture" to {{800, 320}}
                     set position of item ".fseventsd" to {{800, 320}}
-                    set position of item "{app_name}.app" to {{150, 300}}
+                    set position of item "{app_name}" to {{150, 300}}
                 close
                 set position of item "Applications" to {{425, 300}}
                 open
@@ -338,7 +349,6 @@ impl Build {
             delay 1 -- sync
         end tell
     "#,
-            app_name = self.app_name,
             volume = volume.display()
         );
         cmd_spawn_wait(
@@ -364,7 +374,7 @@ impl Build {
         self.tar_gz(
             format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.arch),
             &volume,
-            [&format!("{}.app", self.app_name)],
+            [&app_name],
         )?;
 
         cmd_spawn_wait(Command::new("hdiutil").arg("detach").arg(&volume))?;

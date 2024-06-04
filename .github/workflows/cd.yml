@@ -68,7 +68,6 @@ jobs:
           tool: cargo-wix
       - run: |
           # export CROSS_CONTAINER_IN_CONTAINER=true
-          # export CROSS=1
           cargo make build-artifacts -- --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         name: "Upload artifacts"
