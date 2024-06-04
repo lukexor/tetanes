@@ -99,8 +99,7 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: |
+      - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
       - run: |
