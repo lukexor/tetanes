@@ -44,7 +44,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::info;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 use winit::{
     event::{ElementState, MouseButton},
@@ -289,7 +289,11 @@ impl Gui {
         S: Into<String>,
     {
         let text = text.into();
-        info!("{text}");
+        match ty {
+            MessageType::Info => info!("{text}"),
+            MessageType::Warn => warn!("{text}"),
+            MessageType::Error => error!("{text}"),
+        }
         self.messages
             .push((ty, text, Instant::now() + Self::MSG_TIMEOUT));
     }
@@ -373,6 +377,13 @@ impl Gui {
             .expect("monospace font family defined")
             .insert(0, MONO_FONT.0.to_string());
         ctx.set_fonts(fonts);
+
+        // Check for update on start
+        if self.version.requires_updates() {
+            if let Ok(update_available) = self.version.update_available() {
+                self.update_window_open = update_available;
+            }
+        }
 
         self.initialized = true;
     }
@@ -766,6 +777,7 @@ impl Gui {
     fn show_update_window(&mut self, ctx: &Context) {
         let mut update_window_open = self.update_window_open;
         let mut close_window = false;
+        let enable_auto_update = false;
         egui::Window::new("Update Available")
             .open(&mut update_window_open)
             .resizable(false)
@@ -780,31 +792,34 @@ impl Gui {
                 ui.separator();
                 ui.add_space(15.0);
 
-                ui.label("Would you like to install it and restart?");
-                ui.add_space(15.0);
+                // TODO: Add auto-update for each platform
+                if enable_auto_update {
+                    ui.label("Would you like to install it and restart?");
+                    ui.add_space(15.0);
 
-                ui.horizontal(|ui| {
-                    let res = ui.button("Continue").on_hover_text(format!(
-                        "Install the latest version (v{}) restart TetaNES.",
-                        self.version.current()
-                    ));
-                    if res.clicked() {
-                        if let Err(err) = self.version.install_update_and_restart() {
-                            self.add_message(
-                                MessageType::Error,
-                                format!("Failed to install update: {err}"),
-                            );
+                    ui.horizontal(|ui| {
+                        let res = ui.button("Continue").on_hover_text(format!(
+                            "Install the latest version (v{}) restart TetaNES.",
+                            self.version.current()
+                        ));
+                        if res.clicked() {
+                            if let Err(err) = self.version.install_update_and_restart() {
+                                self.add_message(
+                                    MessageType::Error,
+                                    format!("Failed to install update: {err}"),
+                                );
+                                close_window = true;
+                            }
+                        }
+                        let res = ui.button("Cancel").on_hover_text(format!(
+                            "Keep the current version of TetaNES (v{}).",
+                            self.version.current()
+                        ));
+                        if res.clicked() {
                             close_window = true;
                         }
-                    }
-                    let res = ui.button("Cancel").on_hover_text(format!(
-                        "Keep the current version of TetaNES (v{}).",
-                        self.version.current()
-                    ));
-                    if res.clicked() {
-                        close_window = true;
-                    }
-                });
+                    });
+                }
             });
         if close_window {
             update_window_open = false;
@@ -1376,14 +1391,16 @@ impl Gui {
 
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
             match self.version.update_available() {
-                Ok(update_available) => self.update_window_open = update_available,
+                Ok(update_available) => {
+                    self.update_window_open = update_available;
+                    if !update_available {
+                        self.add_message(
+                            MessageType::Info,
+                            format!("TetaNES v{} is up to date!", self.version.current()),
+                        );
+                    }
+                }
                 Err(err) => self.add_message(MessageType::Error, err.to_string()),
-            }
-            if !self.update_window_open {
-                self.add_message(
-                    MessageType::Info,
-                    format!("TetaNES v{} is up to date!", self.version.current()),
-                );
             }
             ui.close_menu();
         }

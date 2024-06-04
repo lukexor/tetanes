@@ -16,6 +16,19 @@ documentation = "https://docs.rs/tetanes"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://lukeworks.tech/tetanes"
 
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+missing_const_for_fn = "warn"
+print_literal = "warn"
+
+[workspace.lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+
 [workspace.dependencies]
 anyhow = "1.0"
 bincode = "1.3"
@@ -51,22 +64,38 @@ opt-level = 1
 codegen-units = 1
 lto = true
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
-panic = 'abort'
+panic = "abort"
 
 [profile.flamegraph]
 inherits = "release"
 debug = true
 
 [profile.dist]
+inherits = "release"
 strip = true
-inherits = "release"
 
-[profile.dev.package.serde]
-inherits = "release"
-[profile.dev.package.bincode]
-inherits = "release"
-[profile.dev.build-override]
-inherits = "release"
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.metadata.cross.target.x86_64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
+
+[workspace.metadata.cross.target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
 
 [workspace.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"

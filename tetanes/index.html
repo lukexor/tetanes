@@ -18,137 +18,9 @@
       as="font"
       type="font/ttf"
     />
-    <style>
-      @font-face {
-        font-family: "Pixeloid Sans";
-        src:
-          local("Pixeloid Sans"),
-          url("./pixeloid-sans.ttf") format("truetype");
-      }
-      @font-face {
-        font-family: "Pixeloid Sans Bold";
-        src:
-          local("Pixeloid Sans Bold"),
-          url("./pixeloid-sans-bold.ttf") format("truetype");
-      }
-
-      body {
-        --color: #e6b673;
-        --heading: #a9491f;
-        --background: #0f1419;
-        background-color: var(--background);
-        max-width: 80%;
-        margin: auto;
-        margin-bottom: 100px;
-        color: var(--color);
-        font-family: "Pixeloid Sans", "Courier New", Courier, monospace;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-
-      h1 {
-        margin: 40px 0;
-      }
-
-      h1,
-      h2 {
-        color: var(--heading);
-        font-family: "Pixeloid Sans Bold", "Courier New", Courier, monospace;
-        text-align: center;
-      }
-
-      p {
-        font-size: 0.9rem;
-        max-width: 70ch;
-        margin: 15px 0;
-      }
-
-      table {
-        --color: #333;
-        border-collapse: separate;
-        border-color: var(--color);
-        border-spacing: 0;
-        border: 0.5px solid var(--color);
-        text-align: left;
-        width: 100%;
-      }
-
-      th {
-        color: var(--heading);
-      }
-
-      th,
-      td {
-        padding: 5px;
-        border: 0.5px solid var(--color);
-      }
-
-      a {
-        color: #36a3d9;
-        text-decoration: none;
-      }
-
-      a:hover {
-        text-decoration: underline;
-      }
-
-      canvas {
-        background: rgba(0.13, 0.13, 0.13, 1);
-        margin: 0 40px;
-        width: fit-content;
-        height: fit-content;
-        outline: none;
-      }
-
-      #wrapper {
-        display: flex;
-        justify-content: center;
-        flex-wrap: wrap;
-        margin-bottom: 20px;
-      }
-
-      #content {
-        max-width: 70ch;
-        margin: auto;
-      }
-
-      .hidden {
-        display: none !important;
-      }
-
-      #loading-status {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-      }
-
-      #loader {
-        border: 4px solid #e6b673;
-        border-top: 4px solid #a9491f;
-        border-radius: 50%;
-        width: 16px;
-        height: 16px;
-        margin: 8px;
-        animation: spin 2s linear infinite;
-      }
-
-      #error {
-        color: #ff3333;
-        text-align: center;
-      }
-
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-    </style>
 
     <base data-trunk-public-url />
+    <link data-trunk rel="inline" href="assets/main.css" />
     <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />
@@ -168,6 +40,7 @@
     </noscript>
 
     <h1>TetaNES</h1>
+    <h2 id="version"></h2>
 
     <div id="wrapper">
       <canvas id="frame" width="512" height="480"></canvas>
@@ -176,7 +49,7 @@
     </div>
 
     <h3 id="loading-status">
-      <div id="loader"></div>
+      <div class="loader"></div>
       Loading...
     </h3>
     <p id="error" class="hidden">
@@ -205,10 +78,39 @@
 
       <p>
         You can check out the code on
-        <a href="https://github.com/lukexor/tetanes">github</a>.
+        <a href="https://github.com/lukexor/tetanes">github</a> or download the
+        desktop version:
       </p>
 
-      <h2>Controls</h2>
+      <div id="version-download" class="version-download">
+        <a id="selected-version" rel="nofollow noopener" target="_blank">
+          Download for Windows
+        </a>
+        <div id="version-options" class="hidden absolute">
+          <a
+            id="x86_64-pc-windows-msvc"
+            rel="nofollow noopener"
+            target="_blank"
+          >
+            Download for Windows
+          </a>
+          <a id="aarch64-apple-darwin" rel="nofollow noopener" target="_blank">
+            Download for Mac - Apple Chip
+          </a>
+          <a id="x86_64-apple-darwin" rel="nofollow noopener" target="_blank">
+            Download for Mac - Intel Chip
+          </a>
+          <a
+            id="x86_64-unknown-linux-gnu"
+            rel="nofollow noopener"
+            target="_blank"
+          >
+            Download for Linux
+          </a>
+        </div>
+      </div>
+
+      <h3>Controls</h3>
       <table>
         <tr>
           <th>Action</th>

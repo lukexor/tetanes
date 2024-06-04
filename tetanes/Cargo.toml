@@ -20,21 +20,49 @@ name = "tetanes"
 test = false
 bench = false
 
-[lints.clippy]
-all = "warn"
-missing_const_for_fn = "warn"
-print_literal = "warn"
+[[bin]]
+name = "build_artifacts"
+test = false
+bench = false
 
-[lints.rust]
-future_incompatible = "warn"
-nonstandard_style = "warn"
-rust_2018_compatibility = "warn"
-rust_2018_idioms = "warn"
-rust_2021_compatibility = "warn"
-unused = "warn"
+[lints]
+workspace = true
 
 [package.metadata.docs.rs]
 targets = ["wasm32-unknown-unknown"]
+
+[package.metadata.deb]
+extended-description = """
+`TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
+(NES) released in Japan in 1983 and North America in 1986, written in
+Rust using wgpu. It runs on Linux, macOS, Windows, and in a web browser
+with Web Assembly.
+
+It started as a personal curiosity that turned into a passion project. It is
+still being actively developed with new features and improvements constantly
+being added. It is a fairly accurate emulator that can play most NES titles.
+
+`TetaNES` is also meant to showcase using Rust's performance, memory safety, and
+fearless concurrency features in a large project. Features used in this project
+include complex enums, traits, generics, matching, iterators, channels, and
+threads.
+
+`TetaNES` also compiles for the web! Try it out in your browser
+(http://lukeworks.tech/tetanes-web)!
+"""
+section = "game"
+assets = [
+  [
+    'target/dist/tetanes',
+    '/usr/bin/',
+    '755',
+  ],
+  [
+    "README.md",
+    "usr/share/doc/tetanes/README",
+    "644",
+  ],
+]
 
 [features]
 default = ["tetanes-core/cycle-accurate"]
@@ -111,10 +139,12 @@ web-sys = { workspace = true, features = [
   "File",
   "FileList",
   "FileReader",
+  "HtmlAnchorElement",
   "HtmlCanvasElement",
   "HtmlElement",
   "HtmlInputElement",
   "HtmlDivElement",
+  "Navigator",
   "Window",
 ] }
 wasm-bindgen = "0.2"

@@ -16,18 +16,12 @@ keywords = ["nes", "emulator"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[lints.clippy]
-all = "warn"
-missing_const_for_fn = "warn"
-print_literal = "warn"
+[[bench]]
+name = "clock_frame"
+harness = false
 
-[lints.rust]
-future_incompatible = "warn"
-nonstandard_style = "warn"
-rust_2018_compatibility = "warn"
-rust_2018_idioms = "warn"
-rust_2021_compatibility = "warn"
-unused = "warn"
+[lints]
+workspace = true
 
 [features]
 default = ["cycle-accurate"]
@@ -63,7 +57,3 @@ tracing-subscriber.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "clock_frame"
-harness = false

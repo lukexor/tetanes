@@ -32,6 +32,18 @@ category = "Build"
 command = "cargo"
 args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
 
+[tasks.build-artifacts]
+description = "Build TetaNES Artifacts for a given target_arch"
+category = "Build"
+command = "cargo"
+args = ["run", "--bin", "build_artifacts", "${@}"]
+
+[tasks.build-cross]
+description = "Cross-Build TetaNES for a given target_arch"
+category = "Build"
+command = "cross"
+args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
+
 [tasks.bench]
 description = "Benchmark TetaNES"
 category = "Development"
@@ -62,19 +74,6 @@ category = "Development"
 command = "rustup"
 args = ["target", "add", "wasm32-unknown-unknown"]
 
-[tasks.install-binstall]
-description = "Install cargo binstall"
-category = "Development"
-command = "cargo"
-args = ["install", "cargo-binstall"]
-
-[tasks.install-cargo-tools]
-description = "Install cargo tools"
-category = "Development"
-command = "cargo"
-args = ["binstall", "-y", "trunk", "cargo-deb"]
-dependencies = ["install-binstall"]
-
 [tasks.create-dist]
 description = "Creates dist directory"
 category = "Development"
@@ -87,18 +86,6 @@ category = "Build"
 command = "trunk"
 args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web", "--public-url", "./"]
 dependencies = ["create-dist", "add-wasm-target"]
-
-[tasks.build-all]
-run_task = { name = ["build", "build-web"], parallel = true }
-
-[tasks.build-artifacts]
-command = "cargo"
-args = ["run", "--bin", "build_artifacts"]
-dependencies = ["install-cargo-tools"]
-
-[tasks.update-homebrew]
-command = "cargo"
-args = ["run", "--bin", "update_homebrew_formula"]
 
 [tasks.run-web]
 description = "Run TetaNES Web in release mode"

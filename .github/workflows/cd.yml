@@ -1,5 +1,5 @@
 ---
-name: Continuous Deployment
+name: CD
 
 # yamllint disable-line rule:truthy
 on:
@@ -11,19 +11,119 @@ permissions:
   contents: write
 
 jobs:
-  cd:
-    runs-on: ubuntu-latest
+  build-and-upload-artifacts:
+    name: Build & Upload Artifacts (${{ matrix.target }})
+    if: startsWith(github.event.release.name, 'tetanes')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          # TODO: windows aarch64
+          # - target: aarch64-pc-windows-msvc
+          #   os: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          # TODO: aarch64 linux having trouble with docker in CI
+          # - target: aarch64-unknown-linux-gnu
+          #   os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: wasm32-unknown-unknown
+            os: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      release_tag: ${{ steps.upload.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      # wasm32-unknown-unknown doesn't need additional toolchains and rustup
+      # target is managed by build-artifacts already
+      #
+      # Windows/macOS just run `rustup add` since the CI runners support cross-compiling
+      # Linux relies on `cross`
+      - if: ${{ !startsWith(matrix.os, 'ubuntu') }}
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+      - if: startsWith(matrix.os, 'ubuntu')
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cross
+          git: https://github.com/cross-rs/cross
+          commit: 19be834
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      # Build `.deb`
+      - if: startsWith(matrix.os, 'ubuntu')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      # Build `.msi`
+      - if: startsWith(matrix.os, 'windows')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-wix
+      # Build `.wasm`
+      - if: startsWith(matrix.target, 'wasm32')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      # Install linux dependencies
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
+      # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
+      - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
+        run: |
+          cargo make build-artifacts -- --target ${{ matrix.target }}
+      # ubuntu aarch64 requires cross building
+      - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64')
+        run: |
+          export CROSS_CONTAINER_IN_CONTAINER=true
+          cargo make build-artifacts -- --target ${{ matrix.target }} --cross
+      - uses: actions/upload-artifact@v4
+        name: "Upload artifacts"
+        with:
+          name: ${{ matrix.target }}-artifacts
+          path: dist/
+      - id: upload
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} dist/* --clobber
+          echo "release_tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+  update-homebrew-formula:
+    needs: build-and-upload-artifacts
+    runs-on: ubuntu
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build-and-upload-artifacts.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
-      - uses: dtolnay/rust-toolchain@master
+          repository: "lukexor/homebrew-formulae"
+      - id: commit
+        run: |
+          gh release -R lukexor/tetanes download $RELEASE_TAG --pattern '*-apple-darwin.tar.gz*'
+          x86_64_SHA=$(cat *x86_64*txt | awk '{ print $1 }')
+          aarch64_SHA=$(cat *aarch64*txt | awk '{ print $1 }')
+          VERSION=${RELEASE_TAG#"tetanes-v"}
+          cat tetanes.rb.tmpl | \
+            sed "s/%VERSION%/${VERSION}/g" | \
+            sed "s/%x86_64_SHA%/${x86_64_SHA}/g" | \
+            sed "s/%aarch64_SHA%/${aarch64_SHA}/g" \
+            > Casks/tetanes.rb
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run release
-        uses: MarcoIeni/release-plz-action@v0.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          commit_message: Version Bump v${{ steps.commit.outputs.version }}
