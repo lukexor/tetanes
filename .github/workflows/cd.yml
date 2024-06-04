@@ -51,10 +51,6 @@ jobs:
       #     crate: cross
       #     git: https://github.com/cross-rs/cross
       #     commit: 19be834
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt update
-          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 build-essential pkg-config
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
@@ -66,9 +62,21 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-wix
-      - run: |
-          # export CROSS_CONTAINER_IN_CONTAINER=true
+      - if: startsWith(matrix.target, 'wasm32')
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, x86_64) }}
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 build-essential pkg-config
+      - if: ${{ startsWith(matrix.os, 'macos') || startsWith(matrix.target, x86_64) || startsWith(matrix.target, wasm32) }}
+        run: |
           cargo make build-artifacts -- --target ${{ matrix.target }}
+      - if: ${{ startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, aarch64) }}
+        run: |
+          export CROSS_CONTAINER_IN_CONTAINER=true
+          cargo make build-artifacts -- --target ${{ matrix.target }} --cross
       - uses: actions/upload-artifact@v4
         name: "Upload artifacts"
         with:
