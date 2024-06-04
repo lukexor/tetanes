@@ -20,6 +20,11 @@ name = "tetanes"
 test = false
 bench = false
 
+[[bin]]
+name = "build_artifacts"
+test = false
+bench = false
+
 [lints]
 workspace = true
 
