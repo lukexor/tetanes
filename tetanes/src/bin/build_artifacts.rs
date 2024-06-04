@@ -53,15 +53,14 @@ fn main() -> anyhow::Result<()> {
         build.make(["build-web"])?;
         build.compress_web_artifacts()?;
     } else {
-        let build_args = vec!["build", "--target", &build.target_arch];
-        #[cfg(target_os = "linux")]
-        let build_args = if build.cross {
-            vec!["build-cross"]
-        } else {
-            build_args
-        };
+        let build_args = ["build", "--target", &build.target_arch];
         cfg_if! {
             if #[cfg(target_os = "linux")] {
+                let build_args = if build.cross {
+                    vec!["build-cross"]
+                } else {
+                    build_args.to_vec()
+                };
                 build.make(build_args)?;
                 build.create_linux_artifacts()?;
             } else if #[cfg(target_os = "macos")] {
