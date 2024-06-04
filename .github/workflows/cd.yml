@@ -47,7 +47,8 @@ jobs:
       # target is managed by build-artifacts already
       #
       # Windows/macOS just run `rustup add` since the CI runners support cross-compiling
-      - if: ${{ !startsWith(matrix.target, 'wasm32') }}
+      # Linux relies on `cross`
+      - if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
