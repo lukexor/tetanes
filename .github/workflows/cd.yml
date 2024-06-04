@@ -97,7 +97,8 @@ jobs:
         with:
           name: ${{ matrix.target }}-artifacts
           path: dist/
-      - run: |
+      - id: upload
+        run: |
           gh release upload ${{ github.event.release.tag_name }} dist/* --clobber
           echo "release_tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
   update-homebrew-formula:
@@ -111,7 +112,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: "lukexor/homebrew-formulae"
-      - run: |
+      - id: commit
+        run: |
           gh release -R lukexor/tetanes download $RELEASE_TAG --pattern '*-apple-darwin.tar.gz*'
           x86_64_SHA=$(cat *x86_64*txt | awk '{ print $1 }')
           aarch64_SHA=$(cat *aarch64*txt | awk '{ print $1 }')
@@ -121,3 +123,7 @@ jobs:
             sed "s/%x86_64_SHA%/${x86_64_SHA}/g" | \
             sed "s/%aarch64_SHA%/${aarch64_SHA}/g" \
             > Casks/tetanes.rb
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Version Bump v${{ steps.commit.outputs.version }}
