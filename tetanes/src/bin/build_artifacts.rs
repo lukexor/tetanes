@@ -89,6 +89,8 @@ impl Build {
                 "x86_64"
             } else if target_arch.starts_with("aarch64") {
                 "aarch64"
+            } else if target_arch.starts_with("wasm32") {
+                "wasm32"
             } else {
                 panic!("unsupported target_arch: {target_arch}")
             },
@@ -417,13 +419,14 @@ impl Build {
     fn compress_web_artifacts(&self) -> anyhow::Result<()> {
         println!("compressing web artifacts...");
 
+        let build_dir = self.dist_dir.join("web");
         self.tar_gz(
-            format!("{}-web.tar.gz", self.bin_name),
-            self.dist_dir.join("web"),
+            format!("{}-{}.tar.gz", self.bin_name, self.arch),
+            &build_dir,
             ["."],
         )?;
 
-        remove_dir_all(self.dist_dir.join("web"))
+        remove_dir_all(&build_dir)
     }
 }
 
