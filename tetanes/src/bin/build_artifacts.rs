@@ -34,13 +34,14 @@ struct Build {
     app_name: &'static str,
     arch: &'static str,
     target_arch: String,
+    cross: bool,
     cargo_target_dir: PathBuf,
     dist_dir: PathBuf,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let build = Build::new(args.target)?;
+    let build = Build::new(args)?;
 
     println!("building artifacts: {build:?}...");
 
@@ -48,7 +49,7 @@ fn main() -> anyhow::Result<()> {
         build.make(["build-web"])?;
         build.compress_web_artifacts()?;
     } else {
-        let build_args = if args.cross {
+        let build_args = if build.cross {
             vec!["build-cross"]
         } else {
             vec!["build", "--target", &build.target_arch]
@@ -58,7 +59,7 @@ fn main() -> anyhow::Result<()> {
                 build.make(build_args)?;
                 build.create_linux_artifacts()?;
             } else if #[cfg(target_os = "macos")] {
-                build.make(build_cmd)?;
+                build.make(build_args)?;
                 build.create_macos_app()?;
             } else if #[cfg(target_os = "windows")] {
                 build.create_windows_installer()?;
@@ -72,7 +73,7 @@ fn main() -> anyhow::Result<()> {
 impl Build {
     /// Create a new build context by cleaning up any previous artifacts and ensuring the
     /// dist directory is created.
-    fn new(target_arch: String) -> anyhow::Result<Self> {
+    fn new(args: Args) -> anyhow::Result<Self> {
         let dist_dir = PathBuf::from("dist");
 
         let _ = remove_dir_all(&dist_dir); // ignore if not found
@@ -81,6 +82,7 @@ impl Build {
         let bin_name = env!("CARGO_PKG_NAME");
         let cargo_target_dir =
             PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
+        let target_arch = args.target;
 
         Ok(Build {
             version: env!("CARGO_PKG_VERSION"),
@@ -100,6 +102,7 @@ impl Build {
                 panic!("unsupported target_arch: {target_arch}")
             },
             target_arch,
+            cross: args.cross,
             cargo_target_dir,
             dist_dir: PathBuf::from("dist"),
         })
@@ -195,6 +198,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("linux")?;
 
+        // Binary .tar.gz
         copy("README.md", build_dir.join("README.md"))?;
         copy("LICENSE-MIT", build_dir.join("LICENSE-MIT"))?;
         copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
@@ -208,59 +212,67 @@ impl Build {
             ["."],
         )?;
 
-        // NOTE: 1- is the deb revision number
-        let deb_name = format!("{}-1-amd64.deb", self.bin_name);
-        let deb_path_dist = self.dist_dir.join(&deb_name);
-        cmd_spawn_wait(
-            Command::new("cargo")
-                .args([
-                    "deb",
-                    "-v",
-                    "-p",
-                    "tetanes",
-                    "--profile",
-                    "dist",
-                    "--target",
-                    &self.target_arch,
-                    "--no-build", // already built
-                    "--no-strip", // already stripped
-                    "-o",
-                ])
-                .arg(&deb_path_dist),
-        )?;
-        self.write_sha256(
-            &deb_path_dist,
-            self.dist_dir.join(format!("{deb_name}-sha256.txt")),
-        )?;
+        // TODO: Fix deb/AppImage for cross builds
+        if !self.cross {
+            // Debian .deb
+            // NOTE: 1- is the deb revision number
+            let deb_name = format!("{}-1-amd64.deb", self.bin_name);
+            let deb_path_dist = self.dist_dir.join(&deb_name);
+            cmd_spawn_wait(
+                Command::new("cargo")
+                    .args([
+                        "deb",
+                        "-v",
+                        "-p",
+                        "tetanes",
+                        "--profile",
+                        "dist",
+                        "--target",
+                        &self.target_arch,
+                        "--no-build", // already built
+                        "--no-strip", // already stripped
+                        "-o",
+                    ])
+                    .arg(&deb_path_dist),
+            )?;
 
-        let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.arch);
-        let app_dir = build_dir.join("AppDir");
-        let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
-        cmd_spawn_wait(
-            Command::new(&linuxdeploy_cmd)
-                .arg("-e")
-                .arg(&self.bin_path)
-                .args([
-                    "-i",
-                    "assets/linux/icon.png",
-                    "-d",
-                    &desktop_name,
-                    "--appdir",
-                ])
-                .arg(&app_dir)
-                .args(["--output", "appimage"]),
-        )?;
+            self.write_sha256(
+                &deb_path_dist,
+                self.dist_dir.join(format!("{deb_name}-sha256.txt")),
+            )?;
 
-        // NOTE: AppImage name is derived from tetanes.desktop
-        // Rename to lowercase
-        let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.arch);
-        let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
-        let app_image_path_dist = self.dist_dir.join(&app_image_name);
-        rename(&app_image_path, &app_image_path_dist)?;
-        self.write_sha256(
-            &app_image_path_dist,
-            self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
-        )
+            // AppImage
+            let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.arch);
+            let app_dir = build_dir.join("AppDir");
+            let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
+            cmd_spawn_wait(
+                Command::new(&linuxdeploy_cmd)
+                    .arg("-e")
+                    .arg(&self.bin_path)
+                    .args([
+                        "-i",
+                        "assets/linux/icon.png",
+                        "-d",
+                        &desktop_name,
+                        "--appdir",
+                    ])
+                    .arg(&app_dir)
+                    .args(["--output", "appimage"]),
+            )?;
+
+            // NOTE: AppImage name is derived from tetanes.desktop
+            // Rename to lowercase
+            let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.arch);
+            let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
+            let app_image_path_dist = self.dist_dir.join(&app_image_name);
+            rename(&app_image_path, &app_image_path_dist)?;
+            self.write_sha256(
+                &app_image_path_dist,
+                self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Create macOS artifacts (.app in a .tar.gz and separate .dmg).
@@ -431,7 +443,7 @@ impl Build {
 
         let build_dir = self.dist_dir.join("web");
         self.tar_gz(
-            format!("{}-{}.tar.gz", self.bin_name, self.arch),
+            format!("{}-{}.tar.gz", self.bin_name, self.target_arch),
             &build_dir,
             ["."],
         )?;
