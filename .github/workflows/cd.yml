@@ -81,7 +81,7 @@ jobs:
         run: echo "DEB_ARCH=amd64" >> $GITHUB_ENV
       - if: startsWith(matrix.os, 'ubuntu')
         run: |
-          dpkg --add-architecture $DEB_ARCH
+          sudo dpkg --add-architecture $DEB_ARCH
           sudo apt update
           sudo apt install -y libudev-dev:$DEB_ARCH libasound2-dev:$DEB_ARCH libssl-dev:$DEB_ARCH libfuse2:$DEB_ARCH
       # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
