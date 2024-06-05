@@ -111,6 +111,7 @@ pub struct Renderer {
     render_state: Option<RenderState>,
     texture: Texture,
     first_frame: bool,
+    last_save_time: Instant,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -273,6 +274,7 @@ impl Renderer {
             render_state: Some(render_state),
             texture,
             first_frame: true,
+            last_save_time: Instant::now(),
         })
     }
 
@@ -651,12 +653,23 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
+    pub fn auto_save(&mut self, cfg: &Config) -> anyhow::Result<()> {
+        let time_since_last_save = Instant::now() - self.last_save_time;
+        if time_since_last_save > Duration::from_secs(30) {
+            self.save(cfg)?;
+        }
+        Ok(())
+    }
+
+    pub fn save(&mut self, cfg: &Config) -> anyhow::Result<()> {
+        cfg.save()?;
+
         let path = Config::default_config_dir().join("gui.dat");
         self.ctx.memory(|mem| {
             let data = bincode::serialize(&mem).context("failed to serialize gui memory")?;
             fs::save_raw(path, &data).context("failed to save gui memory")
         })?;
+        self.last_save_time = Instant::now();
 
         info!("Saved UI state");
 
@@ -684,12 +697,6 @@ impl Renderer {
 
         let window_builder =
             egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
-        #[cfg(target_os = "macos")]
-        let window_builder = {
-            use winit::platform::macos::{OptionAsAlt, WindowBuilderExtMacOS};
-            window_builder.with_option_as_alt(OptionAsAlt::Both)
-        };
-
         let window = window_builder
             .with_platform(Config::WINDOW_TITLE)
             .build(event_loop)?;
@@ -1032,7 +1039,7 @@ impl Renderer {
         &mut self,
         window_id: WindowId,
         event_loop: &EventLoopWindowTarget<NesEvent>,
-        inputs: &mut Gamepads,
+        gamepads: &mut Gamepads,
         cfg: &mut Config,
     ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
@@ -1159,9 +1166,7 @@ impl Renderer {
             if let Some(viewport_ui_cb) = viewport_ui_cb {
                 viewport_ui_cb(ctx);
             }
-            {
-                self.gui.ui(ctx, inputs, cfg);
-            }
+            self.gui.ui(ctx, gamepads, cfg);
         });
 
         {
@@ -1234,6 +1239,10 @@ impl Renderer {
                     );
                 }
             }
+        }
+
+        if let Err(err) = self.auto_save(cfg) {
+            error!("failed to auto save UI state: {err:?}");
         }
 
         Ok(())

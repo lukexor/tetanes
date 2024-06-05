@@ -394,16 +394,21 @@ impl Running {
                                     self.run_state = RunState::Running;
                                     self.nes_event(EmulationEvent::RunState(self.run_state));
                                 }
-                            } else if self
-                                .renderer
-                                .window(window_id)
-                                .and_then(|win| win.is_minimized())
-                                .unwrap_or(false)
-                            {
-                                self.repaint_times.remove(&window_id);
-                                if self.renderer.rom_loaded() {
-                                    self.run_state = RunState::Paused;
-                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                            } else {
+                                if let Err(err) = self.renderer.save(&self.cfg) {
+                                    error!("failed to save rendererer state: {err:?}");
+                                }
+                                if self
+                                    .renderer
+                                    .window(window_id)
+                                    .and_then(|win| win.is_minimized())
+                                    .unwrap_or(false)
+                                {
+                                    self.repaint_times.remove(&window_id);
+                                    if self.renderer.rom_loaded() {
+                                        self.run_state = RunState::Paused;
+                                        self.nes_event(EmulationEvent::RunState(self.run_state));
+                                    }
                                 }
                             }
                         }
@@ -483,14 +488,10 @@ impl Running {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
 
-                if let Err(err) = self.renderer.save() {
+                if let Err(err) = self.renderer.save(&self.cfg) {
                     error!("failed to save rendererer state: {err:?}");
                 }
                 self.renderer.destroy();
-
-                if let Err(err) = self.cfg.save() {
-                    error!("failed to save configuration: {err:?}");
-                }
             }
             _ => (),
         }
