@@ -8,13 +8,12 @@ use tracing_subscriber::{
 };
 
 fn create_registry() -> Layered<Targets, Registry> {
-    let default_filter = if cfg!(debug_assertions) {
+    let default_log = if cfg!(debug_assertions) {
         "warn,tetanes=debug,tetanes-core=debug"
     } else {
         "warn,tetanes=info,tetanes-core=info"
-    }
-    .parse::<Targets>()
-    .expect("valid filter");
+    };
+    let default_filter = default_log.parse::<Targets>().unwrap_or_default();
 
     tracing_subscriber::registry().with(
         env::var("RUST_LOG")
@@ -25,10 +24,11 @@ fn create_registry() -> Layered<Targets, Registry> {
 }
 
 /// Initialize logging.
-pub fn init() -> logging::Log {
-    let (registry, log) = logging::init_impl(create_registry());
+pub fn init() -> anyhow::Result<logging::Log> {
+    let (registry, log) = logging::init_impl(create_registry())?;
     if let Err(err) = registry.try_init() {
-        eprintln!("setting tracing default failed: {err:?}");
+        anyhow::bail!("setting tracing default failed: {err:?}");
     }
-    log
+
+    Ok(log)
 }

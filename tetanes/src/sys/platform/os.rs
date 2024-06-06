@@ -2,7 +2,7 @@ use crate::{
     nes::{event::EmulationEvent, Running},
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::error;
 use winit::{
     event::Event,
@@ -10,27 +10,30 @@ use winit::{
     window::WindowBuilder,
 };
 
+/// Checks if the current platform supports a given feature.
 pub const fn supports_impl(feature: Feature) -> bool {
     match feature {
         Feature::Suspend => cfg!(target_os = "android"),
-        Feature::Filesystem | Feature::Storage | Feature::Viewports => true,
+        Feature::Filesystem | Feature::Storage | Feature::Viewports | Feature::Blocking => true,
     }
 }
 
+/// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: PathBuf,
+    dir: impl AsRef<Path>,
 ) -> anyhow::Result<Option<PathBuf>> {
     let dialog = rfd::FileDialog::new()
         .set_title(title)
-        .set_directory(dir)
+        .set_directory(dir.as_ref())
         .add_filter(name, extensions);
     Ok(dialog.pick_file())
 }
 
 impl Initialize for Running {
+    /// Initialize by loading a ROM from the command line, if provided.
     fn initialize(&mut self) -> anyhow::Result<()> {
         if let Some(path) = self.cfg.renderer.roms_path.take() {
             if path.is_file() {

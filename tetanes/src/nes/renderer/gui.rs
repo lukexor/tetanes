@@ -158,7 +158,8 @@ pub struct Gui {
     pub debugger_open: bool,
     pub ppu_viewer_open: bool,
     pub apu_mixer_open: bool,
-    pub debug_gui: bool,
+    pub debug_gui_hover: bool,
+    pub viewport_info_open: bool,
     pub loaded_region: NesRegion,
     pub resize_window: bool,
     pub resize_texture: bool,
@@ -241,7 +242,8 @@ impl Gui {
             debugger_open: false,
             ppu_viewer_open: false,
             apu_mixer_open: false,
-            debug_gui: false,
+            debug_gui_hover: false,
+            viewport_info_open: false,
             loaded_region: cfg.deck.region,
             resize_window: false,
             resize_texture: false,
@@ -366,16 +368,14 @@ impl Gui {
             fonts.font_data.insert(name.to_string(), font_data);
         }
 
-        fonts
-            .families
-            .get_mut(&FontFamily::Proportional)
-            .expect("proportional font family defined")
-            .insert(0, FONT.0.to_string());
-        fonts
-            .families
-            .get_mut(&egui::FontFamily::Monospace)
-            .expect("monospace font family defined")
-            .insert(0, MONO_FONT.0.to_string());
+        match fonts.families.get_mut(&FontFamily::Proportional) {
+            Some(font) => font.insert(0, FONT.0.to_string()),
+            None => tracing::warn!("failed to set proportional font"),
+        }
+        match fonts.families.get_mut(&FontFamily::Monospace) {
+            Some(font) => font.insert(0, MONO_FONT.0.to_string()),
+            None => tracing::warn!("failed to set monospace font"),
+        }
         ctx.set_fonts(fonts);
 
         // Check for update on start
@@ -982,8 +982,7 @@ impl Gui {
             });
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+        if platform::supports(platform::Feature::Viewports) {
             ui.separator();
 
             let button = Button::new("⎆ Quit").shortcut_text(self.fmt_shortcut(UiAction::Quit));
@@ -1284,10 +1283,12 @@ impl Gui {
 
         #[cfg(debug_assertions)]
         {
-            let res = ui.checkbox(&mut self.debug_gui, "Debug GUI");
+            let res = ui.checkbox(&mut self.debug_gui_hover, "Debug GUI Hover");
             if res.clicked() {
-                ui.ctx().set_debug_on_hover(self.debug_gui);
+                ui.ctx().set_debug_on_hover(self.debug_gui_hover);
             }
+
+            ui.toggle_value(&mut self.viewport_info_open, "Viewport Info");
         }
 
         ui.separator();

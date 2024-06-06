@@ -1,7 +1,7 @@
 //! Control Deck implementation. The primary entry-point for emulating the NES.
 
 use crate::{
-    apu::{Apu, Channel},
+    apu::{self, Apu, Channel},
     bus::Bus,
     cart::{self, Cart},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
@@ -253,9 +253,10 @@ impl ControlDeck {
         cpu.bus.input.set_four_player(cfg.four_player);
         cpu.bus.input.connect_zapper(cfg.zapper);
         for (i, enabled) in cfg.channels_enabled.iter().enumerate() {
-            cpu.bus
-                .apu
-                .set_channel_enabled(Channel::try_from(i).expect("valid APU channel"), *enabled);
+            match Channel::try_from(i) {
+                Ok(channel) => cpu.bus.apu.set_channel_enabled(channel, *enabled),
+                Err(apu::ParseChannelError) => tracing::error!("invalid APU channel: {i}"),
+            }
         }
         for genie_code in cfg.genie_codes.iter().cloned() {
             cpu.bus.add_genie_code(genie_code);

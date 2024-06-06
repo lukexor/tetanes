@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use std::cell::RefCell;
 
 #[derive(Debug)]
@@ -58,8 +57,8 @@ impl Version {
         if self.last_request_time.get().elapsed() < self.rate_limit {
             std::thread::sleep((self.last_request_time.get() + self.rate_limit) - Instant::now());
         }
-        self.last_request_time.set(Instant::now());
 
+        self.last_request_time.set(Instant::now());
         let Some(client) = &self.client else {
             anyhow::bail!("failed to create http client");
         };
@@ -67,8 +66,15 @@ impl Version {
             .get("https://crates.io/api/v1/crates/tetanes")
             .send()
             .and_then(|res| res.text())?;
-        if let Ok(errors) = serde_json::from_str::<ApiErrors>(&content) {
-            anyhow::bail!("encountered crates.io API errors: {errors:?}");
+        if let Ok(res) = serde_json::from_str::<ApiErrors>(&content) {
+            anyhow::bail!(
+                "encountered crates.io API errors: {}",
+                res.errors
+                    .into_iter()
+                    .filter_map(|error| error.detail)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
         }
 
         match serde_json::from_str::<CrateResponse>(&content) {
@@ -115,31 +121,31 @@ impl Version {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, serde::Deserialize)]
 #[must_use]
 struct ApiError {
     detail: Option<String>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, serde::Deserialize)]
 #[must_use]
 struct ApiErrors {
     errors: Vec<ApiError>,
 }
 
 // Partial deserialization of the full response
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, serde::Deserialize)]
 #[must_use]
 struct Crate {
     newest_version: String,
 }
 
 // Partial deserialization of the full response
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, serde::Deserialize)]
 #[must_use]
 struct CrateResponse {
     #[serde(rename = "crate")]

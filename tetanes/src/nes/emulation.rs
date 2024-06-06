@@ -9,6 +9,7 @@ use crate::{
         },
         renderer::{gui::MessageType, FrameRecycle},
     },
+    platform::{self, Feature},
     thread,
 };
 use anyhow::anyhow;
@@ -613,8 +614,7 @@ impl State {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
-        // IMPORTANT: Wasm can't block
-        if self.audio.enabled() || cfg!(target_arch = "wasm32") {
+        if self.audio.enabled() || !platform::supports(Feature::Blocking) {
             match self.frame_tx.try_send_ref() {
                 Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
                 Err(TrySendError::Full(_)) => debug!("dropped frame"),
@@ -904,8 +904,7 @@ impl State {
                         when: Instant::now(),
                     });
 
-                    // IMPORTANT: Wasm can't block
-                    if self.audio.enabled() || cfg!(target_arch = "wasm32") {
+                    if self.audio.enabled() || !platform::supports(Feature::Blocking) {
                         // If audio is enabled or wasm, frame rate is controlled by park_timeout
                         // above
                         match self.frame_tx.try_send_ref() {

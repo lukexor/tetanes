@@ -9,6 +9,7 @@ use crate::{
     platform::{EventLoopExt, Initialize},
     thread,
 };
+use anyhow::Context;
 use config::Config;
 use crossbeam::channel::{self, Receiver};
 use egui::{ahash::HashMap, ViewportBuilder};
@@ -118,7 +119,7 @@ impl Nes {
         let (cfg, tx) = self
             .init_state
             .as_ref()
-            .expect("config unexpectedly already taken");
+            .context("config unexpectedly already taken")?;
         let ctx = egui::Context::default();
         let (window, viewport_builder) = Renderer::create_window(event_loop, &ctx, cfg)?;
         let window = Arc::new(window);
@@ -180,7 +181,7 @@ impl Nes {
                 let (mut cfg, tx) = self
                     .init_state
                     .take()
-                    .expect("config unexpectedly already taken");
+                    .context("config unexpectedly already taken")?;
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), cfg.clone())?;
                 let renderer =
                     Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;

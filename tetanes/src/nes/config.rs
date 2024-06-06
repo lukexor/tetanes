@@ -60,9 +60,7 @@ impl Default for EmulationConfig {
             auto_load: true,
             auto_save: true,
             auto_save_interval: Duration::from_secs(5),
-            // WASM framerates suffer with garbage collection pauses when rewind is enabled.
-            // FIXME: Perhaps re-using Vec allocations could help resolve it.
-            rewind: cfg!(not(target_arch = "wasm32")),
+            rewind: true,
             rewind_seconds: 30,
             rewind_interval: 2,
             // WASM struggles to run fast enough with run-ahead and low latency is not needed in

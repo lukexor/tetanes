@@ -156,8 +156,7 @@ pub enum EmulationEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum RendererEvent {
-    #[cfg(target_arch = "wasm32")]
-    BrowserResized((f32, f32)),
+    ViewportResized((f32, f32)),
     FrameStats(FrameStats),
     ShowMenubar(bool),
     ScaleChanged,
@@ -234,13 +233,9 @@ impl Nes {
                     }
                     return;
                 };
-                state.repaint_times.insert(
-                    state
-                        .renderer
-                        .root_window_id()
-                        .expect("failed to get root window_id"),
-                    Instant::now(),
-                );
+                if let Some(window_id) = state.renderer.root_window_id() {
+                    state.repaint_times.insert(window_id, Instant::now());
+                }
             }
             Event::UserEvent(NesEvent::Renderer(RendererEvent::ResourcesReady)) => {
                 if let Err(err) = self.init_running(event_loop) {
@@ -254,19 +249,9 @@ impl Nes {
                 event_loop.listen_device_events(DeviceEvents::Never);
 
                 if let State::Running(state) = &mut self.state {
-                    if let Some(window) = state
-                        .renderer
-                        .root_window_id()
-                        .and_then(|id| state.renderer.window(id))
-                    {
+                    if let Some(window) = state.renderer.root_window() {
                         if window.is_visible().unwrap_or(true) {
-                            state.repaint_times.insert(
-                                state
-                                    .renderer
-                                    .root_window_id()
-                                    .expect("failed to get root window_id"),
-                                Instant::now(),
-                            );
+                            state.repaint_times.insert(window.id(), Instant::now());
                         } else {
                             // Immediately redraw the root window on start if not
                             // visible. Fixes a bug where `window.request_redraw()` events
@@ -357,12 +342,7 @@ impl Running {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self.renderer.on_window_event(
-                    window_id,
-                    &event,
-                    #[cfg(target_arch = "wasm32")]
-                    &self.cfg,
-                );
+                let res = self.renderer.on_window_event(window_id, &event, &self.cfg);
                 if res.repaint && event != WindowEvent::RedrawRequested {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
