@@ -10,6 +10,7 @@ use crate::{
 use anyhow::{bail, Context};
 use std::path::{Path, PathBuf};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     js_sys::Uint8Array, FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement,
 };
@@ -196,6 +197,23 @@ fn set_file_onchange_handlers(
     on_cancel.forget();
 
     Ok(())
+}
+
+/// Sets the clipboard text to the given string.
+pub fn set_clipboard_text(s: &str) {
+    if let Some(clipboard) = web_sys::window().and_then(|window| window.navigator().clipboard()) {
+        let promise = clipboard.write_text(s);
+        let future = JsFuture::from(promise);
+        let future = async move {
+            if let Err(err) = future.await {
+                tracing::error!(
+                    "Cut/Copy failed: {}",
+                    err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                );
+            }
+        };
+        thread::spawn(future);
+    }
 }
 
 /// Enumeration of supported operating systems.
@@ -460,7 +478,8 @@ impl Initialize for Running {
 impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
     fn with_platform(self, _title: &str) -> Self {
-        self.with_canvas(get_canvas())
+        // Prevent default false allows cut/copy/paste
+        self.with_canvas(get_canvas()).with_prevent_default(false)
     }
 }
 

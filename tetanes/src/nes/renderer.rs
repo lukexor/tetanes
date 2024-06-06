@@ -925,6 +925,13 @@ impl Renderer {
         }
     }
 
+    fn handle_platform_output(output: &egui::PlatformOutput) {
+        if !output.copied_text.is_empty() {
+            #[cfg(target_arch = "wasm32")]
+            platform::set_clipboard_text(&output.copied_text);
+        }
+    }
+
     fn handle_viewport_output(
         ctx: &egui::Context,
         viewports: &mut ViewportIdMap<Viewport>,
@@ -1057,6 +1064,7 @@ impl Renderer {
             false,
         );
 
+        Self::handle_platform_output(&output.platform_output);
         egui_state.handle_platform_output(window, output.platform_output);
         Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
     }
@@ -1231,12 +1239,15 @@ impl Renderer {
             );
 
             if std::mem::take(&mut self.first_frame) {
+                #[cfg(target_arch = "wasm32")]
+                Self::add_document_listeners(&self.ctx);
                 window.set_visible(true);
             }
 
             let active_viewports_ids: ViewportIdSet =
                 output.viewport_output.keys().copied().collect();
 
+            Self::handle_platform_output(&output.platform_output);
             egui_state.handle_platform_output(window, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output, *focused);
 
@@ -1266,6 +1277,104 @@ impl Renderer {
         if let Err(err) = self.auto_save(cfg) {
             error!("failed to auto save UI state: {err:?}");
         }
+
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn add_document_listeners(ctx: &egui::Context) -> anyhow::Result<()> {
+        use wasm_bindgen::prelude::*;
+
+        let document = web_sys::window()
+            .and_then(|window| window.document())
+            .context("failed to get html document")?;
+
+        let on_paste = Closure::<dyn FnMut(_)>::new({
+            let ctx = ctx.clone();
+            move |evt: web_sys::ClipboardEvent| {
+                if let Some(data) = evt.clipboard_data() {
+                    if let Ok(text) = data.get_data("text") {
+                        let text = text.replace("\r\n", "\n");
+                        if !text.is_empty() {
+                            ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
+                            ctx.request_repaint();
+                        }
+                        evt.stop_propagation();
+                        evt.prevent_default();
+                    }
+                }
+            }
+        });
+        let on_cut = Closure::<dyn FnMut(_)>::new({
+            let ctx = ctx.clone();
+            move |evt: web_sys::ClipboardEvent| {
+                ctx.output_mut(|o| o.copied_text = "hi".to_string());
+                platform::set_clipboard_text("hi");
+                ctx.input_mut(|i| i.events.push(egui::Event::Cut));
+
+                // In Safari we are only allowed to write to the clipboard during the
+                // event callback, which is why we run the app logic here and now:
+                // runner.logic();
+                // ctx.run/gui.ui
+                // handle platform output
+                // tessellate
+                tracing::debug!("cut");
+
+                // Make sure we paint the output of the above logic call asap:
+                ctx.request_repaint();
+
+                evt.stop_propagation();
+                evt.prevent_default();
+            }
+        });
+        let on_copy = Closure::<dyn FnMut(_)>::new({
+            let ctx = ctx.clone();
+            move |evt: web_sys::ClipboardEvent| {
+                ctx.input_mut(|i| i.events.push(egui::Event::Copy));
+
+                // In Safari we are only allowed to write to the clipboard during the
+                // event callback, which is why we run the app logic here and now:
+                // runner.logic();
+                tracing::debug!("copy");
+
+                // Make sure we paint the output of the above logic call asap:
+                ctx.request_repaint();
+
+                evt.stop_propagation();
+                evt.prevent_default();
+            }
+        });
+        let on_keydown = Closure::<dyn FnMut(_)>::new({
+            move |evt: web_sys::KeyboardEvent| {
+                // TODO: prevent default for tab and ctrl+p or if a keybind matches
+                // Or just prevent all except ctrl/cmd+x/c/v?
+                tracing::debug!("{evt:?}");
+            }
+        });
+
+        document.add_event_listener_with_callback("keydown", {
+            use wasm_bindgen::JsCast;
+            on_keydown.as_ref().unchecked_ref()
+        });
+        on_keydown.forget();
+
+        document.add_event_listener_with_callback("paste", {
+            use wasm_bindgen::JsCast;
+            on_paste.as_ref().unchecked_ref()
+        });
+        on_paste.forget();
+
+        document.add_event_listener_with_callback("cut", {
+            use wasm_bindgen::JsCast;
+            on_cut.as_ref().unchecked_ref()
+        });
+        on_cut.forget();
+
+        document.add_event_listener_with_callback("copy", {
+            use wasm_bindgen::JsCast;
+            on_copy.as_ref().unchecked_ref()
+        });
+        on_copy.forget();
 
         Ok(())
     }
