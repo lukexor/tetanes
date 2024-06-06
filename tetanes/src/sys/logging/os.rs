@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::path::PathBuf;
 use tracing_appender::{
     non_blocking::WorkerGuard,
@@ -12,7 +13,7 @@ pub struct Log {
     _guard: WorkerGuard,
 }
 
-pub fn init_impl<S>(registry: S) -> (impl SubscriberInitExt, Log)
+pub fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
 where
     S: SubscriberExt + for<'a> LookupSpan<'a> + Sync + Send,
 {
@@ -26,7 +27,7 @@ where
                 .map(|dir| dir.join("logs"))
                 .unwrap_or_else(|| PathBuf::from("logs")),
         )
-        .expect("Failed to create log file");
+        .context("failed to create log file")?;
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     let registry = registry
@@ -47,5 +48,5 @@ where
                 .with_writer(std::io::stderr),
         );
 
-    (registry, Log { _guard: guard })
+    Ok((registry, Log { _guard: guard }))
 }

@@ -157,9 +157,9 @@ impl Build {
                         .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display())))?
                 } else {
                     cmd_output(Command::new("shasum")
-                        .current_dir(file.parent().expect("parent directory"))
+                        .current_dir(file.parent().with_context(|| format!("no parent directory for {file:?}"))?)
                         .args(["-a", "256"])
-                        .arg(file.file_name().expect("filename")))?
+                        .arg(file.file_name().with_context(|| format!("no file_name for {file:?}"))?))?
                 }
             }
         };

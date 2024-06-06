@@ -295,10 +295,6 @@ impl Consume for FilterChain {
 
 impl Sample for FilterChain {
     fn output(&self) -> f32 {
-        self.filters
-            .last()
-            .expect("no filters defined")
-            .filter
-            .output()
+        self.filters.last().map_or(0.0, |f| f.filter.output())
     }
 }

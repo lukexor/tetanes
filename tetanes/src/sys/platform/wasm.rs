@@ -8,7 +8,7 @@ use crate::{
     thread,
 };
 use anyhow::{bail, Context};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use wasm_bindgen::prelude::*;
 use web_sys::{
     js_sys::Uint8Array, FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement,
@@ -30,12 +30,20 @@ const OS_OPTIONS: [(Os, Arch, &str); 5] = [
     (Os::Linux, Arch::X86_64, html_ids::LINXU_X86_LINK),
 ];
 
+/// Checks if the current platform supports a given feature.
+pub const fn supports_impl(feature: Feature) -> bool {
+    match feature {
+        Feature::Storage => true,
+        Feature::Filesystem | Feature::Viewports | Feature::Suspend | Feature::Blocking => false,
+    }
+}
+
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
     extensions: &[impl ToString],
-    _dir: PathBuf,
+    _dir: impl AsRef<Path>,
 ) -> anyhow::Result<Option<PathBuf>> {
     let input_id = match extensions[0].to_string().as_str() {
         "nes" => html_ids::ROM_INPUT,
@@ -59,14 +67,6 @@ pub fn open_file_dialog_impl(
     }
 
     Ok(None)
-}
-
-/// Checks if the current platform supports a given feature.
-pub const fn supports_impl(feature: Feature) -> bool {
-    match feature {
-        Feature::Storage => true,
-        Feature::Filesystem | Feature::Viewports | Feature::Suspend => false,
-    }
 }
 
 /// Helper method to log and send errors to the UI thread from javascript.
@@ -94,7 +94,7 @@ fn set_resize_handler(window: &web_sys::Window, tx: &EventLoopProxy<NesEvent>) {
                     .ok()
                     .and_then(|h| h.as_f64())
                     .map_or(0.0, |h| h as f32);
-                tx.nes_event(RendererEvent::BrowserResized((width, height)));
+                tx.nes_event(RendererEvent::ViewportResized((width, height)));
             }
         }
     });
@@ -397,13 +397,13 @@ fn set_download_versions(document: &web_sys::Document) {
         ) {
             let on_mouseover = Closure::<dyn FnMut(_)>::new({
                 let version_options = version_options.clone();
-                move |_: web_sys::Event| {
+                move |_: web_sys::MouseEvent| {
                     if let Err(err) = version_options.class_list().remove_1("hidden") {
                         tracing::error!("{err:?}");
                     }
                 }
             });
-            let on_mouseout = Closure::<dyn FnMut(_)>::new(move |_: web_sys::Event| {
+            let on_mouseout = Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
                 if let Err(err) = version_options.class_list().add_1("hidden") {
                     tracing::error!("{err:?}");
                 }

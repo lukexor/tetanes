@@ -9,7 +9,7 @@ use tracing_web::{performance_layer, MakeWebConsoleWriter};
 
 pub struct Log;
 
-pub fn init_impl<S>(registry: S) -> (impl SubscriberInitExt, Log)
+pub fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
 where
     S: SubscriberExt + for<'a> LookupSpan<'a> + Sync + Send,
 {
@@ -34,5 +34,6 @@ where
         .with_writer(MakeWebConsoleWriter::new());
     let perf_layer = performance_layer().with_details_from_fields(Pretty::default());
     let registry = registry.with(console_layer).with(perf_layer);
-    (registry, Log)
+
+    Ok((registry, Log))
 }

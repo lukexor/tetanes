@@ -1,6 +1,8 @@
 use crate::sys::platform;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use winit::{event::Event, event_loop::EventLoopWindowTarget};
+
+pub use platform::*;
 
 /// Trait for any type requiring platform-specific initialization.
 pub trait Initialize {
@@ -22,15 +24,22 @@ pub trait EventLoopExt<T> {
         F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static;
 }
 
+/// Checks if the current platform supports a given feature.
+pub const fn supports(feature: Feature) -> bool {
+    platform::supports_impl(feature)
+}
+
+/// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: PathBuf,
+    dir: impl AsRef<Path>,
 ) -> anyhow::Result<Option<PathBuf>> {
     platform::open_file_dialog_impl(title, name, extensions, dir)
 }
 
+/// Platform-specific feature capabilities.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum Feature {
@@ -38,8 +47,5 @@ pub enum Feature {
     Storage,
     Viewports,
     Suspend,
-}
-
-pub const fn supports(feature: Feature) -> bool {
-    platform::supports_impl(feature)
+    Blocking,
 }

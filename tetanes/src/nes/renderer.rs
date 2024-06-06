@@ -33,6 +33,7 @@ use thingbuf::{
 };
 use tracing::{debug, error, info, warn};
 use winit::{
+    dpi::PhysicalSize,
     event::WindowEvent,
     event_loop::{EventLoopProxy, EventLoopWindowTarget},
     window::{Theme, Window, WindowId},
@@ -250,9 +251,14 @@ impl Renderer {
             egui::Context::set_immediate_viewport_renderer(move |ctx, viewport| {
                 if let Some(state) = state.upgrade() {
                     // SAFETY: the event loop lives longer than the Rcs we just upgraded above.
-                    #[allow(unsafe_code)]
-                    let event_loop = unsafe { event_loop.as_ref().unwrap() };
-                    Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
+                    match unsafe { event_loop.as_ref() } {
+                        Some(event_loop) => {
+                            Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
+                        }
+                        None => tracing::error!(
+                            "failed to get event_loop in set_immediate_viewport_renderer"
+                        ),
+                    }
                 } else {
                     warn!("set_immediate_viewport_renderer called after window closed");
                 }
@@ -290,6 +296,41 @@ impl Renderer {
         painter.destroy();
     }
 
+    pub fn root_window_id(&self) -> Option<WindowId> {
+        self.window_id_for_viewport(ViewportId::ROOT)
+    }
+
+    pub fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {
+        self.state
+            .borrow()
+            .viewports
+            .get(&viewport_id)
+            .and_then(|viewport| viewport.window.as_ref())
+            .map(|window| window.id())
+    }
+
+    pub fn viewport_id_for_window(&self, window_id: WindowId) -> Option<ViewportId> {
+        let state = self.state.borrow();
+        state
+            .viewport_from_window
+            .get(&window_id)
+            .and_then(|id| state.viewports.get(id))
+            .map(|viewport| viewport.ids.this)
+    }
+
+    pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
+        self.state
+            .borrow()
+            .viewports
+            .get(&ViewportId::ROOT)
+            .map(reader)
+    }
+
+    pub fn root_window(&self) -> Option<Arc<Window>> {
+        self.root_viewport(|viewport| viewport.window.clone())
+            .flatten()
+    }
+
     pub fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
         let state = self.state.borrow();
         state
@@ -311,18 +352,6 @@ impl Renderer {
         window_size
     }
 
-    pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
-        self.state
-            .borrow()
-            .viewports
-            .get(&ViewportId::ROOT)
-            .map(reader)
-    }
-
-    pub fn root_window_id(&self) -> Option<WindowId> {
-        self.window_id_for_viewport(ViewportId::ROOT)
-    }
-
     pub fn all_viewports_occluded(&self) -> bool {
         self.state
             .borrow()
@@ -331,33 +360,14 @@ impl Renderer {
             .all(|viewport| viewport.occluded)
     }
 
-    pub fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {
-        self.state
-            .borrow()
-            .viewports
-            .get(&viewport_id)
-            .and_then(|viewport| viewport.window.as_ref())
-            .map(|window| window.id())
-    }
-
-    pub fn viewport_id_for_window(&self, window_id: WindowId) -> Option<ViewportId> {
-        let state = self.state.borrow();
-        state
-            .viewport_from_window
-            .get(&window_id)
-            .and_then(|id| state.viewports.get(id))
-            .map(|viewport| viewport.ids.this)
-    }
-
-    pub fn inner_size(&self) -> Option<egui::Rect> {
-        self.root_viewport(|viewport| viewport.info.inner_rect)
-            .flatten()
+    pub fn inner_size(&self) -> Option<PhysicalSize<u32>> {
+        self.root_window().map(|win| win.inner_size())
     }
 
     pub fn fullscreen(&self) -> bool {
         // viewport.info.fullscreen is sometimes stale, so rely on the actual winit state
-        self.root_viewport(|viewport| viewport.window.as_ref().map(|w| w.fullscreen().is_some()))
-            .flatten()
+        self.root_window()
+            .map(|win| win.fullscreen().is_some())
             .unwrap_or(false)
     }
 
@@ -402,15 +412,16 @@ impl Renderer {
                 _ => (),
             },
             NesEvent::Renderer(event) => match event {
-                #[cfg(target_arch = "wasm32")]
-                RendererEvent::BrowserResized((browser_width, _)) => {
-                    if let Some(canvas) = crate::sys::platform::get_canvas() {
-                        let canvas_width = canvas.width() as f32;
+                RendererEvent::ViewportResized((viewport_width, _)) => {
+                    // This expands the window width to the desired window width if the new viewport
+                    // size allows
+                    if let Some(window_size) = self.inner_size() {
+                        let window_width = window_size.width as f32;
                         let desired_window_size = self.window_size(cfg);
+                        let max_width = 0.8 * viewport_width;
 
-                        if canvas_width < desired_window_size.x
-                            && canvas_width < 0.8 * browser_width
-                        {
+                        if window_width < desired_window_size.x && window_width < max_width {
+                            // We have room to resize up to desired_window_size
                             self.ctx.send_viewport_cmd_to(
                                 ViewportId::ROOT,
                                 ViewportCommand::InnerSize(desired_window_size),
@@ -433,7 +444,17 @@ impl Renderer {
                     self.gui.resize_texture = true;
                 }
                 RendererEvent::ToggleFullscreen => {
-                    self.set_fullscreen(cfg.renderer.fullscreen, cfg.renderer.embed_viewports);
+                    if platform::supports(platform::Feature::Viewports) {
+                        self.ctx.set_embed_viewports(
+                            cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
+                        );
+                    }
+                    self.ctx
+                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                    self.ctx.send_viewport_cmd_to(
+                        ViewportId::ROOT,
+                        ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
+                    );
                 }
                 RendererEvent::RomUnloaded => {
                     self.gui.run_state = RunState::Running;
@@ -501,7 +522,7 @@ impl Renderer {
         &mut self,
         window_id: WindowId,
         event: &WindowEvent,
-        #[cfg(target_arch = "wasm32")] cfg: &Config,
+        cfg: &Config,
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
@@ -545,22 +566,26 @@ impl Renderer {
                                 .on_window_resized(viewport_id, width, height);
                         }
 
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(canvas) = crate::sys::platform::get_canvas() {
-                            // On wasm, width is constrained by the browser
+                        // On some platforms, e.g. wasm, window width is constrained by the
+                        // viewport width
+                        // This will resize the window if the desired scale is larger than the
+                        // actual scale
+                        if let Some(window_size) = self.inner_size() {
                             if !self.fullscreen() {
-                                let aspect_ratio = self.gui.aspect_ratio(cfg);
-                                let canvas_width = canvas.width() as f32;
-
+                                let window_width = window_size.width as f32;
                                 let desired_window_size = self.window_size(cfg);
-                                if canvas_width < desired_window_size.x {
-                                    let current_scale = cfg.renderer.scale;
+
+                                if window_width < desired_window_size.x {
+                                    let aspect_ratio = self.gui.aspect_ratio(cfg);
+                                    let desired_scale = cfg.renderer.scale;
                                     let actual_scale =
-                                        canvas_width / (aspect_ratio * Ppu::WIDTH as f32);
-                                    if current_scale > actual_scale {
+                                        window_width / (aspect_ratio * Ppu::WIDTH as f32);
+
+                                    if desired_scale > actual_scale {
                                         let mut window_size =
                                             self.window_size_for_scale(cfg, actual_scale);
-                                        window_size.x = canvas_width;
+                                        window_size.x = window_width;
+
                                         self.ctx.send_viewport_cmd_to(
                                             ViewportId::ROOT,
                                             ViewportCommand::InnerSize(window_size),
@@ -701,6 +726,8 @@ impl Renderer {
         Ok((window, viewport_builder))
     }
 
+    /// Waits for the window to be initialized with a non-zero size. Required during
+    /// `create_painter` to correctly create the wgpu surface.
     pub async fn wait_for_window(window: &Arc<Window>) {
         loop {
             let size = window.inner_size();
@@ -1078,18 +1105,8 @@ impl Renderer {
                     return Ok(());
                 }
                 if viewport.viewport_ui_cb.is_none() {
-                    let parent_viewport_id = viewport.ids.parent;
                     // This will only happen if this is an immediate viewport.
                     // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
-                    if viewports
-                        .get(&parent_viewport_id)
-                        .map_or(false, |viewport| viewport.window.is_some())
-                    {
-                        self.tx.nes_event(RendererEvent::RequestRedraw {
-                            viewport_id: parent_viewport_id,
-                            when: Instant::now(),
-                        });
-                    }
                     return Ok(());
                 }
             }
@@ -1114,7 +1131,10 @@ impl Renderer {
                 );
             }
 
-            let egui_state = viewport.egui_state.as_mut().unwrap();
+            let egui_state = viewport
+                .egui_state
+                .as_mut()
+                .context("failed to get egui_state")?;
             let mut raw_input = egui_state.take_egui_input(window);
 
             raw_input.viewports = viewports
@@ -1127,30 +1147,32 @@ impl Renderer {
 
         // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
         // resize tied to a configuration change.
-        if let Some(render_state) = &self.render_state {
-            // We only care about the latest frame
-            let mut frame_buffer = self.frame_rx.try_recv_ref();
-            while !self.frame_rx.is_empty() {
-                debug!("dropped frame");
-                frame_buffer = self.frame_rx.try_recv_ref();
-            }
-            match frame_buffer {
-                Ok(frame_buffer) => {
-                    self.texture.update(
-                        &render_state.queue,
-                        if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
-                            &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
-                        } else {
-                            &frame_buffer
-                        },
-                    );
+        if viewport_id == ViewportId::ROOT {
+            if let Some(render_state) = &self.render_state {
+                // We only care about the latest frame
+                let mut frame_buffer = self.frame_rx.try_recv_ref();
+                while !self.frame_rx.is_empty() {
+                    debug!("dropped frame");
+                    frame_buffer = self.frame_rx.try_recv_ref();
                 }
-                Err(TryRecvError::Closed) => {
-                    error!("frame channel closed unexpectedly, exiting");
-                    event_loop.exit();
-                    return Ok(());
+                match frame_buffer {
+                    Ok(frame_buffer) => {
+                        self.texture.update(
+                            &render_state.queue,
+                            if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
+                                &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
+                            } else {
+                                &frame_buffer
+                            },
+                        );
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("frame channel closed unexpectedly, exiting");
+                        event_loop.exit();
+                        return Ok(());
+                    }
+                    _ => (),
                 }
-                _ => (),
             }
         }
 
@@ -1220,7 +1242,7 @@ impl Renderer {
 
             // Update viewports
             for (viewport_id, viewport) in viewports {
-                if self.gui.debug_gui {
+                if self.gui.viewport_info_open {
                     egui::Window::new("Viewport Info").show(&self.ctx, |ui| viewport.info.ui(ui));
                 }
                 if always_on_top != cfg.renderer.always_on_top {

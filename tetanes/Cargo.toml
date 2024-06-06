@@ -28,42 +28,6 @@ bench = false
 [lints]
 workspace = true
 
-[package.metadata.docs.rs]
-targets = ["wasm32-unknown-unknown"]
-
-[package.metadata.deb]
-extended-description = """
-`TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
-(NES) released in Japan in 1983 and North America in 1986, written in
-Rust using wgpu. It runs on Linux, macOS, Windows, and in a web browser
-with Web Assembly.
-
-It started as a personal curiosity that turned into a passion project. It is
-still being actively developed with new features and improvements constantly
-being added. It is a fairly accurate emulator that can play most NES titles.
-
-`TetaNES` is also meant to showcase using Rust's performance, memory safety, and
-fearless concurrency features in a large project. Features used in this project
-include complex enums, traits, generics, matching, iterators, channels, and
-threads.
-
-`TetaNES` also compiles for the web! Try it out in your browser
-(http://lukeworks.tech/tetanes-web)!
-"""
-section = "game"
-assets = [
-  [
-    'target/dist/tetanes',
-    '/usr/bin/',
-    '755',
-  ],
-  [
-    "README.md",
-    "usr/share/doc/tetanes/README",
-    "644",
-  ],
-]
-
 [features]
 default = ["tetanes-core/cycle-accurate"]
 profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
@@ -93,7 +57,7 @@ hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
 puffin_egui = { version = "0.27", optional = true }
-rfd = "0.14"
+rfd = { version = "0.14", default-features = false, features = ["gtk3"] }
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
@@ -113,6 +77,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 egui-winit = "0.27"
 pollster = "0.3"
 puffin = { workspace = true, optional = true }
+# TODO: replace blocking API with async and message passing as it's only used
+# for the version updating checking
 reqwest = { version = "0.12", features = ["blocking"] }
 semver = "1"
 wgpu = "0.19"
@@ -149,3 +115,40 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+
+[package.metadata.docs.rs]
+rustc-args = ["--cfg=web_sys_unstable_apis"]
+targets = ["wasm32-unknown-unknown"]
+
+[package.metadata.deb]
+extended-description = """
+`TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
+(NES) released in Japan in 1983 and North America in 1986, written in
+Rust using wgpu. It runs on Linux, macOS, Windows, and in a web browser
+with Web Assembly.
+
+It started as a personal curiosity that turned into a passion project. It is
+still being actively developed with new features and improvements constantly
+being added. It is a fairly accurate emulator that can play most NES titles.
+
+`TetaNES` is also meant to showcase using Rust's performance, memory safety, and
+fearless concurrency features in a large project. Features used in this project
+include complex enums, traits, generics, matching, iterators, channels, and
+threads.
+
+`TetaNES` also compiles for the web! Try it out in your browser
+(http://lukeworks.tech/tetanes-web)!
+"""
+section = "game"
+assets = [
+  [
+    'target/dist/tetanes',
+    '/usr/bin/',
+    '755',
+  ],
+  [
+    "README.md",
+    "usr/share/doc/tetanes/README",
+    "644",
+  ],
+]
