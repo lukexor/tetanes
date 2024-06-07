@@ -1,6 +1,7 @@
 use crate::{
     nes::{
         event::{EmulationEvent, NesEvent, RendererEvent, ReplayData, SendNesEvent, UiEvent},
+        renderer::{Renderer, State},
         rom::RomData,
         Running,
     },
@@ -8,7 +9,10 @@ use crate::{
     thread,
 };
 use anyhow::{bail, Context};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -470,6 +474,163 @@ impl Initialize for Running {
         }
 
         finish_loading(&document, &self.tx)?;
+
+        Ok(())
+    }
+}
+
+impl Initialize for Renderer {
+    /// Initialize JS event handlers and DOM elements.
+    fn initialize(&mut self) -> anyhow::Result<()> {
+        let document = web_sys::window()
+            .and_then(|window| window.document())
+            .context("failed to get html document")?;
+
+        let on_paste = Closure::<dyn FnMut(_)>::new({
+            let ctx = self.ctx.clone();
+            let state = Rc::clone(&self.state);
+            move |evt: web_sys::ClipboardEvent| {
+                if let Some(data) = evt.clipboard_data() {
+                    if let Ok(text) = data.get_data("text") {
+                        let text = text.replace("\r\n", "\n");
+                        if !text.is_empty() {
+                            let consumed = {
+                                let State { viewports, .. } = &mut *state.borrow_mut();
+                                let egui_state = viewports
+                                    .get_mut(&egui::ViewportId::ROOT)
+                                    .and_then(|viewport| viewport.egui_state.as_mut());
+                                match egui_state {
+                                    Some(egui_state) => {
+                                        // Requires creating an event and setting the clipboard
+                                        // here because egui_winit internally tries to manage a
+                                        // fallback clipboard for platforms not supported by the
+                                        // clipboard crates being used.
+                                        //
+                                        // This has associated behavior in the renderer to prevent
+                                        // sending 'paste events' (ctrl/cmd+V) to egui_state to
+                                        // bypass its internal clipboard handling.
+                                        egui_state
+                                            .egui_input_mut()
+                                            .events
+                                            .push(egui::Event::Paste(text.clone()));
+                                        egui_state.set_clipboard_text(text);
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            };
+                            if consumed {
+                                ctx.request_repaint();
+                                evt.stop_propagation();
+                                evt.prevent_default();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        if let Err(err) =
+            document.add_event_listener_with_callback("paste", on_paste.as_ref().unchecked_ref())
+        {
+            tracing::error!("failed to set paste handler: {err:?}");
+        }
+        on_paste.forget();
+
+        let on_cut = Closure::<dyn FnMut(_)>::new({
+            let ctx = self.ctx.clone();
+            let state = Rc::clone(&self.state);
+            let gui = Rc::clone(&self.gui);
+            move |evt: web_sys::ClipboardEvent| {
+                // Some browsers require transient activation, so we have to write to the clipboard
+                // now
+                let res = Renderer::process_input(&ctx, &state, &gui);
+                if res.repaint {
+                    ctx.request_repaint();
+                }
+                if res.consumed {
+                    evt.stop_propagation();
+                    evt.prevent_default();
+                }
+            }
+        });
+        if let Err(err) =
+            document.add_event_listener_with_callback("cut", on_cut.as_ref().unchecked_ref())
+        {
+            tracing::error!("failed to set cut handler: {err:?}");
+        }
+        on_cut.forget();
+
+        let on_copy = Closure::<dyn FnMut(_)>::new({
+            let ctx = self.ctx.clone();
+            let state = Rc::clone(&self.state);
+            let gui = Rc::clone(&self.gui);
+            move |evt: web_sys::ClipboardEvent| {
+                // Some browsers require transient activation, so we have to write to the clipboard
+                // now
+                let res = Renderer::process_input(&ctx, &state, &gui);
+                if res.repaint {
+                    ctx.request_repaint();
+                }
+                if res.consumed {
+                    evt.stop_propagation();
+                    evt.prevent_default();
+                }
+            }
+        });
+        if let Err(err) =
+            document.add_event_listener_with_callback("copy", on_copy.as_ref().unchecked_ref())
+        {
+            tracing::error!("failed to set copy handler: {err:?}");
+        }
+        on_copy.forget();
+
+        if let Some(canvas) = get_canvas() {
+            let on_keydown = Closure::<dyn FnMut(_)>::new(move |evt: web_sys::KeyboardEvent| {
+                use egui::Key;
+
+                let prevent_default = Key::from_name(&evt.key()).map_or(true, |key| {
+                    // Allow ctrl/meta + X, C, V through
+                    !matches!(key, Key::X | Key::C | Key::V) || !(evt.ctrl_key() || evt.meta_key())
+                });
+
+                if prevent_default {
+                    evt.prevent_default();
+                }
+            });
+            if let Err(err) = canvas
+                .add_event_listener_with_callback("keydown", on_keydown.as_ref().unchecked_ref())
+            {
+                tracing::error!("failed to set keydown handler: {err:?}");
+            }
+            on_keydown.forget();
+
+            // Because we want to capture cut/copy/paste, `prevent_default` is disabled on winit,
+            // so restore default behavior on other winit events
+            for event in [
+                "touchstart",
+                "keyup",
+                "wheel",
+                "contextmenu",
+                "pointerdown",
+                "pointermove",
+            ] {
+                let on_event = Closure::<dyn FnMut(_)>::new({
+                    let canvas = canvas.clone();
+                    move |evt: web_sys::Event| {
+                        evt.prevent_default();
+                        if event == "pointerdown" {
+                            let _ = canvas.focus();
+                        }
+                    }
+                });
+                if let Err(err) = canvas
+                    .add_event_listener_with_callback(event, on_event.as_ref().unchecked_ref())
+                {
+                    tracing::error!("failed to set {event} handler: {err:?}");
+                }
+                on_event.forget();
+            }
+        }
 
         Ok(())
     }

@@ -254,12 +254,12 @@ impl ActionBindings {
 pub struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
-    pub fn from_input_config(config: &InputConfig) -> Self {
+    pub fn from_input_config(cfg: &InputConfig) -> Self {
         let mut map = HashMap::with_capacity(256);
-        for bind in config
+        for bind in cfg
             .shortcuts
             .iter()
-            .chain(config.joypad_bindings.iter().flatten())
+            .chain(cfg.joypad_bindings.iter().flatten())
         {
             for input in bind.bindings.into_iter().flatten() {
                 map.insert(input, bind.action);

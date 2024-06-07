@@ -13,7 +13,7 @@ use crate::{
 use anyhow::anyhow;
 use egui::ViewportId;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
@@ -482,16 +482,13 @@ impl Running {
             UiEvent::Message((ty, msg)) => self.renderer.add_message(ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err)),
             UiEvent::LoadRomDialog => {
-                match open_file_dialog(
-                    "Load ROM",
-                    "NES ROMs",
-                    &["nes"],
-                    self.cfg
-                        .renderer
-                        .roms_path
-                        .as_ref()
-                        .map_or_else(|| PathBuf::from("."), |p| p.to_path_buf()),
-                ) {
+                let dir = self
+                    .cfg
+                    .renderer
+                    .roms_path
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new("."));
+                match open_file_dialog("Load ROM", "NES ROMs", &["nes"], dir) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
                             self.nes_event(EmulationEvent::LoadRomPath(path));

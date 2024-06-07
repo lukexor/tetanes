@@ -4,11 +4,11 @@ use crate::{
         event::{EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent},
         input::Gamepads,
         renderer::{
-            gui::{Gui, Menu, MessageType},
+            gui::{Gui, MessageType},
             texture::Texture,
         },
     },
-    platform::{self, BuilderExt},
+    platform::{self, BuilderExt, Initialize},
     thread,
 };
 use anyhow::Context;
@@ -58,7 +58,7 @@ impl Recycle<Frame> for FrameRecycle {
 
 #[must_use]
 pub struct State {
-    viewports: ViewportIdMap<Viewport>,
+    pub(crate) viewports: ViewportIdMap<Viewport>,
     viewport_from_window: HashMap<WindowId, ViewportId>,
     painter: Rc<RefCell<Painter>>,
     focused: Option<ViewportId>,
@@ -83,7 +83,7 @@ pub struct Viewport {
     viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
     screenshot_requested: bool,
     window: Option<Arc<Window>>,
-    egui_state: Option<egui_winit::State>,
+    pub(crate) egui_state: Option<egui_winit::State>,
     occluded: bool,
 }
 
@@ -102,13 +102,13 @@ impl std::fmt::Debug for Viewport {
 
 #[must_use]
 pub struct Renderer {
-    state: Rc<RefCell<State>>,
+    pub(crate) state: Rc<RefCell<State>>,
     frame_rx: BufReceiver<Frame, FrameRecycle>,
     tx: EventLoopProxy<NesEvent>,
     // Only used by the immediate viewport renderer callback
     redraw_tx: Arc<Mutex<EventLoopProxy<NesEvent>>>,
-    gui: Gui,
-    ctx: egui::Context,
+    pub(crate) gui: Rc<RefCell<Gui>>,
+    pub(crate) ctx: egui::Context,
     render_state: Option<RenderState>,
     texture: Texture,
     first_frame: bool,
@@ -154,7 +154,7 @@ impl Renderer {
         event_loop: &EventLoopWindowTarget<NesEvent>,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
-        cfg: Config,
+        cfg: &Config,
     ) -> anyhow::Result<Self> {
         let Resources {
             ctx,
@@ -231,12 +231,12 @@ impl Renderer {
             cfg.deck.region.aspect_ratio(),
             Some("nes frame"),
         );
-        let gui = Gui::new(
-            Arc::clone(&window),
+
+        let gui = Rc::new(RefCell::new(Gui::new(
             tx.clone(),
             texture.sized_texture(),
             cfg,
-        );
+        )));
 
         let state = Rc::new(RefCell::new(State {
             viewports,
@@ -275,8 +275,8 @@ impl Renderer {
             frame_rx,
             tx,
             redraw_tx,
-            gui,
             ctx,
+            gui,
             render_state: Some(render_state),
             texture,
             first_frame: true,
@@ -347,10 +347,11 @@ impl Renderer {
     }
 
     pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
-        let aspect_ratio = self.gui.aspect_ratio(cfg);
+        let gui = self.gui.borrow();
+        let aspect_ratio = gui.aspect_ratio(cfg);
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
         window_size.x *= aspect_ratio;
-        window_size.y += self.gui.menu_height;
+        window_size.y += gui.menu_height;
         window_size
     }
 
@@ -400,20 +401,10 @@ impl Renderer {
 
     /// Handle event.
     pub fn on_event(&mut self, event: &NesEvent, cfg: &Config) {
-        match event {
-            NesEvent::Emulation(event) => match event {
-                EmulationEvent::ReplayRecord(recording) => {
-                    self.gui.replay_recording = *recording;
-                }
-                EmulationEvent::AudioRecord(recording) => {
-                    self.gui.audio_recording = *recording;
-                }
-                EmulationEvent::RunState(mode) => {
-                    self.gui.run_state = *mode;
-                }
-                _ => (),
-            },
-            NesEvent::Renderer(event) => match event {
+        self.gui.borrow_mut().on_event(event);
+
+        if let NesEvent::Renderer(event) = event {
+            match event {
                 RendererEvent::ViewportResized((viewport_width, _)) => {
                     // This expands the window width to the desired window width if the new viewport
                     // size allows
@@ -431,20 +422,6 @@ impl Renderer {
                         }
                     }
                 }
-                RendererEvent::FrameStats(stats) => {
-                    self.gui.frame_stats = *stats;
-                }
-                RendererEvent::ShowMenubar(show) => {
-                    if !show {
-                        self.gui.menu_height = 0.0;
-                        self.gui.resize_window = true;
-                    }
-                }
-                RendererEvent::ScaleChanged => {
-                    // Handles increment/decrement scale action bindings
-                    self.gui.resize_window = true;
-                    self.gui.resize_texture = true;
-                }
                 RendererEvent::ToggleFullscreen => {
                     if platform::supports(platform::Feature::Viewports) {
                         self.ctx.set_embed_viewports(
@@ -458,37 +435,14 @@ impl Renderer {
                         ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
                     );
                 }
-                RendererEvent::RomUnloaded => {
-                    self.gui.run_state = RunState::Running;
-                    self.gui.loaded_rom = None;
-                    self.gui.title = Config::WINDOW_TITLE.to_string();
-                }
-                RendererEvent::RomLoaded(rom) => {
-                    self.gui.run_state = RunState::Running;
-                    self.gui.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
-                    self.gui.loaded_rom = Some(rom.clone());
-                    if self.gui.loaded_rom.as_ref().map(|rom| rom.region) != Some(rom.region) {
-                        self.gui.resize_window = true;
-                        self.gui.resize_texture = true;
-                    }
+                RendererEvent::RomLoaded(_) => {
                     if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
                     }
                 }
-                RendererEvent::Menu(menu) => match menu {
-                    Menu::About => self.gui.about_open = !self.gui.about_open,
-                    Menu::Keybinds => self.gui.keybinds_open = !self.gui.keybinds_open,
-                    Menu::PerfStats => {
-                        self.gui.perf_stats_open = !self.gui.perf_stats_open;
-                        self.tx
-                            .nes_event(EmulationEvent::ShowFrameStats(self.gui.perf_stats_open));
-                    }
-                    Menu::Preferences => self.gui.preferences_open = !self.gui.preferences_open,
-                },
-                RendererEvent::ResourcesReady | RendererEvent::RequestRedraw { .. } => (),
-            },
-            _ => (),
+                _ => (),
+            }
         }
     }
 
@@ -515,8 +469,8 @@ impl Renderer {
         }
     }
 
-    pub const fn rom_loaded(&self) -> bool {
-        self.gui.loaded_rom.is_some()
+    pub fn rom_loaded(&self) -> bool {
+        self.gui.borrow().loaded_rom.is_some()
     }
 
     /// Handle window event.
@@ -528,6 +482,9 @@ impl Renderer {
     ) -> EventResponse {
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
+            WindowEvent::Focused(focused) => {
+                self.state.borrow_mut().focused = if *focused { viewport_id } else { None };
+            }
             // Note: Does not trigger on all platforms
             WindowEvent::Occluded(occluded) => {
                 let mut state = self.state.borrow_mut();
@@ -551,6 +508,37 @@ impl Renderer {
                         // `request_repaint_of` does a double-repaint though:
                         self.ctx.request_repaint_of(viewport_id);
                         self.ctx.request_repaint_of(viewport.ids.parent);
+                    }
+                }
+            }
+            // To support clipboard in wasm, we need to intercept the Paste event so that
+            // egui_winit doesn't try to use it's clipboard fallback logic for paste. Associated
+            // behavior in the wasm platform layer handles setting the egui_state clipboard text.
+            #[cfg(target_arch = "wasm32")]
+            WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        physical_key: winit::keyboard::PhysicalKey::Code(key),
+                        ..
+                    },
+                ..
+            } => {
+                if let Some(key) = gui::key_from_keycode(*key) {
+                    fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+                        keycode == egui::Key::Paste
+                            || (modifiers.command && keycode == egui::Key::V)
+                            || (cfg!(target_os = "windows")
+                                && modifiers.shift
+                                && keycode == egui::Key::Insert)
+                    }
+
+                    let modifiers = self.ctx.input(|i| i.modifiers);
+
+                    if is_paste_command(modifiers, key) {
+                        return EventResponse {
+                            consumed: true,
+                            repaint: true,
+                        };
                     }
                 }
             }
@@ -578,7 +566,7 @@ impl Renderer {
                                 let desired_window_size = self.window_size(cfg);
 
                                 if window_width < desired_window_size.x {
-                                    let aspect_ratio = self.gui.aspect_ratio(cfg);
+                                    let aspect_ratio = self.gui.borrow().aspect_ratio(cfg);
                                     let desired_scale = cfg.renderer.scale;
                                     let actual_scale =
                                         window_width / (aspect_ratio * Ppu::WIDTH as f32);
@@ -628,21 +616,16 @@ impl Renderer {
             })
             .unwrap_or_default();
 
-        if self.gui.pending_keybind.is_some()
-            && matches!(
-                event,
-                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
-            )
-        {
-            res.consumed = true;
-        }
+        let gui_res = self.gui.borrow_mut().on_window_event(event);
+        res.consumed |= gui_res.consumed;
+        res.repaint |= gui_res.repaint;
 
         res
     }
 
     /// Handle gamepad event updates.
     pub fn on_gamepad_update(&self, gamepads: &Gamepads) -> EventResponse {
-        if self.gui.pending_keybind.is_some() && gamepads.has_events() {
+        if self.gui.borrow().pending_keybind.is_some() && gamepads.has_events() {
             return EventResponse {
                 consumed: true,
                 repaint: true,
@@ -655,14 +638,14 @@ impl Renderer {
     where
         S: Into<String>,
     {
-        self.gui.add_message(ty, text);
+        self.gui.borrow_mut().add_message(ty, text);
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
         self.tx
             .nes_event(EmulationEvent::RunState(RunState::Paused));
-        self.gui.error = Some(err.to_string());
+        self.gui.borrow_mut().error = Some(err.to_string());
     }
 
     pub fn load(ctx: &egui::Context) -> anyhow::Result<()> {
@@ -722,6 +705,7 @@ impl Renderer {
 
         let window_builder =
             egui_winit::create_winit_window_builder(ctx, event_loop, viewport_builder.clone());
+
         let window = window_builder
             .with_platform(Config::WINDOW_TITLE)
             .build(event_loop)?;
@@ -861,7 +845,7 @@ impl Renderer {
         class: ViewportClass,
         mut builder: ViewportBuilder,
         viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
-        focused_viewport: Option<ViewportId>,
+        focused: Option<ViewportId>,
     ) -> &'a mut Viewport {
         if builder.icon.is_none() {
             builder.icon = viewports
@@ -892,7 +876,7 @@ impl Renderer {
                     viewport.window = None;
                     viewport.egui_state = None;
                 } else if let Some(window) = &viewport.window {
-                    let is_viewport_focused = focused_viewport == Some(ids.this);
+                    let is_viewport_focused = focused == Some(ids.this);
                     egui_winit::process_viewport_commands(
                         ctx,
                         &mut viewport.info,
@@ -905,30 +889,6 @@ impl Renderer {
 
                 entry.into_mut()
             }
-        }
-    }
-
-    fn resize_texture(&mut self, cfg: &Config) {
-        if let (Some(max_texture_side), Some(render_state)) = (
-            self.state.borrow().painter.borrow().max_texture_side(),
-            &self.render_state,
-        ) {
-            let texture_size = cfg.texture_size();
-            self.texture.resize(
-                &render_state.device,
-                &mut render_state.renderer.write(),
-                texture_size.x.min(max_texture_side as f32) as u32,
-                texture_size.y.min(max_texture_side as f32) as u32,
-                self.gui.aspect_ratio(cfg),
-            );
-            self.gui.texture = self.texture.sized_texture();
-        }
-    }
-
-    fn handle_platform_output(output: &egui::PlatformOutput) {
-        if !output.copied_text.is_empty() {
-            #[cfg(target_arch = "wasm32")]
-            platform::set_clipboard_text(&output.copied_text);
         }
     }
 
@@ -1010,19 +970,19 @@ impl Renderer {
                 );
             }
 
-            let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state)
-            else {
-                return;
-            };
+            match (&viewport.window, &mut viewport.egui_state) {
+                (Some(window), Some(egui_state)) => {
+                    egui_winit::update_viewport_info(&mut viewport.info, ctx, window);
 
-            egui_winit::update_viewport_info(&mut viewport.info, ctx, window);
-
-            let mut input = egui_state.take_egui_input(window);
-            input.viewports = viewports
-                .iter()
-                .map(|(id, viewport)| (*id, viewport.info.clone()))
-                .collect();
-            input
+                    let mut input = egui_state.take_egui_input(window);
+                    input.viewports = viewports
+                        .iter()
+                        .map(|(id, viewport)| (*id, viewport.info.clone()))
+                        .collect();
+                    input
+                }
+                _ => return,
+            }
         };
 
         let output = ctx.run(input, |ctx| {
@@ -1037,36 +997,79 @@ impl Renderer {
             ..
         } = &mut *state.borrow_mut();
 
-        let Some(viewport) = viewports.get_mut(&viewport_id) else {
-            return;
+        if let Some(viewport) = viewports.get_mut(&viewport_id) {
+            viewport.info.events.clear();
+
+            if let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state) {
+                Renderer::set_painter_window(
+                    tx.clone(),
+                    Rc::clone(painter),
+                    viewport_id,
+                    Some(Arc::clone(window)),
+                );
+
+                let clipped_primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+                painter.borrow_mut().paint_and_update_textures(
+                    viewport_id,
+                    output.pixels_per_point,
+                    [0.0; 4],
+                    &clipped_primitives,
+                    &output.textures_delta,
+                    false,
+                );
+
+                egui_state.handle_platform_output(window, output.platform_output);
+                Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
+            };
+        };
+    }
+
+    pub fn process_input(
+        ctx: &egui::Context,
+        state: &Rc<RefCell<State>>,
+        gui: &Rc<RefCell<Gui>>,
+    ) -> EventResponse {
+        let raw_input = {
+            let State { viewports, .. } = &mut *state.borrow_mut();
+
+            let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) else {
+                return EventResponse::default();
+            };
+            let Some(window) = &viewport.window else {
+                return EventResponse::default();
+            };
+            if !window.has_focus() {
+                return EventResponse::default();
+            }
+            let Some(egui_state) = viewport.egui_state.as_mut() else {
+                return EventResponse::default();
+            };
+            egui_state.take_egui_input(window)
         };
 
-        viewport.info.events.clear();
+        let mut output = ctx.run(raw_input, |ctx| {
+            gui.borrow_mut()
+                .ui(ctx, &mut Gamepads::default(), &mut Config::default());
+        });
 
-        let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state) else {
-            return;
+        let State { viewports, .. } = &mut *state.borrow_mut();
+
+        if let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) {
+            viewport.info.events.clear();
+
+            let copied_text = std::mem::take(&mut output.platform_output.copied_text);
+            if !copied_text.is_empty() {
+                #[cfg(target_arch = "wasm32")]
+                platform::set_clipboard_text(&copied_text);
+            }
+
+            return EventResponse {
+                consumed: true,
+                repaint: true,
+            };
         };
 
-        Renderer::set_painter_window(
-            tx.clone(),
-            Rc::clone(painter),
-            viewport_id,
-            Some(Arc::clone(window)),
-        );
-
-        let clipped_primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
-        painter.borrow_mut().paint_and_update_textures(
-            viewport_id,
-            output.pixels_per_point,
-            [0.0; 4],
-            &clipped_primitives,
-            &output.textures_delta,
-            false,
-        );
-
-        Self::handle_platform_output(&output.platform_output);
-        egui_state.handle_platform_output(window, output.platform_output);
-        Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
+        EventResponse::default()
     }
 
     /// Request redraw.
@@ -1079,7 +1082,12 @@ impl Renderer {
     ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+        #[cfg(feature = "profiling")]
+        puffin::GlobalProfiler::lock().new_frame();
 
+        if self.first_frame {
+            self.initialize()?;
+        }
         self.initialize_all_windows(event_loop);
 
         if self.all_viewports_occluded() {
@@ -1090,62 +1098,29 @@ impl Renderer {
             return Ok(());
         };
 
-        #[cfg(feature = "profiling")]
-        puffin::GlobalProfiler::lock().new_frame();
-
-        if self.gui.resize_window {
-            if !self.fullscreen() {
-                self.ctx.send_viewport_cmd_to(
-                    ViewportId::ROOT,
-                    ViewportCommand::InnerSize(self.window_size(cfg)),
-                );
-            }
-            self.gui.resize_window = false;
-        }
-        if self.gui.resize_texture {
-            self.resize_texture(cfg);
-            self.gui.resize_texture = false;
-        }
+        self.handle_resize(viewport_id, cfg);
 
         let (viewport_ui_cb, raw_input) = {
-            let State {
-                viewports, painter, ..
-            } = &mut *self.state.borrow_mut();
-
-            if viewport_id != ViewportId::ROOT {
-                let Some(viewport) = viewports.get_mut(&viewport_id) else {
-                    return Ok(());
-                };
-                if viewport.occluded {
-                    return Ok(());
-                }
-                if viewport.viewport_ui_cb.is_none() {
-                    // This will only happen if this is an immediate viewport.
-                    // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
-                    return Ok(());
-                }
-            }
+            let State { viewports, .. } = &mut *self.state.borrow_mut();
 
             let Some(viewport) = viewports.get_mut(&viewport_id) else {
                 return Ok(());
             };
-
-            let viewport_ui_cb = viewport.viewport_ui_cb.clone();
-
             let Some(window) = &viewport.window else {
                 return Ok(());
             };
-            egui_winit::update_viewport_info(&mut viewport.info, &self.ctx, window);
 
-            if !self.ctx.embed_viewports() {
-                Renderer::set_painter_window(
-                    self.tx.clone(),
-                    Rc::clone(painter),
-                    viewport_id,
-                    Some(Arc::clone(window)),
-                );
+            if viewport.occluded
+                || (viewport_id != ViewportId::ROOT && viewport.viewport_ui_cb.is_none())
+            {
+                // This will only happen if this is an immediate viewport.
+                // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
+                return Ok(());
             }
 
+            egui_winit::update_viewport_info(&mut viewport.info, &self.ctx, window);
+
+            let viewport_ui_cb = viewport.viewport_ui_cb.clone();
             let egui_state = viewport
                 .egui_state
                 .as_mut()
@@ -1174,7 +1149,14 @@ impl Renderer {
                     Ok(frame_buffer) => {
                         self.texture.update(
                             &render_state.queue,
-                            if cfg.renderer.hide_overscan && self.gui.loaded_region.is_ntsc() {
+                            if cfg.renderer.hide_overscan
+                                && self
+                                    .gui
+                                    .borrow()
+                                    .loaded_region()
+                                    .unwrap_or(cfg.deck.region)
+                                    .is_ntsc()
+                            {
                                 &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
                             } else {
                                 &frame_buffer
@@ -1196,12 +1178,13 @@ impl Renderer {
             if let Some(viewport_ui_cb) = viewport_ui_cb {
                 viewport_ui_cb(ctx);
             }
-            self.gui.ui(ctx, gamepads, cfg);
+            self.gui.borrow_mut().ui(ctx, gamepads, cfg);
         });
 
         {
             // Required to get mutable reference again to avoid double borrow when calling gui.ui
-            // above.
+            // above because internally gui.ui calls show_viewport_immediate, which requires
+            // borrowing state to render
             let State {
                 viewports,
                 painter,
@@ -1209,6 +1192,7 @@ impl Renderer {
                 viewport_from_window,
                 ..
             } = &mut *self.state.borrow_mut();
+
             let Some(viewport) = viewports.get_mut(&viewport_id) else {
                 return Ok(());
             };
@@ -1239,15 +1223,12 @@ impl Renderer {
             );
 
             if std::mem::take(&mut self.first_frame) {
-                #[cfg(target_arch = "wasm32")]
-                Self::add_document_listeners(&self.ctx);
                 window.set_visible(true);
             }
 
             let active_viewports_ids: ViewportIdSet =
                 output.viewport_output.keys().copied().collect();
 
-            Self::handle_platform_output(&output.platform_output);
             egui_state.handle_platform_output(window, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output, *focused);
 
@@ -1258,7 +1239,7 @@ impl Renderer {
 
             // Update viewports
             for (viewport_id, viewport) in viewports {
-                if self.gui.viewport_info_open {
+                if self.gui.borrow().viewport_info_open {
                     egui::Window::new("Viewport Info").show(&self.ctx, |ui| viewport.info.ui(ui));
                 }
                 if always_on_top != cfg.renderer.always_on_top {
@@ -1281,102 +1262,37 @@ impl Renderer {
         Ok(())
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn add_document_listeners(ctx: &egui::Context) -> anyhow::Result<()> {
-        use wasm_bindgen::prelude::*;
-
-        let document = web_sys::window()
-            .and_then(|window| window.document())
-            .context("failed to get html document")?;
-
-        let on_paste = Closure::<dyn FnMut(_)>::new({
-            let ctx = ctx.clone();
-            move |evt: web_sys::ClipboardEvent| {
-                if let Some(data) = evt.clipboard_data() {
-                    if let Ok(text) = data.get_data("text") {
-                        let text = text.replace("\r\n", "\n");
-                        if !text.is_empty() {
-                            ctx.input_mut(|i| i.events.push(egui::Event::Paste(text)));
-                            ctx.request_repaint();
-                        }
-                        evt.stop_propagation();
-                        evt.prevent_default();
-                    }
+    fn handle_resize(&mut self, viewport_id: ViewportId, cfg: &Config) {
+        if viewport_id == ViewportId::ROOT {
+            if self.gui.borrow().resize_window {
+                if !self.fullscreen() {
+                    self.ctx.send_viewport_cmd_to(
+                        ViewportId::ROOT,
+                        ViewportCommand::InnerSize(self.window_size(cfg)),
+                    );
                 }
+                self.gui.borrow_mut().resize_window = false;
             }
-        });
-        let on_cut = Closure::<dyn FnMut(_)>::new({
-            let ctx = ctx.clone();
-            move |evt: web_sys::ClipboardEvent| {
-                ctx.output_mut(|o| o.copied_text = "hi".to_string());
-                platform::set_clipboard_text("hi");
-                ctx.input_mut(|i| i.events.push(egui::Event::Cut));
 
-                // In Safari we are only allowed to write to the clipboard during the
-                // event callback, which is why we run the app logic here and now:
-                // runner.logic();
-                // ctx.run/gui.ui
-                // handle platform output
-                // tessellate
-                tracing::debug!("cut");
+            if self.gui.borrow().resize_texture {
+                let State { painter, .. } = &mut *self.state.borrow_mut();
 
-                // Make sure we paint the output of the above logic call asap:
-                ctx.request_repaint();
-
-                evt.stop_propagation();
-                evt.prevent_default();
+                if let (Some(max_texture_side), Some(render_state)) =
+                    (painter.borrow().max_texture_side(), &self.render_state)
+                {
+                    let texture_size = cfg.texture_size();
+                    self.texture.resize(
+                        &render_state.device,
+                        &mut render_state.renderer.write(),
+                        texture_size.x.min(max_texture_side as f32) as u32,
+                        texture_size.y.min(max_texture_side as f32) as u32,
+                        self.gui.borrow().aspect_ratio(cfg),
+                    );
+                    self.gui.borrow_mut().texture = self.texture.sized_texture();
+                }
+                self.gui.borrow_mut().resize_texture = false;
             }
-        });
-        let on_copy = Closure::<dyn FnMut(_)>::new({
-            let ctx = ctx.clone();
-            move |evt: web_sys::ClipboardEvent| {
-                ctx.input_mut(|i| i.events.push(egui::Event::Copy));
-
-                // In Safari we are only allowed to write to the clipboard during the
-                // event callback, which is why we run the app logic here and now:
-                // runner.logic();
-                tracing::debug!("copy");
-
-                // Make sure we paint the output of the above logic call asap:
-                ctx.request_repaint();
-
-                evt.stop_propagation();
-                evt.prevent_default();
-            }
-        });
-        let on_keydown = Closure::<dyn FnMut(_)>::new({
-            move |evt: web_sys::KeyboardEvent| {
-                // TODO: prevent default for tab and ctrl+p or if a keybind matches
-                // Or just prevent all except ctrl/cmd+x/c/v?
-                tracing::debug!("{evt:?}");
-            }
-        });
-
-        document.add_event_listener_with_callback("keydown", {
-            use wasm_bindgen::JsCast;
-            on_keydown.as_ref().unchecked_ref()
-        });
-        on_keydown.forget();
-
-        document.add_event_listener_with_callback("paste", {
-            use wasm_bindgen::JsCast;
-            on_paste.as_ref().unchecked_ref()
-        });
-        on_paste.forget();
-
-        document.add_event_listener_with_callback("cut", {
-            use wasm_bindgen::JsCast;
-            on_cut.as_ref().unchecked_ref()
-        });
-        on_cut.forget();
-
-        document.add_event_listener_with_callback("copy", {
-            use wasm_bindgen::JsCast;
-            on_copy.as_ref().unchecked_ref()
-        });
-        on_copy.forget();
-
-        Ok(())
+        }
     }
 }
 
