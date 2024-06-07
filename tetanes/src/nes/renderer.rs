@@ -1240,7 +1240,9 @@ impl Renderer {
             // Update viewports
             for (viewport_id, viewport) in viewports {
                 if self.gui.borrow().viewport_info_open {
-                    egui::Window::new("Viewport Info").show(&self.ctx, |ui| viewport.info.ui(ui));
+                    egui::Window::new(format!("Viewport Info ({viewport_id:?})"))
+                        .open(&mut self.gui.borrow_mut().viewport_info_open)
+                        .show(&self.ctx, |ui| viewport.info.ui(ui));
                 }
                 if always_on_top != cfg.renderer.always_on_top {
                     self.ctx.send_viewport_cmd_to(
