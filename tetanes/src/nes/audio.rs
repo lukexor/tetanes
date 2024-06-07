@@ -347,14 +347,11 @@ impl Output {
                 };
                 let supported =
                     supports_sample_rate && supports_sample_format && supports_buffer_size;
-                debug!(
-                    "{} config: {config:?}",
-                    if supported {
-                        "supported"
-                    } else {
-                        "unsupported"
-                    }
-                );
+                if supported {
+                    debug!("supported config: {config:?}",);
+                } else {
+                    trace!("unsupported config: {config:?}",);
+                }
                 supported
             })
             .or_else(|| {

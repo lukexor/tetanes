@@ -20,15 +20,14 @@ use egui::{
     Align, Align2, Area, Button, CentralPanel, Checkbox, Color32, Context, CursorIcon, Direction,
     DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Id, Image, Key,
     KeyboardShortcut, Layout, Modifiers, Order, PointerButton, Pos2, Rect, Response, RichText,
-    Rounding, ScrollArea, Sense, Slider, Stroke, TopBottomPanel, Ui, Vec2, ViewportClass, Visuals,
-    Widget, WidgetText,
+    Rounding, ScrollArea, Sense, Slider, Stroke, TextEdit, TopBottomPanel, Ui, Vec2, ViewportClass,
+    Visuals, Widget, WidgetText,
 };
+use egui_winit::EventResponse;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    mem,
     ops::{Deref, DerefMut},
-    sync::Arc,
 };
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use tetanes_core::{
@@ -47,10 +46,9 @@ use tetanes_core::{
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use winit::{
-    event::{ElementState, MouseButton},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::EventLoopProxy,
     keyboard::{KeyCode, ModifiersState},
-    window::Window,
 };
 
 pub trait ShortcutText<'a>
@@ -137,7 +135,6 @@ type Keybind = (Action, [Option<Input>; 2]);
 #[must_use]
 pub struct Gui {
     pub initialized: bool,
-    pub window: Arc<Window>,
     pub title: String,
     pub tx: EventLoopProxy<NesEvent>,
     pub texture: SizedTexture,
@@ -160,7 +157,6 @@ pub struct Gui {
     pub apu_mixer_open: bool,
     pub debug_gui_hover: bool,
     pub viewport_info_open: bool,
-    pub loaded_region: NesRegion,
     pub resize_window: bool,
     pub resize_texture: bool,
     pub replay_recording: bool,
@@ -191,13 +187,8 @@ impl Gui {
     const MENU_WIDTH: f32 = 250.0;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
 
-    /// Create a gui `State`.
-    pub fn new(
-        window: Arc<Window>,
-        tx: EventLoopProxy<NesEvent>,
-        texture: SizedTexture,
-        cfg: Config,
-    ) -> Self {
+    /// Create a `Gui` instance.
+    pub fn new(tx: EventLoopProxy<NesEvent>, texture: SizedTexture, cfg: &Config) -> Self {
         let sys = if sysinfo::IS_SUPPORTED_SYSTEM {
             let mut sys = System::new_with_specifics(
                 RefreshKind::new().with_processes(
@@ -221,7 +212,6 @@ impl Gui {
         };
         Self {
             initialized: false,
-            window,
             title: Config::WINDOW_TITLE.to_string(),
             tx,
             texture,
@@ -244,7 +234,6 @@ impl Gui {
             apu_mixer_open: false,
             debug_gui_hover: false,
             viewport_info_open: false,
-            loaded_region: cfg.deck.region,
             resize_window: false,
             resize_texture: false,
             replay_recording: false,
@@ -259,6 +248,81 @@ impl Gui {
             sys,
             sys_updated: Instant::now(),
             error: None,
+        }
+    }
+
+    pub fn on_window_event(&mut self, event: &WindowEvent) -> EventResponse {
+        if self.pending_keybind.is_some()
+            && matches!(
+                event,
+                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
+            )
+        {
+            EventResponse {
+                consumed: true,
+                ..Default::default()
+            }
+        } else {
+            EventResponse::default()
+        }
+    }
+
+    pub fn on_event(&mut self, event: &NesEvent) {
+        match event {
+            NesEvent::Emulation(event) => match event {
+                EmulationEvent::ReplayRecord(recording) => {
+                    self.replay_recording = *recording;
+                }
+                EmulationEvent::AudioRecord(recording) => {
+                    self.audio_recording = *recording;
+                }
+                EmulationEvent::RunState(mode) => {
+                    self.run_state = *mode;
+                }
+                _ => (),
+            },
+            NesEvent::Renderer(event) => match event {
+                RendererEvent::FrameStats(stats) => {
+                    self.frame_stats = *stats;
+                }
+                RendererEvent::ShowMenubar(show) => {
+                    if !show {
+                        self.menu_height = 0.0;
+                        self.resize_window = true;
+                    }
+                }
+                RendererEvent::ScaleChanged => {
+                    // Handles increment/decrement scale action bindings
+                    self.resize_window = true;
+                    self.resize_texture = true;
+                }
+                RendererEvent::RomUnloaded => {
+                    self.run_state = RunState::Running;
+                    self.loaded_rom = None;
+                    self.title = Config::WINDOW_TITLE.to_string();
+                }
+                RendererEvent::RomLoaded(rom) => {
+                    self.run_state = RunState::Running;
+                    self.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
+                    self.loaded_rom = Some(rom.clone());
+                    if self.loaded_rom.as_ref().map(|rom| rom.region) != Some(rom.region) {
+                        self.resize_window = true;
+                        self.resize_texture = true;
+                    }
+                }
+                RendererEvent::Menu(menu) => match menu {
+                    Menu::About => self.about_open = !self.about_open,
+                    Menu::Keybinds => self.keybinds_open = !self.keybinds_open,
+                    Menu::PerfStats => {
+                        self.perf_stats_open = !self.perf_stats_open;
+                        self.tx
+                            .nes_event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
+                    }
+                    Menu::Preferences => self.preferences_open = !self.preferences_open,
+                },
+                _ => (),
+            },
+            _ => (),
         }
     }
 
@@ -300,12 +364,19 @@ impl Gui {
             .push((ty, text, Instant::now() + Self::MSG_TIMEOUT));
     }
 
+    pub fn loaded_region(&self) -> Option<NesRegion> {
+        self.loaded_rom.as_ref().map(|rom| rom.region)
+    }
+
     pub fn aspect_ratio(&self, cfg: &Config) -> f32 {
-        if cfg.deck.region.is_auto() {
-            self.loaded_region.aspect_ratio()
-        } else {
-            cfg.deck.region.aspect_ratio()
-        }
+        let region = cfg
+            .deck
+            .region
+            .is_auto()
+            .then(|| self.loaded_region())
+            .flatten()
+            .unwrap_or(cfg.deck.region);
+        region.aspect_ratio()
     }
 
     /// Create the UI.
@@ -1189,7 +1260,11 @@ impl Gui {
         ui.menu_button("🌎 Nes Region...", |ui| self.nes_region_radio(ui, cfg));
         ui.menu_button("🎮 Four Player...", |ui| self.four_player_radio(ui, cfg));
         ui.menu_button("📓 Game Genie Codes...", |ui| {
-            self.genie_codes_entry(ui, cfg)
+            self.genie_codes_entry(ui, cfg);
+
+            ui.separator();
+
+            self.genie_codes_list(ui, cfg, true);
         });
 
         ui.separator();
@@ -1862,59 +1937,60 @@ impl Gui {
 
         ui.separator();
 
-        Grid::new("emulation_preferences")
-            .num_columns(2)
-            .spacing([40.0, 6.0])
-            .show(ui, |ui| {
-                ui.strong("Emulation Speed:");
-                self.speed_slider(ui, cfg);
-                ui.end_row();
+        let grid = Grid::new("emulation_preferences")
+            .num_columns(4)
+            .spacing([40.0, 6.0]);
+        grid.show(ui, |ui| {
+            ui.strong("Emulation Speed:");
+            self.speed_slider(ui, cfg);
 
-                ui.strong("Run Ahead:")
+            ui.strong("Run Ahead:")
+                .on_hover_cursor(CursorIcon::Help)
+                .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
+            self.run_ahead_slider(ui, cfg);
+            ui.end_row();
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("Save Slot:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("Select which slot to use when saving or loading game state.");
+            });
+            Grid::new("save_slots")
+                .num_columns(2)
+                .spacing([20.0, 6.0])
+                .show(ui, |ui| self.save_slot_radio(ui, cfg, ShowShortcut::No));
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("Four Player:")
                     .on_hover_cursor(CursorIcon::Help)
                     .on_hover_text(
-                        "Simulate a number of frames in the future to reduce input lag.",
-                    );
-                self.run_ahead_slider(ui, cfg);
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("Save Slot:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text(
-                            "Select which slot to use when saving or loading game state.",
-                        );
-                });
-                Grid::new("save_slots")
-                    .num_columns(2)
-                    .spacing([20.0, 6.0])
-                    .show(ui, |ui| self.save_slot_radio(ui, cfg, ShowShortcut::No));
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("Four Player:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Some game titles support up to 4 players (requires connected controllers).");
-                });
-                ui.vertical(|ui| self.four_player_radio(ui, cfg));
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("NES Region:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text("Which regional NES hardware to emulate.");
-                });
-                ui.vertical(|ui| self.nes_region_radio(ui, cfg));
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("RAM State:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text("What values are read from NES RAM on load.");
-                });
-                ui.vertical(|ui| self.ram_state_radio(ui, cfg));
-                ui.end_row();
+                    "Some game titles support up to 4 players (requires connected controllers).",
+                );
             });
+            ui.vertical(|ui| self.four_player_radio(ui, cfg));
+            ui.end_row();
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("NES Region:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("Which regional NES hardware to emulate.");
+            });
+            ui.vertical(|ui| self.nes_region_radio(ui, cfg));
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("RAM State:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("What values are read from NES RAM on load.");
+            });
+            ui.vertical(|ui| self.ram_state_radio(ui, cfg));
+            ui.end_row();
+        });
+
+        let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
+        grid.show(ui, |ui| {
+            self.genie_codes_entry(ui, cfg);
+            self.genie_codes_list(ui, cfg, false);
+        });
     }
 
     fn audio_preferences(&mut self, ui: &mut Ui, cfg: &mut Config) {
@@ -1929,11 +2005,12 @@ impl Gui {
 
         ui.add_enabled_ui(cfg.audio.enabled, |ui| {
             ui.indent("apu_channels", |ui| {
-                let channels = &mut cfg.deck.channels_enabled;
                 Grid::new("apu_channels")
                     .spacing([60.0, 6.0])
                     .num_columns(2)
                     .show(ui, |ui| {
+                        let channels = &mut cfg.deck.channels_enabled;
+
                         if ui.checkbox(&mut channels[0], "Enable Pulse1").clicked() {
                             let enabled = (Channel::Pulse1, channels[0]);
                             self.tx.nes_event(ConfigEvent::ApuChannelEnabled(enabled));
@@ -2417,7 +2494,7 @@ impl Gui {
         let res = ui.add(checkbox)
             .on_hover_text("Traditional CRT displays would crop the top and bottom edges of the image. Disable this to show the overscan.");
         if res.clicked() {
-            self.resize_texture = self.loaded_region.is_ntsc();
+            self.resize_texture = self.loaded_region().map_or(true, |region| region.is_ntsc());
             self.tx
                 .nes_event(ConfigEvent::HideOverscan(cfg.renderer.hide_overscan));
         }
@@ -2488,57 +2565,107 @@ impl Gui {
     }
 
     fn genie_codes_entry(&mut self, ui: &mut Ui, cfg: &mut Config) {
-        ui.strong("Add Genie Code:")
-            .on_hover_cursor(CursorIcon::Help)
-            .on_hover_text(
-                "A Game Genie Code is a 6 or 8 letter string that temporarily modifies game memory during operation. e.g. `AATOZE` will start Super Mario Bros. with 9 lives."
-            );
-        ui.horizontal(|ui| {
-            let entry_res = ui.text_edit_singleline(&mut self.pending_genie_entry.code);
-            let has_entry = !self.pending_genie_entry.code.is_empty();
-            let submit_res = ui.add_enabled(has_entry, Button::new("➕"));
+        ui.vertical(|ui| {
+            ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
+
+            ui.strong("Add Genie Code(s):")
+                .on_hover_cursor(CursorIcon::Help)
+                .on_hover_text(
+                    "A Game Genie Code is a 6 or 8 letter string that temporarily modifies game memory during operation. e.g. `AATOZE` will start Super Mario Bros. with 9 lives.\n\nYou can enter one code per line."
+                );
+
+            let text_edit = TextEdit::multiline(&mut self.pending_genie_entry.code)
+                .hint_text("e.g. AATOZE")
+                .desired_width(200.0);
+            let entry_res = ui.add(text_edit);
             if entry_res.changed() {
                 self.pending_genie_entry.error = None;
             }
-            if (has_entry && entry_res.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
-                || submit_res.clicked()
-            {
-                match GenieCode::parse(&self.pending_genie_entry.code) {
-                    Ok(hex) => {
-                        let code =
-                            GenieCode::from_raw(mem::take(&mut self.pending_genie_entry.code), hex);
-                        if !cfg.deck.genie_codes.contains(&code) {
-                            cfg.deck.genie_codes.push(code.clone());
-                            self.tx.nes_event(ConfigEvent::GenieCodeAdded(code));
-                        }
+
+            let has_entry = !self.pending_genie_entry.code.is_empty();
+            let add_clicked = ui.horizontal(|ui| {
+                ui.add_enabled_ui(has_entry, |ui| {
+                    let add_clicked = ui.button("Add").clicked();
+                    if ui.button("Clear").clicked() {
+                        self.pending_genie_entry.code.clear();
+                        self.pending_genie_entry.error = None;
                     }
-                    Err(err) => self.pending_genie_entry.error = Some(err.to_string()),
+                    add_clicked
+                }).inner
+            }).inner;
+
+            if (has_entry && entry_res.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
+                || add_clicked
+            {
+                for code in self.pending_genie_entry.code.lines() {
+                    let code = code.trim();
+                    if code.is_empty() {
+                        continue;
+                    }
+                    match GenieCode::parse(code) {
+                        Ok(hex) => {
+                            let code = GenieCode::from_raw(code.to_string(), hex);
+                            if !cfg.deck.genie_codes.contains(&code) {
+                                cfg.deck.genie_codes.push(code.clone());
+                                self.tx.nes_event(ConfigEvent::GenieCodeAdded(code));
+                            }
+                        }
+                        Err(err) => self.pending_genie_entry.error = Some(err.to_string()),
+                    }
+                }
+                if self.pending_genie_entry.error.is_none() {
+                    self.pending_genie_entry.code.clear();
                 }
             }
-        });
-        if let Some(error) = &self.pending_genie_entry.error {
-            ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-            ui.colored_label(Color32::RED, error);
-        }
 
+            if let Some(error) = &self.pending_genie_entry.error {
+                ui.colored_label(Color32::RED, error);
+            }
+        });
+    }
+
+    fn genie_codes_list(&mut self, ui: &mut Ui, cfg: &mut Config, scroll: bool) {
         if !cfg.deck.genie_codes.is_empty() {
-            ui.separator();
-            ui.strong("Current Genie Codes:");
-            ScrollArea::vertical().show(ui, |ui| {
-                cfg.deck.genie_codes.retain(|genie| {
-                    ui.horizontal(|ui| {
-                        ui.label(genie.code());
-                        // icon: waste basket
-                        if ui.button("🗑").clicked() {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("Current Genie Codes:");
+                    if ui.button("Clear All").clicked() {
+                        cfg.deck.genie_codes.retain(|genie| {
                             self.tx
                                 .nes_event(ConfigEvent::GenieCodeRemoved(genie.code().to_string()));
                             false
-                        } else {
-                            true
-                        }
-                    })
-                    .inner
+                        });
+                    }
                 });
+
+                let render_codes = |ui: &mut Ui, cfg: &mut Config| {
+                    ui.indent("current_genie_codes", |ui| {
+                        let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
+                        grid.show(ui, |ui| {
+                            cfg.deck.genie_codes.retain(|genie| {
+                                ui.label(genie.code());
+                                // icon: waste basket
+                                let retain = if ui.button("🗑").clicked() {
+                                    self.tx.nes_event(ConfigEvent::GenieCodeRemoved(
+                                        genie.code().to_string(),
+                                    ));
+                                    false
+                                } else {
+                                    true
+                                };
+                                ui.end_row();
+                                retain
+                            })
+                        });
+                    })
+                };
+                if scroll {
+                    ScrollArea::vertical().show(ui, |ui| {
+                        render_codes(ui, cfg);
+                    });
+                } else {
+                    render_codes(ui, cfg);
+                }
             });
         }
     }
@@ -3195,7 +3322,7 @@ impl From<PointerButton> for Input {
     }
 }
 
-const fn key_from_keycode(keycode: KeyCode) -> Option<Key> {
+pub const fn key_from_keycode(keycode: KeyCode) -> Option<Key> {
     Some(match keycode {
         KeyCode::ArrowDown => Key::ArrowDown,
         KeyCode::ArrowLeft => Key::ArrowLeft,

@@ -212,27 +212,6 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::Select) => KeyW },
                 { (Player::One, JoypadBtn::Start) => KeyQ },
             ),
-            Player::Two => shortcut_map!(
-                { (Player::Two, JoypadBtn::A) => KeyN },
-                { (Player::Two, JoypadBtn::B) => KeyM },
-                { (Player::Two, JoypadBtn::Up) => KeyI },
-                { (Player::Two, JoypadBtn::Down) => KeyK },
-                { (Player::Two, JoypadBtn::Left) => KeyJ },
-                { (Player::Two, JoypadBtn::Right) => KeyL },
-                { (Player::Two, JoypadBtn::Select) => Digit9 },
-                { (Player::Two, JoypadBtn::Start) => Digit8 },
-            ),
-            #[cfg(debug_assertions)]
-            Player::Three => shortcut_map!(
-                { (Player::Three, JoypadBtn::A) => KeyV },
-                { (Player::Three, JoypadBtn::B) => KeyB },
-                { (Player::Three, JoypadBtn::Up) => KeyT },
-                { (Player::Three, JoypadBtn::Down) => KeyG },
-                { (Player::Three, JoypadBtn::Left) => KeyF },
-                { (Player::Three, JoypadBtn::Right) => KeyH },
-                { (Player::Three, JoypadBtn::Select) => Digit6 },
-                { (Player::Three, JoypadBtn::Start) => Digit5 },
-            ),
             _ => Vec::new(),
         };
 
@@ -254,12 +233,12 @@ impl ActionBindings {
 pub struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
-    pub fn from_input_config(config: &InputConfig) -> Self {
+    pub fn from_input_config(cfg: &InputConfig) -> Self {
         let mut map = HashMap::with_capacity(256);
-        for bind in config
+        for bind in cfg
             .shortcuts
             .iter()
-            .chain(config.joypad_bindings.iter().flatten())
+            .chain(cfg.joypad_bindings.iter().flatten())
         {
             for input in bind.bindings.into_iter().flatten() {
                 map.insert(input, bind.action);

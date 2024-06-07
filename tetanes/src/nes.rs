@@ -182,13 +182,14 @@ impl Nes {
                     .init_state
                     .take()
                     .context("config unexpectedly already taken")?;
-                let emulation = Emulation::new(tx.clone(), frame_tx.clone(), cfg.clone())?;
-                let renderer =
-                    Renderer::new(tx.clone(), event_loop, resources, frame_rx, cfg.clone())?;
 
                 let input_bindings = InputBindings::from_input_config(&cfg.input);
                 let gamepads = Gamepads::new();
                 cfg.input.update_gamepad_assignments(&gamepads);
+
+                let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
+                let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, &cfg)?;
+
                 let mut running = Running {
                     cfg,
                     tx,

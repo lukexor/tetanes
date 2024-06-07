@@ -99,6 +99,9 @@ puffin = { workspace = true, features = ["web"], optional = true }
 tracing-web = "0.1"
 wgpu = { version = "0.19", features = ["webgl"] }
 web-sys = { workspace = true, features = [
+  "Clipboard",
+  "ClipboardEvent",
+  "DataTransfer",
   "Document",
   "DomTokenList",
   "Element",

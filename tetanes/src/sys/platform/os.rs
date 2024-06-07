@@ -1,5 +1,5 @@
 use crate::{
-    nes::{event::EmulationEvent, Running},
+    nes::{event::EmulationEvent, renderer::Renderer, Running},
     platform::{BuilderExt, EventLoopExt, Feature, Initialize},
 };
 use std::path::{Path, PathBuf};
@@ -46,6 +46,12 @@ impl Initialize for Running {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl Initialize for Renderer {
+    fn initialize(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 }

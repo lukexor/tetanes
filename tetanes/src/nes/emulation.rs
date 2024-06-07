@@ -162,14 +162,17 @@ impl Multi {
     fn spawn(
         proxy_tx: EventLoopProxy<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
-        config: Config,
+        cfg: &Config,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = channel::bounded(1024);
         Ok(Self {
             tx,
             handle: std::thread::Builder::new()
                 .name("emulation".into())
-                .spawn(move || Self::main(proxy_tx, rx, frame_tx, config))?,
+                .spawn({
+                    let cfg = cfg.clone();
+                    move || Self::main(proxy_tx, rx, frame_tx, &cfg)
+                })?,
         })
     }
 
@@ -177,10 +180,10 @@ impl Multi {
         tx: EventLoopProxy<NesEvent>,
         rx: channel::Receiver<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
-        config: Config,
+        cfg: &Config,
     ) {
         debug!("emulation thread started");
-        let mut state = State::new(tx, frame_tx, config); // Has to be created on the thread, since
+        let mut state = State::new(tx, frame_tx, cfg); // Has to be created on the thread, since
         loop {
             #[cfg(feature = "profiling")]
             puffin::profile_scope!("emulation loop");
@@ -205,7 +208,7 @@ impl Emulation {
     pub fn new(
         tx: EventLoopProxy<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
-        cfg: Config,
+        cfg: &Config,
     ) -> anyhow::Result<Self> {
         let threaded = cfg.emulation.threaded
             && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
@@ -281,7 +284,7 @@ impl State {
     fn new(
         tx: EventLoopProxy<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
-        cfg: Config,
+        cfg: &Config,
     ) -> Self {
         let mut control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
