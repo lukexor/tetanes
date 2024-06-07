@@ -57,7 +57,7 @@ hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
 puffin_egui = { version = "0.27", optional = true }
-rfd = { version = "0.14", default-features = false, features = ["gtk3"] }
+rfd = "0.14"
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
