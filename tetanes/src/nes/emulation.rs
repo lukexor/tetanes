@@ -580,7 +580,7 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings => (),
+            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings | ConfigEvent::Shader(_) => {}
         }
     }
 

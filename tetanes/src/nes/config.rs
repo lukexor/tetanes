@@ -1,4 +1,7 @@
-use crate::nes::input::{ActionBindings, Gamepads, Input};
+use crate::nes::{
+    input::{ActionBindings, Gamepads, Input},
+    renderer::shader::Shader,
+};
 use anyhow::Context;
 use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
@@ -92,6 +95,7 @@ pub struct RendererConfig {
     pub show_menubar: bool,
     pub embed_viewports: bool,
     pub dark_theme: bool,
+    pub shader: Shader,
 }
 
 impl Default for RendererConfig {
@@ -112,6 +116,7 @@ impl Default for RendererConfig {
             show_menubar: true,
             embed_viewports: false,
             dark_theme: true,
+            shader: Shader::default(),
         }
     }
 }
