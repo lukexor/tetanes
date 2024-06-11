@@ -252,6 +252,9 @@ impl Gui {
     }
 
     pub fn on_window_event(&mut self, event: &WindowEvent) -> EventResponse {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if self.pending_keybind.is_some()
             && matches!(
                 event,
@@ -268,6 +271,9 @@ impl Gui {
     }
 
     pub fn on_event(&mut self, event: &NesEvent) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         match event {
             NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
                 self.version.set_latest(version.clone());
@@ -415,6 +421,9 @@ impl Gui {
     }
 
     fn initialize(&mut self, ctx: &Context, cfg: &Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let theme = if cfg.renderer.dark_theme {
             Self::dark_theme()
         } else {
@@ -463,6 +472,9 @@ impl Gui {
     }
 
     fn check_for_updates(&mut self, notify_latest: bool) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let spawn_update = std::thread::Builder::new()
             .name("check_updates".into())
             .spawn({
@@ -500,6 +512,9 @@ impl Gui {
         if self.pending_keybind.is_none() {
             return;
         }
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let title = "Set Keybind";
         // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
@@ -554,6 +569,9 @@ impl Gui {
         else {
             return;
         };
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         if let Some(action) = conflict {
             ui.label(format!("Conflict with {action}."));
@@ -673,6 +691,9 @@ impl Gui {
             return;
         }
 
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let title = "Unassign Gamepad";
         // TODO: Make this deferred? Requires `tx` and `cfg` to be Send + Sync
         ctx.show_viewport_immediate(
@@ -759,6 +780,9 @@ impl Gui {
     }
 
     fn show_performance_window(&mut self, ctx: &Context, cfg: &mut Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let mut perf_stats_open = self.perf_stats_open;
         egui::Window::new("Performance Stats")
             .open(&mut perf_stats_open)
@@ -770,6 +794,9 @@ impl Gui {
         if !self.preferences_open {
             return;
         }
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let title = "Preferences";
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
@@ -810,6 +837,9 @@ impl Gui {
             return;
         }
 
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let title = "Keybinds";
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
         if cfg.renderer.always_on_top {
@@ -843,6 +873,9 @@ impl Gui {
     }
 
     fn show_about_window(&mut self, ctx: &Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let mut about_open = self.about_open;
         egui::Window::new("About TetaNES")
             .open(&mut about_open)
@@ -854,6 +887,9 @@ impl Gui {
         let Some(rom) = self.about_homebrew_rom_open else {
             return;
         };
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let mut about_homebrew_open = true;
         egui::Window::new(format!("About {}", rom.name))
@@ -878,6 +914,9 @@ impl Gui {
     }
 
     fn show_update_window(&mut self, ctx: &Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let mut update_window_open = self.update_window_open;
         let mut close_window = false;
         let enable_auto_update = false;
@@ -1097,6 +1136,9 @@ impl Gui {
     }
 
     fn homebrew_rom_menu(&mut self, ui: &mut Ui) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ScrollArea::vertical().show(ui, |ui| {
             for rom in HOMEBREW_ROMS {
                 ui.horizontal(|ui| {
@@ -1370,7 +1412,7 @@ impl Gui {
         #[cfg(feature = "profiling")]
         {
             let mut profile = puffin::are_scopes_on();
-            ui.checkbox(&mut profile, "Enable Profiling")
+            ui.toggle_value(&mut profile, "Profiler")
                 .on_hover_text("Toggle the Puffin profiling window");
             puffin::set_scopes_on(profile);
         }
@@ -1495,6 +1537,9 @@ impl Gui {
     }
 
     fn help_menu(&mut self, ui: &mut Ui) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
@@ -1855,9 +1900,11 @@ impl Gui {
                             }
                         }
                     }
-                    if ui.button("Clear Recent ROMs").clicked() {
-                        cfg.renderer.recent_roms.clear();
-                    }
+                }
+                if platform::supports(platform::Feature::Filesystem)
+                    && ui.button("Clear Recent ROMs").clicked()
+                {
+                    cfg.renderer.recent_roms.clear();
                 }
             });
         });

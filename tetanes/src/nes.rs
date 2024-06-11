@@ -177,7 +177,7 @@ impl Nes {
                     viewport_builder,
                     painter: painter_rx.recv()?,
                 };
-                let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(3, FrameRecycle);
+                let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(10, FrameRecycle);
                 let (mut cfg, tx) = self
                     .init_state
                     .take()

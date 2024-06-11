@@ -308,6 +308,9 @@ impl Running {
         event: Event<NesEvent>,
         event_loop: &EventLoopWindowTarget<NesEvent>,
     ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         match event {
             Event::Suspended => {
                 if platform::supports(platform::Feature::Suspend) {
@@ -351,9 +354,8 @@ impl Running {
                 if !res.consumed {
                     match event {
                         WindowEvent::RedrawRequested => {
-                            self.emulation.clock_frame();
+                            self.emulation.try_clock_frame();
 
-                            self.repaint_times.remove(&window_id);
                             if let Err(err) = self.renderer.redraw(
                                 window_id,
                                 event_loop,
@@ -362,6 +364,7 @@ impl Running {
                             ) {
                                 self.renderer.on_error(err);
                             }
+                            self.repaint_times.remove(&window_id);
                         }
                         WindowEvent::Resized(_) => {
                             if Some(window_id) == self.renderer.root_window_id() {
@@ -376,8 +379,12 @@ impl Running {
                                     self.nes_event(EmulationEvent::RunState(self.run_state));
                                 }
                             } else {
-                                if let Err(err) = self.renderer.save(&self.cfg) {
-                                    error!("failed to save rendererer state: {err:?}");
+                                let time_since_last_save =
+                                    Instant::now() - self.renderer.last_save_time;
+                                if time_since_last_save > Duration::from_secs(30) {
+                                    if let Err(err) = self.renderer.save(&self.cfg) {
+                                        error!("failed to save rendererer state: {err:?}");
+                                    }
                                 }
                                 if self
                                     .renderer
@@ -479,6 +486,9 @@ impl Running {
     }
 
     pub fn on_ui_event(&mut self, event: UiEvent) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         match event {
             UiEvent::Message((ty, msg)) => self.renderer.add_message(ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err)),
@@ -531,6 +541,9 @@ impl Running {
 
     /// Trigger a custom event.
     pub fn nes_event(&mut self, event: impl Into<NesEvent>) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let event = event.into();
         trace!("Nes event: {event:?}");
 
@@ -550,6 +563,9 @@ impl Running {
     /// Handle gamepad event.
     pub fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
         use gilrs::EventType;
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         // Connect first because we may not have a name set yet
         if event.event == EventType::Connected {
@@ -647,6 +663,9 @@ impl Running {
         state: ElementState,
         repeat: bool,
     ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if let Some(action) = self.input_bindings.get(&input).copied() {
             trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
             let released = state == ElementState::Released;

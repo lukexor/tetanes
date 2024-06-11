@@ -9,7 +9,6 @@ use crate::{
         },
         renderer::{gui::MessageType, FrameRecycle},
     },
-    platform::{self, Feature},
     thread,
 };
 use anyhow::anyhow;
@@ -192,7 +191,7 @@ impl Multi {
                 state.on_event(&event);
             }
 
-            state.clock_frame();
+            state.try_clock_frame();
         }
     }
 }
@@ -237,9 +236,9 @@ impl Emulation {
         }
     }
 
-    pub fn clock_frame(&mut self) {
+    pub fn try_clock_frame(&mut self) {
         match &mut self.threads {
-            Threads::Single(Single { state }) => state.clock_frame(),
+            Threads::Single(Single { state }) => state.try_clock_frame(),
             // Multi-threaded emulation handles it's own clock timing and redraw requests
             Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
         }
@@ -260,6 +259,7 @@ pub struct State {
     last_frame_time: Instant,
     frame_time_diag: FrameTimeDiag,
     run_state: RunState,
+    threaded: bool,
     rewinding: bool,
     rewind: Rewind,
     record: Record,
@@ -314,6 +314,8 @@ impl State {
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::Paused,
+            threaded: cfg.emulation.threaded
+                && std::thread::available_parallelism().map_or(false, |count| count.get() > 1),
             rewinding: false,
             rewind,
             record: Record::new(),
@@ -501,6 +503,9 @@ impl State {
 
     /// Handle config event.
     fn on_config_event(&mut self, event: &ConfigEvent) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         match event {
             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
                 self.control_deck
@@ -584,6 +589,9 @@ impl State {
             return;
         }
 
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
         self.last_frame_time = Instant::now();
@@ -611,20 +619,10 @@ impl State {
     }
 
     fn send_frame(&mut self) {
-        // Indicate we want to redraw to ensure there's a frame slot made available if
-        // the pool is already full
-        self.tx.nes_event(RendererEvent::RequestRedraw {
-            viewport_id: ViewportId::ROOT,
-            when: Instant::now(),
-        });
-        if self.audio.enabled() || !platform::supports(Feature::Blocking) {
-            match self.frame_tx.try_send_ref() {
-                Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
-                Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                Err(_) => shutdown(&self.tx, "failed to get frame"),
-            }
-        } else if let Ok(mut frame) = self.frame_tx.send_ref() {
-            self.control_deck.frame_buffer_into(&mut frame);
+        match self.frame_tx.try_send_ref() {
+            Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
+            Err(TrySendError::Full(_)) => debug!("dropped frame"),
+            Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
     }
 
@@ -828,10 +826,13 @@ impl State {
         Ok(image.save(&filename).map(|_| filename)?)
     }
 
-    fn park_timeout(&self) -> Option<Duration> {
+    fn park_duration(&self) -> Option<Duration> {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
-        if self.run_state.paused() || !self.control_deck.is_running() {
+        let duration = if self.run_state.paused() || !self.control_deck.is_running() {
             Some(self.target_frame_duration - park_epsilon)
         } else if self.rewinding || !self.audio.enabled() {
             (self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()).then(|| {
@@ -842,13 +843,21 @@ impl State {
             })
         } else {
             (self.audio.queued_time() > self.audio.latency)
-                // Even though we just did a check for >=, audio is still being consumed so this
+                // Even though we just did a comparison, audio is still being consumed so this
                 // could underflow
                 .then(|| self.audio.queued_time().saturating_sub(self.audio.latency))
-        }
+        };
+        duration.map(|duration| {
+            // Parking thread is only required for Multi-threaded emulation to save CPU cycles.
+            if self.threaded {
+                Duration::ZERO
+            } else {
+                duration
+            }
+        })
     }
 
-    fn clock_frame(&mut self) {
+    fn try_clock_frame(&mut self) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -859,7 +868,15 @@ impl State {
             self.clock_time_accumulator = 0.020;
         }
 
-        if let Some(park_timeout) = self.park_timeout() {
+        // If any frames are still pending, request a redraw
+        if !self.frame_tx.is_empty() {
+            self.tx.nes_event(RendererEvent::RequestRedraw {
+                viewport_id: ViewportId::ROOT,
+                when: Instant::now(),
+            });
+        }
+
+        if let Some(park_timeout) = self.park_duration() {
             self.tx.nes_event(RendererEvent::RequestRedraw {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now() + park_timeout,
@@ -871,7 +888,6 @@ impl State {
         if self.rewinding {
             match self.rewind.pop() {
                 Some(cpu) => {
-                    self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
                     self.control_deck.load_cpu(cpu);
                     self.send_frame();
                     self.update_frame_stats();
@@ -883,44 +899,18 @@ impl State {
                 self.on_emulation_event(&event);
             }
 
-            // Clock frames until we catch up to the audio queue latency as long as audio is enabled and we're
-            // not rewinding, otherwise fall back to time-based clocking
-            // let mut clocked_frames = 0; // Prevent infinite loop when queued audio falls behind
-            let mut run_ahead = self.run_ahead;
-            if self.speed > 1.0 {
-                run_ahead = 0;
-            }
+            let run_ahead = if self.speed > 1.0 { 0 } else { self.run_ahead };
             let res = self.control_deck.clock_frame_ahead(
                 run_ahead,
                 |_cycles, frame_buffer, audio_samples| {
                     self.audio.process(audio_samples);
-                    let send_frame = |frame: &mut Frame| {
-                        frame.clear();
-                        frame.extend_from_slice(frame_buffer);
-                    };
-                    self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
-
-                    // Indicate we want to redraw to ensure there's a frame slot made available if
-                    // the pool is already full
-                    self.tx.nes_event(RendererEvent::RequestRedraw {
-                        viewport_id: ViewportId::ROOT,
-                        when: Instant::now(),
-                    });
-
-                    if self.audio.enabled() || !platform::supports(Feature::Blocking) {
-                        // If audio is enabled or wasm, frame rate is controlled by park_timeout
-                        // above
-                        match self.frame_tx.try_send_ref() {
-                            Ok(mut frame) => send_frame(&mut frame),
-                            Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                            Err(_) => shutdown(&self.tx, "failed to get frame"),
+                    match self.frame_tx.try_send_ref() {
+                        Ok(mut frame) => {
+                            frame.clear();
+                            frame.extend_from_slice(frame_buffer);
                         }
-                    } else {
-                        // Otherwise we'll block on vsync
-                        match self.frame_tx.send_ref() {
-                            Ok(mut frame) => send_frame(&mut frame),
-                            Err(_) => shutdown(&self.tx, "failed to get frame"),
-                        }
+                        Err(TrySendError::Full(_)) => debug!("dropped frame"),
+                        Err(_) => shutdown(&self.tx, "failed to get frame"),
                     }
                 },
             );
@@ -942,5 +932,12 @@ impl State {
                 }
             }
         }
+
+        self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
+        // Request to draw this frame
+        self.tx.nes_event(RendererEvent::RequestRedraw {
+            viewport_id: ViewportId::ROOT,
+            when: Instant::now(),
+        });
     }
 }

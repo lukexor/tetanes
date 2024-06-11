@@ -112,7 +112,7 @@ pub struct Renderer {
     render_state: Option<RenderState>,
     texture: Texture,
     first_frame: bool,
-    last_save_time: Instant,
+    pub(crate) last_save_time: Instant,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -401,6 +401,9 @@ impl Renderer {
 
     /// Handle event.
     pub fn on_event(&mut self, event: &NesEvent, cfg: &Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         self.gui.borrow_mut().on_event(event);
 
         if let NesEvent::Renderer(event) = event {
@@ -447,6 +450,9 @@ impl Renderer {
     }
 
     fn initialize_all_windows(&mut self, event_loop: &EventLoopWindowTarget<NesEvent>) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if self.ctx.embed_viewports() {
             return;
         }
@@ -480,6 +486,9 @@ impl Renderer {
         event: &WindowEvent,
         cfg: &Config,
     ) -> EventResponse {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let viewport_id = self.viewport_id_for_window(window_id);
         match event {
             WindowEvent::Focused(focused) => {
@@ -625,6 +634,9 @@ impl Renderer {
 
     /// Handle gamepad event updates.
     pub fn on_gamepad_update(&self, gamepads: &Gamepads) -> EventResponse {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if self.gui.borrow().pending_keybind.is_some() && gamepads.has_events() {
             return EventResponse {
                 consumed: true,
@@ -847,6 +859,9 @@ impl Renderer {
         viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
         focused: Option<ViewportId>,
     ) -> &'a mut Viewport {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if builder.icon.is_none() {
             builder.icon = viewports
                 .get_mut(&ids.parent)
@@ -1029,6 +1044,9 @@ impl Renderer {
         state: &Rc<RefCell<State>>,
         gui: &Rc<RefCell<Gui>>,
     ) -> EventResponse {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let raw_input = {
             let State { viewports, .. } = &mut *state.borrow_mut();
 
@@ -1082,8 +1100,6 @@ impl Renderer {
     ) -> anyhow::Result<()> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
-        #[cfg(feature = "profiling")]
-        puffin::GlobalProfiler::lock().new_frame();
 
         if self.first_frame {
             self.initialize()?;
@@ -1097,6 +1113,9 @@ impl Renderer {
         let Some(viewport_id) = self.viewport_id_for_window(window_id) else {
             return Ok(());
         };
+
+        #[cfg(feature = "profiling")]
+        puffin::GlobalProfiler::lock().new_frame();
 
         self.handle_resize(viewport_id, cfg);
 
@@ -1139,10 +1158,9 @@ impl Renderer {
         // resize tied to a configuration change.
         if viewport_id == ViewportId::ROOT {
             if let Some(render_state) = &self.render_state {
-                // We only care about the latest frame
                 let mut frame_buffer = self.frame_rx.try_recv_ref();
-                while !self.frame_rx.is_empty() {
-                    debug!("dropped frame");
+                while self.frame_rx.remaining() < 2 {
+                    debug!("skipping frame");
                     frame_buffer = self.frame_rx.try_recv_ref();
                 }
                 match frame_buffer {
@@ -1168,17 +1186,17 @@ impl Renderer {
                         event_loop.exit();
                         return Ok(());
                     }
+                    // Empty frames are fine as we may repaint more often than 60fps due to
+                    // UI interactions with keyboard/mouse
                     _ => (),
                 }
             }
         }
 
         let always_on_top = cfg.renderer.always_on_top;
-        let output = self.ctx.run(raw_input, |ctx| {
-            if let Some(viewport_ui_cb) = viewport_ui_cb {
-                viewport_ui_cb(ctx);
-            }
-            self.gui.borrow_mut().ui(ctx, gamepads, cfg);
+        let output = self.ctx.run(raw_input, |ctx| match viewport_ui_cb {
+            Some(viewport_ui_cb) => viewport_ui_cb(ctx),
+            None => self.gui.borrow_mut().ui(ctx, gamepads, cfg),
         });
 
         {
@@ -1265,6 +1283,9 @@ impl Renderer {
     }
 
     fn handle_resize(&mut self, viewport_id: ViewportId, cfg: &Config) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if viewport_id == ViewportId::ROOT {
             if self.gui.borrow().resize_window {
                 if !self.fullscreen() {
@@ -1310,6 +1331,9 @@ impl Viewport {
         if self.window.is_some() {
             return;
         }
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
 
         let viewport_id = self.ids.this;
         let window_builder =
