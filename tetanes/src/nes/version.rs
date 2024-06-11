@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct Version {
     current: &'static str,
@@ -41,17 +41,21 @@ impl Version {
         self.latest.borrow().clone()
     }
 
+    pub fn set_latest(&mut self, version: String) {
+        self.latest.replace(version);
+    }
+
     pub const fn requires_updates(&self) -> bool {
         cfg!(not(target_arch = "wasm32"))
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub const fn update_available(&self) -> anyhow::Result<bool> {
-        Ok(false)
+    pub const fn update_available(&self) -> anyhow::Result<Option<String>> {
+        Ok(None)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn update_available(&self) -> anyhow::Result<bool> {
+    pub fn update_available(&self) -> anyhow::Result<Option<String>> {
         use std::time::Instant;
 
         if self.last_request_time.get().elapsed() < self.rate_limit {
@@ -82,10 +86,10 @@ impl Version {
                 cr: Crate { newest_version, .. },
             }) => {
                 if Self::version_is_newer(&newest_version, self.current) {
-                    self.latest.replace(newest_version);
-                    Ok(true)
+                    self.latest.replace(newest_version.clone());
+                    Ok(Some(newest_version))
                 } else {
-                    Ok(false)
+                    Ok(None)
                 }
             }
             Err(err) => anyhow::bail!("failed to deserialize crates.io response: {err:?}"),

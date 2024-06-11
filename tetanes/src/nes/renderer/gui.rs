@@ -269,6 +269,10 @@ impl Gui {
 
     pub fn on_event(&mut self, event: &NesEvent) {
         match event {
+            NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
+                self.version.set_latest(version.clone());
+                self.update_window_open = true;
+            }
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
                     self.replay_recording = *recording;
@@ -451,12 +455,40 @@ impl Gui {
 
         // Check for update on start
         if self.version.requires_updates() {
-            if let Ok(update_available) = self.version.update_available() {
-                self.update_window_open = update_available;
-            }
+            let notify_latest = false;
+            self.check_for_updates(notify_latest);
         }
 
         self.initialized = true;
+    }
+
+    fn check_for_updates(&mut self, notify_latest: bool) {
+        let spawn_update = std::thread::Builder::new()
+            .name("check_updates".into())
+            .spawn({
+                let version = self.version.clone();
+                let tx = self.tx.clone();
+                move || match version.update_available() {
+                    Ok(Some(version)) => tx.nes_event(UiEvent::UpdateAvailable(version)),
+                    Ok(None) => {
+                        if notify_latest {
+                            tx.nes_event(UiEvent::Message((
+                                MessageType::Info,
+                                format!("TetaNES v{} is up to date!", version.current()),
+                            )));
+                        }
+                    }
+                    Err(err) => {
+                        tx.nes_event(UiEvent::Message((MessageType::Error, err.to_string())));
+                    }
+                }
+            });
+        if let Err(err) = spawn_update {
+            self.add_message(
+                MessageType::Error,
+                format!("Failed to check for updates: {err}"),
+            );
+        }
     }
 
     fn show_set_keybind_viewport(
@@ -1466,18 +1498,8 @@ impl Gui {
         ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
-            match self.version.update_available() {
-                Ok(update_available) => {
-                    self.update_window_open = update_available;
-                    if !update_available {
-                        self.add_message(
-                            MessageType::Info,
-                            format!("TetaNES v{} is up to date!", self.version.current()),
-                        );
-                    }
-                }
-                Err(err) => self.add_message(MessageType::Error, err.to_string()),
-            }
+            let notify_latest = true;
+            self.check_for_updates(notify_latest);
             ui.close_menu();
         }
         ui.toggle_value(&mut self.about_open, "ℹ About");

@@ -53,6 +53,7 @@ impl SendNesEvent for EventLoopProxy<NesEvent> {
 pub enum UiEvent {
     Error(String),
     Message((MessageType, String)),
+    UpdateAvailable(String),
     LoadRomDialog,
     LoadReplayDialog,
     FileDialogCancelled,
@@ -524,7 +525,7 @@ impl Running {
                     self.nes_event(EmulationEvent::RunState(self.run_state));
                 }
             }
-            UiEvent::Terminate => (),
+            UiEvent::UpdateAvailable(_) | UiEvent::Terminate => (),
         }
     }
 
