@@ -1333,7 +1333,7 @@ impl Gui {
         ui.menu_button("🌉 Video Filter...", |ui| {
             self.video_filter_radio(ui, cfg)
         });
-        ui.menu_button("▓ Shader...", |ui| self.shader_radio(ui, cfg));
+        ui.menu_button("🕶 Shader...", |ui| self.shader_radio(ui, cfg));
         ui.menu_button("🌎 Nes Region...", |ui| self.nes_region_radio(ui, cfg));
         ui.menu_button("🎮 Four Player...", |ui| self.four_player_radio(ui, cfg));
         ui.menu_button("📓 Game Genie Codes...", |ui| {

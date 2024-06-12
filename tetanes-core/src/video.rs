@@ -203,7 +203,7 @@ fn generate_ntsc_palette() -> Vec<u32> {
     let mut ntsc_palette = vec![0; 512 * 64 * 3];
 
     // Helper functions for converting YIQ to RGB
-    let gamma = 2.0; // Assumed display gamma
+    let gamma = 1.8; // Assumed display gamma
     let gammafix = |color: f64| {
         if color <= 0.0 {
             0.0
@@ -225,8 +225,8 @@ fn generate_ntsc_palette() -> Vec<u32> {
                     for sample in 0..12 {
                         let noise = (sample + palette_offset * 4) % 12;
                         // Sample either the previous or the current pixel.
-                        // Use pixel=color0 to disable artifacts.
-                        let pixel = if noise < 6 - channel * 2 {
+                        // Use pixel=color0_offset to disable artifacts.
+                        let pixel = if noise < 5 - channel * 2 {
                             color0_offset
                         } else {
                             color1_offset
@@ -263,17 +263,17 @@ fn generate_ntsc_palette() -> Vec<u32> {
                     match channel {
                         2 => {
                             let rgb =
-                                255.95 * gammafix(q.mul_add(0.623_557, i.mul_add(0.946_882, y)));
+                                255.0 * gammafix(q.mul_add(0.623_557, i.mul_add(0.946_882, y)));
                             ntsc_palette[idx] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
                         }
                         1 => {
                             let rgb =
-                                255.95 * gammafix(q.mul_add(-0.635_691, i.mul_add(-0.274_788, y)));
+                                255.0 * gammafix(q.mul_add(-0.635_691, i.mul_add(-0.274_788, y)));
                             ntsc_palette[idx] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
                         }
                         0 => {
                             let rgb =
-                                255.95 * gammafix(q.mul_add(1.709_007, i.mul_add(-1.108_545, y)));
+                                255.0 * gammafix(q.mul_add(1.709_007, i.mul_add(-1.108_545, y)));
                             ntsc_palette[idx] += rgb.clamp(0.0, 255.0) as u32;
                         }
                         _ => (), // invalid channel

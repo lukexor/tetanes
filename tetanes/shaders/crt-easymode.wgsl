@@ -1,4 +1,31 @@
-// Adapted from https://github.com/libretro/glsl-shaders/blob/master/crt/shaders/crt-easymode.glsl
+//  CRT Shader by EasyMode
+//  License: GPL
+//
+//  A flat CRT shader ideally for 1080p or higher displays.
+//
+//  Recommended Settings:
+//
+//  Video
+//  - Aspect Ratio:  4:3
+//  - Integer Scale: Off
+//
+//  Shader
+//  - Filter: Nearest
+//  - Scale:  Don't Care
+//
+//  Example RGB Mask Parameter Settings:
+//
+//  Aperture Grille (Default)
+//  - Dot Width:  1
+//  - Dot Height: 1
+//  - Stagger:    0
+//
+//  Lottes' Shadow Mask
+//  - Dot Width:  2
+//  - Dot Height: 1
+//  - Stagger:    3
+//
+//  Adapted from https://github.com/libretro/glsl-shaders/blob/master/crt/shaders/crt-easymode.glsl
 
 var<private> vertices: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
     vec2<f32>(-1.0, -1.0),
@@ -50,7 +77,6 @@ const GAMMA_INPUT = 1.0;
 const GAMMA_OUTPUT = 2.2;
 const BRIGHT_BOOST = 1.1;
 const DILATION = 1.0;
-
 
 // apply half-circle s-curve to distance for sharper (more pixelated) interpolation
 fn curve_distance(x: f32, sharp: f32) -> f32 {
