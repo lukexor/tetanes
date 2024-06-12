@@ -16,8 +16,3 @@ jobs:
         with:
           add-labels: "needs-triage"
           ignore-if-labeled: true
-      - name: auto-assign
-        uses: pozil/auto-assign-issue@v2
-        with:
-          assignees: lukexor
-          numOfAssignee.github/workflows/ci.yml: 1
