@@ -850,9 +850,9 @@ impl State {
         duration.map(|duration| {
             // Parking thread is only required for Multi-threaded emulation to save CPU cycles.
             if self.threaded {
-                Duration::ZERO
-            } else {
                 duration
+            } else {
+                Duration::ZERO
             }
         })
     }
@@ -881,6 +881,9 @@ impl State {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now() + park_timeout,
             });
+            if self.control_deck.is_running() && self.run_state.paused() {
+                self.send_frame();
+            }
             thread::park_timeout(park_timeout);
             return;
         }

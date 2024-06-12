@@ -236,15 +236,7 @@ impl Renderer {
             Some("nes frame"),
         );
 
-        if !matches!(cfg.renderer.shader, Shader::None) {
-            let frame_painter =
-                shader::Resources::new(&render_state, &texture.view, cfg.renderer.shader);
-            render_state
-                .renderer
-                .write()
-                .callback_resources
-                .insert(frame_painter);
-        }
+        Self::set_shader_resource(&render_state, &texture.view, cfg.renderer.shader);
 
         let gui = Rc::new(RefCell::new(Gui::new(
             tx.clone(),
@@ -464,24 +456,7 @@ impl Renderer {
             }
             NesEvent::Config(ConfigEvent::Shader(shader)) => {
                 if let Some(render_state) = &self.render_state {
-                    if matches!(shader, Shader::None) {
-                        render_state
-                            .renderer
-                            .write()
-                            .callback_resources
-                            .remove::<shader::Resources>();
-                    } else {
-                        let frame_painter = shader::Resources::new(
-                            render_state,
-                            &self.texture.view,
-                            cfg.renderer.shader,
-                        );
-                        render_state
-                            .renderer
-                            .write()
-                            .callback_resources
-                            .insert(frame_painter);
-                    }
+                    Self::set_shader_resource(render_state, &self.texture.view, *shader);
                 }
             }
             _ => (),
@@ -1351,9 +1326,32 @@ impl Renderer {
                         self.gui.borrow().aspect_ratio(cfg),
                     );
                     self.gui.borrow_mut().texture = self.texture.sized_texture();
+
+                    Self::set_shader_resource(
+                        render_state,
+                        &self.texture.view,
+                        cfg.renderer.shader,
+                    );
                 }
                 self.gui.borrow_mut().resize_texture = false;
             }
+        }
+    }
+
+    fn set_shader_resource(render_state: &RenderState, view: &wgpu::TextureView, shader: Shader) {
+        if matches!(shader, Shader::None) {
+            render_state
+                .renderer
+                .write()
+                .callback_resources
+                .remove::<shader::Resources>();
+        } else {
+            let shader_resource = shader::Resources::new(render_state, view, shader);
+            render_state
+                .renderer
+                .write()
+                .callback_resources
+                .insert(shader_resource);
         }
     }
 }

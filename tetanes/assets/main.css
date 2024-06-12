@@ -125,6 +125,7 @@ canvas {
 #error {
   color: #ff3333;
   text-align: center;
+  margin: auto;
 }
 
 .version-download {

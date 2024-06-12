@@ -54,7 +54,12 @@ fn vs_main(
 
 // Fragment shader
 
-@group(0) @binding(0) var<uniform> out_size: vec2<f32>;
+struct Output {
+    size: vec2<f32>,
+    padding: vec2<f32>,
+}
+
+@group(0) @binding(0) var<uniform> out: Output;
 @group(0) @binding(1) var tex: texture_2d<f32>;
 @group(0) @binding(2) var tex_sampler: sampler;
 
@@ -143,7 +148,7 @@ fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
 
     let insize = dims;
     let mask = 1.0 - MASK_STRENGTH;
-    let mod_fac = floor(v_uv * out_size * dims / (insize * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
+    let mod_fac = floor(v_uv * out.size * dims / (insize * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
     let dot_no = i32(((mod_fac.x + (mod_fac.y % 2.0) * MASK_STAGGER) / MASK_DOT_WIDTH % 3.0));
 
     var mask_weight: vec3<f32>;

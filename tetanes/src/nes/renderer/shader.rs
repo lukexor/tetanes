@@ -69,7 +69,7 @@ impl egui_wgpu::CallbackTrait for Renderer {
             queue.write_buffer(
                 &shader_res.size_uniform,
                 0,
-                bytemuck::cast_slice(&[self.rect.width(), self.rect.height()]),
+                bytemuck::cast_slice(&[self.rect.width(), self.rect.height(), 0.0, 0.0]),
             );
         }
         Vec::new()
@@ -99,9 +99,10 @@ pub struct Resources {
 
 impl Resources {
     pub fn new(render_state: &RenderState, view: &wgpu::TextureView, shader: Shader) -> Self {
+        let size_uniform_size = 16;
         let size_uniform = render_state.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Frame Size Buffer"),
-            size: 8,
+            size: size_uniform_size, // 16-byte minimum alignment, even though we only need 8 bytes
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
             mapped_at_creation: false,
         });
@@ -118,7 +119,7 @@ impl Resources {
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Uniform,
                                 has_dynamic_offset: false,
-                                min_binding_size: NonZeroU64::new(8),
+                                min_binding_size: NonZeroU64::new(size_uniform_size),
                             },
                             count: None,
                         },
