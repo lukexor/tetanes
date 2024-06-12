@@ -6,7 +6,7 @@ resolver = "2"
 members = ["tetanes", "tetanes-core", "tetanes-utils"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 rust-version = "1.78.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
