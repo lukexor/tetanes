@@ -3741,7 +3741,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3790,7 +3790,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3814,7 +3814,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-utils"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "clap",
