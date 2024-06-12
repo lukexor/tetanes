@@ -6,10 +6,14 @@ on:
     # At 06:00 once a week on Sunday
     - cron: "0 6 * * 0"
   push:
+    branches: [main]
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
   pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
 
 jobs:
   audit:
