@@ -7,12 +7,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.1](https://github.com/lukexor/tetanes/compare/0.10.0..0.10.1) - 2024-06-12
+## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
 
 
-- Shader support with crt-easymode ([#285](https://github.com/lukexor/tetanes/pull/285)) - ([e5042ef](https://github.com/lukexor/tetanes/commit/e5042efd45642ac2a13d7ac695bba1cce77c69c9))
 - Added config and save/sram state persistence to web ([#274](https://github.com/lukexor/tetanes/pull/274)) - ([8c7f6df](https://github.com/lukexor/tetanes/commit/8c7f6df4a8894b544da1c6480659ee26ea28f342))
 - Added mapper 11 - ([03d2074](https://github.com/lukexor/tetanes/commit/03d2074d3d58fcf652fecb9d77f4e96e8c007aae))
 - Updated game database mapper names - ([86d246b](https://github.com/lukexor/tetanes/commit/86d246be9a52b64ed4191c970c6a727a31c21cb5))
