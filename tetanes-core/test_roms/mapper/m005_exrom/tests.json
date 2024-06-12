@@ -10,19 +10,19 @@
       },
       {
         "number": 10,
-        "hash": 9304817408109093898
+        "hash": 17551728759146689352
       },
       {
         "number": 15,
-        "hash": 14793986929635326892
+        "hash": 4756351708356043917
       },
       {
         "number": 45,
-        "hash": 13843773772285596269
+        "hash": 1380234192467300615
       },
       {
         "number": 100,
-        "hash": 3899470926472762651
+        "hash": 9477694461559011324
       }
     ]
   },
@@ -36,7 +36,10 @@
       {
         "number": 11,
         "action": {
-          "Joypad": ["One", "A"]
+          "Joypad": [
+            "One",
+            "A"
+          ]
         }
       },
       {
@@ -47,7 +50,10 @@
       {
         "number": 15,
         "action": {
-          "Joypad": ["One", "B"]
+          "Joypad": [
+            "One",
+            "B"
+          ]
         }
       },
       {
@@ -58,7 +64,10 @@
       {
         "number": 19,
         "action": {
-          "Joypad": ["One", "Start"]
+          "Joypad": [
+            "One",
+            "Start"
+          ]
         }
       },
       {
@@ -69,7 +78,10 @@
       {
         "number": 23,
         "action": {
-          "Joypad": ["One", "Select"]
+          "Joypad": [
+            "One",
+            "Select"
+          ]
         }
       },
       {
@@ -80,7 +92,10 @@
       {
         "number": 27,
         "action": {
-          "Joypad": ["One", "Up"]
+          "Joypad": [
+            "One",
+            "Up"
+          ]
         }
       },
       {
@@ -91,13 +106,19 @@
       {
         "number": 31,
         "action": {
-          "Joypad": ["One", "Up"]
+          "Joypad": [
+            "One",
+            "Up"
+          ]
         }
       },
       {
         "number": 33,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
@@ -108,13 +129,19 @@
       {
         "number": 37,
         "action": {
-          "Joypad": ["One", "Right"]
+          "Joypad": [
+            "One",
+            "Right"
+          ]
         }
       },
       {
         "number": 39,
         "action": {
-          "Joypad": ["One", "Right"]
+          "Joypad": [
+            "One",
+            "Right"
+          ]
         }
       },
       {

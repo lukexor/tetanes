@@ -10,11 +10,11 @@
       },
       {
         "number": 10,
-        "hash": 1285558611931075172
+        "hash": 6478544483085266183
       },
       {
         "number": 11,
-        "hash": 3224963009118509980
+        "hash": 13464778097346924262
       }
     ]
   },
@@ -359,108 +359,141 @@
       {
         "number": 11,
         "name": "blue_green_red",
-        "hash": 15331071517400934373
+        "hash": 8071574123308103670
       },
       {
         "number": 12,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 15,
         "name": "green_red",
-        "hash": 3622863794655880182
+        "hash": 13623772725600068525
       },
       {
         "number": 16,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 18,
         "action": {
-          "Joypad": ["One", "Up"]
+          "Joypad": [
+            "One",
+            "Up"
+          ]
         }
       },
       {
         "number": 21,
         "name": "blue_red",
-        "hash": 4474457751326885945
+        "hash": 15501427923254063958
       },
       {
         "number": 22,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 25,
         "name": "red",
-        "hash": 13438403929262459203
+        "hash": 10357388817602375796
       },
       {
         "number": 26,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 28,
         "action": {
-          "Joypad": ["One", "Up"]
+          "Joypad": [
+            "One",
+            "Up"
+          ]
         }
       },
       {
         "number": 30,
         "action": {
-          "Joypad": ["One", "Right"]
+          "Joypad": [
+            "One",
+            "Right"
+          ]
         }
       },
       {
         "number": 33,
         "name": "blue_green",
-        "hash": 11824735176668526610
+        "hash": 18249686492888207164
       },
       {
         "number": 34,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 37,
         "name": "green",
-        "hash": 1828661687889055991
+        "hash": 14921198101292999649
       },
       {
         "number": 38,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 40,
         "action": {
-          "Joypad": ["One", "Up"]
+          "Joypad": [
+            "One",
+            "Up"
+          ]
         }
       },
       {
         "number": 43,
         "name": "blue",
-        "hash": 11530633151748213659
+        "hash": 3927332191806565676
       },
       {
         "number": 44,
         "action": {
-          "Joypad": ["One", "Left"]
+          "Joypad": [
+            "One",
+            "Left"
+          ]
         }
       },
       {
         "number": 47,
         "name": "no_emphasis",
-        "hash": 1665014319870089704
+        "hash": 12673552706454460131
       }
     ]
   },
@@ -509,21 +542,24 @@
       },
       {
         "number": 10,
-        "hash": 6855861434243301695
+        "hash": 6270529304864431060
       },
       {
         "number": 11,
         "action": {
-          "Joypad": ["One", "Start"]
+          "Joypad": [
+            "One",
+            "Start"
+          ]
         }
       },
       {
         "number": 14,
-        "hash": 2443093118007225059
+        "hash": 18284547599417793041
       },
       {
         "number": 15,
-        "hash": 14057623862955980496
+        "hash": 16880644943449212899
       }
     ]
   },
