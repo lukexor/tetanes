@@ -21,6 +21,9 @@ jobs:
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
       - name: Run release
         uses: MarcoIeni/release-plz-action@v0.5
         env:

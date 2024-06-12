@@ -7,7 +7,7 @@ git_release_enable = true
 pr_labels = ["release"]
 allow_dirty = false
 publish_allow_dirty = false
-semver_check = false
+semver_check = true
 
 [[package]]
 name = "tetanes"
