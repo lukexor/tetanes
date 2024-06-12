@@ -7,6 +7,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1](https://github.com/lukexor/tetanes/compare/0.10.0..0.10.1) - 2024-06-12
+
+### ⛰️  Features
+
+
+- Shader support with crt-easymode ([#285](https://github.com/lukexor/tetanes/pull/285)) - ([e5042ef](https://github.com/lukexor/tetanes/commit/e5042efd45642ac2a13d7ac695bba1cce77c69c9))
+- Auto-save cfg at a set interval ([#279](https://github.com/lukexor/tetanes/pull/279)) - ([e6941d8](https://github.com/lukexor/tetanes/commit/e6941d8e47c73910cf99c5ae9d52e9d5f4b7bade))
+- Add UI persistence. closes [#257](https://github.com/lukexor/tetanes/pull/257) ([#277](https://github.com/lukexor/tetanes/pull/277)) - ([4c861f7](https://github.com/lukexor/tetanes/commit/4c861f7f59d99ee536e135a238ae3b621178bd08))
+- Added config and save/sram state persistence to web ([#274](https://github.com/lukexor/tetanes/pull/274)) - ([8c7f6df](https://github.com/lukexor/tetanes/commit/8c7f6df4a8894b544da1c6480659ee26ea28f342))
+- Added always on top option. enabled shortcut for embed viewports - ([489f61e](https://github.com/lukexor/tetanes/commit/489f61ef668094fa8e685a592cad0ec8b46d1c38))
+- Added data man demo and changed name of nebs n' debs to demo - ([d7d2bae](https://github.com/lukexor/tetanes/commit/d7d2bae10da45239cf3e8142a00e893dd95fdc23))
+- Added mapper 11 - ([03d2074](https://github.com/lukexor/tetanes/commit/03d2074d3d58fcf652fecb9d77f4e96e8c007aae))
+
+### 🐛 Bug Fixes
+
+
+- Fixed a number of issues caused by the crt-shader PR - ([8c31927](https://github.com/lukexor/tetanes/commit/8c31927ee332d0593402b7c6b632dbcafe4fa964))
+- Ntsc tweaks - ([3042fa7](https://github.com/lukexor/tetanes/commit/3042fa7b928faf69e10040b4eb981a4c4f8f3ce3))
+- Fixed some frame clocking issues - ([80ef7b5](https://github.com/lukexor/tetanes/commit/80ef7b50df3ea00500df70f86904d0a3cfcfdb53))
+- Fixed blocking checking for updates on start - ([f48c634](https://github.com/lukexor/tetanes/commit/f48c63445bf2f2be224c7632781101c9a4075dbe))
+- Revert rfd features back - ([30cec26](https://github.com/lukexor/tetanes/commit/30cec26fd44d284e124e33422d2cbcccd5d0814a))
+- Fixed Data Man url - ([882004a](https://github.com/lukexor/tetanes/commit/882004ac9f44aa0c51ca88bf99552f9187fad8e9))
+- Cleaned up pausing, parking, and control flow. Closes [#251](https://github.com/lukexor/tetanes/pull/251) - ([72cf88a](https://github.com/lukexor/tetanes/commit/72cf88ac6991953222bd3dd1d395f7f9035c98ef))
+- Remove unfocused/occluded pausing for now until a less error-prone cross-platform solution can be designed - ([a5549e6](https://github.com/lukexor/tetanes/commit/a5549e6f026d201e9e6c7f0acfc56ee734c85a95))
+- Remove bold from controls - ([0cfa0e9](https://github.com/lukexor/tetanes/commit/0cfa0e9edaad86b7566763ef8444649bef462af1))
+- Fix excess redraw requests - ([caf88c0](https://github.com/lukexor/tetanes/commit/caf88c002fb8f18072e5fad95c967dd79f09afff))
+- Fixed wasm resizing to be restricted by browser viewport ([#243](https://github.com/lukexor/tetanes/pull/243)) - ([b59d4c9](https://github.com/lukexor/tetanes/commit/b59d4c906fbd41d95e21e58bffc28074028947c4))
+- Disable rewind when low on memory. clear rewind memory when disabled - ([4d5e1c4](https://github.com/lukexor/tetanes/commit/4d5e1c4dbe43cceb9ab8d4c33ca832830b2d31d8))
+- Remove redrawing every clock - ([8cea6c1](https://github.com/lukexor/tetanes/commit/8cea6c14718dfd564b1f8ec9e60fc57b2d0602d0))
+- Fixed web build relative urls - ([1423bdb](https://github.com/lukexor/tetanes/commit/1423bdb75766da2d656d24a6075ee38d36002ec9))
+- Fixed a number of issues with loading roms and unintentionally blocking wasm - ([e257575](https://github.com/lukexor/tetanes/commit/e257575c24cde809d156ae6451575ec7cfd70aad))
+- Fix clock timing on web. closes [#234](https://github.com/lukexor/tetanes/pull/234) - ([57d323d](https://github.com/lukexor/tetanes/commit/57d323d44408269b1c72932baa4b3b534e69f70d))
+- Fix frame stats when toggled via menu. closes [#233](https://github.com/lukexor/tetanes/pull/233) - ([347066b](https://github.com/lukexor/tetanes/commit/347066b8f4000dcd88e3a76e8b948b55198ecceb))
+- Add scrolling to lists - ([62ff074](https://github.com/lukexor/tetanes/commit/62ff0745a846cc8aed910244448becd98f155abf))
+- Fix changing slider/drag values - ([8580135](https://github.com/lukexor/tetanes/commit/8580135f6e1e14a84214ca24efd57dbaf7595997))
+
+### 🚜 Refactor
+
+
+- Removed a number of panic cases and cleaned up platform checks - ([bdb71a9](https://github.com/lukexor/tetanes/commit/bdb71a96792778cb0ad6bedf44e0ef5cbfa703e4))
+- Frame timing cleanup - ([1e920fd](https://github.com/lukexor/tetanes/commit/1e920fdd4ca56010ebe380152c817025a1b4c127))
+- Some initialization error handling cleanup - ([507d9a0](https://github.com/lukexor/tetanes/commit/507d9a04c439081afc585761311082b0069c7111))
+- Small gui cleanup - ([880e9ee](https://github.com/lukexor/tetanes/commit/880e9ee4b33d8b12924598e688f01b5e79289590))
+
+### 📚 Documentation
+
+
+- Fixed docs and changelog - ([4c7a694](https://github.com/lukexor/tetanes/commit/4c7a6949e52b6734fd6a78f6d9567c70e12b3ae4))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Split out web build so it can run on any platform - ([dcaec14](https://github.com/lukexor/tetanes/commit/dcaec14828288d758c713861a7aef6c03e4da47b))
+- Upgrade ringbuf - ([5d7abe2](https://github.com/lukexor/tetanes/commit/5d7abe291493f43b14a0239157dfed930db17d6c))
+
+
 ## [0.10.0](https://github.com/lukexor/tetanes/compare/tetanes-v0.9.0..tetanes-v0.10.0) - 2024-05-16
 
 ### ⛰️  Features
