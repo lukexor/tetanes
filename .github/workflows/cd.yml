@@ -121,7 +121,7 @@ jobs:
     name: Update Homebrew Formula
     if: startsWith(github.event.release.name, 'tetanes') || inputs.build
     needs: build-and-upload-artifacts
-    runs-on: ubuntu
+    runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.build-and-upload-artifacts.outputs.release_tag }}
     steps:
