@@ -62,7 +62,7 @@ ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = "0.30"
-tetanes-core = { version = "0.10", path = "../tetanes-core" }
+tetanes-core = { version = "0.11", path = "../tetanes-core" }
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
