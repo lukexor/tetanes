@@ -7,6 +7,7 @@ use crate::{
             ConfigEvent, EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent,
         },
         input::{ActionBindings, Gamepads, Input},
+        renderer::shader::{self, Shader},
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
     },
@@ -210,6 +211,7 @@ impl Gui {
         } else {
             None
         };
+
         Self {
             initialized: false,
             title: Config::WINDOW_TITLE.to_string(),
@@ -1331,6 +1333,7 @@ impl Gui {
         ui.menu_button("🌉 Video Filter...", |ui| {
             self.video_filter_radio(ui, cfg)
         });
+        ui.menu_button("▓ Shader...", |ui| self.shader_radio(ui, cfg));
         ui.menu_button("🌎 Nes Region...", |ui| self.nes_region_radio(ui, cfg));
         ui.menu_button("🎮 Four Player...", |ui| self.four_player_radio(ui, cfg));
         ui.menu_button("📓 Game Genie Codes...", |ui| {
@@ -1567,16 +1570,37 @@ impl Gui {
                         ..Default::default()
                     };
                     ui.with_layout(layout, |ui| {
+                        let image_sense = Sense::click();
                         let image = Image::from_texture(self.texture)
                             .maintain_aspect_ratio(true)
                             .shrink_to_fit()
-                            .sense(Sense::click());
+                            .sense(image_sense);
+
                         let hover_cursor = if cfg.deck.zapper {
                             CursorIcon::Crosshair
                         } else {
                             CursorIcon::Default
                         };
-                        let res = ui.add(image).on_hover_cursor(hover_cursor);
+
+                        let res = if matches!(cfg.renderer.shader, Shader::None) {
+                            ui.add(image)
+                        } else {
+                            let texture_load_res =
+                                image.load_for_size(ui.ctx(), ui.available_size());
+                            let image_size = texture_load_res.as_ref().ok().and_then(|t| t.size());
+                            let ui_size = image.calc_size(ui.available_size(), image_size);
+                            let (rect, res) = ui.allocate_exact_size(ui_size, image_sense);
+                            let res = res.on_hover_cursor(hover_cursor);
+
+                            if ui.is_rect_visible(rect) {
+                                ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                                    rect,
+                                    shader::Renderer::new(rect),
+                                ));
+                            }
+
+                            res
+                        };
                         self.nes_frame = res.rect;
 
                         if cfg.deck.zapper {
@@ -2192,6 +2216,12 @@ impl Gui {
                     ui.strong("Video Filter:");
                 });
                 ui.vertical(|ui| self.video_filter_radio(ui, cfg));
+                ui.end_row();
+
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Shader:");
+                });
+                ui.vertical(|ui| self.shader_radio(ui, cfg));
             });
     }
 
@@ -2579,6 +2609,21 @@ impl Gui {
             );
         if filter != cfg.deck.filter {
             self.tx.nes_event(ConfigEvent::VideoFilter(cfg.deck.filter));
+        }
+    }
+
+    fn shader_radio(&mut self, ui: &mut Ui, cfg: &mut Config) {
+        let shader = cfg.renderer.shader;
+        ui.radio_value(&mut cfg.renderer.shader, Shader::None, "None")
+            .on_hover_text("No shader.");
+        ui.radio_value(
+            &mut cfg.renderer.shader,
+            Shader::CrtEasymode,
+            "CRT Easymode",
+        )
+        .on_hover_text("Emulate traditional CRT aperture grill masking.");
+        if shader != cfg.renderer.shader {
+            self.tx.nes_event(ConfigEvent::Shader(cfg.renderer.shader));
         }
     }
 
@@ -3378,6 +3423,7 @@ impl TryFrom<Input> for KeyboardShortcut {
 
 impl TryFrom<(Key, Modifiers)> for Input {
     type Error = ();
+
     fn try_from((key, modifiers): (Key, Modifiers)) -> Result<Self, Self::Error> {
         let keycode = keycode_from_key(key).ok_or(())?;
         let modifiers = modifiers_state_from_modifiers(modifiers);

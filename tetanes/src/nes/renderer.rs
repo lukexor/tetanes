@@ -1,10 +1,13 @@
 use crate::{
     nes::{
         config::Config,
-        event::{EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent},
+        event::{
+            ConfigEvent, EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent,
+        },
         input::Gamepads,
         renderer::{
             gui::{Gui, MessageType},
+            shader::Shader,
             texture::Texture,
         },
     },
@@ -40,6 +43,7 @@ use winit::{
 };
 
 pub mod gui;
+pub mod shader;
 pub mod texture;
 
 pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
@@ -232,6 +236,16 @@ impl Renderer {
             Some("nes frame"),
         );
 
+        if !matches!(cfg.renderer.shader, Shader::None) {
+            let frame_painter =
+                shader::Resources::new(&render_state, &texture.view, cfg.renderer.shader);
+            render_state
+                .renderer
+                .write()
+                .callback_resources
+                .insert(frame_painter);
+        }
+
         let gui = Rc::new(RefCell::new(Gui::new(
             tx.clone(),
             texture.sized_texture(),
@@ -406,46 +420,71 @@ impl Renderer {
 
         self.gui.borrow_mut().on_event(event);
 
-        if let NesEvent::Renderer(event) = event {
-            match event {
-                RendererEvent::ViewportResized((viewport_width, _)) => {
-                    // This expands the window width to the desired window width if the new viewport
-                    // size allows
-                    if let Some(window_size) = self.inner_size() {
-                        let window_width = window_size.width as f32;
-                        let desired_window_size = self.window_size(cfg);
-                        let max_width = 0.8 * viewport_width;
+        match event {
+            NesEvent::Renderer(event) => {
+                match event {
+                    RendererEvent::ViewportResized((viewport_width, _)) => {
+                        // This expands the window width to the desired window width if the new viewport
+                        // size allows
+                        if let Some(window_size) = self.inner_size() {
+                            let window_width = window_size.width as f32;
+                            let desired_window_size = self.window_size(cfg);
+                            let max_width = 0.8 * viewport_width;
 
-                        if window_width < desired_window_size.x && window_width < max_width {
-                            // We have room to resize up to desired_window_size
-                            self.ctx.send_viewport_cmd_to(
-                                ViewportId::ROOT,
-                                ViewportCommand::InnerSize(desired_window_size),
-                            );
+                            if window_width < desired_window_size.x && window_width < max_width {
+                                // We have room to resize up to desired_window_size
+                                self.ctx.send_viewport_cmd_to(
+                                    ViewportId::ROOT,
+                                    ViewportCommand::InnerSize(desired_window_size),
+                                );
+                            }
                         }
                     }
-                }
-                RendererEvent::ToggleFullscreen => {
-                    if platform::supports(platform::Feature::Viewports) {
-                        self.ctx.set_embed_viewports(
-                            cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
-                        );
-                    }
-                    self.ctx
-                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                    self.ctx.send_viewport_cmd_to(
-                        ViewportId::ROOT,
-                        ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
-                    );
-                }
-                RendererEvent::RomLoaded(_) => {
-                    if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
+                    RendererEvent::ToggleFullscreen => {
+                        if platform::supports(platform::Feature::Viewports) {
+                            self.ctx.set_embed_viewports(
+                                cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
+                            );
+                        }
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                        self.ctx.send_viewport_cmd_to(
+                            ViewportId::ROOT,
+                            ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
+                        );
+                    }
+                    RendererEvent::RomLoaded(_) => {
+                        if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
+                            self.ctx
+                                .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            NesEvent::Config(ConfigEvent::Shader(shader)) => {
+                if let Some(render_state) = &self.render_state {
+                    if matches!(shader, Shader::None) {
+                        render_state
+                            .renderer
+                            .write()
+                            .callback_resources
+                            .remove::<shader::Resources>();
+                    } else {
+                        let frame_painter = shader::Resources::new(
+                            render_state,
+                            &self.texture.view,
+                            cfg.renderer.shader,
+                        );
+                        render_state
+                            .renderer
+                            .write()
+                            .callback_resources
+                            .insert(frame_painter);
                     }
                 }
-                _ => (),
             }
+            _ => (),
         }
     }
 

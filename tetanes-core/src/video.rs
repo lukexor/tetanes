@@ -7,6 +7,12 @@ use std::{
     ops::{Deref, DerefMut},
     sync::OnceLock,
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+#[must_use]
+#[error("failed to parse `VideoFilter`")]
+pub struct ParseVideoFilterError;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -31,13 +37,15 @@ impl AsRef<str> for VideoFilter {
     }
 }
 
-impl From<usize> for VideoFilter {
-    fn from(value: usize) -> Self {
-        if value == 1 {
-            Self::Ntsc
-        } else {
-            Self::Pixellate
-        }
+impl TryFrom<usize> for VideoFilter {
+    type Error = ParseVideoFilterError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Pixellate,
+            1 => Self::Ntsc,
+            _ => return Err(ParseVideoFilterError),
+        })
     }
 }
 
