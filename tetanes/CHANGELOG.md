@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.1](https://github.com/lukexor/tetanes/compare/0.10.0..0.10.1) - 2024-06-12
+## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
 
@@ -23,14 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 
-- Fixed a number of issues caused by the crt-shader PR - ([8c31927](https://github.com/lukexor/tetanes/commit/8c31927ee332d0593402b7c6b632dbcafe4fa964))
 - Ntsc tweaks - ([3042fa7](https://github.com/lukexor/tetanes/commit/3042fa7b928faf69e10040b4eb981a4c4f8f3ce3))
 - Fixed some frame clocking issues - ([80ef7b5](https://github.com/lukexor/tetanes/commit/80ef7b50df3ea00500df70f86904d0a3cfcfdb53))
 - Fixed blocking checking for updates on start - ([f48c634](https://github.com/lukexor/tetanes/commit/f48c63445bf2f2be224c7632781101c9a4075dbe))
 - Revert rfd features back - ([30cec26](https://github.com/lukexor/tetanes/commit/30cec26fd44d284e124e33422d2cbcccd5d0814a))
-- Fixed Data Man url - ([882004a](https://github.com/lukexor/tetanes/commit/882004ac9f44aa0c51ca88bf99552f9187fad8e9))
 - Cleaned up pausing, parking, and control flow. Closes [#251](https://github.com/lukexor/tetanes/pull/251) - ([72cf88a](https://github.com/lukexor/tetanes/commit/72cf88ac6991953222bd3dd1d395f7f9035c98ef))
-- Remove unfocused/occluded pausing for now until a less error-prone cross-platform solution can be designed - ([a5549e6](https://github.com/lukexor/tetanes/commit/a5549e6f026d201e9e6c7f0acfc56ee734c85a95))
 - Remove bold from controls - ([0cfa0e9](https://github.com/lukexor/tetanes/commit/0cfa0e9edaad86b7566763ef8444649bef462af1))
 - Fix excess redraw requests - ([caf88c0](https://github.com/lukexor/tetanes/commit/caf88c002fb8f18072e5fad95c967dd79f09afff))
 - Fixed wasm resizing to be restricted by browser viewport ([#243](https://github.com/lukexor/tetanes/pull/243)) - ([b59d4c9](https://github.com/lukexor/tetanes/commit/b59d4c906fbd41d95e21e58bffc28074028947c4))
