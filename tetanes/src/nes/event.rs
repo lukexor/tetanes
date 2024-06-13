@@ -222,7 +222,7 @@ impl Nes {
             trace!("event: {event:?}");
         }
 
-        match event {
+        match &event {
             Event::Resumed => {
                 let state = if let State::Running(state) = &mut self.state {
                     if platform::supports(platform::Feature::Suspend) {
@@ -242,37 +242,49 @@ impl Nes {
                     state.repaint_times.insert(window_id, Instant::now());
                 }
             }
-            Event::UserEvent(NesEvent::Renderer(RendererEvent::ResourcesReady)) => {
-                if let Err(err) = self.init_running(event_loop) {
-                    error!("failed to create window: {err:?}");
-                    event_loop.exit();
-                    return;
-                }
+            Event::UserEvent(event) => match event {
+                NesEvent::Renderer(RendererEvent::ResourcesReady) => {
+                    if let Err(err) = self.init_running(event_loop) {
+                        error!("failed to create window: {err:?}");
+                        event_loop.exit();
+                        return;
+                    }
 
-                // Disable device events to save some cpu as they're mostly duplicated in
-                // WindowEvents
-                event_loop.listen_device_events(DeviceEvents::Never);
+                    // Disable device events to save some cpu as they're mostly duplicated in
+                    // WindowEvents
+                    event_loop.listen_device_events(DeviceEvents::Never);
 
-                if let State::Running(state) = &mut self.state {
-                    if let Some(window) = state.renderer.root_window() {
-                        if window.is_visible().unwrap_or(true) {
-                            state.repaint_times.insert(window.id(), Instant::now());
-                        } else {
-                            // Immediately redraw the root window on start if not
-                            // visible. Fixes a bug where `window.request_redraw()` events
-                            // may not be sent if the window isn't visible, which is the
-                            // case until the first frame is drawn.
-                            if let Err(err) = state.renderer.redraw(
-                                window.id(),
-                                event_loop,
-                                &mut state.gamepads,
-                                &mut state.cfg,
-                            ) {
-                                state.renderer.on_error(err);
+                    if let State::Running(state) = &mut self.state {
+                        if let Some(window) = state.renderer.root_window() {
+                            if window.is_visible().unwrap_or(true) {
+                                state.repaint_times.insert(window.id(), Instant::now());
+                            } else {
+                                // Immediately redraw the root window on start if not
+                                // visible. Fixes a bug where `window.request_redraw()` events
+                                // may not be sent if the window isn't visible, which is the
+                                // case until the first frame is drawn.
+                                if let Err(err) = state.renderer.redraw(
+                                    window.id(),
+                                    event_loop,
+                                    &mut state.gamepads,
+                                    &mut state.cfg,
+                                ) {
+                                    state.renderer.on_error(err);
+                                }
                             }
                         }
                     }
                 }
+                NesEvent::Ui(UiEvent::Terminate) => event_loop.exit(),
+                _ => (),
+            },
+            Event::LoopExiting => {
+                #[cfg(feature = "profiling")]
+                puffin::set_scopes_on(false);
+
+                // Wasm should never be able to exit
+                #[cfg(target_arch = "wasm32")]
+                panic!("exited unexpectedly");
             }
             _ => (),
         }
@@ -350,7 +362,7 @@ impl Running {
             Event::WindowEvent {
                 window_id, event, ..
             } => {
-                let res = self.renderer.on_window_event(window_id, &event, &self.cfg);
+                let res = self.renderer.on_window_event(window_id, &event);
                 if res.repaint && event != WindowEvent::RedrawRequested {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
@@ -466,24 +478,19 @@ impl Running {
                             );
                         }
                     }
-                    NesEvent::Ui(event) => {
-                        if let UiEvent::Terminate = event {
-                            event_loop.exit()
-                        } else {
-                            self.on_ui_event(event);
-                        }
-                    }
+                    NesEvent::Ui(event) => self.on_ui_event(event),
                     _ => (),
                 }
             }
             Event::LoopExiting => {
-                #[cfg(feature = "profiling")]
-                puffin::set_scopes_on(false);
-
                 if let Err(err) = self.renderer.save(&self.cfg) {
                     error!("failed to save rendererer state: {err:?}");
                 }
                 self.renderer.destroy();
+
+                // Wasm should never be able to exit
+                #[cfg(target_arch = "wasm32")]
+                panic!("exited unexpectedly");
             }
             _ => (),
         }

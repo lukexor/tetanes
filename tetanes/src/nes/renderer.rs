@@ -728,22 +728,54 @@ impl Renderer {
         use wgpu::Backends;
         // TODO: Support webgpu when more widely supported
         let supported_backends = Backends::VULKAN | Backends::METAL | Backends::DX12 | Backends::GL;
-        let mut painter = Painter::new(
-            egui_wgpu::WgpuConfiguration {
-                supported_backends,
-                present_mode: wgpu::PresentMode::AutoVsync,
-                desired_maximum_frame_latency: Some(2),
-                ..Default::default()
-            },
-            1,
-            None,
-            false,
-        );
 
         // The window must be ready with a non-zero size before `Painter::set_window` is called,
         // otherwise the wgpu surface won't be configured correctly.
         Self::wait_for_window(&window).await;
-        painter.set_window(ViewportId::ROOT, Some(window)).await?;
+
+        let wgpu_cfg = egui_wgpu::WgpuConfiguration {
+            supported_backends,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            ..Default::default()
+        };
+        let mut painter = Painter::new(wgpu_cfg.clone(), 1, None, false);
+
+        // Creating device may fail if adapter doesn't support our requested cfg above, so try to
+        // recover with lower limits. Specifically max_texture_dimension_2d has a downlevel default
+        // of 2048. egui_wgpu wants 8192 for 4k displays, but not all platforms support that yet.
+        if let Err(err) = painter
+            .set_window(ViewportId::ROOT, Some(Arc::clone(&window)))
+            .await
+        {
+            if let egui_wgpu::WgpuError::RequestDeviceError(_) = err {
+                painter = Painter::new(
+                    egui_wgpu::WgpuConfiguration {
+                        device_descriptor: Arc::new(|adapter| {
+                            let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
+                                wgpu::Limits::downlevel_webgl2_defaults()
+                            } else {
+                                wgpu::Limits::default()
+                            };
+                            wgpu::DeviceDescriptor {
+                                label: Some("egui wgpu device"),
+                                required_features: wgpu::Features::default(),
+                                required_limits: wgpu::Limits {
+                                    max_texture_dimension_2d: 4096,
+                                    ..base_limits
+                                },
+                            }
+                        }),
+                        ..wgpu_cfg
+                    },
+                    1,
+                    None,
+                    false,
+                );
+                painter.set_window(ViewportId::ROOT, Some(window)).await?;
+            } else {
+                return Err(err.into());
+            }
+        }
 
         let adapter_info = painter.render_state().map(|state| state.adapter.get_info());
         if let Some(info) = adapter_info {

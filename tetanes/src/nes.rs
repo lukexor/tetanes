@@ -113,6 +113,12 @@ impl Nes {
         }
     }
 
+    /// Request renderer resources (creating gui context, window, painter, etc).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any resources can't be created correctly or `init_running` has already
+    /// been called.
     pub(crate) fn request_resources(
         &mut self,
         event_loop: &EventLoopWindowTarget<NesEvent>,
@@ -130,15 +136,15 @@ impl Nes {
             let window = Arc::clone(&window);
             let event_tx = tx.clone();
             async move {
+                debug!("creating painter...");
                 match Renderer::create_painter(window).await {
                     Ok(painter) => {
                         painter_tx.send(painter).expect("failed to send painter");
                         event_tx.nes_event(RendererEvent::ResourcesReady);
                     }
                     Err(err) => {
-                        event_tx.nes_event(UiEvent::Error(format!(
-                            "failed to create painter: {err:?}"
-                        )));
+                        error!("failed to create painter: {err:?}");
+                        event_tx.nes_event(UiEvent::Terminate);
                     }
                 }
             }
