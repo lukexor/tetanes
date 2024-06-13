@@ -36,7 +36,7 @@ use thingbuf::{
 };
 use tracing::{debug, error, info, warn};
 use winit::{
-    dpi::PhysicalSize,
+    dpi::{LogicalSize, PhysicalSize},
     event::WindowEvent,
     event_loop::{EventLoopProxy, EventLoopWindowTarget},
     window::{Theme, Window, WindowId},
@@ -117,6 +117,7 @@ pub struct Renderer {
     texture: Texture,
     first_frame: bool,
     pub(crate) last_save_time: Instant,
+    zoom_changed: bool,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -130,6 +131,8 @@ impl std::fmt::Debug for Renderer {
             .field("ctx", &self.ctx)
             .field("texture", &self.texture)
             .field("first_frame", &self.first_frame)
+            .field("last_save_time", &self.last_save_time)
+            .field("zoom_changed", &self.zoom_changed)
             .finish_non_exhaustive()
     }
 }
@@ -272,7 +275,7 @@ impl Renderer {
             });
         }
 
-        if let Err(err) = Self::load(&ctx) {
+        if let Err(err) = Self::load(&ctx, cfg) {
             tracing::error!("{err:?}");
         }
 
@@ -287,6 +290,7 @@ impl Renderer {
             texture,
             first_frame: true,
             last_save_time: Instant::now(),
+            zoom_changed: false,
         })
     }
 
@@ -361,6 +365,16 @@ impl Renderer {
         window_size
     }
 
+    pub fn find_max_scale_for_width(&self, width: f32, cfg: &Config) -> f32 {
+        let mut scale = cfg.renderer.scale;
+        let mut size = self.window_size_for_scale(cfg, scale);
+        while scale > 1.0 && size.x > width {
+            scale -= 1.0;
+            size = self.window_size_for_scale(cfg, scale);
+        }
+        scale
+    }
+
     pub fn all_viewports_occluded(&self) -> bool {
         self.state
             .borrow()
@@ -413,47 +427,30 @@ impl Renderer {
         self.gui.borrow_mut().on_event(event);
 
         match event {
-            NesEvent::Renderer(event) => {
-                match event {
-                    RendererEvent::ViewportResized((viewport_width, _)) => {
-                        // This expands the window width to the desired window width if the new viewport
-                        // size allows
-                        if let Some(window_size) = self.inner_size() {
-                            let window_width = window_size.width as f32;
-                            let desired_window_size = self.window_size(cfg);
-                            let max_width = 0.8 * viewport_width;
-
-                            if window_width < desired_window_size.x && window_width < max_width {
-                                // We have room to resize up to desired_window_size
-                                self.ctx.send_viewport_cmd_to(
-                                    ViewportId::ROOT,
-                                    ViewportCommand::InnerSize(desired_window_size),
-                                );
-                            }
-                        }
-                    }
-                    RendererEvent::ToggleFullscreen => {
-                        if platform::supports(platform::Feature::Viewports) {
-                            self.ctx.set_embed_viewports(
-                                cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
-                            );
-                        }
-                        self.ctx
-                            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                        self.ctx.send_viewport_cmd_to(
-                            ViewportId::ROOT,
-                            ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
+            NesEvent::Renderer(event) => match event {
+                RendererEvent::ViewportResized(_) => self.resize_window(cfg),
+                RendererEvent::ToggleFullscreen => {
+                    if platform::supports(platform::Feature::Viewports) {
+                        self.ctx.set_embed_viewports(
+                            cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
                         );
                     }
-                    RendererEvent::RomLoaded(_) => {
-                        if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
-                            self.ctx
-                                .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                        }
-                    }
-                    _ => (),
+                    self.ctx
+                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                    self.ctx.send_viewport_cmd_to(
+                        ViewportId::ROOT,
+                        ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
+                    );
                 }
-            }
+                RendererEvent::RomLoaded(_) => {
+                    if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
+                        self.ctx
+                            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                    }
+                }
+                RendererEvent::ScaleChanged => self.resize_window(cfg),
+                _ => (),
+            },
             NesEvent::Config(ConfigEvent::Shader(shader)) => {
                 if let Some(render_state) = &self.render_state {
                     Self::set_shader_resource(render_state, &self.texture.view, *shader);
@@ -494,12 +491,7 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(
-        &mut self,
-        window_id: WindowId,
-        event: &WindowEvent,
-        cfg: &Config,
-    ) -> EventResponse {
+    pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> EventResponse {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -537,7 +529,6 @@ impl Renderer {
             // To support clipboard in wasm, we need to intercept the Paste event so that
             // egui_winit doesn't try to use it's clipboard fallback logic for paste. Associated
             // behavior in the wasm platform layer handles setting the egui_state clipboard text.
-            #[cfg(target_arch = "wasm32")]
             WindowEvent::KeyboardInput {
                 event:
                     winit::event::KeyEvent {
@@ -547,21 +538,31 @@ impl Renderer {
                 ..
             } => {
                 if let Some(key) = gui::key_from_keycode(*key) {
-                    fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
-                        keycode == egui::Key::Paste
-                            || (modifiers.command && keycode == egui::Key::V)
-                            || (cfg!(target_os = "windows")
-                                && modifiers.shift
-                                && keycode == egui::Key::Insert)
-                    }
+                    use egui::Key;
 
                     let modifiers = self.ctx.input(|i| i.modifiers);
 
-                    if is_paste_command(modifiers, key) {
-                        return EventResponse {
-                            consumed: true,
-                            repaint: true,
-                        };
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        fn is_paste_command(modifiers: egui::Modifiers, keycode: Key) -> bool {
+                            keycode == Key::Paste
+                                || (modifiers.command && keycode == Key::V)
+                                || (cfg!(target_os = "windows")
+                                    && modifiers.shift
+                                    && keycode == Key::Insert)
+                        }
+                        if is_paste_command(modifiers, key) {
+                            return EventResponse {
+                                consumed: true,
+                                repaint: true,
+                            };
+                        }
+                    }
+
+                    if matches!(key, Key::Plus | Key::Equals | Key::Minus | Key::Num0)
+                        && (modifiers.ctrl || modifiers.command)
+                    {
+                        self.zoom_changed = true;
                     }
                 }
             }
@@ -571,46 +572,11 @@ impl Renderer {
                     if let (Some(width), Some(height)) =
                         (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
                     {
-                        {
-                            self.state
-                                .borrow_mut()
-                                .painter
-                                .borrow_mut()
-                                .on_window_resized(viewport_id, width, height);
-                        }
-
-                        // On some platforms, e.g. wasm, window width is constrained by the
-                        // viewport width
-                        // This will resize the window if the desired scale is larger than the
-                        // actual scale
-                        if let Some(window_size) = self.inner_size() {
-                            if !self.fullscreen() {
-                                let window_width = window_size.width as f32;
-                                let desired_window_size = self.window_size(cfg);
-
-                                if window_width < desired_window_size.x {
-                                    let aspect_ratio = self.gui.borrow().aspect_ratio(cfg);
-                                    let desired_scale = cfg.renderer.scale;
-                                    let actual_scale =
-                                        window_width / (aspect_ratio * Ppu::WIDTH as f32);
-
-                                    if desired_scale > actual_scale {
-                                        let mut window_size =
-                                            self.window_size_for_scale(cfg, actual_scale);
-                                        window_size.x = window_width;
-
-                                        self.ctx.send_viewport_cmd_to(
-                                            ViewportId::ROOT,
-                                            ViewportCommand::InnerSize(window_size),
-                                        );
-                                        self.add_message(
-                                            MessageType::Warn,
-                                            "Configured window scale exceeds browser width.",
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                        self.state
+                            .borrow_mut()
+                            .painter
+                            .borrow_mut()
+                            .on_window_resized(viewport_id, width, height);
                     }
                 }
             }
@@ -674,7 +640,7 @@ impl Renderer {
         self.gui.borrow_mut().error = Some(err.to_string());
     }
 
-    pub fn load(ctx: &egui::Context) -> anyhow::Result<()> {
+    pub fn load(ctx: &egui::Context, cfg: &Config) -> anyhow::Result<()> {
         let path = Config::default_config_dir().join("gui.dat");
         if fs::exists(&path) {
             let data = fs::load_raw(path).context("failed to load gui memory")?;
@@ -684,12 +650,15 @@ impl Renderer {
             });
             info!("Loaded UI state");
         }
+        ctx.memory_mut(|mem| {
+            mem.options.zoom_factor = cfg.renderer.zoom;
+        });
         Ok(())
     }
 
     pub fn auto_save(&mut self, cfg: &Config) -> anyhow::Result<()> {
         let time_since_last_save = Instant::now() - self.last_save_time;
-        if time_since_last_save > Duration::from_secs(30) {
+        if time_since_last_save > Duration::from_secs(10) {
             self.save(cfg)?;
         }
         Ok(())
@@ -1117,6 +1086,7 @@ impl Renderer {
 
         if self.first_frame {
             self.initialize()?;
+            self.resize_window(cfg);
         }
         self.initialize_all_windows(event_loop);
 
@@ -1286,6 +1256,9 @@ impl Renderer {
                         }),
                     );
                 }
+                if std::mem::take(&mut self.zoom_changed) {
+                    cfg.renderer.zoom = self.ctx.zoom_factor();
+                }
             }
         }
 
@@ -1302,12 +1275,7 @@ impl Renderer {
 
         if viewport_id == ViewportId::ROOT {
             if self.gui.borrow().resize_window {
-                if !self.fullscreen() {
-                    self.ctx.send_viewport_cmd_to(
-                        ViewportId::ROOT,
-                        ViewportCommand::InnerSize(self.window_size(cfg)),
-                    );
-                }
+                self.resize_window(cfg);
                 self.gui.borrow_mut().resize_window = false;
             }
 
@@ -1334,6 +1302,58 @@ impl Renderer {
                     );
                 }
                 self.gui.borrow_mut().resize_texture = false;
+            }
+        }
+    }
+
+    fn resize_window(&self, cfg: &Config) {
+        if !self.fullscreen() {
+            let desired_window_size = self.window_size(cfg);
+
+            if cfg.renderer.scale == 1.0 && cfg.renderer.zoom == 1.0 {
+                self.ctx.set_zoom_factor(0.7);
+            } else {
+                self.ctx.set_zoom_factor(cfg.renderer.zoom);
+            }
+
+            // On some platforms, e.g. wasm, window width is constrained by the
+            // viewport width, so try to find the max scale that will fit
+            #[cfg(target_arch = "wasm32")]
+            if let Some(canvas) = crate::platform::get_canvas() {
+                // Can't use `Window::inner_size` here because it's reported incorrectly so
+                // use `get_client_bounding_rect` instead.
+                let window_width = canvas.get_bounding_client_rect().width() as f32;
+
+                if window_width < desired_window_size.x {
+                    let scale = if let Some(viewport_width) = web_sys::window()
+                        .and_then(|win| win.inner_width().ok())
+                        .and_then(|width| width.as_f64())
+                        .map(|width| width as f32)
+                    {
+                        self.find_max_scale_for_width(0.8 * viewport_width, cfg)
+                    } else {
+                        1.0
+                    };
+
+                    let new_window_size = self.window_size_for_scale(cfg, scale);
+                    if scale != cfg.renderer.scale && (window_width - new_window_size.x).abs() > 1.0
+                    {
+                        if let Some(window) = self.root_window() {
+                            let _ = window.request_inner_size(LogicalSize::new(
+                                new_window_size.x,
+                                new_window_size.y,
+                            ));
+                        }
+                        return;
+                    }
+                }
+            }
+
+            if let Some(window) = self.root_window() {
+                let _ = window.request_inner_size(LogicalSize::new(
+                    desired_window_size.x,
+                    desired_window_size.y,
+                ));
             }
         }
     }

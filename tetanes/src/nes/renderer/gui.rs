@@ -298,6 +298,7 @@ impl Gui {
                     self.frame_stats = *stats;
                 }
                 RendererEvent::ShowMenubar(show) => {
+                    // Toggling true is handled in the menu widget
                     if !show {
                         self.menu_height = 0.0;
                         self.resize_window = true;
@@ -1393,6 +1394,7 @@ impl Gui {
 
             self.window_scale_radio(ui, cfg);
         });
+        egui::gui_zoom::zoom_menu_buttons(ui);
 
         ui.separator();
 
@@ -1913,6 +1915,8 @@ impl Gui {
                     self.shortcut_keybinds = Self::shortcut_keybinds(&cfg.input.shortcuts);
                     self.joypad_keybinds = Self::joypad_keybinds(&cfg.input.joypad_bindings);
                     self.tx.nes_event(ConfigEvent::InputBindings);
+                    ui.ctx().memory_mut(|mem| *mem = Default::default());
+                    ui.ctx().set_visuals(Self::dark_theme());
                 }
                 if platform::supports(platform::Feature::Storage) {
                     let data_dir = Config::default_data_dir();
@@ -2796,8 +2800,8 @@ impl Gui {
         .shortcut_text(shortcut_txt);
         let res = ui.add(checkbox).on_hover_text("Show the menu bar.");
         if res.clicked() && !cfg.renderer.show_menubar {
-            self.menu_height = 0.0;
-            self.resize_window = true;
+            self.tx
+                .nes_event(RendererEvent::ShowMenubar(cfg.renderer.show_menubar));
         }
     }
 

@@ -88,6 +88,7 @@ pub struct RendererConfig {
     pub always_on_top: bool,
     pub hide_overscan: bool,
     pub scale: f32,
+    pub zoom: f32,
     pub recent_roms: HashSet<PathBuf>,
     pub roms_path: Option<PathBuf>,
     pub show_perf_stats: bool,
@@ -109,6 +110,7 @@ impl Default for RendererConfig {
             } else {
                 3.0
             },
+            zoom: 1.0,
             recent_roms: HashSet::default(),
             roms_path: None,
             show_perf_stats: false,

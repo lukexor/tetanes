@@ -20,6 +20,7 @@ use renderer::Renderer;
 use std::sync::Arc;
 use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
+use tracing::{debug, error};
 use winit::{
     event::Modifiers,
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
