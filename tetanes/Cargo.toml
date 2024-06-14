@@ -95,7 +95,7 @@ egui-winit = { version = "0.27", default-features = false, features = [
 getrandom = { version = "0.2", features = ["js"] }
 puffin = { workspace = true, features = ["web"], optional = true }
 tracing-web = "0.1"
-wgpu = { version = "0.19", features = ["webgl"] }
+wgpu = { version = "0.19", features = ["webgl", "webgpu"] }
 web-sys = { workspace = true, features = [
   "Clipboard",
   "ClipboardEvent",

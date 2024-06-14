@@ -712,9 +712,10 @@ impl Renderer {
         Ok((window, viewport_builder))
     }
 
-    /// Waits for the window to be initialized with a non-zero size. Required during
-    /// `create_painter` to correctly create the wgpu surface.
-    pub async fn wait_for_window(window: &Arc<Window>) {
+    pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
+        // The window must be ready with a non-zero size before `Painter::set_window` is called,
+        // otherwise the wgpu surface won't be configured correctly.
+        let start = Instant::now();
         loop {
             let size = window.inner_size();
             if size.width > 0 && size.height > 0 {
@@ -722,23 +723,12 @@ impl Renderer {
             }
             thread::sleep(Duration::from_millis(10)).await;
         }
-    }
+        debug!(
+            "waited {:.02}s for window creation",
+            start.elapsed().as_secs_f32()
+        );
 
-    pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
-        use wgpu::Backends;
-        // TODO: Support webgpu when more widely supported
-        let supported_backends = Backends::VULKAN | Backends::METAL | Backends::DX12 | Backends::GL;
-
-        // The window must be ready with a non-zero size before `Painter::set_window` is called,
-        // otherwise the wgpu surface won't be configured correctly.
-        Self::wait_for_window(&window).await;
-
-        let wgpu_cfg = egui_wgpu::WgpuConfiguration {
-            supported_backends,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            ..Default::default()
-        };
-        let mut painter = Painter::new(wgpu_cfg.clone(), 1, None, false);
+        let mut painter = Painter::new(egui_wgpu::WgpuConfiguration::default(), 1, None, false);
 
         // Creating device may fail if adapter doesn't support our requested cfg above, so try to
         // recover with lower limits. Specifically max_texture_dimension_2d has a downlevel default
@@ -765,7 +755,7 @@ impl Renderer {
                                 },
                             }
                         }),
-                        ..wgpu_cfg
+                        ..Default::default()
                     },
                     1,
                     None,
