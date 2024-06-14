@@ -69,7 +69,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender = "0.2"
 uuid = { version = "1.8", features = ["v4", "fast-rng", "serde"] }
-winit = { version = "0.29", features = ["serde"] }
+winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15"
