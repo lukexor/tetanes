@@ -24,7 +24,7 @@ where
         .filename_suffix("log")
         .build(
             dirs::data_local_dir()
-                .map(|dir| dir.join("logs"))
+                .map(|dir| dir.join("tetanes/logs"))
                 .unwrap_or_else(|| PathBuf::from("logs")),
         )
         .context("failed to create log file")?;
