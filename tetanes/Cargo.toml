@@ -38,7 +38,6 @@ anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
-clap.workspace = true
 crossbeam = "0.8"
 # TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
 color-hex = "0.2"
@@ -56,29 +55,32 @@ gilrs = { version = "0.10", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
-puffin_egui = { version = "0.27", optional = true }
-rfd = "0.14"
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = "0.30"
 tetanes-core = { version = "0.11", path = "../tetanes-core" }
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tracing-appender = "0.2"
 uuid = { version = "1.8", features = ["v4", "fast-rng", "serde"] }
+# Only here to define features for egui-winit "links" feature, hence the "*"
+webbrowser = { version = "*", features = ["hardened", "disable-wsl"] }
 winit = { version = "0.29", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+clap.workspace = true
 cpal = "0.15"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 egui-winit = "0.27"
 pollster = "0.3"
 puffin = { workspace = true, optional = true }
+puffin_egui = { version = "0.27", optional = true }
 reqwest = { version = "0.12", features = ["blocking"] }
+rfd = "0.14"
 semver = "1"
+sysinfo = "0.30"
+tracing-appender = "0.2"
 wgpu = "0.19"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

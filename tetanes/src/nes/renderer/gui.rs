@@ -30,7 +30,6 @@ use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
 };
-use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::Channel,
@@ -169,7 +168,9 @@ pub struct Gui {
     pub loaded_rom: Option<LoadedRom>,
     pub about_homebrew_rom_open: Option<RomAsset>,
     pub start: Instant,
-    pub sys: Option<System>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub sys: Option<sysinfo::System>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub sys_updated: Instant,
     pub error: Option<String>,
 }
@@ -190,26 +191,31 @@ impl Gui {
 
     /// Create a `Gui` instance.
     pub fn new(tx: EventLoopProxy<NesEvent>, texture: SizedTexture, cfg: &Config) -> Self {
-        let sys = if sysinfo::IS_SUPPORTED_SYSTEM {
-            let mut sys = System::new_with_specifics(
-                RefreshKind::new().with_processes(
-                    ProcessRefreshKind::new()
-                        .with_cpu()
-                        .with_memory()
-                        .with_disk_usage(),
-                ),
-            );
-            sys.refresh_specifics(
-                RefreshKind::new().with_processes(
-                    ProcessRefreshKind::new()
-                        .with_cpu()
-                        .with_memory()
-                        .with_disk_usage(),
-                ),
-            );
-            Some(sys)
-        } else {
-            None
+        #[cfg(not(target_arch = "wasm32"))]
+        let sys = {
+            use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+
+            if sysinfo::IS_SUPPORTED_SYSTEM {
+                let mut sys = System::new_with_specifics(
+                    RefreshKind::new().with_processes(
+                        ProcessRefreshKind::new()
+                            .with_cpu()
+                            .with_memory()
+                            .with_disk_usage(),
+                    ),
+                );
+                sys.refresh_specifics(
+                    RefreshKind::new().with_processes(
+                        ProcessRefreshKind::new()
+                            .with_cpu()
+                            .with_memory()
+                            .with_disk_usage(),
+                    ),
+                );
+                Some(sys)
+            } else {
+                None
+            }
         };
 
         Self {
@@ -247,7 +253,9 @@ impl Gui {
             loaded_rom: None,
             about_homebrew_rom_open: None,
             start: Instant::now(),
+            #[cfg(not(target_arch = "wasm32"))]
             sys,
+            #[cfg(not(target_arch = "wasm32"))]
             sys_updated: Instant::now(),
             error: None,
         }
@@ -1730,6 +1738,7 @@ impl Gui {
         grid.show(ui, |ui| {
             ui.ctx().request_repaint_after(Duration::from_secs(1));
 
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(sys) = &mut self.sys {
                 // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
                 // results
@@ -1737,8 +1746,8 @@ impl Gui {
                 assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
                 if self.sys_updated.elapsed() >= sys_update_interval {
                     sys.refresh_specifics(
-                        RefreshKind::new().with_processes(
-                            ProcessRefreshKind::new()
+                        sysinfo::RefreshKind::new().with_processes(
+                            sysinfo::ProcessRefreshKind::new()
                                 .with_cpu()
                                 .with_memory()
                                 .with_disk_usage(),
@@ -1763,11 +1772,6 @@ impl Gui {
             let frame_time_color = |time| match time {
                 time if time <= 1000.0 * 1.0 / 60.0 => good_color,
                 time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
-                _ => bad_color,
-            };
-            let cpu_color = |cpu| match cpu {
-                cpu if cpu <= 25.0 => good_color,
-                cpu if cpu <= 50.0 => warn_color,
                 _ => bad_color,
             };
 
@@ -1814,11 +1818,21 @@ impl Gui {
             ui.label(format!("{}", self.frame_stats.frame_count));
             ui.end_row();
 
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(ref sys) = self.sys {
+                let cpu_color = |cpu| match cpu {
+                    cpu if cpu <= 25.0 => good_color,
+                    cpu if cpu <= 50.0 => warn_color,
+                    _ => bad_color,
+                };
+                const fn bytes_to_mb(bytes: u64) -> u64 {
+                    bytes / 0x100000
+                }
+
                 ui.label("");
                 ui.end_row();
 
-                match sys.process(Pid::from_u32(std::process::id())) {
+                match sys.process(sysinfo::Pid::from_u32(std::process::id())) {
                     Some(proc) => {
                         ui.strong("CPU:");
                         let cpu_usage = proc.cpu_usage();
@@ -3106,10 +3120,6 @@ impl Gui {
             ..Self::dark_theme()
         }
     }
-}
-
-const fn bytes_to_mb(bytes: u64) -> u64 {
-    bytes / 0x100000
 }
 
 fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
