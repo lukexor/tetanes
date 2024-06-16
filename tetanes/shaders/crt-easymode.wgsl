@@ -37,7 +37,9 @@ var<private> vertices: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) v_uv: vec2<f32>,
+    @location(0) dims: vec2<f32>,
+    @location(1) inv_dims: vec2<f32>,
+    @location(2) v_uv: vec2<f32>,
 };
 
 @vertex
@@ -46,7 +48,10 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     let vert = vertices[v_idx];
+
     // Convert x from -1.0..1.0 to 0.0..1.0 and y from -1.0..1.0 to 1.0..0.0
+    out.dims = vec2<f32>(textureDimensions(tex));
+    out.inv_dims = 1.0 / out.dims;
     out.v_uv = fma(vert, vec2(0.5, -0.5), vec2(0.5, 0.5));
     out.position = vec4(vert, 0.0, 1.0);
     return out;
@@ -117,12 +122,11 @@ fn get_color_matrix(co: vec2<f32>, dx: vec2<f32>) -> mat4x4<f32> {
 
 
 @fragment
-fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let dims = vec2<f32>(textureDimensions(tex));
-    let inv_dims = 1.0 / dims;
-
-    let dx = vec2<f32>(inv_dims.x, 0.0);
-    let dy = vec2<f32>(0.0, inv_dims.y);
+fn fs_main(
+    @location(0) dims: vec2<f32>,
+    @location(1) inv_dims: vec2<f32>,
+    @location(2) v_uv: vec2<f32>
+) -> @location(0) vec4<f32> {
     let pix_co = v_uv * dims - vec2<f32>(0.5, 0.5);
     let tex_co = (floor(pix_co) + vec2<f32>(0.5, 0.5)) * inv_dims;
     let dist = fract(pix_co);
@@ -134,6 +138,8 @@ fn fs_main(@location(0) v_uv: vec2<f32>) -> @location(0) vec4<f32> {
     coeffs = 2.0 * sin(coeffs) * sin(coeffs * 0.5) / (coeffs * coeffs);
     coeffs /= dot(coeffs, vec4<f32>(1.0));
 
+    let dx = vec2<f32>(inv_dims.x, 0.0);
+    let dy = vec2<f32>(0.0, inv_dims.y);
     var col = filter_lanczos(coeffs, get_color_matrix(tex_co, dx));
     var col2 = filter_lanczos(coeffs, get_color_matrix(tex_co + dy, dx));
 
