@@ -58,7 +58,7 @@ parking_lot = "0.12"
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
-tetanes-core = { version = "0.11", path = "../tetanes-core" }
+tetanes-core.workspace = true
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true

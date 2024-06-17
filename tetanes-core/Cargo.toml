@@ -37,7 +37,6 @@ enum_dispatch = "0.3"
 flate2 = "1.0"
 rand = "0.8"
 serde.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
@@ -46,6 +45,7 @@ puffin = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 puffin = { workspace = true, features = ["web"], optional = true }
+serde_json.workspace = true
 web-time.workspace = true
 web-sys = { workspace = true, features = ["Storage", "Window"] }
 
