@@ -77,7 +77,10 @@ impl Frame {
     #[must_use]
     pub fn pixel_brightness(&self, x: u32, y: u32) -> u32 {
         let pixel = self.pixel(x, y);
-        let (red, green, blue) = Ppu::system_palette(pixel);
+        let index = (pixel as usize) * 3;
+        let red = Ppu::NTSC_PALETTE[index];
+        let green = Ppu::NTSC_PALETTE[index + 1];
+        let blue = Ppu::NTSC_PALETTE[index + 2];
         u32::from(red) + u32::from(green) + u32::from(blue)
     }
 

@@ -280,13 +280,6 @@ impl Ppu {
         ppu
     }
 
-    /// Return the system palette color for the given pixel.
-    #[inline]
-    #[must_use]
-    pub const fn system_palette(pixel: u16) -> (u8, u8, u8) {
-        Self::SYSTEM_PALETTE[(pixel as usize) & (Self::SYSTEM_PALETTE.len() - 1)]
-    }
-
     /// Return the current frame buffer.
     #[inline]
     #[must_use]
