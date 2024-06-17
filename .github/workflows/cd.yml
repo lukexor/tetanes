@@ -97,15 +97,20 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
-      # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
-      - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
+      # macOS builds first, and then bundles in a separate job to provide
+      # universal bundle
+      - if: startsWith(matrix.os, 'macos')
         run: |
-          cargo make build-artifacts -- --target ${{ matrix.target }}
+          cargo make build-artifacts -- --target ${{ matrix.target }} --skip-artifacts
       # ubuntu aarch64 requires cross building
       - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64')
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           cargo make build-artifacts -- --target ${{ matrix.target }} --cross
+      # Windows/wasm32/ubuntu x86_64 can all build/cross build normally
+      - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
+        run: |
+          cargo make build-artifacts -- --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         name: "Upload artifacts"
         with:
@@ -117,10 +122,28 @@ jobs:
         run: |
           gh release upload ${{ github.event.release.tag_name || inputs.tag }} dist/* --clobber
           echo "release_tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+  build-universal-binary:
+    name: Build Universal Binary
+    if: startsWith(github.event.release.name, 'tetanes') || inputs.build
+    needs: build-and-upload-artifacts
+    runs-on: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: "lukexor/homebrew-formulae"
+      - run: |
+          cargo make build-artifacts -- --target ${{ matrix.target }} --skip-build
+      - uses: actions/upload-artifact@v4
+        name: "Upload artifacts"
+        with:
+          name: ${{ matrix.target }}-artifacts
+          path: dist/
   update-homebrew-formula:
     name: Update Homebrew Formula
     if: startsWith(github.event.release.name, 'tetanes') || inputs.build
-    needs: build-and-upload-artifacts
+    needs:
+      - build-and-upload-artifacts
+      - build-universal-binary
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.build-and-upload-artifacts.outputs.release_tag }}

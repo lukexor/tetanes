@@ -22,6 +22,12 @@ pub struct Args {
     /// `cross`. e.g. `aarch64-unknown-linux-gnu`.
     #[clap(long)]
     cross: bool,
+    /// Skip the build step when creating artifacts.
+    #[clap(long)]
+    skip_build: bool,
+    /// Skip the artifact creation step and only build the binary.
+    #[clap(long)]
+    skip_artifacts: bool,
     /// Clean `dist` directory before building.
     #[clap(long)]
     clean: bool,
@@ -45,13 +51,17 @@ struct Build {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let build = Build::new(args)?;
+    let build = Build::new(&args)?;
 
     println!("building artifacts: {build:?}...");
 
     if build.target_arch == "wasm32-unknown-unknown" {
-        build.make(["build-web"])?;
-        build.compress_web_artifacts()?;
+        if !args.skip_build {
+            build.make(["build-web"])?;
+        }
+        if !args.skip_artifacts {
+            build.compress_web_artifacts()?;
+        }
     } else {
         let build_args = ["build", "--target", &build.target_arch];
         cfg_if! {
@@ -61,11 +71,19 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     build_args.to_vec()
                 };
-                build.make(build_args)?;
-                build.create_linux_artifacts()?;
+                if !args.skip_build {
+                    build.make(build_args)?;
+                }
+                if !args.skip_artifacts {
+                    build.create_linux_artifacts()?;
+                }
             } else if #[cfg(target_os = "macos")] {
-                build.make(build_args)?;
-                build.create_macos_app()?;
+                if !args.skip_build {
+                    build.make(build_args)?;
+                }
+                if !args.skip_artifacts {
+                    build.create_macos_app()?;
+                }
             } else if #[cfg(target_os = "windows")] {
                 build.create_windows_installer()?;
             }
@@ -78,7 +96,7 @@ fn main() -> anyhow::Result<()> {
 impl Build {
     /// Create a new build context by cleaning up any previous artifacts and ensuring the
     /// dist directory is created.
-    fn new(args: Args) -> anyhow::Result<Self> {
+    fn new(args: &Args) -> anyhow::Result<Self> {
         let dist_dir = PathBuf::from("dist");
 
         if args.clean {
@@ -89,7 +107,7 @@ impl Build {
         let bin_name = env!("CARGO_PKG_NAME");
         let cargo_target_dir =
             PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
-        let target_arch = args.target;
+        let target_arch = args.target.clone();
 
         Ok(Build {
             version: env!("CARGO_PKG_VERSION"),
