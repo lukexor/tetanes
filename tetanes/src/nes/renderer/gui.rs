@@ -424,7 +424,7 @@ impl Gui {
         self.show_about_homebrew_window(ctx);
         self.show_update_window(ctx);
 
-        #[cfg(feature = "profiling")]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
         if self.pending_keybind.is_none() {
             puffin::profile_scope!("puffin");
             puffin_egui::show_viewport_if_enabled(ctx);
