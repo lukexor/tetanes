@@ -3,10 +3,10 @@ use crate::nes::{
     config::{Config, InputConfig},
     renderer::gui::Menu,
 };
-use egui::ahash::{HashMap, HashMapExt};
+use egui::ahash::HashMap;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     iter::Peekable,
     ops::{Deref, DerefMut},
 };
@@ -25,18 +25,16 @@ use winit::{
 };
 
 macro_rules! action_binding {
-    ($action:expr => $bindings:expr) => {
-        ActionBindings {
-            action: $action.into(),
-            bindings: $bindings,
-        }
-    };
+    ($action:expr => $bindings:expr) => {{
+        let action = $action.into();
+        (action, ActionBindings::new(action, $bindings))
+    }};
     ($action:expr => $modifiers:expr, $key:expr) => {
-        action_binding!($action => [Some(Input::Key($key, $modifiers)), None])
+        action_binding!($action => [Some(Input::Key($key, $modifiers)), None, None])
     };
     ($action:expr => $modifiers1:expr, $key1:expr; $modifiers2:expr, $key2:expr) => {
         action_binding!(
-            $action => [Some(Input::Key($key1, $modifiers1)), Some(Input::Key($key2, $modifiers2))]
+            $action => [Some(Input::Key($key1, $modifiers1)), Some(Input::Key($key2, $modifiers2)), None]
         )
     };
 }
@@ -65,10 +63,10 @@ macro_rules! shortcut_map {
 
 macro_rules! gamepad_map {
     (@ $action:expr => $player:expr; $button:expr) => {
-        action_binding!($action => [Some(Input::Button($player, $button)), None])
+        action_binding!($action => [Some(Input::Button($player, $button)), None, None])
     };
     (@ $action:expr => $player:expr; $button1:expr; ($button2:expr, $state:expr)) => {
-        action_binding!($action => [Some(Input::Button($player, $button1)), Some(Input::Axis($player, $button2, $state))])
+        action_binding!($action => [Some(Input::Button($player, $button1)), Some(Input::Axis($player, $button2, $state)), None])
     };
     ($({ $action:expr => $player:expr; $button1:expr$(; ($button2:expr, $state:expr))? }),+$(,)?) => {
         vec![$(gamepad_map!(@ $action => $player; $button1$(; ($button2, $state))?),)+]
@@ -77,7 +75,7 @@ macro_rules! gamepad_map {
 
 macro_rules! mouse_map {
     (@ $action:expr => $button:expr) => {
-        action_binding!($action => [Some(Input::Mouse($button)), None])
+        action_binding!($action => [Some(Input::Mouse($button)), None, None])
     };
     ($({ $action:expr => $button:expr }),+$(,)?) => {
         vec![$(mouse_map!(@ $action => $button),)+]
@@ -93,33 +91,219 @@ pub enum Input {
     Axis(Player, gilrs::Axis, AxisDirection),
 }
 
+impl Input {
+    pub fn fmt(input: Input) -> String {
+        use winit::{
+            event::MouseButton,
+            keyboard::{KeyCode, ModifiersState},
+        };
+
+        match input {
+            Input::Key(keycode, modifiers) => {
+                let mut s = String::with_capacity(32);
+                if modifiers.contains(ModifiersState::CONTROL) {
+                    s += "Ctrl";
+                }
+                if modifiers.contains(ModifiersState::SHIFT) {
+                    if !s.is_empty() {
+                        s += "+";
+                    }
+                    s += "Shift";
+                }
+                if modifiers.contains(ModifiersState::ALT) {
+                    if !s.is_empty() {
+                        s += "+";
+                    }
+                    s += "Alt";
+                }
+                if modifiers.contains(ModifiersState::SUPER) {
+                    if !s.is_empty() {
+                        s += "+";
+                    }
+                    s += "Super";
+                }
+                let ch = match keycode {
+                    KeyCode::Backquote => "`",
+                    KeyCode::Backslash | KeyCode::IntlBackslash => "\\",
+                    KeyCode::BracketLeft => "[",
+                    KeyCode::BracketRight => "]",
+                    KeyCode::Comma | KeyCode::NumpadComma => ",",
+                    KeyCode::Digit0 => "0",
+                    KeyCode::Digit1 => "1",
+                    KeyCode::Digit2 => "2",
+                    KeyCode::Digit3 => "3",
+                    KeyCode::Digit4 => "4",
+                    KeyCode::Digit5 => "5",
+                    KeyCode::Digit6 => "6",
+                    KeyCode::Digit7 => "7",
+                    KeyCode::Digit8 => "8",
+                    KeyCode::Digit9 => "9",
+                    KeyCode::Equal => "=",
+                    KeyCode::KeyA => "A",
+                    KeyCode::KeyB => "B",
+                    KeyCode::KeyC => "C",
+                    KeyCode::KeyD => "D",
+                    KeyCode::KeyE => "E",
+                    KeyCode::KeyF => "F",
+                    KeyCode::KeyG => "G",
+                    KeyCode::KeyH => "H",
+                    KeyCode::KeyI => "I",
+                    KeyCode::KeyJ => "J",
+                    KeyCode::KeyK => "K",
+                    KeyCode::KeyL => "L",
+                    KeyCode::KeyM => "M",
+                    KeyCode::KeyN => "N",
+                    KeyCode::KeyO => "O",
+                    KeyCode::KeyP => "P",
+                    KeyCode::KeyQ => "Q",
+                    KeyCode::KeyR => "R",
+                    KeyCode::KeyS => "S",
+                    KeyCode::KeyT => "T",
+                    KeyCode::KeyU => "U",
+                    KeyCode::KeyV => "V",
+                    KeyCode::KeyW => "W",
+                    KeyCode::KeyX => "X",
+                    KeyCode::KeyY => "Y",
+                    KeyCode::KeyZ => "Z",
+                    KeyCode::Minus | KeyCode::NumpadSubtract => "-",
+                    KeyCode::Period | KeyCode::NumpadDecimal => ".",
+                    KeyCode::Quote => "'",
+                    KeyCode::Semicolon => ";",
+                    KeyCode::Slash | KeyCode::NumpadDivide => "/",
+                    KeyCode::Backspace | KeyCode::NumpadBackspace => "Backspace",
+                    KeyCode::Enter | KeyCode::NumpadEnter => "Enter",
+                    KeyCode::Space => "Space",
+                    KeyCode::Tab => "Tab",
+                    KeyCode::Delete => "Delete",
+                    KeyCode::End => "End",
+                    KeyCode::Help => "Help",
+                    KeyCode::Home => "Home",
+                    KeyCode::Insert => "Ins",
+                    KeyCode::PageDown => "PageDown",
+                    KeyCode::PageUp => "PageUp",
+                    KeyCode::ArrowDown => "Down",
+                    KeyCode::ArrowLeft => "Left",
+                    KeyCode::ArrowRight => "Right",
+                    KeyCode::ArrowUp => "Up",
+                    KeyCode::Numpad0 => "Num0",
+                    KeyCode::Numpad1 => "Num1",
+                    KeyCode::Numpad2 => "Num2",
+                    KeyCode::Numpad3 => "Num3",
+                    KeyCode::Numpad4 => "Num4",
+                    KeyCode::Numpad5 => "Num5",
+                    KeyCode::Numpad6 => "Num6",
+                    KeyCode::Numpad7 => "Num7",
+                    KeyCode::Numpad8 => "Num8",
+                    KeyCode::Numpad9 => "Num9",
+                    KeyCode::NumpadAdd => "+",
+                    KeyCode::NumpadEqual => "=",
+                    KeyCode::NumpadHash => "#",
+                    KeyCode::NumpadMultiply => "*",
+                    KeyCode::NumpadParenLeft => "(",
+                    KeyCode::NumpadParenRight => ")",
+                    KeyCode::NumpadStar => "*",
+                    KeyCode::Escape => "Escape",
+                    KeyCode::Fn => "Fn",
+                    KeyCode::F1 => "F1",
+                    KeyCode::F2 => "F2",
+                    KeyCode::F3 => "F3",
+                    KeyCode::F4 => "F4",
+                    KeyCode::F5 => "F5",
+                    KeyCode::F6 => "F6",
+                    KeyCode::F7 => "F7",
+                    KeyCode::F8 => "F8",
+                    KeyCode::F9 => "F9",
+                    KeyCode::F10 => "F10",
+                    KeyCode::F11 => "F11",
+                    KeyCode::F12 => "F12",
+                    KeyCode::F13 => "F13",
+                    KeyCode::F14 => "F14",
+                    KeyCode::F15 => "F15",
+                    KeyCode::F16 => "F16",
+                    KeyCode::F17 => "F17",
+                    KeyCode::F18 => "F18",
+                    KeyCode::F19 => "F19",
+                    KeyCode::F20 => "F20",
+                    KeyCode::F21 => "F21",
+                    KeyCode::F22 => "F22",
+                    KeyCode::F23 => "F23",
+                    KeyCode::F24 => "F24",
+                    KeyCode::F25 => "F25",
+                    KeyCode::F26 => "F26",
+                    KeyCode::F27 => "F27",
+                    KeyCode::F28 => "F28",
+                    KeyCode::F29 => "F29",
+                    KeyCode::F30 => "F30",
+                    KeyCode::F31 => "F31",
+                    KeyCode::F32 => "F32",
+                    KeyCode::F33 => "F33",
+                    KeyCode::F34 => "F34",
+                    KeyCode::F35 => "F35",
+                    _ => "",
+                };
+                if !ch.is_empty() {
+                    if !s.is_empty() {
+                        s += "+";
+                    }
+                    s += ch;
+                }
+                s.shrink_to_fit();
+                s
+            }
+            Input::Button(_, button) => format!("{button:#?}"),
+            Input::Axis(_, axis, direction) => format!("{axis:#?} {direction:#?}"),
+            Input::Mouse(button) => match button {
+                MouseButton::Left => String::from("Left Click"),
+                MouseButton::Right => String::from("Right Click"),
+                MouseButton::Middle => String::from("Middle Click"),
+                MouseButton::Back => String::from("Back Click"),
+                MouseButton::Forward => String::from("Forward Click"),
+                MouseButton::Other(id) => format!("Button {id} Click"),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AxisDirection {
     Negative, // Left or Up
     Positive, // Right or Down
 }
 
+pub type Bindings = [Option<Input>; 3];
+
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct ActionBindings {
     pub action: Action,
-    pub bindings: [Option<Input>; 2],
+    pub bindings: Bindings,
 }
 
 impl ActionBindings {
+    pub const fn new(action: Action, bindings: Bindings) -> Self {
+        Self { action, bindings }
+    }
+
     pub fn empty(action: Action) -> Self {
         Self {
             action,
             bindings: Default::default(),
         }
     }
+}
 
-    pub fn default_shortcuts() -> Vec<Self> {
+impl ActionBindings {
+    pub fn default_shortcuts() -> BTreeMap<Action, ActionBindings> {
         use KeyCode::*;
         const SHIFT: ModifiersState = ModifiersState::SHIFT;
         const CONTROL: ModifiersState = ModifiersState::CONTROL;
 
-        let mut bindings = Vec::with_capacity(64);
+        let mut bindings = Action::BINDABLE
+            .into_iter()
+            .filter(|action| !action.is_joypad())
+            .map(|action| (action, ActionBindings::empty(action)))
+            .collect::<BTreeMap<_, _>>();
+
         bindings.extend(shortcut_map!(
             { Debug::Step(DebugStep::Frame) => :SHIFT, KeyF },
             { Debug::Step(DebugStep::Into) => KeyC },
@@ -173,16 +357,19 @@ impl ActionBindings {
             { DeckAction::ZapperTrigger => MouseButton::Left },
             { DeckAction::ZapperAimOffscreen => MouseButton::Right }
         ));
-        bindings.shrink_to_fit();
 
         bindings
     }
 
-    pub fn default_player_bindings(player: Player) -> Vec<Self> {
+    pub fn default_player_bindings(player: Player) -> BTreeMap<Action, ActionBindings> {
         use gilrs::{Axis, Button};
         use KeyCode::*;
 
-        let mut bindings = Vec::with_capacity(10);
+        let mut bindings = Action::BINDABLE
+            .into_iter()
+            .filter(|action| action.is_joypad())
+            .map(|action| (action, ActionBindings::empty(action)))
+            .collect::<BTreeMap<_, _>>();
 
         bindings.extend(gamepad_map!(
             { (player, JoypadBtn::A) => player; Button::East },
@@ -203,7 +390,7 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::TurboA) => KeyA },
                 { (Player::One, JoypadBtn::B) => KeyX },
                 { (Player::One, JoypadBtn::TurboB) => KeyS },
-                // TODO: These overwrite Axis bindings above because there are only two binding
+                // FIXME: These overwrite Axis bindings above because there are only two binding
                 // slots available at present
                 { (Player::One, JoypadBtn::Up) => ArrowUp },
                 { (Player::One, JoypadBtn::Down) => ArrowDown },
@@ -215,13 +402,18 @@ impl ActionBindings {
             _ => Vec::new(),
         };
 
-        for binding in additional_bindings {
-            if let Some(existing_bind) = bindings.iter_mut().find(|b| b.action == binding.action) {
-                if existing_bind.bindings[0].is_some() {
-                    existing_bind.bindings[1] = binding.bindings[0];
+        for (action, addtl_binding) in additional_bindings {
+            if let Some((_, existing_bindings)) = bindings
+                .iter_mut()
+                .find(|(existing_action, _)| **existing_action == action)
+            {
+                for binding in &mut existing_bindings.bindings {
+                    if binding.is_none() {
+                        *binding = addtl_binding.bindings[0];
+                    }
                 }
             } else {
-                bindings.push(binding);
+                bindings.insert(action, addtl_binding);
             }
         }
 
@@ -234,18 +426,17 @@ pub struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
     pub fn from_input_config(cfg: &InputConfig) -> Self {
-        let mut map = HashMap::with_capacity(256);
-        for bind in cfg
-            .shortcuts
-            .iter()
-            .chain(cfg.joypad_bindings.iter().flatten())
-        {
-            for input in bind.bindings.into_iter().flatten() {
-                map.insert(input, bind.action);
-            }
-        }
-        map.shrink_to_fit();
-        Self(map)
+        Self(
+            cfg.action_bindings
+                .iter()
+                .flat_map(|bind| {
+                    bind.bindings
+                        .iter()
+                        .flatten()
+                        .map(|input| (*input, bind.action))
+                })
+                .collect(),
+        )
     }
 }
 
@@ -399,8 +590,16 @@ impl Gamepads {
         self.connected.values()
     }
 
+    pub fn events(&self) -> impl Iterator<Item = &gilrs::Event> {
+        self.events.iter()
+    }
+
     pub fn next_event(&mut self) -> Option<gilrs::Event> {
         self.events.pop_back()
+    }
+
+    pub fn clear_events(&mut self) {
+        self.events.clear();
     }
 
     pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {

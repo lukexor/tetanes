@@ -23,6 +23,18 @@ pub enum Action {
     Debug(Debug),
 }
 
+impl PartialOrd for Action {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Action {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_ref().cmp(other.as_ref())
+    }
+}
+
 impl Action {
     pub const BINDABLE: [Self; 111] = [
         Self::Ui(Ui::Quit),
@@ -173,9 +185,10 @@ impl AsRef<str> for Action {
             },
             Action::Menu(menu) => match menu {
                 Menu::About => "Toggle About Window",
-                Menu::Keybinds => "Toggle Keybinds Window",
+                Menu::Keybinds => "Toggle Keybinds Menu",
                 Menu::PerfStats => "Toggle Performance Stats Window",
-                Menu::Preferences => "Toggle Preferences Window",
+                Menu::PpuViewer => "Toggle PPU Viewer",
+                Menu::Preferences => "Toggle Preferences Menu",
             },
             Action::Feature(feature) => match feature {
                 Feature::ToggleReplayRecording => "Toggle Replay Recording",
@@ -281,6 +294,124 @@ impl AsRef<str> for Action {
                 },
             },
         }
+    }
+}
+
+impl TryFrom<&str> for Action {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Ok(match s {
+            "Quit" => Self::Ui(Ui::Quit),
+            "Toggle Pause" => Self::Ui(Ui::TogglePause),
+            "Load ROM" => Self::Ui(Ui::LoadRom),
+            "Unload ROM" => Self::Ui(Ui::UnloadRom),
+            "Load Replay" => Self::Ui(Ui::LoadReplay),
+            "Toggle About Window" => Self::Menu(Menu::About),
+            "Toggle Keybinds Menu" => Self::Menu(Menu::Keybinds),
+            "Toggle Performance Stats Window" => Self::Menu(Menu::PerfStats),
+            "Toggle PPU Viewer" => Self::Menu(Menu::PpuViewer),
+            "Toggle Preferences Menu" => Self::Menu(Menu::Preferences),
+            "Toggle Replay Recording" => Self::Feature(Feature::ToggleReplayRecording),
+            "Toggle Audio Recording" => Self::Feature(Feature::ToggleAudioRecording),
+            "Visual Rewind" => Self::Feature(Feature::VisualRewind),
+            "Instant Rewind" => Self::Feature(Feature::InstantRewind),
+            "Take Screenshot" => Self::Feature(Feature::TakeScreenshot),
+            "Toggle Fullscreen" => Self::Setting(Setting::ToggleFullscreen),
+            "Toggle Embed Viewports" => Self::Setting(Setting::ToggleEmbedViewports),
+            "Toggle Always On Top" => Self::Setting(Setting::ToggleAlwaysOnTop),
+            "Toggle Audio" => Self::Setting(Setting::ToggleAudio),
+            "Toggle Cycle Accurate" => Self::Setting(Setting::ToggleCycleAccurate),
+            "Toggle Rewinding" => Self::Setting(Setting::ToggleRewinding),
+            "Toggle Overscan" => Self::Setting(Setting::ToggleOverscan),
+            "Toggle Menubar" => Self::Setting(Setting::ToggleMenubar),
+            "Toggle Messages" => Self::Setting(Setting::ToggleMessages),
+            "Toggle FPS" => Self::Setting(Setting::ToggleFps),
+            "Fast Forward" => Self::Setting(Setting::FastForward),
+            "Increment Scale" => Self::Setting(Setting::IncrementScale),
+            "Decrement Scale" => Self::Setting(Setting::DecrementScale),
+            "Increment Speed" => Self::Setting(Setting::IncrementSpeed),
+            "Decrement Speed" => Self::Setting(Setting::DecrementSpeed),
+            "Reset" => Self::Deck(DeckAction::Reset(ResetKind::Soft)),
+            "Power Cycle" => Self::Deck(DeckAction::Reset(ResetKind::Hard)),
+            "Joypad Left (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Left))),
+            "Joypad Right (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Right))),
+            "Joypad Up (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Up))),
+            "Joypad Down (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Down))),
+            "Joypad A (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::A))),
+            "Joypad B (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::B))),
+            "Joypad Turbo A (P1)" => {
+                Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::TurboA)))
+            }
+            "Joypad Turbo B (P1)" => {
+                Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::TurboB)))
+            }
+            "Joypad Select (P1)" => {
+                Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Select)))
+            }
+            "Joypad Start (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Start))),
+            "Toggle Zapper Connected" => Self::Deck(DeckAction::ToggleZapperConnected),
+            "Zapper Aim" => Self::Deck(DeckAction::ZapperAim((0, 0))),
+            "Zapper Aim Offscreen (Hold)" => Self::Deck(DeckAction::ZapperAimOffscreen),
+            "Zapper Trigger" => Self::Deck(DeckAction::ZapperTrigger),
+            "Disable Four Player Mode" => Self::Deck(DeckAction::FourPlayer(FourPlayer::Disabled)),
+            "Enable Four Player (FourScore)" => {
+                Self::Deck(DeckAction::FourPlayer(FourPlayer::FourScore))
+            }
+            "Enable Four Player (Satellite)" => {
+                Self::Deck(DeckAction::FourPlayer(FourPlayer::Satellite))
+            }
+            "Set Save Slot 1" => Self::Deck(DeckAction::SetSaveSlot(1)),
+            "Set Save Slot 2" => Self::Deck(DeckAction::SetSaveSlot(2)),
+            "Set Save Slot 3" => Self::Deck(DeckAction::SetSaveSlot(3)),
+            "Set Save Slot 4" => Self::Deck(DeckAction::SetSaveSlot(4)),
+            "Set Save Slot 5" => Self::Deck(DeckAction::SetSaveSlot(5)),
+            "Set Save Slot 6" => Self::Deck(DeckAction::SetSaveSlot(6)),
+            "Set Save Slot 7" => Self::Deck(DeckAction::SetSaveSlot(7)),
+            "Set Save Slot 8" => Self::Deck(DeckAction::SetSaveSlot(8)),
+            "Save State" => Self::Deck(DeckAction::SaveState),
+            "Load State" => Self::Deck(DeckAction::LoadState),
+            "Toggle Pulse1 Channel" => Self::Deck(DeckAction::ToggleApuChannel(Channel::Pulse1)),
+            "Toggle Pulse2 Channel" => Self::Deck(DeckAction::ToggleApuChannel(Channel::Pulse2)),
+            "Toggle Triangle Channel" => {
+                Self::Deck(DeckAction::ToggleApuChannel(Channel::Triangle))
+            }
+            "Toggle Noise Channel" => Self::Deck(DeckAction::ToggleApuChannel(Channel::Noise)),
+            "Toggle DMC Channel" => Self::Deck(DeckAction::ToggleApuChannel(Channel::Dmc)),
+            "Toggle Mapper Channel" => Self::Deck(DeckAction::ToggleApuChannel(Channel::Mapper)),
+            "Set Mapper Rev. to MMC3A" => Self::Deck(DeckAction::MapperRevision(
+                MapperRevision::Mmc3(Mmc3Revision::A),
+            )),
+            "Set Mapper Rev. to MMC3B/C" => Self::Deck(DeckAction::MapperRevision(
+                MapperRevision::Mmc3(Mmc3Revision::BC),
+            )),
+            "Set Mapper Rev. to MC-ACC" => Self::Deck(DeckAction::MapperRevision(
+                MapperRevision::Mmc3(Mmc3Revision::Acc),
+            )),
+            "Set Mapper Rev. to BF909x" => Self::Deck(DeckAction::MapperRevision(
+                MapperRevision::Bf909(Bf909Revision::Bf909x),
+            )),
+            "Set Mapper Rev. to BF9097" => Self::Deck(DeckAction::MapperRevision(
+                MapperRevision::Bf909(Bf909Revision::Bf9097),
+            )),
+            "Set Region to Auto-Detect" => Self::Deck(DeckAction::SetNesRegion(NesRegion::Auto)),
+            "Set Region to NTSC" => Self::Deck(DeckAction::SetNesRegion(NesRegion::Ntsc)),
+            "Set Region to PAL" => Self::Deck(DeckAction::SetNesRegion(NesRegion::Pal)),
+            "Set Region to Dendy" => Self::Deck(DeckAction::SetNesRegion(NesRegion::Dendy)),
+            "Set Filter to Pixellate" => {
+                Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Pixellate))
+            }
+            "Set Filter to NTSC" => Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Ntsc)),
+            "Toggle CPU Debugger" => Self::Debug(Debug::Toggle(Debugger::Cpu)),
+            "Toggle PPU Debugger" => Self::Debug(Debug::Toggle(Debugger::Ppu)),
+            "Toggle APU Debugger" => Self::Debug(Debug::Toggle(Debugger::Apu)),
+            "Step Into (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Into)),
+            "Step Out (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Out)),
+            "Step Over (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Over)),
+            "Step Scanline (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Scanline)),
+            "Step Frame (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Frame)),
+            _ => return Err(anyhow::anyhow!("Invalid action string")),
+        })
     }
 }
 

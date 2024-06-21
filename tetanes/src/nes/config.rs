@@ -1,14 +1,15 @@
 use crate::nes::{
+    action::Action,
     input::{ActionBindings, Gamepads, Input},
     renderer::shader::Shader,
 };
 use anyhow::Context;
 use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 use tetanes_core::{
-    common::NesRegion, control_deck::Config as DeckConfig, fs, input::Player, ppu::Ppu,
-    time::Duration,
+    action::Action as DeckAction, common::NesRegion, control_deck::Config as DeckConfig, fs,
+    input::Player, ppu::Ppu, time::Duration,
 };
 use tracing::{error, info};
 use uuid::Uuid;
@@ -41,7 +42,7 @@ impl Default for AudioConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct EmulationConfig {
@@ -127,17 +128,29 @@ impl Default for RendererConfig {
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct InputConfig {
-    pub shortcuts: Vec<ActionBindings>,
-    pub joypad_bindings: [Vec<ActionBindings>; 4],
+    pub action_bindings: Vec<ActionBindings>,
     pub gamepad_assignments: [(Player, Option<Uuid>); 4],
+    #[serde(skip)]
+    pub shortcuts: BTreeMap<Action, ActionBindings>,
+    #[serde(skip)]
+    pub joypads: [BTreeMap<Action, ActionBindings>; 4],
 }
 
 impl Default for InputConfig {
     fn default() -> Self {
+        let shortcuts = ActionBindings::default_shortcuts();
+        let joypads = [Player::One, Player::Two, Player::Three, Player::Four]
+            .map(ActionBindings::default_player_bindings);
+        let action_bindings = shortcuts
+            .iter()
+            .chain(joypads.iter().flatten())
+            .map(|(_, bindings)| *bindings)
+            .collect();
+
         Self {
-            shortcuts: ActionBindings::default_shortcuts(),
-            joypad_bindings: [Player::One, Player::Two, Player::Three, Player::Four]
-                .map(ActionBindings::default_player_bindings),
+            action_bindings,
+            shortcuts,
+            joypads,
             gamepad_assignments: std::array::from_fn(|i| {
                 (Player::try_from(i).expect("valid player assignment"), None)
             }),
@@ -146,15 +159,51 @@ impl Default for InputConfig {
 }
 
 impl InputConfig {
-    pub fn clear_binding(&mut self, input: Input) {
-        if let Some(binding) = self
-            .shortcuts
+    pub fn set_binding(&mut self, action: Action, input: Input, binding: usize) {
+        // Clear existing binding, if any
+        self.clear_binding(input);
+
+        match self
+            .action_bindings
             .iter_mut()
-            .chain(self.joypad_bindings.iter_mut().flatten())
-            .flat_map(|bind| &mut bind.bindings)
-            .find(|binding| **binding == Some(input))
+            .find(|bind| bind.action == action)
         {
-            *binding = None;
+            Some(bind) => bind.bindings[binding] = Some(input),
+            None => {
+                let mut bindings = [None; 3];
+                bindings[binding] = Some(input);
+                self.action_bindings.push(ActionBindings {
+                    action,
+                    bindings: [Some(input), None, None],
+                });
+            }
+        }
+        let keybinds = if let Action::Deck(DeckAction::Joypad((player, _))) = action {
+            &mut self.joypads[player as usize]
+        } else {
+            &mut self.shortcuts
+        };
+        keybinds
+            .entry(action)
+            .and_modify(|bind| bind.bindings[binding] = Some(input))
+            .or_insert_with(|| {
+                let mut bindings = [None; 3];
+                bindings[binding] = Some(input);
+                ActionBindings { action, bindings }
+            });
+    }
+
+    pub fn clear_binding(&mut self, input: Input) {
+        for bind in &mut self.action_bindings {
+            if let Some(existing_input) = bind.bindings.iter_mut().find(|i| **i == Some(input)) {
+                if let Action::Deck(DeckAction::Joypad((player, _))) = bind.action {
+                    self.joypads[player as usize].remove(&bind.action);
+                } else {
+                    self.shortcuts.remove(&bind.action);
+                }
+                *existing_input = None;
+                break;
+            }
         }
     }
 
@@ -306,7 +355,8 @@ impl Config {
 
     pub fn load(path: Option<PathBuf>) -> Self {
         let path = path.unwrap_or_else(Config::config_path);
-        fs::exists(&path)
+
+        let mut config = fs::exists(&path)
             .then(|| {
                 info!("Loading saved configuration");
                 fs::load_raw(&path)
@@ -321,35 +371,69 @@ impl Config {
             .unwrap_or_else(|| {
                 info!("Loading default configuration");
                 Self::default()
-            })
+            });
+
+        for binding in &config.input.action_bindings {
+            if let Action::Deck(DeckAction::Joypad((player, _))) = binding.action {
+                config.input.joypads[player as usize].insert(binding.action, *binding);
+            } else {
+                config.input.shortcuts.insert(binding.action, *binding);
+            }
+        }
+
+        config
     }
 
     pub fn increment_speed(&mut self) -> f32 {
-        if self.emulation.speed <= 1.75 {
-            self.emulation.speed += 0.25;
-        }
+        self.emulation.speed = self.next_increment_speed();
         self.emulation.speed
+    }
+
+    pub fn next_increment_speed(&self) -> f32 {
+        if self.emulation.speed <= 1.75 {
+            self.emulation.speed + 0.25
+        } else {
+            self.emulation.speed
+        }
     }
 
     pub fn decrement_speed(&mut self) -> f32 {
-        if self.emulation.speed >= 0.50 {
-            self.emulation.speed -= 0.25;
-        }
+        self.emulation.speed = self.next_decrement_speed();
         self.emulation.speed
     }
 
-    pub fn increment_scale(&mut self) -> f32 {
-        if self.renderer.scale <= 4.0 {
-            self.renderer.scale += 1.0;
+    pub fn next_decrement_speed(&self) -> f32 {
+        if self.emulation.speed >= 0.50 {
+            self.emulation.speed - 0.25
+        } else {
+            self.emulation.speed
         }
+    }
+
+    pub fn increment_scale(&mut self) -> f32 {
+        self.renderer.scale = self.next_increment_scale();
         self.renderer.scale
     }
 
-    pub fn decrement_scale(&mut self) -> f32 {
-        if self.renderer.scale >= 2.0 {
-            self.renderer.scale -= 1.0;
+    pub fn next_increment_scale(&self) -> f32 {
+        if self.renderer.scale <= 4.0 {
+            self.renderer.scale + 1.0
+        } else {
+            self.renderer.scale
         }
+    }
+
+    pub fn decrement_scale(&mut self) -> f32 {
+        self.renderer.scale = self.next_decrement_scale();
         self.renderer.scale
+    }
+
+    pub fn next_decrement_scale(&self) -> f32 {
+        if self.renderer.scale >= 2.0 {
+            self.renderer.scale - 1.0
+        } else {
+            self.renderer.scale
+        }
     }
 
     #[must_use]
@@ -375,6 +459,33 @@ impl Config {
             Ppu::HEIGHT
         };
         egui::Vec2::new(width as f32, height as f32)
+    }
+
+    pub fn shortcut(&self, action: impl Into<Action>) -> String {
+        let action = action.into();
+        self.input
+            .shortcuts
+            .get(&action)
+            .or_else(|| self.input.joypads[0].get(&action))
+            .and_then(|bind| bind.bindings[0])
+            .map(Input::fmt)
+            .unwrap_or_default()
+    }
+
+    pub fn action_input(&self, action: impl Into<Action>) -> Option<Input> {
+        let action = action.into();
+        self.input
+            .shortcuts
+            .get(&action)
+            .or_else(|| {
+                self.input
+                    .joypads
+                    .iter()
+                    .map(|bind| bind.get(&action))
+                    .next()
+                    .flatten()
+            })
+            .and_then(|bind| bind.bindings[0])
     }
 }
 

@@ -2,11 +2,11 @@ use crate::{
     nes::{
         config::Config,
         event::{
-            ConfigEvent, EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent,
+            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
         },
         input::Gamepads,
         renderer::{
-            gui::{Gui, MessageType},
+            gui::{lib::key_from_keycode, Gui, MessageType},
             shader::Shader,
             texture::Texture,
         },
@@ -16,9 +16,9 @@ use crate::{
 };
 use anyhow::Context;
 use egui::{
-    ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
-    ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
-    ViewportIdSet, ViewportInfo, ViewportOutput, WindowLevel,
+    ahash::HashMap, DeferredViewportUiCallback, SystemTheme, Vec2, ViewportBuilder, ViewportClass,
+    ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair, ViewportIdSet, ViewportInfo,
+    ViewportOutput, WindowLevel,
 };
 use egui_wgpu::{winit::Painter, RenderState};
 use egui_winit::EventResponse;
@@ -34,11 +34,11 @@ use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
     event::WindowEvent,
-    event_loop::{EventLoopProxy, EventLoopWindowTarget},
+    event_loop::EventLoopWindowTarget,
     window::{Theme, Window, WindowId},
 };
 
@@ -108,9 +108,8 @@ impl std::fmt::Debug for Viewport {
 pub struct Renderer {
     pub(crate) state: Rc<RefCell<State>>,
     frame_rx: BufReceiver<Frame, FrameRecycle>,
-    tx: EventLoopProxy<NesEvent>,
-    // Only used by the immediate viewport renderer callback
-    redraw_tx: Arc<Mutex<EventLoopProxy<NesEvent>>>,
+    tx: NesEventProxy,
+    redraw_tx: Arc<Mutex<NesEventProxy>>,
     pub(crate) gui: Rc<RefCell<Gui>>,
     pub(crate) ctx: egui::Context,
     render_state: Option<RenderState>,
@@ -118,6 +117,7 @@ pub struct Renderer {
     first_frame: bool,
     pub(crate) last_save_time: Instant,
     zoom_changed: bool,
+    resize_texture: bool,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -157,8 +157,7 @@ impl std::fmt::Debug for Resources {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
-        tx: EventLoopProxy<NesEvent>,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
+        tx: NesEventProxy,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
         cfg: &Config,
@@ -176,7 +175,7 @@ impl Renderer {
             move |info| {
                 // IMPORTANT: Wasm can't block
                 if let Some(tx) = redraw_tx.try_lock() {
-                    tx.nes_event(RendererEvent::RequestRedraw {
+                    tx.event(RendererEvent::RequestRedraw {
                         viewport_id: info.viewport_id,
                         when: Instant::now() + info.delay,
                     });
@@ -244,7 +243,7 @@ impl Renderer {
         let gui = Rc::new(RefCell::new(Gui::new(
             tx.clone(),
             texture.sized_texture(),
-            cfg,
+            cfg.clone(),
         )));
 
         let state = Rc::new(RefCell::new(State {
@@ -253,27 +252,6 @@ impl Renderer {
             viewport_from_window,
             focused: Some(ViewportId::ROOT),
         }));
-
-        {
-            let tx = tx.clone();
-            let state = Rc::downgrade(&state);
-            let event_loop: *const EventLoopWindowTarget<NesEvent> = event_loop;
-            egui::Context::set_immediate_viewport_renderer(move |ctx, viewport| {
-                if let Some(state) = state.upgrade() {
-                    // SAFETY: the event loop lives longer than the Rcs we just upgraded above.
-                    match unsafe { event_loop.as_ref() } {
-                        Some(event_loop) => {
-                            Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
-                        }
-                        None => tracing::error!(
-                            "failed to get event_loop in set_immediate_viewport_renderer"
-                        ),
-                    }
-                } else {
-                    warn!("set_immediate_viewport_renderer called after window closed");
-                }
-            });
-        }
 
         if let Err(err) = Self::load(&ctx, cfg) {
             tracing::error!("{err:?}");
@@ -291,6 +269,7 @@ impl Renderer {
             first_frame: true,
             last_save_time: Instant::now(),
             zoom_changed: false,
+            resize_texture: false,
         })
     }
 
@@ -358,7 +337,7 @@ impl Renderer {
 
     pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
         let gui = self.gui.borrow();
-        let aspect_ratio = gui.aspect_ratio(cfg);
+        let aspect_ratio = gui.aspect_ratio();
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
         window_size.y += gui.menu_height;
         window_size
@@ -428,33 +407,50 @@ impl Renderer {
         match event {
             NesEvent::Renderer(event) => match event {
                 RendererEvent::ViewportResized(_) => self.resize_window(cfg),
-                RendererEvent::ToggleFullscreen => {
-                    if platform::supports(platform::Feature::Viewports) {
-                        self.ctx.set_embed_viewports(
-                            cfg.renderer.fullscreen || cfg.renderer.embed_viewports,
-                        );
-                    }
-                    self.ctx
-                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                    self.ctx.send_viewport_cmd_to(
-                        ViewportId::ROOT,
-                        ViewportCommand::Fullscreen(cfg.renderer.fullscreen),
-                    );
-                }
+                RendererEvent::ResizeTexture => self.resize_texture = true,
                 RendererEvent::RomLoaded(_) => {
                     if self.state.borrow_mut().focused != Some(ViewportId::ROOT) {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
                     }
                 }
-                RendererEvent::ScaleChanged => self.resize_window(cfg),
                 _ => (),
             },
-            NesEvent::Config(ConfigEvent::Shader(shader)) => {
-                if let Some(render_state) = &self.render_state {
-                    Self::set_shader_resource(render_state, &self.texture.view, *shader);
+            NesEvent::Config(event) => match event {
+                ConfigEvent::DarkTheme(enabled) => {
+                    self.ctx.set_visuals(if *enabled {
+                        Gui::dark_theme()
+                    } else {
+                        Gui::light_theme()
+                    });
                 }
-            }
+                ConfigEvent::EmbedViewports(embed) => {
+                    if platform::supports(platform::Feature::Viewports) {
+                        self.ctx.set_embed_viewports(*embed);
+                    }
+                }
+                ConfigEvent::Fullscreen(fullscreen) => {
+                    if platform::supports(platform::Feature::Viewports) {
+                        self.ctx
+                            .set_embed_viewports(*fullscreen || cfg.renderer.embed_viewports);
+                    }
+                    self.ctx
+                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                    self.ctx.send_viewport_cmd_to(
+                        ViewportId::ROOT,
+                        ViewportCommand::Fullscreen(*fullscreen),
+                    );
+                }
+                ConfigEvent::Region(_) | ConfigEvent::HideOverscan(_) | ConfigEvent::Scale(_) => {
+                    self.resize_texture = true;
+                }
+                ConfigEvent::Shader(shader) => {
+                    if let Some(render_state) = &self.render_state {
+                        Self::set_shader_resource(render_state, &self.texture.view, *shader);
+                    }
+                }
+                _ => (),
+            },
             _ => (),
         }
     }
@@ -513,7 +509,7 @@ impl Renderer {
                 if let Some(viewport_id) = viewport_id {
                     let mut state = self.state.borrow_mut();
                     if viewport_id == ViewportId::ROOT {
-                        self.tx.nes_event(UiEvent::Terminate);
+                        self.tx.event(UiEvent::Terminate);
                     } else if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
                         viewport.info.events.push(egui::ViewportEvent::Close);
 
@@ -536,7 +532,7 @@ impl Renderer {
                     },
                 ..
             } => {
-                if let Some(key) = gui::key_from_keycode(*key) {
+                if let Some(key) = key_from_keycode(*key) {
                     use egui::Key;
 
                     let modifiers = self.ctx.input(|i| i.modifiers);
@@ -616,13 +612,14 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if self.gui.borrow().pending_keybind.is_some() && gamepads.has_events() {
-            return EventResponse {
+        if self.gui.borrow().keybinds.wants_input() && gamepads.has_events() {
+            EventResponse {
                 consumed: true,
                 repaint: true,
-            };
+            }
+        } else {
+            EventResponse::default()
         }
-        EventResponse::default()
     }
 
     pub fn add_message<S>(&mut self, ty: MessageType, text: S)
@@ -634,8 +631,7 @@ impl Renderer {
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx
-            .nes_event(EmulationEvent::RunState(RunState::Paused));
+        self.tx.event(EmulationEvent::RunState(RunState::Paused));
         self.gui.borrow_mut().error = Some(err.to_string());
     }
 
@@ -835,7 +831,7 @@ impl Renderer {
     }
 
     fn set_painter_window(
-        tx: EventLoopProxy<NesEvent>,
+        tx: NesEventProxy,
         painter: Rc<RefCell<Painter>>,
         viewport_id: ViewportId,
         window: Option<Arc<Window>>,
@@ -846,10 +842,7 @@ impl Renderer {
         thread::spawn(async move {
             if let Err(err) = painter.borrow_mut().set_window(viewport_id, window).await {
                 error!("failed to set painter window on viewport id {viewport_id:?}: {err:?}");
-                if let Err(err) = tx.send_event(NesEvent::Ui(UiEvent::Terminate)) {
-                    error!("failed to send terminate event: {err:?}");
-                    std::process::exit(1);
-                }
+                tx.event(NesEvent::Ui(UiEvent::Terminate));
             }
         });
     }
@@ -945,104 +938,6 @@ impl Renderer {
         }
     }
 
-    fn render_immediate_viewport(
-        tx: &EventLoopProxy<NesEvent>,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
-        ctx: &egui::Context,
-        state: &RefCell<State>,
-        immediate_viewport: ImmediateViewport<'_>,
-    ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let ImmediateViewport {
-            ids,
-            builder,
-            viewport_ui_cb,
-        } = immediate_viewport;
-
-        let input = {
-            let State {
-                viewports,
-                painter,
-                viewport_from_window,
-                ..
-            } = &mut *state.borrow_mut();
-
-            let viewport = Self::create_or_update_viewport(
-                ctx,
-                viewports,
-                ids,
-                ViewportClass::Immediate,
-                builder,
-                None,
-                None,
-            );
-
-            if viewport.window.is_none() {
-                viewport.initialize_window(
-                    tx.clone(),
-                    event_loop,
-                    ctx,
-                    viewport_from_window,
-                    painter,
-                );
-            }
-
-            match (&viewport.window, &mut viewport.egui_state) {
-                (Some(window), Some(egui_state)) => {
-                    egui_winit::update_viewport_info(&mut viewport.info, ctx, window);
-
-                    let mut input = egui_state.take_egui_input(window);
-                    input.viewports = viewports
-                        .iter()
-                        .map(|(id, viewport)| (*id, viewport.info.clone()))
-                        .collect();
-                    input
-                }
-                _ => return,
-            }
-        };
-
-        let output = ctx.run(input, |ctx| {
-            viewport_ui_cb(ctx);
-        });
-
-        let viewport_id = ids.this;
-        let State {
-            viewports,
-            painter,
-            focused,
-            ..
-        } = &mut *state.borrow_mut();
-
-        if let Some(viewport) = viewports.get_mut(&viewport_id) {
-            viewport.info.events.clear();
-
-            if let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state) {
-                Renderer::set_painter_window(
-                    tx.clone(),
-                    Rc::clone(painter),
-                    viewport_id,
-                    Some(Arc::clone(window)),
-                );
-
-                let clipped_primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
-                painter.borrow_mut().paint_and_update_textures(
-                    viewport_id,
-                    output.pixels_per_point,
-                    [0.0; 4],
-                    &clipped_primitives,
-                    &output.textures_delta,
-                    false,
-                );
-
-                egui_state.handle_platform_output(window, output.platform_output);
-                Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
-            };
-        };
-    }
-
     pub fn process_input(
         ctx: &egui::Context,
         state: &Rc<RefCell<State>>,
@@ -1070,8 +965,7 @@ impl Renderer {
         };
 
         let mut output = ctx.run(raw_input, |ctx| {
-            gui.borrow_mut()
-                .ui(ctx, &mut Gamepads::default(), &mut Config::default());
+            gui.borrow_mut().ui(ctx, None);
         });
 
         let State { viewports, .. } = &mut *state.borrow_mut();
@@ -1198,10 +1092,12 @@ impl Renderer {
             }
         }
 
+        self.gui.borrow_mut().prepare(gamepads, cfg);
+
         let always_on_top = cfg.renderer.always_on_top;
         let output = self.ctx.run(raw_input, |ctx| match viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-            None => self.gui.borrow_mut().ui(ctx, gamepads, cfg),
+            None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
         });
 
         {
@@ -1294,36 +1190,27 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if viewport_id == ViewportId::ROOT {
-            if self.gui.borrow().resize_window {
-                self.resize_window(cfg);
-                self.gui.borrow_mut().resize_window = false;
+        if viewport_id == ViewportId::ROOT && self.resize_texture {
+            self.resize_window(cfg);
+
+            let State { painter, .. } = &mut *self.state.borrow_mut();
+
+            if let (Some(max_texture_side), Some(render_state)) =
+                (painter.borrow().max_texture_side(), &self.render_state)
+            {
+                let texture_size = cfg.texture_size();
+                self.texture.resize(
+                    &render_state.device,
+                    &mut render_state.renderer.write(),
+                    texture_size.x.min(max_texture_side as f32) as u32,
+                    texture_size.y.min(max_texture_side as f32) as u32,
+                    self.gui.borrow().aspect_ratio(),
+                );
+                self.gui.borrow_mut().texture = self.texture.sized_texture();
+
+                Self::set_shader_resource(render_state, &self.texture.view, cfg.renderer.shader);
             }
-
-            if self.gui.borrow().resize_texture {
-                let State { painter, .. } = &mut *self.state.borrow_mut();
-
-                if let (Some(max_texture_side), Some(render_state)) =
-                    (painter.borrow().max_texture_side(), &self.render_state)
-                {
-                    let texture_size = cfg.texture_size();
-                    self.texture.resize(
-                        &render_state.device,
-                        &mut render_state.renderer.write(),
-                        texture_size.x.min(max_texture_side as f32) as u32,
-                        texture_size.y.min(max_texture_side as f32) as u32,
-                        self.gui.borrow().aspect_ratio(cfg),
-                    );
-                    self.gui.borrow_mut().texture = self.texture.sized_texture();
-
-                    Self::set_shader_resource(
-                        render_state,
-                        &self.texture.view,
-                        cfg.renderer.shader,
-                    );
-                }
-                self.gui.borrow_mut().resize_texture = false;
-            }
+            self.resize_texture = false;
         }
     }
 
@@ -1400,7 +1287,7 @@ impl Renderer {
 impl Viewport {
     pub fn initialize_window(
         &mut self,
-        tx: EventLoopProxy<NesEvent>,
+        tx: NesEventProxy,
         event_loop: &EventLoopWindowTarget<NesEvent>,
         ctx: &egui::Context,
         viewport_from_window: &mut HashMap<WindowId, ViewportId>,
