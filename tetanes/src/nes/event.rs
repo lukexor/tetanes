@@ -166,6 +166,7 @@ pub enum RendererEvent {
     ShowMenubar(bool),
     ScaleChanged,
     ToggleFullscreen,
+    ReplayLoaded,
     ResourcesReady,
     RequestRedraw {
         viewport_id: ViewportId,

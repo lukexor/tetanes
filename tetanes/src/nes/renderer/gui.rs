@@ -317,6 +317,7 @@ impl Gui {
                     self.resize_window = true;
                     self.resize_texture = true;
                 }
+                RendererEvent::ReplayLoaded => self.run_state = RunState::Running,
                 RendererEvent::RomUnloaded => {
                     self.run_state = RunState::Running;
                     self.loaded_rom = None;

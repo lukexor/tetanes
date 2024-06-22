@@ -742,6 +742,11 @@ impl State {
         );
         self.control_deck.load_cpu(start);
         self.set_run_state(RunState::Running);
+        self.tx.nes_event(RendererEvent::ReplayLoaded);
+        self.tx.nes_event(RendererEvent::RequestRedraw {
+            viewport_id: ViewportId::ROOT,
+            when: Instant::now(),
+        });
     }
 
     fn load_replay_path(&mut self, path: impl AsRef<Path>) {
