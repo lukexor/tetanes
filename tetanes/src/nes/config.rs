@@ -112,7 +112,7 @@ impl Default for RendererConfig {
             },
             zoom: 1.0,
             recent_roms: HashSet::default(),
-            roms_path: None,
+            roms_path: std::env::current_dir().ok(),
             show_perf_stats: false,
             show_messages: true,
             show_menubar: true,

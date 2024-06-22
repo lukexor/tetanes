@@ -48,7 +48,7 @@ pub fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
     extensions: &[impl ToString],
-    _dir: impl AsRef<Path>,
+    _dir: Option<impl AsRef<Path>>,
 ) -> anyhow::Result<Option<PathBuf>> {
     let input_id = match extensions[0].to_string().as_str() {
         "nes" => html_ids::ROM_INPUT,

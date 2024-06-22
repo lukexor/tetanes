@@ -23,12 +23,14 @@ pub fn open_file_dialog_impl(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: impl AsRef<Path>,
+    dir: Option<impl AsRef<Path>>,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let dialog = rfd::FileDialog::new()
+    let mut dialog = rfd::FileDialog::new()
         .set_title(title)
-        .set_directory(dir.as_ref())
         .add_filter(name, extensions);
+    if let Some(dir) = dir {
+        dialog = dialog.set_directory(dir.as_ref());
+    }
     Ok(dialog.pick_file())
 }
 

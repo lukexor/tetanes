@@ -147,7 +147,10 @@ impl Opts {
 
         cfg.audio.enabled = !self.silent && cfg.audio.enabled;
 
-        cfg.renderer.roms_path = self.path.or(cfg.renderer.roms_path);
+        cfg.renderer.roms_path = self
+            .path
+            .or(cfg.renderer.roms_path)
+            .and_then(|path| path.canonicalize().ok());
         cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
 
         Ok(cfg)

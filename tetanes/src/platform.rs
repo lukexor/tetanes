@@ -34,7 +34,7 @@ pub fn open_file_dialog(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
-    dir: impl AsRef<Path>,
+    dir: Option<impl AsRef<Path>>,
 ) -> anyhow::Result<Option<PathBuf>> {
     platform::open_file_dialog_impl(title, name, extensions, dir)
 }
