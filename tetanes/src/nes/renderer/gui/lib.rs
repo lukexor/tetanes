@@ -20,6 +20,21 @@ pub struct ViewportOptions {
     pub always_on_top: bool,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum ShowShortcut {
+    Yes,
+    No,
+}
+
+impl ShowShortcut {
+    pub fn then<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+        match self {
+            Self::Yes => Some(f()),
+            Self::No => None,
+        }
+    }
+}
+
 pub trait ShortcutText<'a>
 where
     Self: Sized + 'a,

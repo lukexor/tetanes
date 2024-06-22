@@ -506,6 +506,8 @@ impl Running {
                             }
                             ConfigEvent::AlwaysOnTop(always_on_top) => {
                                 renderer.always_on_top = *always_on_top;
+                                self.renderer
+                                    .set_always_on_top(self.cfg.renderer.always_on_top);
                             }
                             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
                                 deck.channels_enabled[*channel as usize] = *enabled;
@@ -582,6 +584,8 @@ impl Running {
                             ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
                             ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                         }
+
+                        self.renderer.update(&self.gamepads, &self.cfg);
                     }
                     NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
                         if let Some(window_id) = self.renderer.window_id_for_viewport(*viewport_id)
@@ -785,6 +789,8 @@ impl Running {
                 _ => (),
             }
         }
+
+        self.renderer.update(&self.gamepads, &self.cfg);
     }
 
     /// Handle user input mapped to key bindings.

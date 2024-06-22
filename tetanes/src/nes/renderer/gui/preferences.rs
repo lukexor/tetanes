@@ -4,7 +4,7 @@ use crate::{
         event::{ConfigEvent, EmulationEvent, NesEventProxy, UiEvent},
         renderer::{
             gui::{
-                lib::{RadioValue, ShortcutText, ViewportOptions},
+                lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
                 Gui, MessageType,
             },
             shader::Shader,
@@ -180,11 +180,20 @@ impl Preferences {
         }
     }
 
-    pub fn save_slot_radio(tx: &NesEventProxy, ui: &mut Ui, mut save_slot: u8, cfg: &Config) {
+    pub fn save_slot_radio(
+        tx: &NesEventProxy,
+        ui: &mut Ui,
+        mut save_slot: u8,
+        cfg: &Config,
+        show_shortcut: ShowShortcut,
+    ) {
         ui.vertical(|ui| {
             for slot in 1..=4 {
-                let radio = RadioValue::new(&mut save_slot, slot, slot.to_string())
-                    .shortcut_text(cfg.shortcut(DeckAction::SetSaveSlot(slot)));
+                let radio = RadioValue::new(&mut save_slot, slot, slot.to_string()).shortcut_text(
+                    show_shortcut
+                        .then(|| cfg.shortcut(DeckAction::SetSaveSlot(slot)))
+                        .unwrap_or_default(),
+                );
                 if ui.add(radio).changed() {
                     tx.event(ConfigEvent::SaveSlot(save_slot));
                 }
@@ -192,8 +201,11 @@ impl Preferences {
         });
         ui.vertical(|ui| {
             for slot in 5..=8 {
-                let radio = RadioValue::new(&mut save_slot, slot, slot.to_string())
-                    .shortcut_text(cfg.shortcut(DeckAction::SetSaveSlot(slot)));
+                let radio = RadioValue::new(&mut save_slot, slot, slot.to_string()).shortcut_text(
+                    show_shortcut
+                        .then(|| cfg.shortcut(DeckAction::SetSaveSlot(slot)))
+                        .unwrap_or_default(),
+                );
                 if ui.add(radio).changed() {
                     tx.event(ConfigEvent::SaveSlot(save_slot));
                 }
@@ -713,7 +725,7 @@ impl State {
                 .num_columns(2)
                 .spacing([20.0, 6.0])
                 .show(ui, |ui| {
-                    Preferences::save_slot_radio(tx, ui, save_slot, cfg)
+                    Preferences::save_slot_radio(tx, ui, save_slot, cfg, ShowShortcut::No)
                 });
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

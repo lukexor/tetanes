@@ -387,14 +387,18 @@ impl Renderer {
     }
 
     pub fn set_always_on_top(&mut self, always_on_top: bool) {
-        self.ctx.send_viewport_cmd_to(
-            ViewportId::ROOT,
-            ViewportCommand::WindowLevel(if always_on_top {
-                WindowLevel::AlwaysOnTop
-            } else {
-                WindowLevel::Normal
-            }),
-        );
+        let State { viewports, .. } = &mut *self.state.borrow_mut();
+
+        for viewport_id in viewports.keys() {
+            self.ctx.send_viewport_cmd_to(
+                *viewport_id,
+                ViewportCommand::WindowLevel(if always_on_top {
+                    WindowLevel::AlwaysOnTop
+                } else {
+                    WindowLevel::Normal
+                }),
+            );
+        }
     }
 
     /// Handle event.
@@ -988,6 +992,11 @@ impl Renderer {
         EventResponse::default()
     }
 
+    pub fn update(&mut self, gamepads: &Gamepads, cfg: &Config) {
+        self.gui.borrow_mut().update(gamepads, cfg);
+        self.ctx.request_repaint();
+    }
+
     /// Request redraw.
     pub fn redraw(
         &mut self,
@@ -1016,6 +1025,8 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
 
+        self.gui.borrow_mut().update(gamepads, cfg);
+
         self.handle_resize(viewport_id, cfg);
 
         let (viewport_ui_cb, raw_input) = {
@@ -1028,11 +1039,7 @@ impl Renderer {
                 return Ok(());
             };
 
-            if viewport.occluded
-                || (viewport_id != ViewportId::ROOT && viewport.viewport_ui_cb.is_none())
-            {
-                // This will only happen if this is an immediate viewport.
-                // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
+            if viewport.occluded {
                 return Ok(());
             }
 
@@ -1092,18 +1099,12 @@ impl Renderer {
             }
         }
 
-        self.gui.borrow_mut().prepare(gamepads, cfg);
-
-        let always_on_top = cfg.renderer.always_on_top;
         let output = self.ctx.run(raw_input, |ctx| match viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
             None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
         });
 
         {
-            // Required to get mutable reference again to avoid double borrow when calling gui.ui
-            // above because internally gui.ui calls show_viewport_immediate, which requires
-            // borrowing state to render
             let State {
                 viewports,
                 painter,
@@ -1162,16 +1163,6 @@ impl Renderer {
                     egui::Window::new(format!("Viewport Info ({viewport_id:?})"))
                         .open(&mut self.gui.borrow_mut().viewport_info_open)
                         .show(&self.ctx, |ui| viewport.info.ui(ui));
-                }
-                if always_on_top != cfg.renderer.always_on_top {
-                    self.ctx.send_viewport_cmd_to(
-                        *viewport_id,
-                        ViewportCommand::WindowLevel(if cfg.renderer.always_on_top {
-                            WindowLevel::AlwaysOnTop
-                        } else {
-                            WindowLevel::Normal
-                        }),
-                    );
                 }
                 if std::mem::take(&mut self.zoom_changed) {
                     cfg.renderer.zoom = self.ctx.zoom_factor();

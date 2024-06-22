@@ -10,7 +10,10 @@ use crate::{
         renderer::{
             gui::{
                 keybinds::Keybinds,
-                lib::{cursor_to_zapper, input_down, ShortcutText, ToggleValue, ViewportOptions},
+                lib::{
+                    cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
+                    ViewportOptions,
+                },
                 ppu_viewer::PpuViewer,
                 preferences::Preferences,
             },
@@ -285,7 +288,7 @@ impl Gui {
         region.aspect_ratio()
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
+    pub fn update(&mut self, gamepads: &Gamepads, cfg: &Config) {
         self.cfg = cfg.clone();
         self.preferences.prepare(&self.cfg);
         self.keybinds.prepare(gamepads, &self.cfg);
@@ -676,7 +679,13 @@ impl Gui {
 
             // icon: # in a square
             ui.menu_button("󾠬 Save Slot...", |ui| {
-                Preferences::save_slot_radio(tx, ui, cfg.emulation.save_slot, cfg);
+                Preferences::save_slot_radio(
+                    tx,
+                    ui,
+                    cfg.emulation.save_slot,
+                    cfg,
+                    ShowShortcut::Yes,
+                );
             });
         }
 
