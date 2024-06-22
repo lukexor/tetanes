@@ -9,7 +9,7 @@ use std::sync::{
 #[derive(Debug)]
 #[must_use]
 pub struct State {
-    tx: NesEventProxy,
+    _tx: NesEventProxy,
     tab: Tab,
 }
 
@@ -34,7 +34,7 @@ impl PpuViewer {
         Self {
             open: Arc::new(AtomicBool::new(false)),
             state: Arc::new(RwLock::new(State {
-                tx,
+                _tx: tx,
                 tab: Tab::default(),
             })),
         }
@@ -116,11 +116,11 @@ impl State {
         });
     }
 
-    fn nametables(&mut self, ui: &mut Ui) {}
+    fn nametables(&mut self, _ui: &mut Ui) {}
 
-    fn chr(&mut self, ui: &mut Ui) {}
+    fn chr(&mut self, _ui: &mut Ui) {}
 
-    fn sprites(&mut self, ui: &mut Ui) {}
+    fn sprites(&mut self, _ui: &mut Ui) {}
 
-    fn palette(&mut self, ui: &mut Ui) {}
+    fn palette(&mut self, _ui: &mut Ui) {}
 }
