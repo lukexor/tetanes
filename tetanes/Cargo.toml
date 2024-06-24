@@ -36,7 +36,7 @@ cycle-accurate = []
 [dependencies]
 anyhow.workspace = true
 bincode.workspace = true
-bytemuck = "1.15"
+bytemuck = "1.16"
 cfg-if.workspace = true
 crossbeam = "0.8"
 # TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
