@@ -360,7 +360,6 @@ impl Renderer {
         let gui = self.gui.borrow();
         let aspect_ratio = gui.aspect_ratio(cfg);
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
-        window_size.x *= aspect_ratio;
         window_size.y += gui.menu_height;
         window_size
     }
