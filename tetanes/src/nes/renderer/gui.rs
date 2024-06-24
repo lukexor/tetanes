@@ -288,10 +288,11 @@ impl Gui {
         region.aspect_ratio()
     }
 
-    pub fn update(&mut self, gamepads: &Gamepads, cfg: &Config) {
+    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
         self.cfg = cfg.clone();
         self.preferences.prepare(&self.cfg);
         self.keybinds.prepare(gamepads, &self.cfg);
+        self.ppu_viewer.prepare(&self.cfg);
     }
 
     /// Create the UI.

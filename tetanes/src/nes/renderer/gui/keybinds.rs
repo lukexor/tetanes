@@ -5,8 +5,9 @@ use crate::nes::{
     input::{Gamepads, Input},
     renderer::gui::lib::ViewportOptions,
 };
+use cfg_if::cfg_if;
 use egui::{Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass};
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -36,7 +37,7 @@ pub struct State {
 #[must_use]
 pub struct Keybinds {
     open: Arc<AtomicBool>,
-    state: Arc<RwLock<State>>,
+    state: Arc<Mutex<State>>,
     resources: Option<(Config, GamepadState)>,
 }
 
@@ -64,10 +65,12 @@ pub struct ConnectedGamepad {
 }
 
 impl Keybinds {
+    const TITLE: &'static str = "Keybinds";
+
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
             open: Arc::new(AtomicBool::new(false)),
-            state: Arc::new(RwLock::new(State {
+            state: Arc::new(Mutex::new(State {
                 tx,
                 tab: Tab::default(),
                 pending_input: None,
@@ -78,7 +81,7 @@ impl Keybinds {
     }
 
     pub fn wants_input(&self) -> bool {
-        let state = self.state.read();
+        let state = self.state.lock();
         state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
     }
 
@@ -122,7 +125,7 @@ impl Keybinds {
 
     pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
         if !self.open() {
-            let mut state = self.state.write();
+            let mut state = self.state.lock();
             state.pending_input = None;
             state.gamepad_unassign_confirm = None;
             return;
@@ -131,8 +134,7 @@ impl Keybinds {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let title = "Keybinds";
-        let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
@@ -144,28 +146,62 @@ impl Keybinds {
             return;
         };
 
-        ctx.show_viewport_deferred(
-            egui::ViewportId::from_hash_of("keybinds"),
-            viewport_builder,
-            move |ctx, class| {
-                if class == ViewportClass::Embedded {
-                    let mut window_open = open.load(Ordering::Acquire);
-                    egui::Window::new("Keybinds")
-                        .open(&mut window_open)
-                        .show(ctx, |ui| {
-                            state.write().ui(ui, opts.enabled, &cfg, &gamepad_state);
-                        });
-                    open.store(window_open, Ordering::Release);
-                } else {
-                    CentralPanel::default().show(ctx, |ui| {
-                        state.write().ui(ui, opts.enabled, &cfg, &gamepad_state);
+        let viewport_id = egui::ViewportId::from_hash_of("keybinds");
+        fn viewport_cb(
+            ctx: &Context,
+            class: ViewportClass,
+            open: &Arc<AtomicBool>,
+            enabled: bool,
+            state: &Arc<Mutex<State>>,
+            cfg: &Config,
+            gamepad_state: &GamepadState,
+        ) {
+            if class == ViewportClass::Embedded {
+                let mut window_open = open.load(Ordering::Acquire);
+                egui::Window::new(Keybinds::TITLE)
+                    .open(&mut window_open)
+                    .default_rect(ctx.available_rect())
+                    .show(ctx, |ui| {
+                        state.lock().ui(ui, enabled, cfg, gamepad_state);
                     });
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        open.store(false, Ordering::Release);
-                    }
+                open.store(window_open, Ordering::Release);
+            } else {
+                CentralPanel::default().show(ctx, |ui| {
+                    state.lock().ui(ui, enabled, cfg, gamepad_state);
+                });
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    open.store(false, Ordering::Release);
                 }
-            },
-        );
+            }
+        }
+
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                    ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
+                    viewport_cb(
+                        ctx,
+                        class,
+                        &open,
+                        opts.enabled,
+                        &state,
+                        &cfg,
+                        &gamepad_state,
+                    );
+                });
+            } else {
+                ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+                    viewport_cb(
+                        ctx,
+                        class,
+                        &open,
+                        opts.enabled,
+                        &state,
+                        &cfg,
+                        &gamepad_state,
+                    );
+                });
+            }
+        }
     }
 }
 

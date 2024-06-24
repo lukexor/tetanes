@@ -16,9 +16,9 @@ use crate::{
 };
 use anyhow::Context;
 use egui::{
-    ahash::HashMap, DeferredViewportUiCallback, SystemTheme, Vec2, ViewportBuilder, ViewportClass,
-    ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair, ViewportIdSet, ViewportInfo,
-    ViewportOutput, WindowLevel,
+    ahash::HashMap, DeferredViewportUiCallback, ImmediateViewport, SystemTheme, Vec2,
+    ViewportBuilder, ViewportClass, ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair,
+    ViewportIdSet, ViewportInfo, ViewportOutput, WindowLevel,
 };
 use egui_wgpu::{winit::Painter, RenderState};
 use egui_winit::EventResponse;
@@ -34,7 +34,7 @@ use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use winit::{
     dpi::{LogicalSize, PhysicalSize},
     event::WindowEvent,
@@ -158,6 +158,7 @@ impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
         tx: NesEventProxy,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
         cfg: &Config,
@@ -252,6 +253,27 @@ impl Renderer {
             viewport_from_window,
             focused: Some(ViewportId::ROOT),
         }));
+
+        {
+            let tx = tx.clone();
+            let state = Rc::downgrade(&state);
+            let event_loop: *const EventLoopWindowTarget<NesEvent> = event_loop;
+            egui::Context::set_immediate_viewport_renderer(move |ctx, viewport| {
+                if let Some(state) = state.upgrade() {
+                    // SAFETY: the event loop lives longer than the Rcs we just upgraded above.
+                    match unsafe { event_loop.as_ref() } {
+                        Some(event_loop) => {
+                            Self::render_immediate_viewport(&tx, event_loop, ctx, &state, viewport);
+                        }
+                        None => tracing::error!(
+                            "failed to get event_loop in set_immediate_viewport_renderer"
+                        ),
+                    }
+                } else {
+                    warn!("set_immediate_viewport_renderer called after window closed");
+                }
+            });
+        }
 
         if let Err(err) = Self::load(&ctx, cfg) {
             tracing::error!("{err:?}");
@@ -438,12 +460,14 @@ impl Renderer {
                         self.ctx
                             .set_embed_viewports(*fullscreen || cfg.renderer.embed_viewports);
                     }
-                    self.ctx
-                        .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
-                    self.ctx.send_viewport_cmd_to(
-                        ViewportId::ROOT,
-                        ViewportCommand::Fullscreen(*fullscreen),
-                    );
+                    if self.fullscreen() != *fullscreen {
+                        self.ctx
+                            .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
+                        self.ctx.send_viewport_cmd_to(
+                            ViewportId::ROOT,
+                            ViewportCommand::Fullscreen(*fullscreen),
+                        );
+                    }
                 }
                 ConfigEvent::Region(_) | ConfigEvent::HideOverscan(_) | ConfigEvent::Scale(_) => {
                     self.resize_texture = true;
@@ -942,6 +966,103 @@ impl Renderer {
         }
     }
 
+    fn render_immediate_viewport(
+        tx: &NesEventProxy,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+        ctx: &egui::Context,
+        state: &RefCell<State>,
+        immediate_viewport: ImmediateViewport<'_>,
+    ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let ImmediateViewport {
+            ids,
+            builder,
+            viewport_ui_cb,
+        } = immediate_viewport;
+
+        let input = {
+            let State {
+                viewports,
+                painter,
+                viewport_from_window,
+                ..
+            } = &mut *state.borrow_mut();
+
+            let viewport = Self::create_or_update_viewport(
+                ctx,
+                viewports,
+                ids,
+                ViewportClass::Immediate,
+                builder,
+                None,
+                None,
+            );
+
+            if viewport.window.is_none() {
+                viewport.initialize_window(
+                    tx.clone(),
+                    event_loop,
+                    ctx,
+                    viewport_from_window,
+                    painter,
+                );
+            }
+
+            match (&viewport.window, &mut viewport.egui_state) {
+                (Some(window), Some(egui_state)) => {
+                    egui_winit::update_viewport_info(&mut viewport.info, ctx, window);
+
+                    let mut input = egui_state.take_egui_input(window);
+                    input.viewports = viewports
+                        .iter()
+                        .map(|(id, viewport)| (*id, viewport.info.clone()))
+                        .collect();
+                    input
+                }
+                _ => return,
+            }
+        };
+
+        let output = ctx.run(input, |ctx| {
+            viewport_ui_cb(ctx);
+        });
+        let viewport_id = ids.this;
+        let State {
+            viewports,
+            painter,
+            focused,
+            ..
+        } = &mut *state.borrow_mut();
+
+        if let Some(viewport) = viewports.get_mut(&viewport_id) {
+            viewport.info.events.clear();
+
+            if let (Some(window), Some(egui_state)) = (&viewport.window, &mut viewport.egui_state) {
+                Renderer::set_painter_window(
+                    tx.clone(),
+                    Rc::clone(painter),
+                    viewport_id,
+                    Some(Arc::clone(window)),
+                );
+
+                let clipped_primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+                painter.borrow_mut().paint_and_update_textures(
+                    viewport_id,
+                    output.pixels_per_point,
+                    [0.0; 4],
+                    &clipped_primitives,
+                    &output.textures_delta,
+                    false,
+                );
+
+                egui_state.handle_platform_output(window, output.platform_output);
+                Self::handle_viewport_output(ctx, viewports, output.viewport_output, *focused);
+            };
+        };
+    }
+
     pub fn process_input(
         ctx: &egui::Context,
         state: &Rc<RefCell<State>>,
@@ -992,8 +1113,8 @@ impl Renderer {
         EventResponse::default()
     }
 
-    pub fn update(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.gui.borrow_mut().update(gamepads, cfg);
+    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
+        self.gui.borrow_mut().prepare(gamepads, cfg);
         self.ctx.request_repaint();
     }
 
@@ -1025,7 +1146,7 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
 
-        self.gui.borrow_mut().update(gamepads, cfg);
+        self.gui.borrow_mut().prepare(gamepads, cfg);
 
         self.handle_resize(viewport_id, cfg);
 
@@ -1039,7 +1160,11 @@ impl Renderer {
                 return Ok(());
             };
 
-            if viewport.occluded {
+            if viewport.occluded
+                || (viewport_id != ViewportId::ROOT && viewport.viewport_ui_cb.is_none())
+            {
+                // This will only happen if this is an immediate viewport.
+                // That means that the viewport cannot be rendered by itself and needs his parent to be rendered.
                 return Ok(());
             }
 
@@ -1105,6 +1230,9 @@ impl Renderer {
         });
 
         {
+            // Required to get mutable reference again to avoid double borrow when calling gui.ui
+            // above because internally gui.ui calls show_viewport_immediate, which requires
+            // borrowing state to render
             let State {
                 viewports,
                 painter,

@@ -12,11 +12,12 @@ use crate::{
     },
     platform,
 };
+use cfg_if::cfg_if;
 use egui::{
     Align, CentralPanel, Checkbox, Context, CursorIcon, DragValue, Grid, Key, Layout, ScrollArea,
     Slider, TextEdit, Ui, Vec2, ViewportClass,
 };
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -40,7 +41,7 @@ pub struct State {
 #[must_use]
 pub struct Preferences {
     open: Arc<AtomicBool>,
-    state: Arc<RwLock<State>>,
+    state: Arc<Mutex<State>>,
     resources: Option<Config>,
 }
 
@@ -66,10 +67,12 @@ impl GenieEntry {
 }
 
 impl Preferences {
+    const TITLE: &'static str = "Preferences";
+
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
             open: Arc::new(AtomicBool::new(false)),
-            state: Arc::new(RwLock::new(State {
+            state: Arc::new(Mutex::new(State {
                 tx,
                 tab: Tab::default(),
                 genie_entry: GenieEntry::default(),
@@ -104,8 +107,7 @@ impl Preferences {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let title = "Preferences";
-        let mut viewport_builder = egui::ViewportBuilder::default().with_title(title);
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
@@ -117,29 +119,45 @@ impl Preferences {
             return;
         };
 
-        ctx.show_viewport_deferred(
-            egui::ViewportId::from_hash_of("preferences"),
-            viewport_builder,
-            move |ctx, class| {
-                if class == ViewportClass::Embedded {
-                    let mut window_open = open.load(Ordering::Acquire);
-                    egui::Window::new(title)
-                        .open(&mut window_open)
-                        .show(ctx, |ui| state.write().ui(ui, opts.enabled, &cfg));
-                    open.store(window_open, Ordering::Release);
-                } else {
-                    CentralPanel::default()
-                        .show(ctx, |ui| state.write().ui(ui, opts.enabled, &cfg));
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        open.store(false, Ordering::Release);
-                    }
+        let viewport_id = egui::ViewportId::from_hash_of("preferences");
+        fn viewport_cb(
+            ctx: &Context,
+            class: ViewportClass,
+            open: &Arc<AtomicBool>,
+            enabled: bool,
+            state: &Arc<Mutex<State>>,
+            cfg: &Config,
+        ) {
+            if class == ViewportClass::Embedded {
+                let mut window_open = open.load(Ordering::Acquire);
+                egui::Window::new(Preferences::TITLE)
+                    .open(&mut window_open)
+                    .default_rect(ctx.available_rect())
+                    .show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                open.store(window_open, Ordering::Release);
+            } else {
+                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    open.store(false, Ordering::Release);
                 }
-            },
-        );
+            }
+        }
+
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
+                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+                });
+            } else {
+                ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+                });
+            }
+        }
     }
 
     pub fn show_genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
-        self.state.write().genie_codes_entry(ui, cfg);
+        self.state.lock().genie_codes_entry(ui, cfg);
     }
 
     pub fn genie_codes_list(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config, scroll: bool) {
@@ -611,153 +629,155 @@ impl State {
             ..
         } = cfg.deck;
 
-        let grid = Grid::new("emulation_checkboxes")
-            .num_columns(2)
-            .spacing([80.0, 6.0]);
-        grid.show(ui, |ui| {
-            let tx = &self.tx;
+        ScrollArea::both().show(ui, |ui| {
+            let grid = Grid::new("emulation_checkboxes")
+                .num_columns(2)
+                .spacing([80.0, 6.0]);
+            grid.show(ui, |ui| {
+                let tx = &self.tx;
 
-            Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, "");
-            let res = ui.checkbox(&mut auto_load, "Auto-Load")
-                .on_hover_text("Automatically load game state from the current save slot on load.");
-            if res.changed() {
-                tx.event(ConfigEvent::AutoLoad(
-                    auto_load,
-                ));
-            }
-            ui.end_row();
-
-            ui.vertical(|ui| {
-                Preferences::rewind_checkbox(tx, ui, rewind, "");
-
-                ui.add_enabled_ui(rewind, |ui| {
-                    ui.indent("rewind_settings", |ui| {
-                        ui.label("Seconds:")
-                            .on_hover_text("The maximum number of seconds to rewind.");
-                        let drag = DragValue::new(&mut rewind_seconds)
-                            .clamp_range(1..=360)
-                            .suffix(" seconds");
-                        let res = ui.add(drag);
-                        if res.changed() {
-                            tx.event(ConfigEvent::RewindSeconds(rewind_seconds));
-                        }
-
-                        ui.label("Interval:")
-                            .on_hover_text("The frame interval to save rewind states.");
-                        let drag = DragValue::new(&mut rewind_interval)
-                            .clamp_range(1..=60)
-                            .suffix(" frames");
-                        let res = ui.add(drag);
-                        if res.changed() {
-                            tx.event(ConfigEvent::RewindInterval(rewind_interval));
-                        }
-                    });
-                });
-            });
-
-            ui.vertical(|ui| {
-                let res = ui.checkbox(&mut auto_save, "Auto-Save")
-                    .on_hover_text(concat!(
-                        "Automatically save game state to the current save slot ",
-                        "on exit or unloading and an optional interval. ",
-                        "Setting to 0 will disable saving on an interval.",
-                    ));
+                Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, "");
+                let res = ui.checkbox(&mut auto_load, "Auto-Load")
+                    .on_hover_text("Automatically load game state from the current save slot on load.");
                 if res.changed() {
-                    tx.event(ConfigEvent::AutoSave(
-                        auto_save,
+                    tx.event(ConfigEvent::AutoLoad(
+                        auto_load,
                     ));
                 }
+                ui.end_row();
 
-                ui.add_enabled_ui(auto_save, |ui| {
-                    ui.indent("auto_save_settings", |ui| {
-                        let mut auto_save_interval = auto_save_interval.as_secs();
-                        ui.label("Interval:")
-                            .on_hover_text(concat!(
-                                "Set the interval to auto-save game state. ",
-                                "A value of `0` will still save on exit or unload while Auto-Save is enabled."
-                            ));
-                        let drag = DragValue::new(&mut auto_save_interval)
-                            .clamp_range(0..=60)
-                            .suffix(" seconds");
-                        let res = ui.add(drag);
-                        if res.changed() {
-                            tx.event(ConfigEvent::AutoSaveInterval(Duration::from_secs(auto_save_interval)));
-                        }
+                ui.vertical(|ui| {
+                    Preferences::rewind_checkbox(tx, ui, rewind, "");
+
+                    ui.add_enabled_ui(rewind, |ui| {
+                        ui.indent("rewind_settings", |ui| {
+                            ui.label("Seconds:")
+                                .on_hover_text("The maximum number of seconds to rewind.");
+                            let drag = DragValue::new(&mut rewind_seconds)
+                                .clamp_range(1..=360)
+                                .suffix(" seconds");
+                            let res = ui.add(drag);
+                            if res.changed() {
+                                tx.event(ConfigEvent::RewindSeconds(rewind_seconds));
+                            }
+
+                            ui.label("Interval:")
+                                .on_hover_text("The frame interval to save rewind states.");
+                            let drag = DragValue::new(&mut rewind_interval)
+                                .clamp_range(1..=60)
+                                .suffix(" frames");
+                            let res = ui.add(drag);
+                            if res.changed() {
+                                tx.event(ConfigEvent::RewindInterval(rewind_interval));
+                            }
+                        });
                     });
                 });
-            });
-            ui.end_row();
 
-            let res = ui.checkbox(&mut emulate_ppu_warmup, "Emulate PPU Warmup")
-                .on_hover_text(concat!(
-                    "Set whether to emulate PPU warmup where writes to certain registers are ignored. ",
-                    "Can result in some games not working correctly"
-                ));
-            if res.clicked() {
-                tx.event(EmulationEvent::EmulatePpuWarmup(emulate_ppu_warmup));
-            }
-            ui.end_row();
-        });
+                ui.vertical(|ui| {
+                    let res = ui.checkbox(&mut auto_save, "Auto-Save")
+                        .on_hover_text(concat!(
+                            "Automatically save game state to the current save slot ",
+                            "on exit or unloading and an optional interval. ",
+                            "Setting to 0 will disable saving on an interval.",
+                        ));
+                    if res.changed() {
+                        tx.event(ConfigEvent::AutoSave(
+                            auto_save,
+                        ));
+                    }
 
-        ui.separator();
-
-        let grid = Grid::new("emulation_preferences")
-            .num_columns(4)
-            .spacing([40.0, 6.0]);
-        grid.show(ui, |ui| {
-            let tx = &self.tx;
-
-            ui.strong("Emulation Speed:");
-            Preferences::speed_slider(tx, ui, speed);
-
-            ui.strong("Run Ahead:")
-                .on_hover_cursor(CursorIcon::Help)
-                .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
-            Preferences::run_ahead_slider(tx, ui, run_ahead);
-            ui.end_row();
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.strong("Save Slot:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Select which slot to use when saving or loading game state.");
-            });
-            Grid::new("save_slots")
-                .num_columns(2)
-                .spacing([20.0, 6.0])
-                .show(ui, |ui| {
-                    Preferences::save_slot_radio(tx, ui, save_slot, cfg, ShowShortcut::No)
+                    ui.add_enabled_ui(auto_save, |ui| {
+                        ui.indent("auto_save_settings", |ui| {
+                            let mut auto_save_interval = auto_save_interval.as_secs();
+                            ui.label("Interval:")
+                                .on_hover_text(concat!(
+                                    "Set the interval to auto-save game state. ",
+                                    "A value of `0` will still save on exit or unload while Auto-Save is enabled."
+                                ));
+                            let drag = DragValue::new(&mut auto_save_interval)
+                                .clamp_range(0..=60)
+                                .suffix(" seconds");
+                            let res = ui.add(drag);
+                            if res.changed() {
+                                tx.event(ConfigEvent::AutoSaveInterval(Duration::from_secs(auto_save_interval)));
+                            }
+                        });
+                    });
                 });
+                ui.end_row();
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.strong("Four Player:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text(
-                    "Some game titles support up to 4 players (requires connected controllers).",
-                );
+                let res = ui.checkbox(&mut emulate_ppu_warmup, "Emulate PPU Warmup")
+                    .on_hover_text(concat!(
+                        "Set whether to emulate PPU warmup where writes to certain registers are ignored. ",
+                        "Can result in some games not working correctly"
+                    ));
+                if res.clicked() {
+                    tx.event(EmulationEvent::EmulatePpuWarmup(emulate_ppu_warmup));
+                }
+                ui.end_row();
             });
-            ui.vertical(|ui| Preferences::four_player_radio(tx, ui, four_player));
-            ui.end_row();
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.strong("NES Region:")
+            ui.separator();
+
+            let grid = Grid::new("emulation_preferences")
+                .num_columns(4)
+                .spacing([40.0, 6.0]);
+            grid.show(ui, |ui| {
+                let tx = &self.tx;
+
+                ui.strong("Emulation Speed:");
+                Preferences::speed_slider(tx, ui, speed);
+
+                ui.strong("Run Ahead:")
                     .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Which regional NES hardware to emulate.");
-            });
-            ui.vertical(|ui| Preferences::nes_region_radio(tx, ui, region));
+                    .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
+                Preferences::run_ahead_slider(tx, ui, run_ahead);
+                ui.end_row();
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.strong("RAM State:")
-                    .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("What values are read from NES RAM on load.");
-            });
-            ui.vertical(|ui| Preferences::ram_state_radio(tx, ui, ram_state));
-            ui.end_row();
-        });
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Save Slot:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text("Select which slot to use when saving or loading game state.");
+                });
+                Grid::new("save_slots")
+                    .num_columns(2)
+                    .spacing([20.0, 6.0])
+                    .show(ui, |ui| {
+                        Preferences::save_slot_radio(tx, ui, save_slot, cfg, ShowShortcut::No)
+                    });
 
-        let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
-        grid.show(ui, |ui| {
-            self.genie_codes_entry(ui, cfg);
-            Preferences::genie_codes_list(&self.tx, ui, cfg, false);
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Four Player:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text(
+                        "Some game titles support up to 4 players (requires connected controllers).",
+                    );
+                });
+                ui.vertical(|ui| Preferences::four_player_radio(tx, ui, four_player));
+                ui.end_row();
+
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("NES Region:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text("Which regional NES hardware to emulate.");
+                });
+                ui.vertical(|ui| Preferences::nes_region_radio(tx, ui, region));
+
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("RAM State:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text("What values are read from NES RAM on load.");
+                });
+                ui.vertical(|ui| Preferences::ram_state_radio(tx, ui, ram_state));
+                ui.end_row();
+            });
+
+            let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
+            grid.show(ui, |ui| {
+                self.genie_codes_entry(ui, cfg);
+                Preferences::genie_codes_list(&self.tx, ui, cfg, false);
+            });
         });
     }
 

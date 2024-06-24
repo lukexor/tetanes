@@ -166,7 +166,10 @@ impl Nes {
     ///
     /// If GPU resources failed to be requested, the emulation or renderer fails to build, then an
     /// error is returned.
-    pub(crate) fn init_running(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn init_running(
+        &mut self,
+        event_loop: &EventLoopWindowTarget<NesEvent>,
+    ) -> anyhow::Result<()> {
         match std::mem::take(&mut self.state) {
             State::Pending {
                 ctx,
@@ -191,7 +194,7 @@ impl Nes {
                 cfg.input.update_gamepad_assignments(&gamepads);
 
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
-                let renderer = Renderer::new(tx.clone(), resources, frame_rx, &cfg)?;
+                let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, &cfg)?;
 
                 let mut running = Running {
                     cfg,

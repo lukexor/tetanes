@@ -265,7 +265,7 @@ impl Nes {
             }
             Event::UserEvent(event) => match event {
                 NesEvent::Renderer(RendererEvent::ResourcesReady) => {
-                    if let Err(err) = self.init_running() {
+                    if let Err(err) = self.init_running(event_loop) {
                         error!("failed to create window: {err:?}");
                         event_loop.exit();
                         return;
@@ -585,7 +585,7 @@ impl Running {
                             ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                         }
 
-                        self.renderer.update(&self.gamepads, &self.cfg);
+                        self.renderer.prepare(&self.gamepads, &self.cfg);
                     }
                     NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
                         if let Some(window_id) = self.renderer.window_id_for_viewport(*viewport_id)
@@ -790,7 +790,7 @@ impl Running {
             }
         }
 
-        self.renderer.update(&self.gamepads, &self.cfg);
+        self.renderer.prepare(&self.gamepads, &self.cfg);
     }
 
     /// Handle user input mapped to key bindings.
