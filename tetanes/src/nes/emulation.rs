@@ -5,13 +5,13 @@ use crate::{
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
         event::{
-            ConfigEvent, EmulationEvent, NesEvent, RendererEvent, RunState, SendNesEvent, UiEvent,
+            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
         },
         renderer::{gui::MessageType, FrameRecycle},
     },
     thread,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use chrono::Local;
 use crossbeam::channel;
 use egui::ViewportId;
@@ -33,7 +33,7 @@ use tetanes_core::{
 };
 use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
 use tracing::{debug, error};
-use winit::{event::ElementState, event_loop::EventLoopProxy};
+use winit::event::ElementState;
 
 pub mod replay;
 pub mod rewind;
@@ -131,9 +131,9 @@ impl FrameTimeDiag {
     }
 }
 
-fn shutdown(tx: &EventLoopProxy<NesEvent>, err: impl std::fmt::Display) {
+fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
     error!("{err}");
-    tx.nes_event(UiEvent::Terminate);
+    tx.event(UiEvent::Terminate);
     std::process::exit(1);
 }
 
@@ -159,7 +159,7 @@ struct Multi {
 
 impl Multi {
     fn spawn(
-        proxy_tx: EventLoopProxy<NesEvent>,
+        proxy_tx: NesEventProxy,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
     ) -> anyhow::Result<Self> {
@@ -176,7 +176,7 @@ impl Multi {
     }
 
     fn main(
-        tx: EventLoopProxy<NesEvent>,
+        tx: NesEventProxy,
         rx: channel::Receiver<NesEvent>,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
@@ -205,7 +205,7 @@ pub struct Emulation {
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
-        tx: EventLoopProxy<NesEvent>,
+        tx: NesEventProxy,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
     ) -> anyhow::Result<Self> {
@@ -248,7 +248,7 @@ impl Emulation {
 #[derive(Debug)]
 #[must_use]
 pub struct State {
-    tx: EventLoopProxy<NesEvent>,
+    tx: NesEventProxy,
     control_deck: ControlDeck,
     audio: Audio,
     frame_tx: BufSender<Frame, FrameRecycle>,
@@ -281,11 +281,7 @@ impl Drop for State {
 }
 
 impl State {
-    fn new(
-        tx: EventLoopProxy<NesEvent>,
-        frame_tx: BufSender<Frame, FrameRecycle>,
-        cfg: &Config,
-    ) -> Self {
+    fn new(tx: NesEventProxy, frame_tx: BufSender<Frame, FrameRecycle>, cfg: &Config) -> Self {
         let mut control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
             cfg.audio.enabled,
@@ -334,7 +330,7 @@ impl State {
     }
 
     pub(crate) fn add_message<S: ToString>(&mut self, ty: MessageType, msg: S) {
-        self.tx.nes_event(UiEvent::Message((ty, msg.to_string())));
+        self.tx.event(UiEvent::Message((ty, msg.to_string())));
     }
 
     fn write_deck<T>(
@@ -508,13 +504,16 @@ impl State {
 
         match event {
             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
+                let prev_enabled = self.control_deck.channel_enabled(*channel);
                 self.control_deck
                     .set_apu_channel_enabled(*channel, *enabled);
-                let enabled_text = if *enabled { "Enabled" } else { "Disabled" };
-                self.add_message(
-                    MessageType::Info,
-                    format!("{enabled_text} APU Channel {channel:?}"),
-                );
+                if prev_enabled != *enabled {
+                    let enabled_text = if *enabled { "Enabled" } else { "Disabled" };
+                    self.add_message(
+                        MessageType::Info,
+                        format!("{enabled_text} APU Channel {channel:?}"),
+                    );
+                }
             }
             ConfigEvent::AudioBuffer(buffer_size) => {
                 if let Err(err) = self.audio.set_buffer_size(*buffer_size) {
@@ -565,13 +564,13 @@ impl State {
                 self.update_region(*region);
             }
             ConfigEvent::RewindEnabled(enabled) => self.rewind.set_enabled(*enabled),
-            ConfigEvent::RewindSeconds(seconds) => self.rewind.set_seconds(*seconds),
             ConfigEvent::RewindInterval(interval) => self.rewind.set_interval(*interval),
+            ConfigEvent::RewindSeconds(seconds) => self.rewind.set_seconds(*seconds),
             ConfigEvent::RunAhead(run_ahead) => self.run_ahead = *run_ahead,
-            ConfigEvent::SaveSlot(slot) => self.save_slot = *slot,
             ConfigEvent::MapperRevisions(revs) => {
                 self.control_deck.set_mapper_revisions(*revs);
             }
+            ConfigEvent::SaveSlot(slot) => self.save_slot = *slot,
             ConfigEvent::Speed(speed) => {
                 self.speed = *speed;
                 self.control_deck.set_frame_speed(*speed);
@@ -580,7 +579,7 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            ConfigEvent::HideOverscan(_) | ConfigEvent::InputBindings | ConfigEvent::Shader(_) => {}
+            _ => (),
         }
     }
 
@@ -608,7 +607,7 @@ impl State {
         if !fps_min.is_finite() {
             fps_min = 0.0;
         }
-        self.tx.nes_event(RendererEvent::FrameStats(FrameStats {
+        self.tx.event(RendererEvent::FrameStats(FrameStats {
             timestamp: Instant::now(),
             fps,
             fps_min,
@@ -687,8 +686,8 @@ impl State {
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);
             }
-            self.tx.nes_event(RendererEvent::RomUnloaded);
-            self.tx.nes_event(RendererEvent::RequestRedraw {
+            self.tx.event(RendererEvent::RomUnloaded);
+            self.tx.event(RendererEvent::RequestRedraw {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now(),
             });
@@ -700,15 +699,17 @@ impl State {
         if self.auto_load {
             let save_path = Config::save_path(&rom.name, self.save_slot);
             if let Err(err) = self.control_deck.load_state(save_path) {
-                error!("failed to load state: {err:?}");
+                if !matches!(err, control_deck::Error::NoSaveStateFound) {
+                    error!("failed to load state: {err:?}");
+                }
             }
         }
         if let Err(err) = self.audio.start() {
             self.on_error(err);
         }
         self.set_run_state(RunState::Running);
-        self.tx.nes_event(RendererEvent::RomLoaded(rom));
-        self.tx.nes_event(RendererEvent::RequestRedraw {
+        self.tx.event(RendererEvent::RomLoaded(rom));
+        self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
@@ -742,8 +743,8 @@ impl State {
         );
         self.control_deck.load_cpu(start);
         self.set_run_state(RunState::Running);
-        self.tx.nes_event(RendererEvent::ReplayLoaded);
-        self.tx.nes_event(RendererEvent::RequestRedraw {
+        self.tx.event(RendererEvent::ReplayLoaded);
+        self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
@@ -827,8 +828,16 @@ impl State {
         )
         .ok_or_else(|| anyhow!("failed to create image buffer"))?;
 
+        if !picture_dir.exists() {
+            std::fs::create_dir_all(&picture_dir)
+                .with_context(|| format!("failed to create screenshot dir: {picture_dir:?}"))?;
+        }
+
         // TODO: provide wasm download
-        Ok(image.save(&filename).map(|_| filename)?)
+        image
+            .save(&filename)
+            .map(|_| filename.clone())
+            .with_context(|| format!("failed to save screenshot: {filename:?}"))
     }
 
     fn park_duration(&self) -> Option<Duration> {
@@ -875,14 +884,14 @@ impl State {
 
         // If any frames are still pending, request a redraw
         if !self.frame_tx.is_empty() {
-            self.tx.nes_event(RendererEvent::RequestRedraw {
+            self.tx.event(RendererEvent::RequestRedraw {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now(),
             });
         }
 
         if let Some(park_timeout) = self.park_duration() {
-            self.tx.nes_event(RendererEvent::RequestRedraw {
+            self.tx.event(RendererEvent::RequestRedraw {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now() + park_timeout,
             });
@@ -947,7 +956,7 @@ impl State {
 
         self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
         // Request to draw this frame
-        self.tx.nes_event(RendererEvent::RequestRedraw {
+        self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });

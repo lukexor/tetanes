@@ -2,7 +2,7 @@
 
 use crate::{
     nes::{
-        event::{RendererEvent, RunState, SendNesEvent, UiEvent},
+        event::{NesEventProxy, RendererEvent, RunState, UiEvent},
         input::{Gamepads, InputBindings},
         renderer::{FrameRecycle, Resources},
     },
@@ -23,7 +23,7 @@ use thingbuf::mpsc::blocking;
 use tracing::{debug, error};
 use winit::{
     event::Modifiers,
-    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget},
     window::{Window, WindowId},
 };
 
@@ -44,7 +44,7 @@ pub struct Nes {
     /// Set during initialization, then taken and set to `None` when running because
     /// `EventLoopProxy` can only be created on the initial `EventLoop` and not on
     /// `&EventLoopWindowTarget`.
-    pub(crate) init_state: Option<(Config, EventLoopProxy<NesEvent>)>,
+    pub(crate) init_state: Option<(Config, NesEventProxy)>,
     /// Initially `Suspended`. `Pending` after `Resume` event received and spanwed. `Running` after
     /// resources future completes.
     pub(crate) state: State,
@@ -76,7 +76,7 @@ pub(crate) struct Running {
     pub(crate) cfg: Config,
     // Only used by wasm currently
     #[allow(unused)]
-    pub(crate) tx: EventLoopProxy<NesEvent>,
+    pub(crate) tx: NesEventProxy,
     pub(crate) emulation: Emulation,
     pub(crate) renderer: Renderer,
     pub(crate) input_bindings: InputBindings,
@@ -106,9 +106,8 @@ impl Nes {
 
     /// Create the NES instance.
     pub fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
-        let tx = event_loop.create_proxy();
         Self {
-            init_state: Some((cfg, tx)),
+            init_state: Some((cfg, NesEventProxy::new(event_loop))),
             state: State::Suspended,
         }
     }
@@ -140,11 +139,11 @@ impl Nes {
                 match Renderer::create_painter(window).await {
                     Ok(painter) => {
                         painter_tx.send(painter).expect("failed to send painter");
-                        event_tx.nes_event(RendererEvent::ResourcesReady);
+                        event_tx.event(RendererEvent::ResourcesReady);
                     }
                     Err(err) => {
                         error!("failed to create painter: {err:?}");
-                        event_tx.nes_event(UiEvent::Terminate);
+                        event_tx.event(UiEvent::Terminate);
                     }
                 }
             }

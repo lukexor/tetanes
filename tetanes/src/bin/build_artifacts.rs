@@ -294,7 +294,7 @@ impl Build {
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let app_name = format!("{}.app", self.app_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
-        let dmg_path = build_dir.join(&dmg_name);
+        let dmg_path = build_dir.join(dmg_name);
         let dmg_name_compressed = format!("{artifact_name}.dmg");
         let dmg_path_compressed = build_dir.join(&dmg_name_compressed);
         let dmg_path_dist = self.dist_dir.join(&dmg_name_compressed);
