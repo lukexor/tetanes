@@ -1,9 +1,9 @@
 use crate::{
     nes::{
-        action::{Action, Debug, DebugStep, Feature, Setting, Ui},
+        action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
         config::Config,
         emulation::FrameStats,
-        input::{AxisDirection, Gamepads, Input, InputBindings},
+        input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
             gui::{Menu, MessageType},
             shader::Shader,
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tetanes_core::{
     action::Action as DeckAction,
-    apu::Channel,
+    apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
     genie::GenieCode,
@@ -29,22 +29,26 @@ use tetanes_core::{
     video::VideoFilter,
 };
 use tracing::{error, trace};
+use uuid::Uuid;
 use winit::{
     event::{ElementState, Event, WindowEvent},
-    event_loop::{ControlFlow, DeviceEvents, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{ControlFlow, DeviceEvents, EventLoop, EventLoopProxy, EventLoopWindowTarget},
     keyboard::PhysicalKey,
     window::WindowId,
 };
 
-pub trait SendNesEvent {
-    fn nes_event(&self, event: impl Into<NesEvent>);
-}
+#[derive(Debug, Clone)]
+pub struct NesEventProxy(EventLoopProxy<NesEvent>);
 
-impl SendNesEvent for EventLoopProxy<NesEvent> {
-    fn nes_event(&self, event: impl Into<NesEvent>) {
+impl NesEventProxy {
+    pub fn new(event_loop: &EventLoop<NesEvent>) -> Self {
+        Self(event_loop.create_proxy())
+    }
+
+    pub fn event(&self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("sending event: {event:?}");
-        if let Err(err) = self.send_event(event) {
+        if let Err(err) = self.0.send_event(event) {
             error!("failed to send event: {err:?}");
             std::process::exit(1);
         }
@@ -81,7 +85,12 @@ impl AsRef<[u8]> for ReplayData {
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub enum ConfigEvent {
+    ActionBindings(Vec<ActionBindings>),
+    ActionBindingSet((Action, Input, usize)),
+    ActionBindingClear(Input),
+    AlwaysOnTop(bool),
     ApuChannelEnabled((Channel, bool)),
+    ApuChannelsEnabled([bool; Apu::MAX_CHANNEL_COUNT]),
     AudioBuffer(usize),
     AudioEnabled(bool),
     AudioLatency(Duration),
@@ -90,20 +99,30 @@ pub enum ConfigEvent {
     AutoSaveInterval(Duration),
     ConcurrentDpad(bool),
     CycleAccurate(bool),
+    DarkTheme(bool),
+    EmbedViewports(bool),
     FourPlayer(FourPlayer),
+    Fullscreen(bool),
+    GamepadAssign((Player, Uuid)),
+    GamepadAssignments([(Player, Option<Uuid>); 4]),
+    GamepadUnassign(Player),
     GenieCodeAdded(GenieCode),
+    GenieCodeClear,
     GenieCodeRemoved(String),
     HideOverscan(bool),
-    InputBindings,
     MapperRevisions(MapperRevisionsConfig),
     RamState(RamState),
+    RecentRomsClear,
     Region(NesRegion),
     RewindEnabled(bool),
-    RewindSeconds(u32),
     RewindInterval(u32),
+    RewindSeconds(u32),
     RunAhead(usize),
     SaveSlot(u8),
+    Scale(f32),
     Shader(Shader),
+    ShowMenubar(bool),
+    ShowMessages(bool),
     Speed(f32),
     VideoFilter(VideoFilter),
     ZapperConnected(bool),
@@ -164,9 +183,10 @@ pub enum RendererEvent {
     ViewportResized((f32, f32)),
     FrameStats(FrameStats),
     ShowMenubar(bool),
-    ScaleChanged,
     ToggleFullscreen,
     ReplayLoaded,
+    ResizeTexture,
+    ResizeWindow,
     ResourcesReady,
     RequestRedraw {
         viewport_id: ViewportId,
@@ -341,7 +361,8 @@ impl Running {
                 self.renderer
                     .add_message(MessageType::Warn, "Your system memory is running low...");
                 if self.cfg.emulation.rewind {
-                    self.nes_event(ConfigEvent::RewindEnabled(false));
+                    self.cfg.emulation.rewind = false;
+                    self.event(ConfigEvent::RewindEnabled(false));
                 }
             }
             Event::AboutToWait => {
@@ -352,7 +373,9 @@ impl Running {
                         self.repaint_times.insert(window_id, Instant::now());
                     }
 
-                    if !res.consumed {
+                    if res.consumed {
+                        self.gamepads.clear_events();
+                    } else {
                         while let Some(event) = self.gamepads.next_event() {
                             self.on_gamepad_event(window_id, event);
                             self.repaint_times.insert(window_id, Instant::now());
@@ -393,7 +416,7 @@ impl Running {
                                 self.repaint_times.insert(window_id, Instant::now());
                                 if self.renderer.rom_loaded() && self.run_state.auto_paused() {
                                     self.run_state = RunState::Running;
-                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                    self.event(EmulationEvent::RunState(self.run_state));
                                 }
                             } else {
                                 let time_since_last_save =
@@ -412,7 +435,7 @@ impl Running {
                                     self.repaint_times.remove(&window_id);
                                     if self.renderer.rom_loaded() {
                                         self.run_state = RunState::Paused;
-                                        self.nes_event(EmulationEvent::RunState(self.run_state));
+                                        self.event(EmulationEvent::RunState(self.run_state));
                                     }
                                 }
                             }
@@ -423,13 +446,13 @@ impl Running {
                                 self.repaint_times.remove(&window_id);
                                 if self.renderer.rom_loaded() {
                                     self.run_state = RunState::Paused;
-                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                    self.event(EmulationEvent::RunState(self.run_state));
                                 }
                             } else {
                                 self.repaint_times.insert(window_id, Instant::now());
                                 if self.renderer.rom_loaded() && self.run_state.auto_paused() {
                                     self.run_state = RunState::Running;
-                                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                                    self.event(EmulationEvent::RunState(self.run_state));
                                 }
                             }
                         }
@@ -451,7 +474,7 @@ impl Running {
                         }
                         WindowEvent::DroppedFile(path) => {
                             if Some(window_id) == self.renderer.root_window_id() {
-                                self.nes_event(EmulationEvent::LoadRomPath(path));
+                                self.event(EmulationEvent::LoadRomPath(path));
                             }
                         }
                         _ => (),
@@ -459,29 +482,131 @@ impl Running {
                 }
             }
             Event::UserEvent(event) => {
-                // Only wake emulation of relevant events
-                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
-                    self.emulation.on_event(&event);
-                }
-                self.renderer.on_event(&event, &self.cfg);
+                match &event {
+                    NesEvent::Config(event) => {
+                        let Config {
+                            deck,
+                            emulation,
+                            audio,
+                            renderer,
+                            input,
+                        } = &mut self.cfg;
+                        match event {
+                            ConfigEvent::ActionBindings(bindings) => {
+                                input.action_bindings.clone_from(bindings);
+                                self.input_bindings = InputBindings::from_input_config(input);
+                            }
+                            ConfigEvent::ActionBindingSet((action, set_input, binding)) => {
+                                input.set_binding(*action, *set_input, *binding);
+                                self.input_bindings.insert(*set_input, *action);
+                            }
+                            ConfigEvent::ActionBindingClear(clear_input) => {
+                                input.clear_binding(*clear_input);
+                                self.input_bindings.remove(clear_input);
+                            }
+                            ConfigEvent::AlwaysOnTop(always_on_top) => {
+                                renderer.always_on_top = *always_on_top;
+                                self.renderer
+                                    .set_always_on_top(self.cfg.renderer.always_on_top);
+                            }
+                            ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
+                                deck.channels_enabled[*channel as usize] = *enabled;
+                            }
+                            ConfigEvent::ApuChannelsEnabled(enabled) => {
+                                deck.channels_enabled = *enabled;
+                            }
+                            ConfigEvent::AudioBuffer(buffer_size) => {
+                                audio.buffer_size = *buffer_size;
+                            }
+                            ConfigEvent::AudioEnabled(enabled) => audio.enabled = *enabled,
+                            ConfigEvent::AudioLatency(latency) => audio.latency = *latency,
+                            ConfigEvent::AutoLoad(enabled) => emulation.auto_load = *enabled,
+                            ConfigEvent::AutoSave(enabled) => emulation.auto_save = *enabled,
+                            ConfigEvent::AutoSaveInterval(interval) => {
+                                emulation.auto_save_interval = *interval;
+                            }
+                            ConfigEvent::ConcurrentDpad(enabled) => deck.concurrent_dpad = *enabled,
+                            ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
+                            ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
+                            ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
+                            ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
+                            ConfigEvent::Fullscreen(fullscreen) => {
+                                renderer.fullscreen = *fullscreen
+                            }
+                            ConfigEvent::GamepadAssign((player, uuid)) => {
+                                input.assign_gamepad(*player, *uuid);
+                                if let Some(name) = self.gamepads.gamepad_name_by_uuid(uuid) {
+                                    self.tx.event(UiEvent::Message((
+                                        MessageType::Info,
+                                        format!("Assigned gamepad `{name}` to player {player:?}.",),
+                                    )));
+                                }
+                            }
+                            ConfigEvent::GamepadUnassign(player) => {
+                                if let Some(uuid) = input.unassign_gamepad(*player) {
+                                    if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
+                                        self.tx.event(UiEvent::Message((
+                                            MessageType::Info,
+                                            format!("Unassigned gamepad `{name}` from player {player:?}."),
+                                        )));
+                                    }
+                                }
+                            }
+                            ConfigEvent::GamepadAssignments(assignments) => {
+                                input.gamepad_assignments = *assignments;
+                            }
+                            ConfigEvent::GenieCodeAdded(genie_code) => {
+                                deck.genie_codes.push(genie_code.clone());
+                            }
+                            ConfigEvent::GenieCodeClear => deck.genie_codes.clear(),
+                            ConfigEvent::GenieCodeRemoved(code) => {
+                                deck.genie_codes.retain(|genie| genie.code() != code);
+                            }
+                            ConfigEvent::HideOverscan(hide) => renderer.hide_overscan = *hide,
+                            ConfigEvent::MapperRevisions(revs) => deck.mapper_revisions = *revs,
+                            ConfigEvent::RamState(ram_state) => deck.ram_state = *ram_state,
+                            ConfigEvent::RecentRomsClear => renderer.recent_roms.clear(),
+                            ConfigEvent::Region(region) => deck.region = *region,
+                            ConfigEvent::RewindEnabled(enabled) => emulation.rewind = *enabled,
+                            ConfigEvent::RewindInterval(interval) => {
+                                emulation.rewind_interval = *interval;
+                            }
+                            ConfigEvent::RewindSeconds(seconds) => {
+                                emulation.rewind_seconds = *seconds;
+                            }
+                            ConfigEvent::RunAhead(run_ahead) => emulation.run_ahead = *run_ahead,
+                            ConfigEvent::SaveSlot(slot) => emulation.save_slot = *slot,
+                            ConfigEvent::Scale(scale) => renderer.scale = *scale,
+                            ConfigEvent::Shader(shader) => renderer.shader = *shader,
+                            ConfigEvent::ShowMenubar(show) => renderer.show_menubar = *show,
+                            ConfigEvent::ShowMessages(show) => renderer.show_messages = *show,
+                            ConfigEvent::Speed(speed) => emulation.speed = *speed,
+                            ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
+                            ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
+                        }
 
-                match event {
-                    NesEvent::Config(ConfigEvent::InputBindings) => {
-                        self.input_bindings = InputBindings::from_input_config(&self.cfg.input);
+                        self.renderer.prepare(&self.gamepads, &self.cfg);
                     }
                     NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
-                        if let Some(window_id) = self.renderer.window_id_for_viewport(viewport_id) {
+                        if let Some(window_id) = self.renderer.window_id_for_viewport(*viewport_id)
+                        {
                             self.repaint_times.insert(
                                 window_id,
                                 self.repaint_times
                                     .get(&window_id)
-                                    .map_or(when, |last| (*last).min(when)),
+                                    .map_or(*when, |last| (*last).min(*when)),
                             );
                         }
                     }
                     NesEvent::Ui(event) => self.on_ui_event(event),
                     _ => (),
                 }
+
+                // Only wake emulation of relevant events
+                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
+                    self.emulation.on_event(&event);
+                }
+                self.renderer.on_event(&event, &self.cfg);
             }
             Event::LoopExiting => {
                 if let Err(err) = self.renderer.save(&self.cfg) {
@@ -497,13 +622,13 @@ impl Running {
         }
     }
 
-    pub fn on_ui_event(&mut self, event: UiEvent) {
+    pub fn on_ui_event(&mut self, event: &UiEvent) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         match event {
-            UiEvent::Message((ty, msg)) => self.renderer.add_message(ty, msg),
-            UiEvent::Error(err) => self.renderer.on_error(anyhow!(err)),
+            UiEvent::Message((ty, msg)) => self.renderer.add_message(*ty, msg),
+            UiEvent::Error(err) => self.renderer.on_error(anyhow!(err.clone())),
             UiEvent::LoadRomDialog => {
                 match open_file_dialog(
                     "Load ROM",
@@ -513,12 +638,12 @@ impl Running {
                 ) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
-                            self.nes_event(EmulationEvent::LoadRomPath(path));
+                            self.event(EmulationEvent::LoadRomPath(path));
                         }
                     }
                     Err(err) => {
                         error!("failed top open rom dialog: {err:?}");
-                        self.nes_event(UiEvent::Error("failed to open rom dialog".to_string()));
+                        self.event(UiEvent::Error("failed to open rom dialog".to_string()));
                     }
                 }
             }
@@ -531,19 +656,19 @@ impl Running {
                 ) {
                     Ok(maybe_path) => {
                         if let Some(path) = maybe_path {
-                            self.nes_event(EmulationEvent::LoadReplayPath(path));
+                            self.event(EmulationEvent::LoadReplayPath(path));
                         }
                     }
                     Err(err) => {
                         error!("failed top open replay dialog: {err:?}");
-                        self.nes_event(UiEvent::Error("failed to open replay dialog".to_string()));
+                        self.event(UiEvent::Error("failed to open replay dialog".to_string()));
                     }
                 }
             }
             UiEvent::FileDialogCancelled => {
                 if self.renderer.rom_loaded() {
                     self.run_state = RunState::Running;
-                    self.nes_event(EmulationEvent::RunState(self.run_state));
+                    self.event(EmulationEvent::RunState(self.run_state));
                 }
             }
             UiEvent::UpdateAvailable(_) | UiEvent::Terminate => (),
@@ -551,7 +676,7 @@ impl Running {
     }
 
     /// Trigger a custom event.
-    pub fn nes_event(&mut self, event: impl Into<NesEvent>) {
+    pub fn event(&mut self, event: impl Into<NesEvent>) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -561,7 +686,7 @@ impl Running {
         self.emulation.on_event(&event);
         self.renderer.on_event(&event, &self.cfg);
         match event {
-            NesEvent::Ui(event) => self.on_ui_event(event),
+            NesEvent::Ui(event) => self.on_ui_event(&event),
             NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
                 if let Ok(path) = path.canonicalize() {
                     self.cfg.renderer.recent_roms.insert(path);
@@ -664,6 +789,8 @@ impl Running {
                 _ => (),
             }
         }
+
+        self.renderer.prepare(&self.gamepads, &self.cfg);
     }
 
     /// Handle user input mapped to key bindings.
@@ -683,49 +810,49 @@ impl Running {
             let is_root_window = Some(window_id) == self.renderer.root_window_id();
             match action {
                 Action::Ui(ui_state) if released => match ui_state {
-                    Ui::Quit => self.tx.nes_event(UiEvent::Terminate),
+                    Ui::Quit => self.tx.event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
                             self.run_state = match self.run_state {
                                 RunState::Running => RunState::ManuallyPaused,
                                 RunState::ManuallyPaused | RunState::Paused => RunState::Running,
                             };
-                            self.nes_event(EmulationEvent::RunState(self.run_state));
+                            self.event(EmulationEvent::RunState(self.run_state));
                         }
                     }
                     Ui::LoadRom => {
                         if self.renderer.rom_loaded() {
                             self.run_state = RunState::Paused;
-                            self.nes_event(EmulationEvent::RunState(self.run_state));
+                            self.event(EmulationEvent::RunState(self.run_state));
                         }
                         // NOTE: Due to some platforms file dialogs blocking the event loop,
                         // loading requires a round-trip in order for the above pause to
                         // get processed.
-                        self.tx.nes_event(UiEvent::LoadRomDialog);
+                        self.tx.event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
                         if self.renderer.rom_loaded() {
-                            self.nes_event(EmulationEvent::UnloadRom);
+                            self.event(EmulationEvent::UnloadRom);
                         }
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
                             self.run_state = RunState::Paused;
-                            self.nes_event(EmulationEvent::RunState(self.run_state));
+                            self.event(EmulationEvent::RunState(self.run_state));
                             // NOTE: Due to some platforms file dialogs blocking the event loop,
                             // loading requires a round-trip in order for the above pause to
                             // get processed.
-                            self.tx.nes_event(UiEvent::LoadReplayDialog);
+                            self.tx.event(UiEvent::LoadReplayDialog);
                         }
                     }
                 },
-                Action::Menu(menu) if released => self.nes_event(RendererEvent::Menu(menu)),
+                Action::Menu(menu) if released => self.event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) if is_root_window => match feature {
                     Feature::ToggleReplayRecording if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.replay_recording = !self.replay_recording;
-                                self.nes_event(EmulationEvent::ReplayRecord(self.replay_recording));
+                                self.event(EmulationEvent::ReplayRecord(self.replay_recording));
                             }
                         } else {
                             self.renderer.add_message(
@@ -738,7 +865,7 @@ impl Running {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.audio_recording = !self.audio_recording;
-                                self.nes_event(EmulationEvent::AudioRecord(self.audio_recording));
+                                self.event(EmulationEvent::AudioRecord(self.audio_recording));
                             }
                         } else {
                             self.renderer.add_message(
@@ -750,7 +877,7 @@ impl Running {
                     Feature::TakeScreenshot if released => {
                         if platform::supports(platform::Feature::Filesystem) {
                             if self.renderer.rom_loaded() {
-                                self.nes_event(EmulationEvent::Screenshot);
+                                self.event(EmulationEvent::Screenshot);
                             }
                         } else {
                             self.renderer.add_message(
@@ -763,13 +890,13 @@ impl Running {
                         if !self.rewinding {
                             if repeat {
                                 self.rewinding = true;
-                                self.nes_event(EmulationEvent::Rewinding(self.rewinding));
+                                self.event(EmulationEvent::Rewinding(self.rewinding));
                             } else if released {
-                                self.nes_event(EmulationEvent::InstantRewind);
+                                self.event(EmulationEvent::InstantRewind);
                             }
                         } else if released {
                             self.rewinding = false;
-                            self.nes_event(EmulationEvent::Rewinding(self.rewinding));
+                            self.event(EmulationEvent::Rewinding(self.rewinding));
                         }
                     }
                     _ => (),
@@ -794,31 +921,31 @@ impl Running {
                     }
                     Setting::ToggleAudio if released => {
                         self.cfg.audio.enabled = !self.cfg.audio.enabled;
-                        self.nes_event(ConfigEvent::AudioEnabled(self.cfg.audio.enabled));
+                        self.event(ConfigEvent::AudioEnabled(self.cfg.audio.enabled));
                     }
                     Setting::ToggleMenubar if released => {
                         self.cfg.renderer.show_menubar = !self.cfg.renderer.show_menubar;
-                        self.nes_event(RendererEvent::ShowMenubar(self.cfg.renderer.show_menubar));
+                        self.event(RendererEvent::ShowMenubar(self.cfg.renderer.show_menubar));
                     }
                     Setting::IncrementScale if released => {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.increment_scale();
                         if scale != new_scale {
-                            self.nes_event(RendererEvent::ScaleChanged);
+                            self.event(ConfigEvent::Scale(new_scale));
                         }
                     }
                     Setting::DecrementScale if released => {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.decrement_scale();
                         if scale != new_scale {
-                            self.nes_event(RendererEvent::ScaleChanged);
+                            self.event(ConfigEvent::Scale(new_scale));
                         }
                     }
                     Setting::IncrementSpeed if released => {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.increment_speed();
                         if speed != new_speed {
-                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             self.renderer.add_message(
                                 MessageType::Info,
                                 format!("Increased Emulation Speed to {new_speed}"),
@@ -829,7 +956,7 @@ impl Running {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.decrement_speed();
                         if speed != new_speed {
-                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             self.renderer.add_message(
                                 MessageType::Info,
                                 format!("Decreased Emulation Speed to {new_speed}"),
@@ -843,7 +970,7 @@ impl Running {
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
                             self.cfg.emulation.speed = new_speed;
-                            self.nes_event(ConfigEvent::Speed(self.cfg.emulation.speed));
+                            self.event(ConfigEvent::Speed(self.cfg.emulation.speed));
                             if new_speed == 2.0 {
                                 self.renderer
                                     .add_message(MessageType::Info, "Fast forwarding");
@@ -854,10 +981,10 @@ impl Running {
                 },
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
-                        self.nes_event(EmulationEvent::Reset(kind));
+                        self.event(EmulationEvent::Reset(kind));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
-                        self.nes_event(EmulationEvent::Joypad((player, button, state)));
+                        self.event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
                     DeckAction::ZapperAim(_)
@@ -881,7 +1008,7 @@ impl Running {
                     }
                     DeckAction::SaveState if released && is_root_window => {
                         if platform::supports(platform::Feature::Storage) {
-                            self.nes_event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
+                            self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(
                                 MessageType::Warn,
@@ -891,7 +1018,7 @@ impl Running {
                     }
                     DeckAction::LoadState if released && is_root_window => {
                         if platform::supports(platform::Feature::Storage) {
-                            self.nes_event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
+                            self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(
                                 MessageType::Warn,
@@ -902,16 +1029,14 @@ impl Running {
                     DeckAction::ToggleApuChannel(channel) if released => {
                         self.cfg.deck.channels_enabled[channel as usize] =
                             !self.cfg.deck.channels_enabled[channel as usize];
-                        self.nes_event(ConfigEvent::ApuChannelEnabled((
+                        self.event(ConfigEvent::ApuChannelEnabled((
                             channel,
                             self.cfg.deck.channels_enabled[channel as usize],
                         )));
                     }
                     DeckAction::MapperRevision(rev) if released => {
                         self.cfg.deck.mapper_revisions.set(rev);
-                        self.nes_event(ConfigEvent::MapperRevisions(
-                            self.cfg.deck.mapper_revisions,
-                        ));
+                        self.event(ConfigEvent::MapperRevisions(self.cfg.deck.mapper_revisions));
                         self.renderer.add_message(
                             MessageType::Info,
                             format!("Changed Mapper Revision to {rev}"),
@@ -919,7 +1044,7 @@ impl Running {
                     }
                     DeckAction::SetNesRegion(region) if released => {
                         self.cfg.deck.region = region;
-                        self.nes_event(ConfigEvent::Region(self.cfg.deck.region));
+                        self.event(ConfigEvent::Region(self.cfg.deck.region));
                         self.renderer.add_message(
                             MessageType::Info,
                             format!("Changed NES Region to {region:?}"),
@@ -932,19 +1057,23 @@ impl Running {
                             filter
                         };
                         self.cfg.deck.filter = filter;
-                        self.nes_event(ConfigEvent::VideoFilter(filter));
+                        self.event(ConfigEvent::VideoFilter(filter));
                     }
                     _ => (),
                 },
                 Action::Debug(action) => match action {
                     Debug::Toggle(kind) if released => {
-                        self.renderer.add_message(
-                            MessageType::Warn,
-                            format!("{kind:?} is not implemented yet"),
-                        );
+                        if matches!(kind, Debugger::Ppu) {
+                            self.event(RendererEvent::Menu(Menu::PpuViewer));
+                        } else {
+                            self.renderer.add_message(
+                                MessageType::Warn,
+                                format!("{kind:?} is not implemented yet"),
+                            );
+                        }
                     }
                     Debug::Step(step) if (released | repeat) && is_root_window => {
-                        self.nes_event(EmulationEvent::DebugStep(step));
+                        self.event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),
                 },

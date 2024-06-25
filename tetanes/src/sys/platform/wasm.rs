@@ -1,6 +1,6 @@
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEvent, RendererEvent, ReplayData, SendNesEvent, UiEvent},
+        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
         renderer::{Renderer, State},
         rom::RomData,
         Running,
@@ -20,7 +20,7 @@ use web_sys::{
 };
 use winit::{
     event::Event,
-    event_loop::{EventLoop, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{EventLoop, EventLoopWindowTarget},
     platform::web::{EventLoopExtWebSys, WindowBuilderExtWebSys},
     window::WindowBuilder,
 };
@@ -75,16 +75,16 @@ pub fn open_file_dialog_impl(
 }
 
 /// Helper method to log and send errors to the UI thread from javascript.
-fn on_error(tx: &EventLoopProxy<NesEvent>, err: JsValue) {
+fn on_error(tx: &NesEventProxy, err: JsValue) {
     tracing::error!("{err:?}");
-    tx.nes_event(UiEvent::Error(
+    tx.event(UiEvent::Error(
         err.as_string()
             .unwrap_or_else(|| "failed to load rom".to_string()),
     ));
 }
 
 /// Sets up the window resize handler for responding to changes in the viewport size.
-fn set_resize_handler(window: &web_sys::Window, tx: &EventLoopProxy<NesEvent>) {
+fn set_resize_handler(window: &web_sys::Window, tx: &NesEventProxy) {
     let on_resize = Closure::<dyn FnMut(_)>::new({
         let tx = tx.clone();
         move |_: web_sys::Event| {
@@ -99,7 +99,7 @@ fn set_resize_handler(window: &web_sys::Window, tx: &EventLoopProxy<NesEvent>) {
                     .ok()
                     .and_then(|h| h.as_f64())
                     .map_or(0.0, |h| h as f32);
-                tx.nes_event(RendererEvent::ViewportResized((width, height)));
+                tx.event(RendererEvent::ViewportResized((width, height)));
             }
         }
     });
@@ -114,7 +114,7 @@ fn set_resize_handler(window: &web_sys::Window, tx: &EventLoopProxy<NesEvent>) {
 
 /// Sets up the onload handler for reading loaded files.
 fn set_file_onload_handler(
-    tx: EventLoopProxy<NesEvent>,
+    tx: NesEventProxy,
     input_id: &'static str,
     reader: web_sys::FileReader,
     file_name: String,
@@ -133,7 +133,7 @@ fn set_file_onload_handler(
                     }
                     _ => unreachable!("unsupported input id"),
                 };
-                tx.nes_event(event);
+                tx.event(event);
                 focus_canvas();
             }
             Err(err) => on_error(&tx, err),
@@ -150,7 +150,7 @@ fn set_file_onload_handler(
 /// Sets up the onchange and oncancel handlers for file input elements.
 fn set_file_onchange_handlers(
     document: &web_sys::Document,
-    tx: &EventLoopProxy<NesEvent>,
+    tx: &NesEventProxy,
     input_id: &'static str,
 ) -> anyhow::Result<()> {
     let on_change = Closure::<dyn FnMut(_)>::new({
@@ -163,7 +163,7 @@ fn set_file_onchange_handlers(
                     .and_then(|input| input.files())
                     .and_then(|files| files.item(0))
                 else {
-                    tx.nes_event(UiEvent::FileDialogCancelled);
+                    tx.event(UiEvent::FileDialogCancelled);
                     return;
                 };
                 if let Err(err) = reader
@@ -181,7 +181,7 @@ fn set_file_onchange_handlers(
         let tx = tx.clone();
         move |_: web_sys::Event| {
             focus_canvas();
-            tx.nes_event(UiEvent::FileDialogCancelled);
+            tx.event(UiEvent::FileDialogCancelled);
         }
     });
 
@@ -448,10 +448,7 @@ fn set_download_versions(document: &web_sys::Document) {
 }
 
 /// Hides the loading status when the WASM module has finished loading.
-fn finish_loading(
-    document: &web_sys::Document,
-    tx: &EventLoopProxy<NesEvent>,
-) -> anyhow::Result<()> {
+fn finish_loading(document: &web_sys::Document, tx: &NesEventProxy) -> anyhow::Result<()> {
     if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
         if let Err(err) = status.class_list().add_1("hidden") {
             on_error(tx, err);
