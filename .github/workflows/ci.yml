@@ -63,7 +63,7 @@ jobs:
         with:
           # TODO: pin nightly temporarily to fix coreaudio-sys issue with 2024-06-23
           # See: https://github.com/RustAudio/coreaudio-sys/issues/104
-          toolchain: nightly-2024-06-12
+          toolchain: nightly-2024-06-22
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - if: startsWith(matrix.os, 'ubuntu')
