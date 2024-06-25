@@ -52,6 +52,7 @@ jobs:
     name: Lint TetaNES (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
@@ -60,7 +61,9 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
+          # TODO: pin nightly temporarily to fix coreaudio-sys issue with 2024-06-23
+          # See: https://github.com/RustAudio/coreaudio-sys/issues/104
+          toolchain: nightly-2024-06-12
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - if: startsWith(matrix.os, 'ubuntu')
@@ -74,6 +77,7 @@ jobs:
     name: Lint TetaNES Core (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         toolchain: [nightly, stable, 1.78]
