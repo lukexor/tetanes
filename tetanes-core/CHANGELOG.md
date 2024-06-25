@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/lukexor/tetanes/compare/0.11.0..0.12.0) - 2024-06-25
+
+### 🐛 Bug Fixes
+
+
+- Ensure pixel brightness is using the same palette - ([ad2f873](https://github.com/lukexor/tetanes/commit/ad2f873f5652016b96317c000b4abbe0e35de421))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- More dependency cleanup - ([1971e4f](https://github.com/lukexor/tetanes/commit/1971e4f2c5aaf6f8a2d6ce2a03c978362d44afe1))
+
+
 ## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features

@@ -7,6 +7,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/lukexor/tetanes/compare/0.11.0..0.12.0) - 2024-06-25
+
+### 🐛 Bug Fixes
+
+
+- Fixed window aspect ratio - ([17db5c8](https://github.com/lukexor/tetanes/commit/17db5c8a037ab3aefab560bca67545964069658f))
+- Don't log/error when sending frames while paused - ([50825f8](https://github.com/lukexor/tetanes/commit/50825f82e9f04418fdefd56707ef2ec50cddd5ed))
+- Fixed pause state when loading replay - ([d743b31](https://github.com/lukexor/tetanes/commit/d743b31c190cd93e42e3ab78b497e59bcc4ade88))
+- Fixed roms path to default to current directory, if valid, and canonicalize - ([e00273f](https://github.com/lukexor/tetanes/commit/e00273f740f7fc095bc02c7ce6d0ba132a14c9bc))
+- Move some calculations to vertex shader that don't depend on v_uv - ([a6f262d](https://github.com/lukexor/tetanes/commit/a6f262db5d83950e86e0ec78bb74fc63e5c2bf85))
+- Fixed logging location - ([ff36033](https://github.com/lukexor/tetanes/commit/ff36033d7bbbf64924d97d6e9a88dcf4db7dc60c))
+- Fixed issue with lower end platforms not supporting larger texture dimensions - ([ef214db](https://github.com/lukexor/tetanes/commit/ef214dbc2f2eee016b7abdb0c2b0ee1858381ee4))
+- Fix window resizing while handling zoom changes - ([6b3f690](https://github.com/lukexor/tetanes/commit/6b3f690b8ec21b907d353a7cad8561217e8d9dcf))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- More dependency cleanup - ([1971e4f](https://github.com/lukexor/tetanes/commit/1971e4f2c5aaf6f8a2d6ce2a03c978362d44afe1))
+- Clean up dependencies - ([254fe54](https://github.com/lukexor/tetanes/commit/254fe543293b0c96c78ce25bdaeef2f250a9fb14))
+
+
 ## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
