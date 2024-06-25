@@ -60,12 +60,6 @@ pub struct GenieEntry {
     error: Option<String>,
 }
 
-impl GenieEntry {
-    pub fn empty() -> Self {
-        Self::default()
-    }
-}
-
 impl Preferences {
     const TITLE: &'static str = "Preferences";
 

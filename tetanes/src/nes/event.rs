@@ -493,7 +493,7 @@ impl Running {
                         } = &mut self.cfg;
                         match event {
                             ConfigEvent::ActionBindings(bindings) => {
-                                input.action_bindings = bindings.clone();
+                                input.action_bindings.clone_from(bindings);
                                 self.input_bindings = InputBindings::from_input_config(input);
                             }
                             ConfigEvent::ActionBindingSet((action, set_input, binding)) => {

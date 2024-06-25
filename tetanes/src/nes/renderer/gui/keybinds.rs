@@ -548,20 +548,4 @@ impl State {
             });
         }
     }
-
-    pub fn action_input(action: impl Into<Action>, cfg: &Config) -> Option<Input> {
-        let action = action.into();
-        cfg.input
-            .shortcuts
-            .get(&action)
-            .or_else(|| {
-                cfg.input
-                    .joypads
-                    .iter()
-                    .map(|bind| bind.get(&action))
-                    .next()
-                    .flatten()
-            })
-            .and_then(|bind| bind.bindings[0])
-    }
 }
