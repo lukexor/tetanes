@@ -523,6 +523,10 @@ impl Gui {
                 ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
                 ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
                 ui.menu_button("❓ Help", |ui| self.help_menu(ui));
+
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    egui::warn_if_debug_build(ui);
+                });
             });
         });
         let spacing = ui.style().spacing.item_spacing;
