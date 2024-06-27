@@ -248,12 +248,12 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut cycle_accurate: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = (!shortcut.is_empty()).then_some("📐 ").unwrap_or_default();
+        let icon = shortcut.is_some().then_some("📐 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut cycle_accurate, format!("{icon}Cycle Accurate"))
-            .shortcut_text(shortcut);
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
             .add(checkbox)
             .on_hover_text("Enables more accurate NES emulation at a slight cost in performance.");
@@ -266,12 +266,12 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut rewind: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = (!shortcut.is_empty()).then_some("🔄 ").unwrap_or_default();
-        let checkbox =
-            Checkbox::new(&mut rewind, format!("{icon}Enable Rewinding")).shortcut_text(shortcut);
+        let icon = shortcut.is_some().then_some("🔄 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut rewind, format!("{icon}Enable Rewinding"))
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
             .add(checkbox)
             .on_hover_text("Enable instant and visual rewinding. Increases memory usage.");
@@ -284,12 +284,12 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut zapper: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = (!shortcut.is_empty()).then_some("🔫 ").unwrap_or_default();
-        let checkbox =
-            Checkbox::new(&mut zapper, format!("{icon}Enable Zapper Gun")).shortcut_text(shortcut);
+        let icon = shortcut.is_some().then_some("🔫 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut zapper, format!("{icon}Enable Zapper Gun"))
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
             .add(checkbox)
             .on_hover_text("Enable the Zapper Light Gun for games that support it.");
@@ -302,12 +302,12 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut hide_overscan: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = (!shortcut.is_empty()).then_some("📺 ").unwrap_or_default();
+        let icon = shortcut.is_some().then_some("📺 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut hide_overscan, format!("{icon}Hide Overscan"))
-            .shortcut_text(shortcut);
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui.add(checkbox)
             .on_hover_text("Traditional CRT displays would crop the top and bottom edges of the image. Disable this to show the overscan.");
         if res.clicked() {
@@ -383,12 +383,12 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut show_menubar: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = (!shortcut.is_empty()).then_some("☰ ").unwrap_or_default();
+        let icon = shortcut.is_some().then_some("☰ ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut show_menubar, format!("{icon}Show Menu Bar"))
-            .shortcut_text(shortcut);
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui.add(checkbox).on_hover_text("Show the menu bar.");
         if res.clicked() {
             tx.event(ConfigEvent::ShowMenubar(show_menubar));
@@ -399,13 +399,13 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut show_messages: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
         // icon: document with text
-        let icon = (!shortcut.is_empty()).then_some("🖹 ").unwrap_or_default();
+        let icon = shortcut.is_some().then_some("🖹 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut show_messages, format!("{icon}Show Messages"))
-            .shortcut_text(shortcut);
+            .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
             .add(checkbox)
             .on_hover_text("Show shortcut and emulator messages.");
@@ -434,13 +434,13 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut fullscreen: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
         // icon: screen
-        let icon = (!shortcut.is_empty()).then_some("🖵 ").unwrap_or_default();
-        let checkbox =
-            Checkbox::new(&mut fullscreen, format!("{icon}Fullscreen")).shortcut_text(shortcut);
+        let icon = shortcut.is_some().then_some("🖵 ").unwrap_or_default();
+        let checkbox = Checkbox::new(&mut fullscreen, format!("{icon}Fullscreen"))
+            .shortcut_text(shortcut.unwrap_or_default());
         if ui.add(checkbox).clicked() {
             tx.event(ConfigEvent::Fullscreen(fullscreen));
         }
@@ -450,17 +450,17 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         cfg: &Config,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         if feature!(Viewports) {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
                 let shortcut = shortcut.into();
                 // icon: maximize
-                let icon = (!shortcut.is_empty()).then_some("🗖 ").unwrap_or_default();
+                let icon = shortcut.is_some().then_some("🗖 ").unwrap_or_default();
                 let mut embed_viewports = ui.ctx().embed_viewports();
                 let checkbox =
                     Checkbox::new(&mut embed_viewports, format!("{icon}Embed Viewports"))
-                        .shortcut_text(shortcut);
+                        .shortcut_text(shortcut.unwrap_or_default());
                 let res = ui.add(checkbox).on_disabled_hover_text(
                     "Non-embedded viewports are not supported while in fullscreen.",
                 );
@@ -476,13 +476,13 @@ impl Preferences {
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut always_on_top: bool,
-        shortcut: impl Into<String>,
+        shortcut: impl Into<Option<String>>,
     ) {
         if feature!(Viewports) {
             let shortcut = shortcut.into();
-            let icon = (!shortcut.is_empty()).then_some("🔝 ").unwrap_or_default();
+            let icon = shortcut.is_some().then_some("🔝 ").unwrap_or_default();
             let checkbox = Checkbox::new(&mut always_on_top, format!("{icon}Always on Top"))
-                .shortcut_text(shortcut);
+                .shortcut_text(shortcut.unwrap_or_default());
             // FIXME: Currently when not using embeded viewports, toggling always on top from
             // the preferences window will focus the primary window, potentially obscuring the
             // preferences window
@@ -625,7 +625,7 @@ impl State {
             grid.show(ui, |ui| {
                 let tx = &self.tx;
 
-                Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, "");
+                Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, None);
                 let res = ui.checkbox(&mut auto_load, "Auto-Load")
                     .on_hover_text("Automatically load game state from the current save slot on load.");
                 if res.changed() {
@@ -636,7 +636,7 @@ impl State {
                 ui.end_row();
 
                 ui.vertical(|ui| {
-                    Preferences::rewind_checkbox(tx, ui, rewind, "");
+                    Preferences::rewind_checkbox(tx, ui, rewind, None);
 
                     ui.add_enabled_ui(rewind, |ui| {
                         ui.indent("rewind_settings", |ui| {
@@ -886,16 +886,16 @@ impl State {
             .spacing([80.0, 6.0])
             .num_columns(2)
             .show(ui, |ui| {
-                Preferences::menubar_checkbox(tx, ui, show_menubar, "");
-                Preferences::fullscreen_checkbox(tx, ui, fullscreen, "");
+                Preferences::menubar_checkbox(tx, ui, show_menubar, None);
+                Preferences::fullscreen_checkbox(tx, ui, fullscreen, None);
                 ui.end_row();
 
-                Preferences::messages_checkbox(tx, ui, show_messages, "");
-                Preferences::embed_viewports_checkbox(tx, ui, cfg, "");
+                Preferences::messages_checkbox(tx, ui, show_messages, None);
+                Preferences::embed_viewports_checkbox(tx, ui, cfg, None);
                 ui.end_row();
 
-                Preferences::overscan_checkbox(tx, ui, hide_overscan, "");
-                Preferences::always_on_top_checkbox(tx, ui, always_on_top, "");
+                Preferences::overscan_checkbox(tx, ui, hide_overscan, None);
+                Preferences::always_on_top_checkbox(tx, ui, always_on_top, None);
                 ui.end_row();
             });
 
@@ -943,7 +943,7 @@ impl State {
             .num_columns(2)
             .spacing([80.0, 6.0])
             .show(ui, |ui| {
-                Preferences::zapper_checkbox(tx, ui, zapper, "");
+                Preferences::zapper_checkbox(tx, ui, zapper, None);
                 ui.end_row();
 
                 let res = ui.checkbox(&mut concurrent_dpad, "Enable Concurrent D-Pad");
