@@ -242,6 +242,10 @@ pub mod renderer {
                 let window_width = canvas.get_bounding_client_rect().width() as f32;
 
                 if window_width < desired_window_width {
+                    tracing::debug!(
+                        "window width ({window_width}) is less than desired ({desired_window_width})"
+                    );
+
                     let scale = if let Some(viewport_width) = web_sys::window()
                         .and_then(|win| win.inner_width().ok())
                         .and_then(|width| width.as_f64())
@@ -252,9 +256,9 @@ pub mod renderer {
                         1.0
                     };
 
+                    tracing::debug!("max scale for viewport: {scale}");
                     let new_window_size = renderer.window_size_for_scale(cfg, scale);
-                    if scale != cfg.renderer.scale && (window_width - new_window_size.x).abs() > 1.0
-                    {
+                    if (window_width - new_window_size.x).abs() > 1.0 {
                         tracing::debug!("constraining window to viewport: {new_window_size:?}");
 
                         let _ = window.request_inner_size(LogicalSize::new(
