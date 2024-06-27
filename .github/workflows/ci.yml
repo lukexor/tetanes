@@ -61,9 +61,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
         with:
-          # TODO: pin nightly temporarily to fix coreaudio-sys issue with 2024-06-23
-          # See: https://github.com/RustAudio/coreaudio-sys/issues/104
-          toolchain: nightly-2024-06-16
+          toolchain: nightly
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - if: startsWith(matrix.os, 'ubuntu')
