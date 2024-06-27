@@ -79,6 +79,11 @@ pub struct Gui {
     pub menu_height: f32,
     pub nes_frame: Rect,
     pub about_open: bool,
+    pub gui_settings_open: bool,
+    #[cfg(debug_assertions)]
+    pub gui_inspection_open: bool,
+    #[cfg(debug_assertions)]
+    pub gui_memory_open: bool,
     pub perf_stats_open: bool,
     pub update_window_open: bool,
     pub version: Version,
@@ -87,7 +92,6 @@ pub struct Gui {
     pub debugger_open: bool,
     pub ppu_viewer: PpuViewer,
     pub apu_mixer_open: bool,
-    pub debug_gui_hover: bool,
     pub viewport_info_open: bool,
     pub replay_recording: bool,
     pub audio_recording: bool,
@@ -126,6 +130,11 @@ impl Gui {
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
             about_open: false,
+            gui_settings_open: false,
+            #[cfg(debug_assertions)]
+            gui_inspection_open: false,
+            #[cfg(debug_assertions)]
+            gui_memory_open: false,
             perf_stats_open: false,
             update_window_open: false,
             version: Version::new(),
@@ -134,7 +143,6 @@ impl Gui {
             debugger_open: false,
             ppu_viewer: PpuViewer::new(tx),
             apu_mixer_open: false,
-            debug_gui_hover: false,
             viewport_info_open: false,
             replay_recording: false,
             audio_recording: false,
@@ -296,6 +304,24 @@ impl Gui {
 
         self.show_performance_window(ctx, viewport_opts.enabled);
         self.show_update_window(ctx, viewport_opts.enabled);
+
+        egui::Window::new("🔧 UI Settings")
+            .open(&mut self.gui_settings_open)
+            .vscroll(true)
+            .show(ctx, |ui| ctx.settings_ui(ui));
+
+        #[cfg(debug_assertions)]
+        {
+            egui::Window::new("🔍 UI Inspection")
+                .open(&mut self.gui_inspection_open)
+                .vscroll(true)
+                .show(ctx, |ui| ctx.inspection_ui(ui));
+
+            egui::Window::new("📝 UI Memory")
+                .open(&mut self.gui_memory_open)
+                .resizable(false)
+                .show(ctx, |ui| ctx.memory_ui(ui));
+        }
 
         #[cfg(feature = "profiling")]
         if viewport_opts.enabled {
@@ -986,12 +1012,18 @@ impl Gui {
             ui.close_menu();
         }
 
+        let toggle = ToggleValue::new(&mut self.gui_settings_open, "🔧 UI Settings");
+        ui.add(toggle)
+            .on_hover_text("Toggle the UI settings window");
+
         #[cfg(debug_assertions)]
         {
-            let res = ui.checkbox(&mut self.debug_gui_hover, "Debug GUI Hover");
-            if res.clicked() {
-                ui.ctx().set_debug_on_hover(self.debug_gui_hover);
-            }
+            let toggle = ToggleValue::new(&mut self.gui_inspection_open, "🔍 UI Inspection");
+            ui.add(toggle)
+                .on_hover_text("Toggle the UI inspection window");
+
+            let toggle = ToggleValue::new(&mut self.gui_memory_open, "📝 UI Memory");
+            ui.add(toggle).on_hover_text("Toggle the UI memory window");
 
             ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
         }
