@@ -1,4 +1,5 @@
 use crate::{
+    feature,
     nes::{
         config::Config,
         event::{
@@ -6,12 +7,15 @@ use crate::{
         },
         input::Gamepads,
         renderer::{
-            gui::{lib::key_from_keycode, Gui, MessageType},
+            gui::{
+                lib::{is_paste_command, key_from_keycode},
+                Gui, MessageType,
+            },
             shader::Shader,
             texture::Texture,
         },
     },
-    platform::{self, BuilderExt, Initialize},
+    platform::{BuilderExt, Initialize},
     thread,
 };
 use anyhow::Context;
@@ -189,7 +193,7 @@ impl Renderer {
         // Platforms like wasm don't easily support multiple viewports, and even if it could spawn
         // multiple canvases for each viewport, the async requirements of wgpu would make it
         // impossible to render until wasm-bindgen gets proper non-blocking async/await support.
-        if platform::supports(platform::Feature::Viewports) {
+        if feature!(Viewports) {
             ctx.set_embed_viewports(cfg.renderer.embed_viewports);
         }
 
@@ -395,7 +399,7 @@ impl Renderer {
     }
 
     pub fn set_fullscreen(&mut self, fullscreen: bool, embed_viewports: bool) {
-        if platform::supports(platform::Feature::Viewports) {
+        if feature!(Viewports) {
             self.ctx.set_embed_viewports(fullscreen || embed_viewports);
         }
         self.ctx
@@ -451,12 +455,12 @@ impl Renderer {
                     });
                 }
                 ConfigEvent::EmbedViewports(embed) => {
-                    if platform::supports(platform::Feature::Viewports) {
+                    if feature!(Viewports) {
                         self.ctx.set_embed_viewports(*embed);
                     }
                 }
                 ConfigEvent::Fullscreen(fullscreen) => {
-                    if platform::supports(platform::Feature::Viewports) {
+                    if feature!(Viewports) {
                         self.ctx
                             .set_embed_viewports(*fullscreen || cfg.renderer.embed_viewports);
                     }
@@ -565,21 +569,11 @@ impl Renderer {
 
                     let modifiers = self.ctx.input(|i| i.modifiers);
 
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        fn is_paste_command(modifiers: egui::Modifiers, keycode: Key) -> bool {
-                            keycode == Key::Paste
-                                || (modifiers.command && keycode == Key::V)
-                                || (cfg!(target_os = "windows")
-                                    && modifiers.shift
-                                    && keycode == Key::Insert)
-                        }
-                        if is_paste_command(modifiers, key) {
-                            return EventResponse {
-                                consumed: true,
-                                repaint: true,
-                            };
-                        }
+                    if feature!(ConsumePaste) && is_paste_command(modifiers, key) {
+                        return EventResponse {
+                            consumed: true,
+                            repaint: true,
+                        };
                     }
 
                     if matches!(key, Key::Plus | Key::Equals | Key::Minus | Key::Num0)
@@ -1068,6 +1062,37 @@ impl Renderer {
         };
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> EventResponse {
+        let State { viewports, .. } = &mut *state.borrow_mut();
+        let egui_state = viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .and_then(|viewport| viewport.egui_state.as_mut());
+        match egui_state {
+            Some(egui_state) => {
+                // Requires creating an event and setting the clipboard
+                // here because egui_winit internally tries to manage a
+                // fallback clipboard for platforms not supported by the
+                // clipboard crates being used.
+                //
+                // This has associated behavior in the renderer to prevent
+                // sending 'paste events' (ctrl/cmd+V) to egui_state to
+                // bypass its internal clipboard handling.
+                egui_state
+                    .egui_input_mut()
+                    .events
+                    .push(egui::Event::Paste(text.clone()));
+                egui_state.set_clipboard_text(text);
+                EventResponse {
+                    consumed: true,
+                    repaint: true,
+                }
+            }
+            _ => EventResponse::default(),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
     pub fn process_input(
         ctx: &egui::Context,
         state: &Rc<RefCell<State>>,
@@ -1105,8 +1130,7 @@ impl Renderer {
 
             let copied_text = std::mem::take(&mut output.platform_output.copied_text);
             if !copied_text.is_empty() {
-                #[cfg(target_arch = "wasm32")]
-                platform::set_clipboard_text(&copied_text);
+                crate::platform::set_clipboard_text(&copied_text);
             }
 
             return EventResponse {

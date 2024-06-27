@@ -1,5 +1,7 @@
-use crate::nes::{config::Config, event::NesEventProxy, renderer::gui::lib::ViewportOptions};
-use cfg_if::cfg_if;
+use crate::{
+    feature,
+    nes::{config::Config, event::NesEventProxy, renderer::gui::lib::ViewportOptions},
+};
 use egui::{CentralPanel, Context, Ui, ViewportClass};
 use parking_lot::Mutex;
 use std::sync::{
@@ -107,16 +109,14 @@ impl PpuViewer {
             }
         }
 
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-                });
-            } else {
-                ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-                });
-            }
+        if feature!(DeferredViewport) {
+            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+            });
+        } else {
+            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+            });
         }
     }
 }

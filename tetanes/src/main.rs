@@ -41,6 +41,7 @@ fn main() -> anyhow::Result<()> {
 
                 let opts = opts::Opts::parse();
                 tracing::debug!("CLI Options: {opts:?}");
+
                 opts.load()?
             }
         }

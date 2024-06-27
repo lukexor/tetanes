@@ -1,6 +1,6 @@
 use crate::{
     nes::{event::EmulationEvent, renderer::Renderer, Running},
-    platform::{BuilderExt, EventLoopExt, Feature, Initialize},
+    platform::{BuilderExt, EventLoopExt, Initialize},
 };
 use std::path::{Path, PathBuf};
 use tracing::error;
@@ -9,14 +9,6 @@ use winit::{
     event_loop::{EventLoop, EventLoopWindowTarget},
     window::WindowBuilder,
 };
-
-/// Checks if the current platform supports a given feature.
-pub const fn supports_impl(feature: Feature) -> bool {
-    match feature {
-        Feature::Suspend => cfg!(target_os = "android"),
-        Feature::Filesystem | Feature::Storage | Feature::Viewports | Feature::Blocking => true,
-    }
-}
 
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(

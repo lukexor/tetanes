@@ -1,11 +1,11 @@
 use crate::{
     nes::{
         event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
-        renderer::{Renderer, State},
+        renderer::Renderer,
         rom::RomData,
         Running,
     },
-    platform::{BuilderExt, EventLoopExt, Feature, Initialize},
+    platform::{BuilderExt, EventLoopExt, Initialize},
     thread,
 };
 use anyhow::{bail, Context};
@@ -35,13 +35,8 @@ const OS_OPTIONS: [(Os, Arch, &str); 5] = [
     (Os::Linux, Arch::X86_64, html_ids::LINXU_X86_LINK),
 ];
 
-/// Checks if the current platform supports a given feature.
-pub const fn supports_impl(feature: Feature) -> bool {
-    match feature {
-        Feature::Storage => true,
-        Feature::Filesystem | Feature::Viewports | Feature::Suspend | Feature::Blocking => false,
-    }
-}
+#[derive(Debug)]
+pub struct System;
 
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(
@@ -491,33 +486,11 @@ impl Initialize for Renderer {
                     if let Ok(text) = data.get_data("text") {
                         let text = text.replace("\r\n", "\n");
                         if !text.is_empty() {
-                            let consumed = {
-                                let State { viewports, .. } = &mut *state.borrow_mut();
-                                let egui_state = viewports
-                                    .get_mut(&egui::ViewportId::ROOT)
-                                    .and_then(|viewport| viewport.egui_state.as_mut());
-                                match egui_state {
-                                    Some(egui_state) => {
-                                        // Requires creating an event and setting the clipboard
-                                        // here because egui_winit internally tries to manage a
-                                        // fallback clipboard for platforms not supported by the
-                                        // clipboard crates being used.
-                                        //
-                                        // This has associated behavior in the renderer to prevent
-                                        // sending 'paste events' (ctrl/cmd+V) to egui_state to
-                                        // bypass its internal clipboard handling.
-                                        egui_state
-                                            .egui_input_mut()
-                                            .events
-                                            .push(egui::Event::Paste(text.clone()));
-                                        egui_state.set_clipboard_text(text);
-                                        true
-                                    }
-                                    _ => false,
-                                }
-                            };
-                            if consumed {
+                            let res = Renderer::set_clipboard_text(&state, text);
+                            if res.repaint {
                                 ctx.request_repaint();
+                            }
+                            if res.consumed {
                                 evt.stop_propagation();
                                 evt.prevent_default();
                             }

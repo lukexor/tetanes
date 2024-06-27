@@ -1,4 +1,5 @@
 use crate::{
+    feature,
     nes::{
         config::{AudioConfig, Config, EmulationConfig, RendererConfig},
         event::{ConfigEvent, EmulationEvent, NesEventProxy, UiEvent},
@@ -10,9 +11,7 @@ use crate::{
             shader::Shader,
         },
     },
-    platform,
 };
-use cfg_if::cfg_if;
 use egui::{
     Align, CentralPanel, Checkbox, Context, CursorIcon, DragValue, Grid, Key, Layout, ScrollArea,
     Slider, TextEdit, Ui, Vec2, ViewportClass,
@@ -137,16 +136,14 @@ impl Preferences {
             }
         }
 
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-                });
-            } else {
-                ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-                });
-            }
+        if feature!(DeferredViewport) {
+            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+            });
+        } else {
+            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
+            });
         }
     }
 
@@ -455,7 +452,7 @@ impl Preferences {
         cfg: &Config,
         shortcut: impl Into<String>,
     ) {
-        if platform::supports(platform::Feature::Viewports) {
+        if feature!(Viewports) {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
                 let shortcut = shortcut.into();
                 // icon: maximize
@@ -481,7 +478,7 @@ impl Preferences {
         mut always_on_top: bool,
         shortcut: impl Into<String>,
     ) {
-        if platform::supports(platform::Feature::Viewports) {
+        if feature!(Viewports) {
             let shortcut = shortcut.into();
             let icon = (!shortcut.is_empty()).then_some("🔝 ").unwrap_or_default();
             let checkbox = Checkbox::new(&mut always_on_top, format!("{icon}Always on Top"))
@@ -573,7 +570,7 @@ impl State {
                             self.tx.event(event);
                         }
                     }
-                    if platform::supports(platform::Feature::Storage) {
+                    if feature!(Storage) {
                         let data_dir = Config::default_data_dir();
                         if ui.button("Clear Save States").clicked() {
                             match fs::clear_dir(data_dir) {
@@ -588,9 +585,7 @@ impl State {
                             }
                         }
                     }
-                    if platform::supports(platform::Feature::Filesystem)
-                        && ui.button("Clear Recent ROMs").clicked()
-                    {
+                    if feature!(Filesystem) && ui.button("Clear Recent ROMs").clicked() {
                         self.tx.event(ConfigEvent::RecentRomsClear);
                     }
                 });

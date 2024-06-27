@@ -1,4 +1,5 @@
 use crate::{
+    feature,
     nes::{
         action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
         config::Config,
@@ -11,7 +12,7 @@ use crate::{
         rom::RomData,
         Nes, Running, State,
     },
-    platform::{self, open_file_dialog},
+    platform::open_file_dialog,
 };
 use anyhow::anyhow;
 use egui::ViewportId;
@@ -246,7 +247,7 @@ impl Nes {
         match &event {
             Event::Resumed => {
                 let state = if let State::Running(state) = &mut self.state {
-                    if platform::supports(platform::Feature::Suspend) {
+                    if feature!(Suspend) {
                         state.renderer.recreate_window(event_loop);
                     }
                     state
@@ -303,9 +304,9 @@ impl Nes {
                 #[cfg(feature = "profiling")]
                 puffin::set_scopes_on(false);
 
-                // Wasm should never be able to exit
-                #[cfg(target_arch = "wasm32")]
-                panic!("exited unexpectedly");
+                if feature!(AbortOnExit) && !matches!(self.state, State::Running(_)) {
+                    panic!("exited unexpectedly");
+                }
             }
             _ => (),
         }
@@ -350,7 +351,7 @@ impl Running {
 
         match event {
             Event::Suspended => {
-                if platform::supports(platform::Feature::Suspend) {
+                if feature!(Suspend) {
                     if let Err(err) = self.renderer.drop_window() {
                         error!("failed to suspend window: {err:?}");
                         event_loop.exit();
@@ -614,9 +615,9 @@ impl Running {
                 }
                 self.renderer.destroy();
 
-                // Wasm should never be able to exit
-                #[cfg(target_arch = "wasm32")]
-                panic!("exited unexpectedly");
+                if feature!(AbortOnExit) {
+                    panic!("exited unexpectedly");
+                }
             }
             _ => (),
         }
@@ -849,7 +850,7 @@ impl Running {
                 Action::Menu(menu) if released => self.event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) if is_root_window => match feature {
                     Feature::ToggleReplayRecording if released => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.replay_recording = !self.replay_recording;
                                 self.event(EmulationEvent::ReplayRecord(self.replay_recording));
@@ -862,7 +863,7 @@ impl Running {
                         }
                     }
                     Feature::ToggleAudioRecording if released => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.audio_recording = !self.audio_recording;
                                 self.event(EmulationEvent::AudioRecord(self.audio_recording));
@@ -875,7 +876,7 @@ impl Running {
                         }
                     }
                     Feature::TakeScreenshot if released => {
-                        if platform::supports(platform::Feature::Filesystem) {
+                        if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.event(EmulationEvent::Screenshot);
                             }
@@ -991,7 +992,7 @@ impl Running {
                     | DeckAction::ZapperAimOffscreen
                     | DeckAction::ZapperTrigger => (),
                     DeckAction::SetSaveSlot(slot) if released => {
-                        if platform::supports(platform::Feature::Storage) {
+                        if feature!(Storage) {
                             if self.cfg.emulation.save_slot != slot {
                                 self.cfg.emulation.save_slot = slot;
                                 self.renderer.add_message(
@@ -1007,7 +1008,7 @@ impl Running {
                         }
                     }
                     DeckAction::SaveState if released && is_root_window => {
-                        if platform::supports(platform::Feature::Storage) {
+                        if feature!(Storage) {
                             self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(
@@ -1017,7 +1018,7 @@ impl Running {
                         }
                     }
                     DeckAction::LoadState if released && is_root_window => {
-                        if platform::supports(platform::Feature::Storage) {
+                        if feature!(Storage) {
                             self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
                             self.renderer.add_message(

@@ -24,11 +24,6 @@ pub trait EventLoopExt<T> {
         F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static;
 }
 
-/// Checks if the current platform supports a given feature.
-pub const fn supports(feature: Feature) -> bool {
-    platform::supports_impl(feature)
-}
-
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog(
     title: impl Into<String>,
@@ -46,6 +41,25 @@ pub enum Feature {
     Filesystem,
     Storage,
     Viewports,
+    DeferredViewport,
     Suspend,
     Blocking,
+    ConsumePaste,
+    AbortOnExit,
+}
+
+/// Checks if the current platform supports a given feature.
+#[macro_export]
+macro_rules! feature {
+    ($feature: tt) => {{
+        use $crate::platform::Feature::*;
+        match $feature {
+            Suspend => cfg!(target_os = "android"),
+            Filesystem | Storage | Viewports | Blocking | DeferredViewport => {
+                cfg!(not(target_arch = "wasm32"))
+            }
+            // Wasm should never be able to exit
+            AbortOnExit | ConsumePaste => cfg!(target_arch = "wasm32"),
+        }
+    }};
 }

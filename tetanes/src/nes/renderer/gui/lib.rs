@@ -84,6 +84,12 @@ pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input:
     })
 }
 
+pub fn is_paste_command(modifiers: egui::Modifiers, keycode: Key) -> bool {
+    keycode == Key::Paste
+        || (modifiers.command && keycode == Key::V)
+        || (cfg!(target_os = "windows") && modifiers.shift && keycode == Key::Insert)
+}
+
 #[must_use]
 pub struct ShortcutWidget<'a, T> {
     inner: T,

@@ -1,11 +1,13 @@
-use crate::nes::{
-    action::Action,
-    config::Config,
-    event::{ConfigEvent, NesEventProxy},
-    input::{Gamepads, Input},
-    renderer::gui::lib::ViewportOptions,
+use crate::{
+    feature,
+    nes::{
+        action::Action,
+        config::Config,
+        event::{ConfigEvent, NesEventProxy},
+        input::{Gamepads, Input},
+        renderer::gui::lib::ViewportOptions,
+    },
 };
-use cfg_if::cfg_if;
 use egui::{Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass};
 use parking_lot::Mutex;
 use std::sync::{
@@ -175,32 +177,30 @@ impl Keybinds {
             }
         }
 
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                    ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(
-                        ctx,
-                        class,
-                        &open,
-                        opts.enabled,
-                        &state,
-                        &cfg,
-                        &gamepad_state,
-                    );
-                });
-            } else {
-                ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                    viewport_cb(
-                        ctx,
-                        class,
-                        &open,
-                        opts.enabled,
-                        &state,
-                        &cfg,
-                        &gamepad_state,
-                    );
-                });
-            }
+        if feature!(DeferredViewport) {
+            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(
+                    ctx,
+                    class,
+                    &open,
+                    opts.enabled,
+                    &state,
+                    &cfg,
+                    &gamepad_state,
+                );
+            });
+        } else {
+            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
+                viewport_cb(
+                    ctx,
+                    class,
+                    &open,
+                    opts.enabled,
+                    &state,
+                    &cfg,
+                    &gamepad_state,
+                );
+            });
         }
     }
 }

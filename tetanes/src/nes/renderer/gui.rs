@@ -1,4 +1,5 @@
 use crate::{
+    feature,
     nes::{
         action::{Debug, DebugStep, Debugger, Feature, Setting, Ui as UiAction},
         config::{Config, RendererConfig},
@@ -22,7 +23,7 @@ use crate::{
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
     },
-    platform,
+    sys::{info::System, SystemInfo},
 };
 use egui::{
     include_image,
@@ -95,10 +96,7 @@ pub struct Gui {
     pub loaded_rom: Option<LoadedRom>,
     pub about_homebrew_rom_open: Option<RomAsset>,
     pub start: Instant,
-    #[cfg(not(target_arch = "wasm32"))]
-    pub sys: Option<sysinfo::System>,
-    #[cfg(not(target_arch = "wasm32"))]
-    pub sys_updated: Instant,
+    pub sys: System,
     pub error: Option<String>,
 }
 
@@ -118,33 +116,6 @@ impl Gui {
 
     /// Create a `Gui` instance.
     pub fn new(tx: NesEventProxy, texture: SizedTexture, cfg: Config) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let sys = {
-            use sysinfo::{ProcessRefreshKind, RefreshKind, System};
-
-            if sysinfo::IS_SUPPORTED_SYSTEM {
-                let mut sys = System::new_with_specifics(
-                    RefreshKind::new().with_processes(
-                        ProcessRefreshKind::new()
-                            .with_cpu()
-                            .with_memory()
-                            .with_disk_usage(),
-                    ),
-                );
-                sys.refresh_specifics(
-                    RefreshKind::new().with_processes(
-                        ProcessRefreshKind::new()
-                            .with_cpu()
-                            .with_memory()
-                            .with_disk_usage(),
-                    ),
-                );
-                Some(sys)
-            } else {
-                None
-            }
-        };
-
         Self {
             initialized: false,
             title: Config::WINDOW_TITLE.to_string(),
@@ -172,10 +143,7 @@ impl Gui {
             loaded_rom: None,
             about_homebrew_rom_open: None,
             start: Instant::now(),
-            #[cfg(not(target_arch = "wasm32"))]
-            sys,
-            #[cfg(not(target_arch = "wasm32"))]
-            sys_updated: Instant::now(),
+            sys: System::default(),
             error: None,
         }
     }
@@ -381,42 +349,10 @@ impl Gui {
         // Check for update on start
         if self.version.requires_updates() {
             let notify_latest = false;
-            self.check_for_updates(notify_latest);
+            self.version.check_for_updates(&self.tx, notify_latest);
         }
 
         self.initialized = true;
-    }
-
-    fn check_for_updates(&mut self, notify_latest: bool) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let spawn_update = std::thread::Builder::new()
-            .name("check_updates".into())
-            .spawn({
-                let version = self.version.clone();
-                let tx = self.tx.clone();
-                move || match version.update_available() {
-                    Ok(Some(version)) => tx.event(UiEvent::UpdateAvailable(version)),
-                    Ok(None) => {
-                        if notify_latest {
-                            tx.event(UiEvent::Message((
-                                MessageType::Info,
-                                format!("TetaNES v{} is up to date!", version.current()),
-                            )));
-                        }
-                    }
-                    Err(err) => {
-                        tx.event(UiEvent::Message((MessageType::Error, err.to_string())));
-                    }
-                }
-            });
-        if let Err(err) = spawn_update {
-            self.add_message(
-                MessageType::Error,
-                format!("Failed to check for updates: {err}"),
-            );
-        }
     }
 
     fn show_about_window(&mut self, ctx: &Context, enabled: bool) {
@@ -631,7 +567,7 @@ impl Gui {
         });
 
         // TODO: support saves and recent games on wasm? Requires storing the data
-        if platform::supports(platform::Feature::Filesystem) {
+        if feature!(Filesystem) {
             ui.menu_button("🗄 Recently Played...", |ui| {
                 use tetanes_core::fs;
 
@@ -655,7 +591,7 @@ impl Gui {
             ui.separator();
         }
 
-        if platform::supports(platform::Feature::Storage) {
+        if feature!(Storage) {
             ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
                 let button =
                     Button::new("💾 Save State").shortcut_text(cfg.shortcut(DeckAction::SaveState));
@@ -690,7 +626,7 @@ impl Gui {
             });
         }
 
-        if platform::supports(platform::Feature::Viewports) {
+        if feature!(Viewports) {
             ui.separator();
 
             let button = Button::new("⎆ Quit").shortcut_text(cfg.shortcut(UiAction::Quit));
@@ -807,7 +743,7 @@ impl Gui {
             };
         });
 
-        if platform::supports(platform::Feature::Filesystem) {
+        if feature!(Filesystem) {
             ui.separator();
 
             ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
@@ -1305,24 +1241,7 @@ impl Gui {
             grid.show(ui, |ui| {
                 ui.ctx().request_repaint_after(Duration::from_secs(1));
 
-                #[cfg(not(target_arch = "wasm32"))]
-                if let Some(sys) = &mut self.sys {
-                    // NOTE: refreshing sysinfo is cpu-intensive if done too frequently and skews the
-                    // results
-                    let sys_update_interval = Duration::from_secs(1);
-                    assert!(sys_update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-                    if self.sys_updated.elapsed() >= sys_update_interval {
-                        sys.refresh_specifics(
-                            sysinfo::RefreshKind::new().with_processes(
-                                sysinfo::ProcessRefreshKind::new()
-                                    .with_cpu()
-                                    .with_memory()
-                                    .with_disk_usage(),
-                            ),
-                        );
-                        self.sys_updated = Instant::now();
-                    }
-                }
+                self.sys.update();
 
                 let good_color = if ui.style().visuals.dark_mode {
                     hex_color!("#b8cc52")
@@ -1386,7 +1305,7 @@ impl Gui {
                 ui.end_row();
 
                 #[cfg(not(target_arch = "wasm32"))]
-                if let Some(ref sys) = self.sys {
+                if let Some(stats) = self.sys.stats() {
                     let cpu_color = |cpu| match cpu {
                         cpu if cpu <= 25.0 => good_color,
                         cpu if cpu <= 50.0 => warn_color,
@@ -1399,33 +1318,33 @@ impl Gui {
                     ui.label("");
                     ui.end_row();
 
-                    if let Some(proc) = sys.process(sysinfo::Pid::from_u32(std::process::id())) {
-                        ui.strong("CPU:");
-                        let cpu_usage = proc.cpu_usage();
-                        ui.colored_label(cpu_color(cpu_usage), format!("{cpu_usage:.2}%"));
-                        ui.end_row();
+                    ui.strong("CPU:");
+                    ui.colored_label(
+                        cpu_color(stats.cpu_usage),
+                        format!("{:.2}%", stats.cpu_usage),
+                    );
+                    ui.end_row();
 
-                        ui.strong("Memory:");
-                        ui.label(format!("{} MB", bytes_to_mb(proc.memory()),));
-                        ui.end_row();
+                    ui.strong("Memory:");
+                    ui.label(format!("{} MB", bytes_to_mb(stats.memory)));
+                    ui.end_row();
 
-                        let du = proc.disk_usage();
-                        ui.strong("Disk read new/total:");
-                        ui.label(format!(
-                            "{:.2}/{:.2} MB",
-                            bytes_to_mb(du.read_bytes),
-                            bytes_to_mb(du.total_read_bytes)
-                        ));
-                        ui.end_row();
+                    let du = stats.disk_usage;
+                    ui.strong("Disk read new/total:");
+                    ui.label(format!(
+                        "{:.2}/{:.2} MB",
+                        bytes_to_mb(du.read_bytes),
+                        bytes_to_mb(du.total_read_bytes)
+                    ));
+                    ui.end_row();
 
-                        ui.strong("Disk written new/total:");
-                        ui.label(format!(
-                            "{:.2}/{:.2} MB",
-                            bytes_to_mb(du.written_bytes),
-                            bytes_to_mb(du.total_written_bytes),
-                        ));
-                        ui.end_row();
-                    }
+                    ui.strong("Disk written new/total:");
+                    ui.label(format!(
+                        "{:.2}/{:.2} MB",
+                        bytes_to_mb(du.written_bytes),
+                        bytes_to_mb(du.total_written_bytes),
+                    ));
+                    ui.end_row();
                 }
 
                 ui.label("");
@@ -1467,7 +1386,7 @@ impl Gui {
 
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
             let notify_latest = true;
-            self.check_for_updates(notify_latest);
+            self.version.check_for_updates(&self.tx, notify_latest);
             ui.close_menu();
         }
         ui.toggle_value(&mut self.about_open, "ℹ About");
@@ -1496,7 +1415,7 @@ impl Gui {
                         ui.end_row();
                     });
 
-                    if platform::supports(platform::Feature::Filesystem) {
+                    if feature!(Filesystem) {
                         ui.separator();
                         ui.horizontal_wrapped(|ui| {
                             let grid = Grid::new("directories").num_columns(2).spacing([40.0, 6.0]);
