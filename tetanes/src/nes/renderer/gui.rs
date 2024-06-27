@@ -1016,8 +1016,7 @@ impl Gui {
         }
 
         let toggle = ToggleValue::new(&mut self.gui_settings_open, "🔧 UI Settings");
-        ui.add(toggle)
-            .on_hover_text("Toggle the UI settings window");
+        ui.add(toggle).on_hover_text("Toggle the UI style window");
 
         #[cfg(debug_assertions)]
         {
@@ -1029,6 +1028,11 @@ impl Gui {
             ui.add(toggle).on_hover_text("Toggle the UI memory window");
 
             ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
+
+            #[cfg(target_arch = "wasm32")]
+            if ui.button("❗Test panic!").clicked() {
+                panic!("panic test");
+            }
         }
 
         ui.separator();
