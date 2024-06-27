@@ -414,6 +414,21 @@ impl Preferences {
         }
     }
 
+    pub fn screen_reader_checkbox(ui: &mut Ui, shortcut: impl Into<Option<String>>) {
+        let shortcut = shortcut.into();
+        // icon: document with text
+        let icon = shortcut.is_some().then_some("🔈 ").unwrap_or_default();
+        let mut screen_reader = ui.ctx().options(|o| o.screen_reader);
+        let checkbox = Checkbox::new(&mut screen_reader, format!("{icon}Enable Screen Reader"))
+            .shortcut_text(shortcut.unwrap_or_default());
+        let res = ui
+            .add(checkbox)
+            .on_hover_text("Enable screen reader to read buttons and labels out loud.");
+        if res.clicked() {
+            ui.ctx().options_mut(|o| o.screen_reader = screen_reader);
+        }
+    }
+
     pub fn window_scale_radio(tx: &NesEventProxy, ui: &mut Ui, mut scale: f32) {
         let previous_scale = scale;
         ui.vertical(|ui| {
@@ -958,7 +973,7 @@ impl State {
         ui.vertical(|ui| {
             ui.allocate_space(Vec2::new(Gui::MENU_WIDTH, 0.0));
 
-            ui.strong("Add Genie Code(s):")
+            let genie_label = ui.strong("Add Genie Code(s):")
                 .on_hover_cursor(CursorIcon::Help)
                 .on_hover_text(
                     "A Game Genie Code is a 6 or 8 letter string that temporarily modifies game memory during operation. e.g. `AATOZE` will start Super Mario Bros. with 9 lives.\n\nYou can enter one code per line."
@@ -967,7 +982,8 @@ impl State {
             let text_edit = TextEdit::multiline(&mut self.genie_entry.code)
                 .hint_text("e.g. AATOZE")
                 .desired_width(200.0);
-            let entry_res = ui.add(text_edit);
+            let entry_res = ui.add(text_edit)
+                .labelled_by(genie_label.id);
             if entry_res.changed() {
                 self.genie_entry.error = None;
             }

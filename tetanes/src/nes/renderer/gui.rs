@@ -981,6 +981,9 @@ impl Gui {
 
         Preferences::menubar_checkbox(tx, ui, show_menubar, cfg.shortcut(ToggleMenubar));
         Preferences::messages_checkbox(tx, ui, show_messages, cfg.shortcut(ToggleMessages));
+        if feature!(ScreenReader) {
+            Preferences::screen_reader_checkbox(ui, cfg.shortcut(ToggleScreenReader));
+        }
     }
 
     fn debug_menu(&mut self, ui: &mut Ui) {

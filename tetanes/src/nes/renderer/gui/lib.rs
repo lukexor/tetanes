@@ -115,18 +115,18 @@ where
     T: Widget,
 {
     fn ui(self, ui: &mut Ui) -> Response {
-        if self.shortcut_text.is_empty() {
-            self.inner.ui(ui)
-        } else {
-            ui.horizontal(|ui| {
-                let res = self.inner.ui(ui);
+        ui.horizontal(|ui| {
+            let res = self.inner.ui(ui);
+            if !self.shortcut_text.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.weak(self.shortcut_text);
+                    // Ensure sense is set to hover so that screen readers don't try to read it,
+                    // consistent with `shortcut_text` on `Button`
+                    ui.add(egui::Label::new(self.shortcut_text.weak()).sense(egui::Sense::hover()));
                 });
-                res
-            })
-            .inner
-        }
+            }
+            res
+        })
+        .inner
     }
 }
 

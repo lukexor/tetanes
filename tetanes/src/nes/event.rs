@@ -54,6 +54,10 @@ impl NesEventProxy {
             std::process::exit(1);
         }
     }
+
+    pub const fn inner(&self) -> &EventLoopProxy<NesEvent> {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -205,6 +209,12 @@ pub enum NesEvent {
     Emulation(EmulationEvent),
     Renderer(RendererEvent),
     Config(ConfigEvent),
+    // For some reason ActionRequestEvent isn't Clone
+    #[cfg(not(target_arch = "wasm32"))]
+    AccessKit {
+        window_id: WindowId,
+        request: egui::accesskit::ActionRequest,
+    },
 }
 
 impl From<UiEvent> for NesEvent {
@@ -228,6 +238,16 @@ impl From<RendererEvent> for NesEvent {
 impl From<ConfigEvent> for NesEvent {
     fn from(event: ConfigEvent) -> Self {
         Self::Config(event)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<egui_winit::accesskit_winit::ActionRequestEvent> for NesEvent {
+    fn from(event: egui_winit::accesskit_winit::ActionRequestEvent) -> Self {
+        Self::AccessKit {
+            window_id: event.window_id,
+            request: event.request,
+        }
     }
 }
 

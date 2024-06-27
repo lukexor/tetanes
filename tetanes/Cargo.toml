@@ -42,11 +42,6 @@ crossbeam = "0.8"
 # TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
 color-hex = "0.2"
 dirs.workspace = true
-egui = { version = "0.27", features = [
-  "extra_debug_asserts",
-  "log",
-  "persistence",
-] }
 egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
 egui_extras = { version = "0.27", default-features = false, features = [
   "image",
@@ -74,7 +69,13 @@ winit = { version = "0.29", features = ["serde"] }
 clap.workspace = true
 cpal = "0.15"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-egui-winit = "0.27"
+egui = { version = "0.27", features = [
+  "extra_debug_asserts",
+  "log",
+  "persistence",
+  "accesskit",
+] }
+egui-winit = { version = "0.27", features = ["accesskit"] }
 pollster = "0.3"
 reqwest = { version = "0.12", features = ["blocking"] }
 rfd = "0.14"
@@ -90,6 +91,11 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 console_error_panic_hook = "0.1"
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
+egui = { version = "0.27", features = [
+  "extra_debug_asserts",
+  "log",
+  "persistence",
+] }
 egui-winit = { version = "0.27", default-features = false, features = [
   "links",
 ] }
@@ -114,6 +120,8 @@ web-sys = { workspace = true, features = [
   "HtmlInputElement",
   "HtmlDivElement",
   "Navigator",
+  "SpeechSynthesis",
+  "SpeechSynthesisUtterance",
   "Window",
 ] }
 wasm-bindgen = "0.2"

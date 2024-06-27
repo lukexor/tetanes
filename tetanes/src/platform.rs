@@ -67,6 +67,8 @@ pub enum Feature {
     Blocking,
     ConsumePaste,
     AbortOnExit,
+    ScreenReader,
+    AccessKit,
 }
 
 /// Checks if the current platform supports a given feature.
@@ -79,9 +81,11 @@ macro_rules! feature {
             Filesystem | Storage | Viewports | Blocking | DeferredViewport => {
                 cfg!(not(target_arch = "wasm32"))
             }
+            // FIXME: Deadlock thread sleep issue with zbus/async-io on linux when menus are opened
+            AccessKit => cfg!(any(target_os = "macos", target_os = "windows")),
             // Wasm should never be able to exit
             AbortOnExit => cfg!(target_arch = "wasm32"),
-            ConstrainedViewport | ConsumePaste => {
+            ConstrainedViewport | ConsumePaste | ScreenReader => {
                 cfg!(target_arch = "wasm32")
             }
         }

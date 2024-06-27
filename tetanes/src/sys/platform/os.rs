@@ -26,6 +26,9 @@ pub fn open_file_dialog_impl(
     Ok(dialog.pick_file())
 }
 
+/// Speak the given text out loud.
+pub const fn speak_text_impl(_text: &str) {}
+
 impl Initialize for Running {
     /// Initialize by loading a ROM from the command line, if provided.
     fn initialize(&mut self) -> anyhow::Result<()> {

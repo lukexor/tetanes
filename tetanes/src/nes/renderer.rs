@@ -198,13 +198,27 @@ impl Renderer {
         }
 
         let max_texture_side = painter.max_texture_side();
-        let egui_state = egui_winit::State::new(
+        #[allow(unused_mut)]
+        let mut egui_state = egui_winit::State::new(
             ctx.clone(),
             ViewportId::ROOT,
             &window,
             Some(window.scale_factor() as f32),
             max_texture_side,
         );
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if feature!(AccessKit) {
+            egui_state.init_accesskit(&window, tx.inner().clone(), {
+                let ctx = ctx.clone();
+                move || {
+                    ctx.enable_accesskit();
+                    ctx.request_repaint();
+                    ctx.accesskit_placeholder_tree_update()
+                }
+            });
+        }
+
         let mut viewport_from_window = HashMap::default();
         viewport_from_window.insert(window.id(), ViewportId::ROOT);
 
@@ -483,6 +497,26 @@ impl Renderer {
                 }
                 _ => (),
             },
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { window_id, request } => {
+                if feature!(AccessKit) {
+                    let State {
+                        viewports,
+                        viewport_from_window,
+                        ..
+                    } = &mut *self.state.borrow_mut();
+                    let viewport_id = viewport_from_window.get(window_id);
+                    if let Some(viewport_id) = viewport_id {
+                        let state = viewports
+                            .get_mut(viewport_id)
+                            .and_then(|viewport| viewport.egui_state.as_mut());
+                        if let Some(state) = state {
+                            state.on_accesskit_action_request(request.clone());
+                            self.ctx.request_repaint_of(*viewport_id);
+                        }
+                    }
+                }
+            }
             _ => (),
         }
     }
@@ -704,7 +738,7 @@ impl Renderer {
             .with_app_id(Config::WINDOW_TITLE)
             .with_title(Config::WINDOW_TITLE)
             .with_active(true)
-            .with_visible(false) // hide until first frame is rendered on platforms that support it
+            .with_visible(false) // hide until first frame is rendered. required by AccessKit
             .with_inner_size(window_size)
             .with_min_inner_size(Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32))
             .with_fullscreen(cfg.renderer.fullscreen)
@@ -1223,6 +1257,10 @@ impl Renderer {
 
             let active_viewports_ids: ViewportIdSet =
                 output.viewport_output.keys().copied().collect();
+
+            if feature!(ScreenReader) && self.ctx.options(|o| o.screen_reader) {
+                platform::speak_text(&output.platform_output.events_description());
+            }
 
             egui_state.handle_platform_output(window, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output, *focused);
