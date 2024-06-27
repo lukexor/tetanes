@@ -726,6 +726,11 @@ impl Renderer {
 
         let window = window_builder
             .with_platform(Config::WINDOW_TITLE)
+            .with_theme(Some(if cfg.renderer.dark_theme {
+                Theme::Dark
+            } else {
+                Theme::Light
+            }))
             .build(event_loop)?;
 
         egui_winit::apply_viewport_builder_to_window(ctx, &window, &viewport_builder);
