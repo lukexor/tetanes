@@ -98,3 +98,17 @@ impl<T> EventLoopExt<T> for EventLoop<T> {
         Ok(())
     }
 }
+
+pub mod renderer {
+    use super::*;
+    use crate::nes::config::Config;
+    use egui_winit::EventResponse;
+
+    pub fn constrain_window_to_viewport_impl(
+        _renderer: &Renderer,
+        _desired_window_width: f32,
+        _cfg: &Config,
+    ) -> EventResponse {
+        EventResponse::default()
+    }
+}

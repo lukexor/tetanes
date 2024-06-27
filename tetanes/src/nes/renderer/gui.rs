@@ -398,6 +398,17 @@ impl Gui {
         }
     }
 
+    pub(super) fn show_viewport_info_window(
+        &mut self,
+        ctx: &Context,
+        id: egui::ViewportId,
+        info: &egui::ViewportInfo,
+    ) {
+        egui::Window::new(format!("ℹ Viewport Info ({id:?})"))
+            .open(&mut self.viewport_info_open)
+            .show(ctx, |ui| info.ui(ui));
+    }
+
     fn show_performance_window(&mut self, ctx: &Context, enabled: bool) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -982,7 +993,7 @@ impl Gui {
                 ui.ctx().set_debug_on_hover(self.debug_gui_hover);
             }
 
-            ui.toggle_value(&mut self.viewport_info_open, "Viewport Info");
+            ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
         }
 
         ui.separator();
@@ -1028,7 +1039,7 @@ impl Gui {
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             let button =
-                Button::new("Step Into").shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Into)));
+                Button::new("➡ Step").shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Into)));
             let res = ui
                 .add(button)
                 .on_hover_text("Step a single CPU instruction.")
@@ -1038,7 +1049,7 @@ impl Gui {
             }
 
             let button =
-                Button::new("Step Out").shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Out)));
+                Button::new("⬆ Step Out").shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Out)));
             let res = ui
                 .add(button)
                 .on_hover_text("Step out of the current CPU function.")
@@ -1047,8 +1058,8 @@ impl Gui {
                 tx.event(EmulationEvent::DebugStep(DebugStep::Out));
             }
 
-            let button =
-                Button::new("Step Over").shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Over)));
+            let button = Button::new("⮫ Step Over")
+                .shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Over)));
             let res = ui
                 .add(button)
                 .on_hover_text("Step over the next CPU instruction.")
@@ -1057,7 +1068,7 @@ impl Gui {
                 tx.event(EmulationEvent::DebugStep(DebugStep::Over));
             }
 
-            let button = Button::new("Step Scanline")
+            let button = Button::new("➖ Step Scanline")
                 .shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Scanline)));
             let res = ui
                 .add(button)
@@ -1067,7 +1078,7 @@ impl Gui {
                 tx.event(EmulationEvent::DebugStep(DebugStep::Scanline));
             }
 
-            let button = Button::new("Step Frame")
+            let button = Button::new("🖼 Step Frame")
                 .shortcut_text(cfg.shortcut(Debug::Step(DebugStep::Frame)));
             let res = ui
                 .add(button)
@@ -1304,7 +1315,6 @@ impl Gui {
                 ui.label(format!("{}", self.frame_stats.frame_count));
                 ui.end_row();
 
-                #[cfg(not(target_arch = "wasm32"))]
                 if let Some(stats) = self.sys.stats() {
                     let cpu_color = |cpu| match cpu {
                         cpu if cpu <= 25.0 => good_color,

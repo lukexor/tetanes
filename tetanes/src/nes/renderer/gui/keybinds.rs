@@ -83,8 +83,9 @@ impl Keybinds {
     }
 
     pub fn wants_input(&self) -> bool {
-        let state = self.state.lock();
-        state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
+        self.state.try_lock().map_or(false, |state| {
+            state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
+        })
     }
 
     pub fn open(&self) -> bool {
@@ -127,9 +128,6 @@ impl Keybinds {
 
     pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
         if !self.open() {
-            let mut state = self.state.lock();
-            state.pending_input = None;
-            state.gamepad_unassign_confirm = None;
             return;
         }
 
@@ -174,6 +172,11 @@ impl Keybinds {
                 if ctx.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
+            }
+            if !open.load(Ordering::Acquire) {
+                let mut state = state.lock();
+                state.pending_input = None;
+                state.gamepad_unassign_confirm = None;
             }
         }
 

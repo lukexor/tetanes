@@ -15,7 +15,7 @@ use crate::{
             texture::Texture,
         },
     },
-    platform::{BuilderExt, Initialize},
+    platform::{self, BuilderExt, Initialize},
     thread,
 };
 use anyhow::Context;
@@ -87,10 +87,10 @@ pub struct Viewport {
     ids: ViewportIdPair,
     class: ViewportClass,
     builder: ViewportBuilder,
-    info: ViewportInfo,
+    pub(crate) info: ViewportInfo,
     viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
     screenshot_requested: bool,
-    window: Option<Arc<Window>>,
+    pub(crate) window: Option<Arc<Window>>,
     pub(crate) egui_state: Option<egui_winit::State>,
     occluded: bool,
 }
@@ -1060,86 +1060,6 @@ impl Renderer {
         };
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> EventResponse {
-        let State { viewports, .. } = &mut *state.borrow_mut();
-        let egui_state = viewports
-            .get_mut(&egui::ViewportId::ROOT)
-            .and_then(|viewport| viewport.egui_state.as_mut());
-        match egui_state {
-            Some(egui_state) => {
-                // Requires creating an event and setting the clipboard
-                // here because egui_winit internally tries to manage a
-                // fallback clipboard for platforms not supported by the
-                // clipboard crates being used.
-                //
-                // This has associated behavior in the renderer to prevent
-                // sending 'paste events' (ctrl/cmd+V) to egui_state to
-                // bypass its internal clipboard handling.
-                egui_state
-                    .egui_input_mut()
-                    .events
-                    .push(egui::Event::Paste(text.clone()));
-                egui_state.set_clipboard_text(text);
-                EventResponse {
-                    consumed: true,
-                    repaint: true,
-                }
-            }
-            _ => EventResponse::default(),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn process_input(
-        ctx: &egui::Context,
-        state: &Rc<RefCell<State>>,
-        gui: &Rc<RefCell<Gui>>,
-    ) -> EventResponse {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let raw_input = {
-            let State { viewports, .. } = &mut *state.borrow_mut();
-
-            let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) else {
-                return EventResponse::default();
-            };
-            let Some(window) = &viewport.window else {
-                return EventResponse::default();
-            };
-            if !window.has_focus() {
-                return EventResponse::default();
-            }
-            let Some(egui_state) = viewport.egui_state.as_mut() else {
-                return EventResponse::default();
-            };
-            egui_state.take_egui_input(window)
-        };
-
-        let mut output = ctx.run(raw_input, |ctx| {
-            gui.borrow_mut().ui(ctx, None);
-        });
-
-        let State { viewports, .. } = &mut *state.borrow_mut();
-
-        if let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) {
-            viewport.info.events.clear();
-
-            let copied_text = std::mem::take(&mut output.platform_output.copied_text);
-            if !copied_text.is_empty() {
-                crate::platform::set_clipboard_text(&copied_text);
-            }
-
-            return EventResponse {
-                consumed: true,
-                repaint: true,
-            };
-        };
-
-        EventResponse::default()
-    }
-
     pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
         self.gui.borrow_mut().prepare(gamepads, cfg);
         self.ctx.request_repaint();
@@ -1312,12 +1232,13 @@ impl Renderer {
             viewport_from_window.retain(|_, id| active_viewports_ids.contains(id));
             painter.borrow_mut().gc_viewports(&active_viewports_ids);
 
-            // Update viewports
-            for (viewport_id, viewport) in viewports {
-                if self.gui.borrow().viewport_info_open {
-                    egui::Window::new(format!("Viewport Info ({viewport_id:?})"))
-                        .open(&mut self.gui.borrow_mut().viewport_info_open)
-                        .show(&self.ctx, |ui| viewport.info.ui(ui));
+            if viewport_id == ViewportId::ROOT {
+                for (viewport_id, viewport) in viewports {
+                    self.gui.borrow_mut().show_viewport_info_window(
+                        &self.ctx,
+                        *viewport_id,
+                        &viewport.info,
+                    );
                 }
                 if std::mem::take(&mut self.zoom_changed) {
                     cfg.renderer.zoom = self.ctx.zoom_factor();
@@ -1337,6 +1258,8 @@ impl Renderer {
         puffin::profile_function!();
 
         if viewport_id == ViewportId::ROOT && self.resize_texture {
+            tracing::debug!("resizing window and texture");
+
             self.resize_window(cfg);
 
             let State { painter, .. } = &mut *self.state.borrow_mut();
@@ -1372,38 +1295,20 @@ impl Renderer {
 
             // On some platforms, e.g. wasm, window width is constrained by the
             // viewport width, so try to find the max scale that will fit
-            #[cfg(target_arch = "wasm32")]
-            if let Some(canvas) = crate::platform::get_canvas() {
-                // Can't use `Window::inner_size` here because it's reported incorrectly so
-                // use `get_client_bounding_rect` instead.
-                let window_width = canvas.get_bounding_client_rect().width() as f32;
-
-                if window_width < desired_window_size.x {
-                    let scale = if let Some(viewport_width) = web_sys::window()
-                        .and_then(|win| win.inner_width().ok())
-                        .and_then(|width| width.as_f64())
-                        .map(|width| width as f32)
-                    {
-                        self.find_max_scale_for_width(0.8 * viewport_width, cfg)
-                    } else {
-                        1.0
-                    };
-
-                    let new_window_size = self.window_size_for_scale(cfg, scale);
-                    if scale != cfg.renderer.scale && (window_width - new_window_size.x).abs() > 1.0
-                    {
-                        if let Some(window) = self.root_window() {
-                            let _ = window.request_inner_size(LogicalSize::new(
-                                new_window_size.x,
-                                new_window_size.y,
-                            ));
-                        }
-                        return;
-                    }
+            if feature!(ConstrainedViewport) {
+                let res = platform::renderer::constrain_window_to_viewport(
+                    self,
+                    desired_window_size.x,
+                    cfg,
+                );
+                if res.consumed {
+                    return;
                 }
             }
 
             if let Some(window) = self.root_window() {
+                tracing::debug!("resizing window: {desired_window_size:?}");
+
                 let _ = window.request_inner_size(LogicalSize::new(
                     desired_window_size.x,
                     desired_window_size.y,

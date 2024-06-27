@@ -34,6 +34,26 @@ pub fn open_file_dialog(
     platform::open_file_dialog_impl(title, name, extensions, dir)
 }
 
+/// Speak the given text out loud for platforms that support it.
+#[allow(clippy::missing_const_for_fn)]
+pub fn speak_text(text: &str) {
+    platform::speak_text_impl(text);
+}
+
+pub mod renderer {
+    use super::*;
+    use crate::nes::{config::Config, renderer::Renderer};
+    use egui_winit::EventResponse;
+
+    pub fn constrain_window_to_viewport(
+        renderer: &Renderer,
+        desired_window_width: f32,
+        cfg: &Config,
+    ) -> EventResponse {
+        platform::renderer::constrain_window_to_viewport_impl(renderer, desired_window_width, cfg)
+    }
+}
+
 /// Platform-specific feature capabilities.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
@@ -42,6 +62,7 @@ pub enum Feature {
     Storage,
     Viewports,
     DeferredViewport,
+    ConstrainedViewport,
     Suspend,
     Blocking,
     ConsumePaste,
@@ -59,7 +80,10 @@ macro_rules! feature {
                 cfg!(not(target_arch = "wasm32"))
             }
             // Wasm should never be able to exit
-            AbortOnExit | ConsumePaste => cfg!(target_arch = "wasm32"),
+            AbortOnExit => cfg!(target_arch = "wasm32"),
+            ConstrainedViewport | ConsumePaste => {
+                cfg!(target_arch = "wasm32")
+            }
         }
     }};
 }
