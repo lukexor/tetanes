@@ -367,7 +367,7 @@ impl ActionBindings {
 
         let mut bindings = Action::BINDABLE
             .into_iter()
-            .filter(|action| action.is_joypad())
+            .filter(|action| action.joypad_player(player))
             .map(|action| (action, ActionBindings::empty(action)))
             .collect::<BTreeMap<_, _>>();
 

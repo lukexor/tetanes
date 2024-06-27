@@ -691,8 +691,6 @@ impl Renderer {
         })?;
         self.last_save_time = Instant::now();
 
-        info!("Saved UI state");
-
         Ok(())
     }
 

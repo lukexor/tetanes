@@ -165,6 +165,10 @@ impl Action {
     pub const fn is_joypad(&self) -> bool {
         matches!(self, Action::Deck(DeckAction::Joypad(_)))
     }
+
+    pub fn joypad_player(&self, player: Player) -> bool {
+        matches!(self, Action::Deck(DeckAction::Joypad((p, _))) if p == &player)
+    }
 }
 
 impl std::fmt::Display for Action {

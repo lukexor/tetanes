@@ -360,7 +360,7 @@ impl Gui {
         puffin::profile_function!();
 
         let mut about_open = self.about_open;
-        egui::Window::new("About TetaNES")
+        egui::Window::new("ℹ About TetaNES")
             .open(&mut about_open)
             .show(ctx, |ui| self.about(ui, enabled));
         self.about_open = about_open;
@@ -375,7 +375,7 @@ impl Gui {
         puffin::profile_function!();
 
         let mut about_homebrew_open = true;
-        egui::Window::new(format!("About {}", rom.name))
+        egui::Window::new(format!("ℹ About {}", rom.name))
             .open(&mut about_homebrew_open)
             .show(ctx, |ui| {
                 ui.add_enabled_ui(enabled, |ui| {
@@ -403,7 +403,7 @@ impl Gui {
         puffin::profile_function!();
 
         let mut perf_stats_open = self.perf_stats_open;
-        egui::Window::new("Performance Stats")
+        egui::Window::new("🛠 Performance Stats")
             .open(&mut perf_stats_open)
             .show(ctx, |ui| self.performance_stats(ui, enabled));
         self.perf_stats_open = perf_stats_open;
@@ -416,7 +416,7 @@ impl Gui {
         let mut update_window_open = self.update_window_open;
         let mut close_window = false;
         let enable_auto_update = false;
-        egui::Window::new("Update Available")
+        egui::Window::new("🌐 Update Available")
             .open(&mut update_window_open)
             .resizable(false)
             .show(ctx, |ui| {
@@ -480,8 +480,8 @@ impl Gui {
                 ui.separator();
 
                 ui.menu_button("📁 File", |ui| self.file_menu(ui));
-                ui.menu_button("🔧 Controls", |ui| self.controls_menu(ui));
-                ui.menu_button("⚙ Config", |ui| self.config_menu(ui));
+                ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui));
+                ui.menu_button("🔧 Config", |ui| self.config_menu(ui));
                 // icon: screen
                 ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
                 ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
@@ -877,7 +877,7 @@ impl Gui {
 
         let mut preferences_open = self.preferences.open();
         // icon: gear
-        let toggle = ToggleValue::new(&mut preferences_open, "⛭ Preferences")
+        let toggle = ToggleValue::new(&mut preferences_open, "🔧 Preferences")
             .shortcut_text(cfg.shortcut(Menu::Preferences));
         if ui.add(toggle).clicked() {
             self.preferences.set_open(preferences_open);

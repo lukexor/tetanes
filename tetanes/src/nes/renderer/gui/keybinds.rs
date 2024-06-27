@@ -67,7 +67,7 @@ pub struct ConnectedGamepad {
 }
 
 impl Keybinds {
-    const TITLE: &'static str = "Keybinds";
+    const TITLE: &'static str = "🖮 Keybinds";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -162,7 +162,7 @@ impl Keybinds {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Keybinds::TITLE)
                     .open(&mut window_open)
-                    .default_rect(ctx.available_rect())
+                    .default_rect(ctx.available_rect().shrink(16.0))
                     .show(ctx, |ui| {
                         state.lock().ui(ui, enabled, cfg, gamepad_state);
                     });
@@ -266,12 +266,14 @@ impl State {
                     None => &cfg.input.shortcuts,
                     Some(player) => &cfg.input.joypads[player as usize],
                 };
+
                 let mut clear_bind = None;
                 for (action, bind) in keybinds {
                     ui.strong(action.to_string());
                     for (slot, input) in bind.bindings.iter().enumerate() {
                         let button = Button::new(input.map(Input::fmt).unwrap_or_default())
-                            .min_size(Vec2::new(100.0, 0.0));
+                            // Make enough room for larger inputs like controller joysticks
+                            .min_size(Vec2::new(135.0, 0.0));
                         let res = ui
                             .add(button)
                             .on_hover_text("Click to set. Right-click to unset.");
@@ -304,7 +306,7 @@ impl State {
         connected_gamepads: Option<&[ConnectedGamepad]>,
     ) {
         ui.horizontal(|ui| {
-            ui.strong("Assigned Gamepad:");
+            ui.strong("🎮 Assigned Gamepad:");
 
             let unassigned = "Unassigned".to_string();
             match connected_gamepads {
@@ -380,7 +382,7 @@ impl State {
         puffin::profile_function!();
 
         let mut set_keybind_open = self.pending_input.is_some();
-        let res = egui::Window::new("Set Keybind")
+        let res = egui::Window::new("🖮 Set Keybind")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .collapsible(false)
             .resizable(false)
@@ -512,7 +514,7 @@ impl State {
         puffin::profile_function!();
 
         let mut gamepad_unassign_open = self.gamepad_unassign_confirm.is_some();
-        let res = egui::Window::new("Unassign Gamepad")
+        let res = egui::Window::new("🎮 Unassign Gamepad")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .collapsible(false)
             .resizable(false)

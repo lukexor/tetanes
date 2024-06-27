@@ -106,11 +106,7 @@ impl Default for RendererConfig {
             fullscreen: false,
             always_on_top: false,
             hide_overscan: true,
-            scale: if cfg!(target_arch = "wasm32") {
-                2.0
-            } else {
-                3.0
-            },
+            scale: 3.0,
             zoom: 1.0,
             recent_roms: HashSet::default(),
             roms_path: std::env::current_dir().ok(),
@@ -347,8 +343,8 @@ impl Config {
     pub fn save(&self) -> anyhow::Result<()> {
         let path = Config::config_path();
         let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
+
         fs::save_raw(path, &data).context("failed to save config")?;
-        info!("Saved configuration");
 
         Ok(())
     }

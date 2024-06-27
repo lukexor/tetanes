@@ -60,7 +60,7 @@ pub struct GenieEntry {
 }
 
 impl Preferences {
-    const TITLE: &'static str = "Preferences";
+    const TITLE: &'static str = "🔧 Preferences";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -125,7 +125,7 @@ impl Preferences {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Preferences::TITLE)
                     .open(&mut window_open)
-                    .default_rect(ctx.available_rect())
+                    .default_rect(ctx.available_rect().shrink(16.0))
                     .show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
                 open.store(window_open, Ordering::Release);
             } else {
