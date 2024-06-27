@@ -329,7 +329,7 @@ impl Gui {
         self.show_performance_window(ctx, viewport_opts.enabled);
         self.show_update_window(ctx, viewport_opts.enabled);
 
-        #[cfg(all(not(target_arch = "wasm32"), feature = "profiling"))]
+        #[cfg(feature = "profiling")]
         if viewport_opts.enabled {
             puffin::profile_scope!("puffin");
             puffin_egui::show_viewport_if_enabled(ctx);

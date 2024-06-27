@@ -55,6 +55,8 @@ gilrs = { version = "0.10", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
+puffin = { workspace = true, optional = true }
+puffin_egui = { version = "0.27", optional = true }
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
@@ -74,8 +76,6 @@ cpal = "0.15"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 egui-winit = "0.27"
 pollster = "0.3"
-puffin = { workspace = true, optional = true }
-puffin_egui = { version = "0.27", optional = true }
 reqwest = { version = "0.12", features = ["blocking"] }
 rfd = "0.14"
 semver = "1"
