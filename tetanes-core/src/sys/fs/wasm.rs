@@ -19,7 +19,7 @@ pub struct StoreReader {
     cursor: io::Cursor<Vec<u8>>,
 }
 
-fn local_storage() -> Result<web_sys::Storage> {
+pub fn local_storage() -> Result<web_sys::Storage> {
     let window = web_sys::window().ok_or_else(|| Error::custom("failed to get js window"))?;
     window
         .local_storage()

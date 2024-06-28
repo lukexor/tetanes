@@ -761,6 +761,64 @@ impl Initialize for Renderer {
     }
 }
 
+pub fn download_save_states() -> anyhow::Result<()> {
+    use crate::nes::config::Config;
+    use anyhow::{anyhow, Context};
+    use base64::Engine;
+    use std::io::{Cursor, Write};
+    use tetanes_core::{control_deck::Config as DeckConfig, sys::fs::local_storage};
+    use wasm_bindgen::JsCast;
+    use web_sys::{self, js_sys};
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    let local_storage = local_storage()?;
+    let mut zip = ZipWriter::new(Cursor::new(Vec::with_capacity(30 * 1024)));
+
+    for key in js_sys::Object::keys(&local_storage)
+        .iter()
+        .filter_map(|key| key.as_string())
+        .filter(|key| {
+            key.ends_with(Config::SAVE_EXTENSION) || key.ends_with(DeckConfig::SRAM_EXTENSION)
+        })
+    {
+        zip.start_file(&*key, SimpleFileOptions::default())?;
+        let Some(data) = local_storage
+            .get_item(&key)
+            .map_err(|_| anyhow!("failed to find data for {key}"))?
+            .and_then(|value| serde_json::from_str::<Vec<u8>>(&value).ok())
+        else {
+            continue;
+        };
+        zip.write_all(&data)?;
+    }
+
+    let res = zip.finish()?;
+
+    let document = web_sys::window()
+        .and_then(|window| window.document())
+        .context("failed to get document")?;
+
+    let link = document
+        .create_element("a")
+        .map_err(|err| anyhow!("failed to create link element: {err:?}"))?;
+    link.set_attribute(
+        "href",
+        &format!(
+            "data:text/plain;base64,{}",
+            base64::prelude::BASE64_STANDARD.encode(res.into_inner())
+        ),
+    )
+    .map_err(|err| anyhow!("failed to set href attribute: {err:?}"))?;
+    link.set_attribute("download", "tetanes-save-states.zip")
+        .map_err(|err| anyhow!("failed to set download attribute: {err:?}"))?;
+
+    let link: web_sys::HtmlAnchorElement =
+        web_sys::HtmlAnchorElement::unchecked_from_js(link.into());
+    link.click();
+
+    Ok(())
+}
+
 impl BuilderExt for WindowBuilder {
     /// Sets platform-specific window options.
     fn with_platform(self, _title: &str) -> Self {

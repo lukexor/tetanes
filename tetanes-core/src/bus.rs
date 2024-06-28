@@ -305,14 +305,14 @@ impl Reset for Bus {
 }
 
 impl Sram for Bus {
-    fn save(&self, dir: impl AsRef<Path>) -> fs::Result<()> {
-        fs::save(dir.as_ref().with_extension(".sram"), self.sram())?;
-        self.ppu.bus.mapper.save(dir)
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::save(path.as_ref(), self.sram())?;
+        self.ppu.bus.mapper.save(path)
     }
 
-    fn load(&mut self, dir: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(dir.as_ref().with_extension(".sram")).map(|data| self.load_sram(data))?;
-        self.ppu.bus.mapper.load(dir)
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::load(path.as_ref()).map(|data| self.load_sram(data))?;
+        self.ppu.bus.mapper.load(path)
     }
 }
 
