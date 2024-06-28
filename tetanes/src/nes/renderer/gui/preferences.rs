@@ -543,8 +543,17 @@ impl State {
                     if feature!(Storage) && ui.button("Clear Save States").clicked() {
                         Self::clear_save_states(&self.tx);
                     }
+
                     if feature!(Filesystem) && ui.button("Clear Recent ROMs").clicked() {
                         self.tx.event(ConfigEvent::RecentRomsClear);
+                    }
+
+                    #[cfg(target_arch = "wasm32")]
+                    if ui.button("Download Save States").clicked() {
+                        if let Err(err) = crate::platform::download_save_states() {
+                            self.tx
+                                .event(UiEvent::Message((MessageType::Error, err.to_string())));
+                        }
                     }
                 });
             });

@@ -151,6 +151,8 @@ impl Config {
     pub const BASE_DIR: &'static str = "tetanes";
     /// Directory for storing battery-backed Cart RAM.
     pub const SRAM_DIR: &'static str = "sram";
+    /// File extension for battery-backed Cart RAM.
+    pub const SRAM_EXTENSION: &'static str = "sram";
 
     /// Returns the default directory where TetaNES data is stored.
     #[inline]
@@ -470,7 +472,10 @@ impl ControlDeck {
             }
 
             info!("saving SRAM...");
-            self.cpu.bus.save(path).map_err(Error::Sram)?;
+            self.cpu
+                .bus
+                .save(path.with_extension(Config::SRAM_EXTENSION))
+                .map_err(Error::Sram)?;
         }
         Ok(())
     }
@@ -488,7 +493,10 @@ impl ControlDeck {
             }
             if path.is_file() {
                 info!("loading SRAM...");
-                self.cpu.bus.load(path).map_err(Error::Sram)?;
+                self.cpu
+                    .bus
+                    .load(path.with_extension(Config::SRAM_EXTENSION))
+                    .map_err(Error::Sram)?;
             }
         }
         Ok(())

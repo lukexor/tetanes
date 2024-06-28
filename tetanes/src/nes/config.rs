@@ -287,6 +287,7 @@ pub struct Config {
 
 impl Config {
     pub const SAVE_DIR: &'static str = "save";
+    pub const SAVE_EXTENSION: &'static str = "sav";
     pub const WINDOW_TITLE: &'static str = "TetaNES";
     pub const FILENAME: &'static str = "config.json";
 
@@ -333,7 +334,7 @@ impl Config {
             .join(Self::SAVE_DIR)
             .join(name)
             .join(format!("slot-{}", slot))
-            .with_extension("sav")
+            .with_extension(Self::SAVE_EXTENSION)
     }
 
     pub fn reset(&mut self) {
