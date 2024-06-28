@@ -340,6 +340,12 @@ impl Gui {
             Self::light_theme()
         };
         ctx.set_visuals(theme);
+        ctx.style_mut(|ctx| {
+            let scroll = &mut ctx.spacing.scroll;
+            scroll.floating = false;
+            scroll.foreground_color = false;
+            scroll.bar_width = 8.0;
+        });
 
         const FONT: (&str, &[u8]) = (
             "pixeloid-sans",

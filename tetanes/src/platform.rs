@@ -58,17 +58,17 @@ pub mod renderer {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum Feature {
-    Filesystem,
-    Storage,
-    Viewports,
-    DeferredViewport,
-    ConstrainedViewport,
-    Suspend,
-    Blocking,
-    ConsumePaste,
     AbortOnExit,
-    ScreenReader,
     AccessKit,
+    Blocking,
+    ConstrainedViewport,
+    ConsumePaste,
+    DeferredViewport,
+    Filesystem,
+    ScreenReader,
+    Storage,
+    Suspend,
+    Viewports,
 }
 
 /// Checks if the current platform supports a given feature.
@@ -77,17 +77,18 @@ macro_rules! feature {
     ($feature: tt) => {{
         use $crate::platform::Feature::*;
         match $feature {
-            Suspend => cfg!(target_os = "android"),
-            Filesystem | Storage | Viewports | Blocking | DeferredViewport => {
-                cfg!(not(target_arch = "wasm32"))
-            }
-            // FIXME: Deadlock thread sleep issue with zbus/async-io on linux when menus are opened
-            AccessKit => cfg!(any(target_os = "macos", target_os = "windows")),
             // Wasm should never be able to exit
             AbortOnExit => cfg!(target_arch = "wasm32"),
+            // FIXME: Deadlock thread sleep issue with zbus/async-io on linux when menus are opened
+            AccessKit => cfg!(any(target_os = "macos", target_os = "windows")),
+            Blocking | DeferredViewport | Filesystem | Viewports => {
+                cfg!(not(target_arch = "wasm32"))
+            }
             ConstrainedViewport | ConsumePaste | ScreenReader => {
                 cfg!(target_arch = "wasm32")
             }
+            Storage => true,
+            Suspend => cfg!(target_os = "android"),
         }
     }};
 }

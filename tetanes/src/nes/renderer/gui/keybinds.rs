@@ -246,18 +246,18 @@ impl State {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        ui.set_min_height(ui.available_height());
+
         if let Some(player) = player {
             self.player_gamepad_combo(ui, player, connected_gamepads);
 
             ui.separator();
         }
 
-        ScrollArea::both().show(ui, |ui| {
-            ui.set_width(ui.available_width()); // Pushes scrollbar to the right of the window
-
+        ScrollArea::both().auto_shrink(false).show(ui, |ui| {
             let grid = Grid::new("keybind_list")
-                .num_columns(3)
-                .spacing([40.0, 6.0]);
+                .num_columns(4)
+                .spacing([10.0, 6.0]);
             grid.show(ui, |ui| {
                 ui.heading("Action");
                 ui.heading("Binding #1");

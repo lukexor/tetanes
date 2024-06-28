@@ -514,16 +514,18 @@ impl State {
         puffin::profile_function!();
 
         ui.add_enabled_ui(enabled, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.tab, Tab::Emulation, "Emulation");
-                    ui.selectable_value(&mut self.tab, Tab::Audio, "Audio");
-                    ui.selectable_value(&mut self.tab, Tab::Video, "Video");
-                    ui.selectable_value(&mut self.tab, Tab::Input, "Input");
-                });
+            ui.set_min_height(ui.available_height());
 
-                ui.separator();
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Emulation, "Emulation");
+                ui.selectable_value(&mut self.tab, Tab::Audio, "Audio");
+                ui.selectable_value(&mut self.tab, Tab::Video, "Video");
+                ui.selectable_value(&mut self.tab, Tab::Input, "Input");
+            });
 
+            ui.separator();
+
+            ScrollArea::both().show(ui, |ui| {
                 match self.tab {
                     Tab::Emulation => self.emulation_tab(ui, cfg),
                     Tab::Audio => Self::audio_tab(&self.tx, ui, cfg),
@@ -535,70 +537,11 @@ impl State {
 
                 ui.horizontal(|ui| {
                     if ui.button("Restore Defaults").clicked() {
-                        ui.ctx().memory_mut(|mem| *mem = Default::default());
-
-                        // Inform all cfg updates
-                        let cfg = Config::default();
-                        let Config {
-                            deck,
-                            emulation,
-                            audio,
-                            renderer,
-                            input,
-                        } = cfg;
-                        let events = [
-                            ConfigEvent::ActionBindings(input.action_bindings),
-                            ConfigEvent::AlwaysOnTop(renderer.always_on_top),
-                            ConfigEvent::ApuChannelsEnabled(deck.channels_enabled),
-                            ConfigEvent::AudioBuffer(audio.buffer_size),
-                            ConfigEvent::AudioEnabled(audio.enabled),
-                            ConfigEvent::AudioLatency(audio.latency),
-                            ConfigEvent::AutoLoad(emulation.auto_load),
-                            ConfigEvent::AutoSave(emulation.auto_save),
-                            ConfigEvent::AutoSaveInterval(emulation.auto_save_interval),
-                            ConfigEvent::ConcurrentDpad(deck.concurrent_dpad),
-                            ConfigEvent::CycleAccurate(deck.cycle_accurate),
-                            ConfigEvent::DarkTheme(renderer.dark_theme),
-                            ConfigEvent::EmbedViewports(renderer.embed_viewports),
-                            ConfigEvent::FourPlayer(deck.four_player),
-                            ConfigEvent::Fullscreen(renderer.fullscreen),
-                            ConfigEvent::GamepadAssignments(input.gamepad_assignments),
-                            ConfigEvent::GenieCodeClear,
-                            ConfigEvent::HideOverscan(renderer.hide_overscan),
-                            ConfigEvent::MapperRevisions(deck.mapper_revisions),
-                            ConfigEvent::RamState(deck.ram_state),
-                            // Clearing recent roms is handled in a separate button
-                            ConfigEvent::Region(deck.region),
-                            ConfigEvent::RewindEnabled(emulation.rewind),
-                            ConfigEvent::RewindInterval(emulation.rewind_interval),
-                            ConfigEvent::RewindSeconds(emulation.rewind_seconds),
-                            ConfigEvent::RunAhead(emulation.run_ahead),
-                            ConfigEvent::SaveSlot(emulation.save_slot),
-                            ConfigEvent::Shader(renderer.shader),
-                            ConfigEvent::ShowMenubar(renderer.show_menubar),
-                            ConfigEvent::ShowMessages(renderer.show_messages),
-                            ConfigEvent::Speed(emulation.speed),
-                            ConfigEvent::VideoFilter(deck.filter),
-                            ConfigEvent::ZapperConnected(deck.zapper),
-                        ];
-                        for event in events {
-                            self.tx.event(event);
-                        }
+                        Self::restore_defaults(&self.tx, ui.ctx());
                     }
-                    if feature!(Storage) {
-                        let data_dir = Config::default_data_dir();
-                        if ui.button("Clear Save States").clicked() {
-                            match fs::clear_dir(data_dir) {
-                                Ok(_) => self.tx.event(UiEvent::Message((
-                                    MessageType::Info,
-                                    "Save States cleared.".to_string(),
-                                ))),
-                                Err(_) => self.tx.event(UiEvent::Message((
-                                    MessageType::Error,
-                                    "Failed to clear Save States.".to_string(),
-                                ))),
-                            }
-                        }
+
+                    if feature!(Storage) && ui.button("Clear Save States").clicked() {
+                        Self::clear_save_states(&self.tx);
                     }
                     if feature!(Filesystem) && ui.button("Clear Recent ROMs").clicked() {
                         self.tx.event(ConfigEvent::RecentRomsClear);
@@ -633,11 +576,10 @@ impl State {
             ..
         } = cfg.deck;
 
-        ScrollArea::both().show(ui, |ui| {
-            let grid = Grid::new("emulation_checkboxes")
-                .num_columns(2)
-                .spacing([80.0, 6.0]);
-            grid.show(ui, |ui| {
+        let grid = Grid::new("emulation_checkboxes")
+            .num_columns(2)
+            .spacing([80.0, 6.0]);
+        grid.show(ui, |ui| {
                 let tx = &self.tx;
 
                 Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, None);
@@ -722,66 +664,65 @@ impl State {
                 ui.end_row();
             });
 
-            ui.separator();
+        ui.separator();
 
-            let grid = Grid::new("emulation_preferences")
-                .num_columns(4)
-                .spacing([40.0, 6.0]);
-            grid.show(ui, |ui| {
-                let tx = &self.tx;
+        let grid = Grid::new("emulation_preferences")
+            .num_columns(4)
+            .spacing([40.0, 6.0]);
+        grid.show(ui, |ui| {
+            let tx = &self.tx;
 
-                ui.strong("Emulation Speed:");
-                Preferences::speed_slider(tx, ui, speed);
+            ui.strong("Emulation Speed:");
+            Preferences::speed_slider(tx, ui, speed);
 
-                ui.strong("Run Ahead:")
+            ui.strong("Run Ahead:")
+                .on_hover_cursor(CursorIcon::Help)
+                .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
+            Preferences::run_ahead_slider(tx, ui, run_ahead);
+            ui.end_row();
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("Save Slot:")
                     .on_hover_cursor(CursorIcon::Help)
-                    .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
-                Preferences::run_ahead_slider(tx, ui, run_ahead);
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("Save Slot:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text("Select which slot to use when saving or loading game state.");
-                });
-                Grid::new("save_slots")
-                    .num_columns(2)
-                    .spacing([20.0, 6.0])
-                    .show(ui, |ui| {
-                        Preferences::save_slot_radio(tx, ui, save_slot, cfg, ShowShortcut::No)
-                    });
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("Four Player:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text(
-                        "Some game titles support up to 4 players (requires connected controllers).",
-                    );
-                });
-                ui.vertical(|ui| Preferences::four_player_radio(tx, ui, four_player));
-                ui.end_row();
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("NES Region:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text("Which regional NES hardware to emulate.");
-                });
-                ui.vertical(|ui| Preferences::nes_region_radio(tx, ui, region));
-
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.strong("RAM State:")
-                        .on_hover_cursor(CursorIcon::Help)
-                        .on_hover_text("What values are read from NES RAM on load.");
-                });
-                ui.vertical(|ui| Preferences::ram_state_radio(tx, ui, ram_state));
-                ui.end_row();
+                    .on_hover_text("Select which slot to use when saving or loading game state.");
             });
+            Grid::new("save_slots")
+                .num_columns(2)
+                .spacing([20.0, 6.0])
+                .show(ui, |ui| {
+                    Preferences::save_slot_radio(tx, ui, save_slot, cfg, ShowShortcut::No)
+                });
 
-            let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
-            grid.show(ui, |ui| {
-                self.genie_codes_entry(ui, cfg);
-                Preferences::genie_codes_list(&self.tx, ui, cfg, false);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("Four Player:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text(
+                    "Some game titles support up to 4 players (requires connected controllers).",
+                );
             });
+            ui.vertical(|ui| Preferences::four_player_radio(tx, ui, four_player));
+            ui.end_row();
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("NES Region:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("Which regional NES hardware to emulate.");
+            });
+            ui.vertical(|ui| Preferences::nes_region_radio(tx, ui, region));
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.strong("RAM State:")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("What values are read from NES RAM on load.");
+            });
+            ui.vertical(|ui| Preferences::ram_state_radio(tx, ui, ram_state));
+            ui.end_row();
+        });
+
+        let grid = Grid::new("genie_codes").num_columns(2).spacing([40.0, 6.0]);
+        grid.show(ui, |ui| {
+            self.genie_codes_entry(ui, cfg);
+            Preferences::genie_codes_list(&self.tx, ui, cfg, false);
         });
     }
 
@@ -1027,5 +968,72 @@ impl State {
                 ui.colored_label(ui.visuals().error_fg_color, error);
             }
         });
+    }
+
+    fn restore_defaults(tx: &NesEventProxy, ctx: &Context) {
+        ctx.memory_mut(|mem| *mem = Default::default());
+
+        // Inform all cfg updates
+        let Config {
+            deck,
+            emulation,
+            audio,
+            renderer,
+            input,
+        } = Config::default();
+
+        let events = [
+            ConfigEvent::ActionBindings(input.action_bindings),
+            ConfigEvent::AlwaysOnTop(renderer.always_on_top),
+            ConfigEvent::ApuChannelsEnabled(deck.channels_enabled),
+            ConfigEvent::AudioBuffer(audio.buffer_size),
+            ConfigEvent::AudioEnabled(audio.enabled),
+            ConfigEvent::AudioLatency(audio.latency),
+            ConfigEvent::AutoLoad(emulation.auto_load),
+            ConfigEvent::AutoSave(emulation.auto_save),
+            ConfigEvent::AutoSaveInterval(emulation.auto_save_interval),
+            ConfigEvent::ConcurrentDpad(deck.concurrent_dpad),
+            ConfigEvent::CycleAccurate(deck.cycle_accurate),
+            ConfigEvent::DarkTheme(renderer.dark_theme),
+            ConfigEvent::EmbedViewports(renderer.embed_viewports),
+            ConfigEvent::FourPlayer(deck.four_player),
+            ConfigEvent::Fullscreen(renderer.fullscreen),
+            ConfigEvent::GamepadAssignments(input.gamepad_assignments),
+            ConfigEvent::GenieCodeClear,
+            ConfigEvent::HideOverscan(renderer.hide_overscan),
+            ConfigEvent::MapperRevisions(deck.mapper_revisions),
+            ConfigEvent::RamState(deck.ram_state),
+            // Clearing recent roms is handled in a separate button
+            ConfigEvent::Region(deck.region),
+            ConfigEvent::RewindEnabled(emulation.rewind),
+            ConfigEvent::RewindInterval(emulation.rewind_interval),
+            ConfigEvent::RewindSeconds(emulation.rewind_seconds),
+            ConfigEvent::RunAhead(emulation.run_ahead),
+            ConfigEvent::SaveSlot(emulation.save_slot),
+            ConfigEvent::Shader(renderer.shader),
+            ConfigEvent::ShowMenubar(renderer.show_menubar),
+            ConfigEvent::ShowMessages(renderer.show_messages),
+            ConfigEvent::Speed(emulation.speed),
+            ConfigEvent::VideoFilter(deck.filter),
+            ConfigEvent::ZapperConnected(deck.zapper),
+        ];
+
+        for event in events {
+            tx.event(event);
+        }
+    }
+
+    fn clear_save_states(tx: &NesEventProxy) {
+        let data_dir = Config::default_data_dir();
+        match fs::clear_dir(data_dir) {
+            Ok(_) => tx.event(UiEvent::Message((
+                MessageType::Info,
+                "Save States cleared.".to_string(),
+            ))),
+            Err(_) => tx.event(UiEvent::Message((
+                MessageType::Error,
+                "Failed to clear Save States.".to_string(),
+            ))),
+        }
     }
 }
