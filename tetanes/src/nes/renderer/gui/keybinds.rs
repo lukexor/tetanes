@@ -1,12 +1,9 @@
-use crate::{
-    feature,
-    nes::{
-        action::Action,
-        config::Config,
-        event::{ConfigEvent, NesEventProxy},
-        input::{Gamepads, Input},
-        renderer::gui::lib::ViewportOptions,
-    },
+use crate::nes::{
+    action::Action,
+    config::Config,
+    event::{ConfigEvent, NesEventProxy},
+    input::{Gamepads, Input},
+    renderer::gui::lib::ViewportOptions,
 };
 use egui::{Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass};
 use parking_lot::Mutex;
@@ -134,11 +131,6 @@ impl Keybinds {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
-        if opts.always_on_top {
-            viewport_builder = viewport_builder.with_always_on_top();
-        }
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
         let Some((cfg, gamepad_state)) = self.resources.take() else {
@@ -147,27 +139,24 @@ impl Keybinds {
         };
 
         let viewport_id = egui::ViewportId::from_hash_of("keybinds");
-        fn viewport_cb(
-            ctx: &Context,
-            class: ViewportClass,
-            open: &Arc<AtomicBool>,
-            enabled: bool,
-            state: &Arc<Mutex<State>>,
-            cfg: &Config,
-            gamepad_state: &GamepadState,
-        ) {
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
+        if opts.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
+
+        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Keybinds::TITLE)
                     .open(&mut window_open)
                     .default_rect(ctx.available_rect().shrink(16.0))
                     .show(ctx, |ui| {
-                        state.lock().ui(ui, enabled, cfg, gamepad_state);
+                        state.lock().ui(ui, opts.enabled, &cfg, &gamepad_state);
                     });
                 open.store(window_open, Ordering::Release);
             } else {
                 CentralPanel::default().show(ctx, |ui| {
-                    state.lock().ui(ui, enabled, cfg, gamepad_state);
+                    state.lock().ui(ui, opts.enabled, &cfg, &gamepad_state);
                 });
                 if ctx.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
@@ -178,33 +167,7 @@ impl Keybinds {
                 state.pending_input = None;
                 state.gamepad_unassign_confirm = None;
             }
-        }
-
-        if feature!(DeferredViewport) {
-            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(
-                    ctx,
-                    class,
-                    &open,
-                    opts.enabled,
-                    &state,
-                    &cfg,
-                    &gamepad_state,
-                );
-            });
-        } else {
-            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(
-                    ctx,
-                    class,
-                    &open,
-                    opts.enabled,
-                    &state,
-                    &cfg,
-                    &gamepad_state,
-                );
-            });
-        }
+        });
     }
 }
 
@@ -315,10 +278,11 @@ impl State {
             match connected_gamepads {
                 Some(gamepads) => {
                     if gamepads.is_empty() {
-                        ui.set_enabled(false);
-                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                            .selected_text("No Gamepads Connected");
-                        combo.show_ui(ui, |_| {});
+                        ui.add_enabled_ui(false, |ui| {
+                            let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                                .selected_text("No Gamepads Connected");
+                            combo.show_ui(ui, |_| {});
+                        });
                     } else {
                         let mut assigned = gamepads
                             .iter()
@@ -362,10 +326,11 @@ impl State {
                     }
                 }
                 None => {
-                    ui.set_enabled(false);
-                    let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                        .selected_text("Gamepads not supported");
-                    combo.show_ui(ui, |_| {});
+                    ui.add_enabled_ui(false, |ui| {
+                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                            .selected_text("Gamepads not supported");
+                        combo.show_ui(ui, |_| {});
+                    });
                 }
             }
         });
@@ -460,7 +425,7 @@ impl State {
                             match *event {
                                 Event::Key {
                                     physical_key: Some(key),
-                                    pressed: true,
+                                    pressed: false,
                                     modifiers,
                                     ..
                                 } => {
@@ -470,7 +435,7 @@ impl State {
                                 }
                                 Event::PointerButton {
                                     button,
-                                    pressed: true,
+                                    pressed: false,
                                     ..
                                 } => {
                                     return Some(Input::from(button));

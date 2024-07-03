@@ -41,7 +41,7 @@ clap = { version = "4.5", default-features = false, features = [
   "derive",
 ] }
 dirs = "5.0"
-image = { version = "0.24", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 puffin = "0.19"
 serde = { version = "1.0", features = ["derive"] }
 tetanes-core = { version = "0.11", path = "tetanes-core" }
@@ -52,7 +52,7 @@ tracing = { version = "0.1", default-features = false, features = [
 ] }
 tracing-subscriber = "0.3"
 serde_json = "1.0"
-web-time = "0.2" # FIXME: winit is using an old version
+web-time = "1.0"
 web-sys = "0.3"
 
 # Playable framerates in development
@@ -76,7 +76,7 @@ inherits = "release"
 strip = true
 
 [profile.dev.package."*"]
-opt-level = 3
+opt-level = 2
 
 [workspace.metadata.cross.target.x86_64-unknown-linux-gnu]
 pre-build = [

@@ -100,11 +100,6 @@ impl Preferences {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
-        if opts.always_on_top {
-            viewport_builder = viewport_builder.with_always_on_top();
-        }
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
         let Some(cfg) = self.resources.take() else {
@@ -113,38 +108,26 @@ impl Preferences {
         };
 
         let viewport_id = egui::ViewportId::from_hash_of("preferences");
-        fn viewport_cb(
-            ctx: &Context,
-            class: ViewportClass,
-            open: &Arc<AtomicBool>,
-            enabled: bool,
-            state: &Arc<Mutex<State>>,
-            cfg: &Config,
-        ) {
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
+        if opts.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
+
+        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Preferences::TITLE)
                     .open(&mut window_open)
                     .default_rect(ctx.available_rect().shrink(16.0))
-                    .show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                    .show(ctx, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ctx.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
             }
-        }
-
-        if feature!(DeferredViewport) {
-            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-            });
-        } else {
-            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-            });
-        }
+        });
     }
 
     pub fn show_genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
@@ -467,7 +450,7 @@ impl Preferences {
         cfg: &Config,
         shortcut: impl Into<Option<String>>,
     ) {
-        if feature!(Viewports) {
+        if feature!(OsViewports) {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
                 let shortcut = shortcut.into();
                 // icon: maximize
@@ -493,7 +476,7 @@ impl Preferences {
         mut always_on_top: bool,
         shortcut: impl Into<Option<String>>,
     ) {
-        if feature!(Viewports) {
+        if feature!(OsViewports) {
             let shortcut = shortcut.into();
             let icon = shortcut.is_some().then_some("🔝 ").unwrap_or_default();
             let checkbox = Checkbox::new(&mut always_on_top, format!("{icon}Always on Top"))
@@ -609,7 +592,7 @@ impl State {
                             ui.label("Seconds:")
                                 .on_hover_text("The maximum number of seconds to rewind.");
                             let drag = DragValue::new(&mut rewind_seconds)
-                                .clamp_range(1..=360)
+                                .range(1..=360)
                                 .suffix(" seconds");
                             let res = ui.add(drag);
                             if res.changed() {
@@ -619,7 +602,7 @@ impl State {
                             ui.label("Interval:")
                                 .on_hover_text("The frame interval to save rewind states.");
                             let drag = DragValue::new(&mut rewind_interval)
-                                .clamp_range(1..=60)
+                                .range(1..=60)
                                 .suffix(" frames");
                             let res = ui.add(drag);
                             if res.changed() {
@@ -651,7 +634,7 @@ impl State {
                                     "A value of `0` will still save on exit or unload while Auto-Save is enabled."
                                 ));
                             let drag = DragValue::new(&mut auto_save_interval)
-                                .clamp_range(0..=60)
+                                .range(0..=60)
                                 .suffix(" seconds");
                             let res = ui.add(drag);
                             if res.changed() {
@@ -804,7 +787,7 @@ impl State {
                             );
                         let drag = DragValue::new(&mut buffer_size)
                             .speed(10)
-                            .clamp_range(0..=8192)
+                            .range(0..=8192)
                             .suffix(" samples");
                         let res = ui.add(drag);
                         if res.changed() {
@@ -819,7 +802,7 @@ impl State {
                             );
                         let mut latency = latency.as_millis() as u64;
                         let drag = DragValue::new(&mut latency)
-                            .clamp_range(0..=1000)
+                            .range(0..=1000)
                             .suffix(" ms");
                         let res = ui.add(drag);
                         if res.changed() {

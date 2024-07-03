@@ -453,6 +453,7 @@ impl State {
                     }
                 }
             }
+            EmulationEvent::RequestFrame => self.send_frame(),
             EmulationEvent::Rewinding(rewind) => {
                 if self.control_deck.is_running() {
                     if self.rewind.enabled {
@@ -891,17 +892,6 @@ impl State {
         }
 
         if let Some(park_timeout) = self.park_duration() {
-            self.tx.event(RendererEvent::RequestRedraw {
-                viewport_id: ViewportId::ROOT,
-                when: Instant::now() + park_timeout,
-            });
-            if self.control_deck.is_running() && self.run_state.paused() {
-                // Only send a frame if there's space, which means the renderer consumed previous
-                // frames and may need the current buffer to redraw for e.g. resizing
-                if let Ok(mut frame) = self.frame_tx.try_send_ref() {
-                    self.control_deck.frame_buffer_into(&mut frame);
-                }
-            }
             thread::park_timeout(park_timeout);
             return;
         }

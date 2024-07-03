@@ -30,7 +30,12 @@ workspace = true
 
 [features]
 default = ["tetanes-core/cycle-accurate"]
-profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
+profiling = [
+  "tetanes-core/profiling",
+  "dep:puffin",
+  "dep:puffin_egui",
+  "egui/puffin",
+]
 cycle-accurate = []
 
 [dependencies]
@@ -38,19 +43,28 @@ anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 crossbeam = "0.8"
-# TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
-color-hex = "0.2"
 dirs.workspace = true
-egui-wgpu = { version = "0.27", features = ["winit", "wayland", "x11"] }
-egui_extras = { version = "0.27", default-features = false, features = [
+egui = { version = "0.28", features = [
+  "bytemuck",
+  "color-hex",
+  "default_fonts",
+  "log",
+  "persistence",
+  "serde",
+] }
+egui_extras = { version = "0.28", default-features = false, features = [
   "image",
+  "serde",
 ] }
 gilrs = { version = "0.10", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
+nohash-hasher = "0.2"
 parking_lot = "0.12"
-puffin = { workspace = true, optional = true }
+puffin = { workspace = true, optional = true, features = ["web"] }
 puffin_egui = { version = "0.27", optional = true }
 ringbuf = "0.4"
 serde.workspace = true
@@ -61,49 +75,32 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid = { version = "1.8", features = ["v4", "fast-rng", "serde"] }
-# Only here to define features for egui-winit "links" feature, hence the "*"
-webbrowser = { version = "*", features = ["hardened", "disable-wsl"] }
-winit = { version = "0.29", features = ["serde"] }
+webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
+wgpu = { version = "0.20", features = ["webgl", "webgpu"] }
+winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-clap.workspace = true
-cpal = "0.15"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-egui = { version = "0.27", features = [
-  "extra_debug_asserts",
-  "log",
-  "persistence",
-  "accesskit",
+accesskit = "0.16"
+accesskit_winit = "0.22"
+arboard = { version = "3.4", default-features = false, features = [
+  "wayland-data-control",
 ] }
-egui-winit = { version = "0.27", features = ["accesskit"] }
+clap.workspace = true
+egui = { version = "0.28", default-features = false, features = ["accesskit"] }
 pollster = "0.3"
 reqwest = { version = "0.12", features = ["blocking"] }
 rfd = "0.14"
 semver = "1"
-sysinfo = "0.30"
+sysinfo = { version = "0.30", default-features = false }
 tracing-appender = "0.2"
-wgpu = "0.19"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-chrono = { version = "0.4", default-features = false, features = [
-  "clock",
-  "wasmbind",
-] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["wasmbind"] }
 console_error_panic_hook = "0.1"
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
-egui = { version = "0.27", features = [
-  "extra_debug_asserts",
-  "log",
-  "persistence",
-] }
-egui-winit = { version = "0.27", default-features = false, features = [
-  "links",
-] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.2", features = ["js"] }
-puffin = { workspace = true, features = ["web"], optional = true }
 tracing-web = "0.1"
-wgpu = { version = "0.19", features = ["webgl", "webgpu"] }
 web-sys = { workspace = true, features = [
   "Clipboard",
   "ClipboardEvent",
@@ -127,7 +124,6 @@ web-sys = { workspace = true, features = [
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 zip = { version = "2.1", default-features = false, features = ["deflate"] }
-base64 = "0.22"
 
 [package.metadata.docs.rs]
 rustc-args = ["--cfg=web_sys_unstable_apis"]

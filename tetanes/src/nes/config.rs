@@ -191,14 +191,21 @@ impl InputConfig {
 
     pub fn clear_binding(&mut self, input: Input) {
         for bind in &mut self.action_bindings {
-            if let Some(existing_input) = bind.bindings.iter_mut().find(|i| **i == Some(input)) {
-                if let Action::Deck(DeckAction::Joypad((player, _))) = bind.action {
-                    self.joypads[player as usize].remove(&bind.action);
+            if let Some((binding, existing_input)) = bind
+                .bindings
+                .iter_mut()
+                .enumerate()
+                .find(|(_, i)| **i == Some(input))
+            {
+                let keybinds = if let Action::Deck(DeckAction::Joypad((player, _))) = bind.action {
+                    &mut self.joypads[player as usize]
                 } else {
-                    self.shortcuts.remove(&bind.action);
-                }
+                    &mut self.shortcuts
+                };
+                keybinds
+                    .entry(bind.action)
+                    .and_modify(|bind| bind.bindings[binding] = None);
                 *existing_input = None;
-                break;
             }
         }
     }

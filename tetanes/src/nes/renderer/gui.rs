@@ -5,20 +5,18 @@ use crate::{
         config::{Config, RendererConfig},
         emulation::FrameStats,
         event::{
-            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
+            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, Response,
+            RunState, UiEvent,
         },
         input::Gamepads,
-        renderer::{
-            gui::{
-                keybinds::Keybinds,
-                lib::{
-                    cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
-                    ViewportOptions,
-                },
-                ppu_viewer::PpuViewer,
-                preferences::Preferences,
+        renderer::gui::{
+            keybinds::Keybinds,
+            lib::{
+                cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
+                ViewportOptions,
             },
-            shader::{self, Shader},
+            ppu_viewer::PpuViewer,
+            preferences::Preferences,
         },
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
@@ -26,15 +24,14 @@ use crate::{
     sys::{info::System, SystemInfo},
 };
 use egui::{
-    include_image,
+    hex_color, include_image,
     load::SizedTexture,
     menu,
-    style::{HandleShape, Selection, WidgetVisuals},
+    style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
     Align, Area, Button, CentralPanel, Color32, Context, CursorIcon, Direction, FontData,
     FontDefinitions, FontFamily, Frame, Grid, Id, Image, Layout, Order, Pos2, Rect, RichText,
     Rounding, ScrollArea, Sense, Stroke, TopBottomPanel, Ui, Vec2, Visuals,
 };
-use egui_winit::EventResponse;
 use serde::{Deserialize, Serialize};
 use tetanes_core::{
     action::Action as DeckAction,
@@ -104,14 +101,6 @@ pub struct Gui {
     pub error: Option<String>,
 }
 
-// TODO: Remove once https://github.com/emilk/egui/pull/4372 is released
-macro_rules! hex_color {
-    ($s:literal) => {{
-        let array = color_hex::color_from_hex!($s);
-        Color32::from_rgb(array[0], array[1], array[2])
-    }};
-}
-
 impl Gui {
     const MSG_TIMEOUT: Duration = Duration::from_secs(3);
     const MAX_MESSAGES: usize = 5;
@@ -156,7 +145,7 @@ impl Gui {
         }
     }
 
-    pub fn on_window_event(&mut self, event: &WindowEvent) -> EventResponse {
+    pub fn on_window_event(&mut self, event: &WindowEvent) -> Response {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -166,12 +155,12 @@ impl Gui {
                 WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
             )
         {
-            EventResponse {
+            Response {
                 consumed: true,
                 ..Default::default()
             }
         } else {
-            EventResponse::default()
+            Response::default()
         }
     }
 
@@ -323,11 +312,12 @@ impl Gui {
                 .show(ctx, |ui| ctx.memory_ui(ui));
         }
 
-        #[cfg(feature = "profiling")]
-        if viewport_opts.enabled {
-            puffin::profile_scope!("puffin");
-            puffin_egui::show_viewport_if_enabled(ctx);
-        }
+        // TODO: Enable once updated to egui 0.28.0
+        // #[cfg(feature = "profiling")]
+        // if viewport_opts.enabled {
+        //     puffin::profile_scope!("puffin");
+        //     puffin_egui::show_viewport_if_enabled(ctx);
+        // }
     }
 
     fn initialize(&mut self, ctx: &Context) {
@@ -514,34 +504,34 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.set_enabled(!self.keybinds.wants_input());
+        ui.add_enabled_ui(!self.keybinds.wants_input(), |ui| {
+            let inner_res = menu::bar(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    Self::toggle_dark_mode_button(&self.tx, ui);
 
-        let inner_res = menu::bar(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                Self::toggle_dark_mode_button(&self.tx, ui);
+                    ui.separator();
 
-                ui.separator();
+                    ui.menu_button("📁 File", |ui| self.file_menu(ui));
+                    ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui));
+                    ui.menu_button("🔧 Config", |ui| self.config_menu(ui));
+                    // icon: screen
+                    ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
+                    ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
+                    ui.menu_button("❓ Help", |ui| self.help_menu(ui));
 
-                ui.menu_button("📁 File", |ui| self.file_menu(ui));
-                ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui));
-                ui.menu_button("🔧 Config", |ui| self.config_menu(ui));
-                // icon: screen
-                ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
-                ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
-                ui.menu_button("❓ Help", |ui| self.help_menu(ui));
-
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    egui::warn_if_debug_build(ui);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        egui::warn_if_debug_build(ui);
+                    });
                 });
             });
+            let spacing = ui.style().spacing.item_spacing;
+            let border = 1.0;
+            let height = inner_res.response.rect.height() + spacing.y + border;
+            if height != self.menu_height {
+                self.menu_height = height;
+                self.tx.event(RendererEvent::ResizeTexture);
+            }
         });
-        let spacing = ui.style().spacing.item_spacing;
-        let border = 1.0;
-        let height = inner_res.response.rect.height() + spacing.y + border;
-        if height != self.menu_height {
-            self.menu_height = height;
-            self.tx.event(RendererEvent::ResizeTexture);
-        }
     }
 
     pub fn toggle_dark_mode_button(tx: &NesEventProxy, ui: &mut Ui) {
@@ -673,7 +663,7 @@ impl Gui {
             });
         }
 
-        if feature!(Viewports) {
+        if feature!(OsViewports) {
             ui.separator();
 
             let button = Button::new("⎆ Quit").shortcut_text(cfg.shortcut(UiAction::Quit));
@@ -1169,26 +1159,7 @@ impl Gui {
                                 CursorIcon::Default
                             };
 
-                            let res = if matches!(self.cfg.renderer.shader, Shader::None) {
-                                ui.add(image)
-                            } else {
-                                let texture_load_res =
-                                    image.load_for_size(ui.ctx(), ui.available_size());
-                                let image_size =
-                                    texture_load_res.as_ref().ok().and_then(|t| t.size());
-                                let ui_size = image.calc_size(ui.available_size(), image_size);
-                                let (rect, res) = ui.allocate_exact_size(ui_size, image_sense);
-                                let res = res.on_hover_cursor(hover_cursor);
-
-                                if ui.is_rect_visible(rect) {
-                                    ui.painter().add(egui_wgpu::Callback::new_paint_callback(
-                                        rect,
-                                        shader::Renderer::new(rect),
-                                    ));
-                                }
-
-                                res
-                            };
+                            let res = ui.add(image).on_hover_cursor(hover_cursor);
                             self.nes_frame = res.rect;
 
                             if self.cfg.deck.zapper {
@@ -1608,7 +1579,10 @@ impl Gui {
             window_highlight_topmost: true,
             menu_rounding: Rounding::ZERO,
             panel_fill: hex_color!("#14191f"),
-            text_cursor: Stroke::new(2.0, hex_color!("#95e6cb")),
+            text_cursor: TextCursorStyle {
+                stroke: Stroke::new(2.0, hex_color!("#95e6cb")),
+                ..Default::default()
+            },
             striped: true,
             handle_shape: HandleShape::Rect { aspect_ratio: 1.25 },
             ..Default::default()
@@ -1673,7 +1647,10 @@ impl Gui {
             window_fill: hex_color!("#f0eee4"),
             window_stroke: Stroke::new(1.0, hex_color!("#d9d8d7")),
             panel_fill: hex_color!("#f0eee4"),
-            text_cursor: Stroke::new(2.0, hex_color!("#4cbf99")),
+            text_cursor: TextCursorStyle {
+                stroke: Stroke::new(2.0, hex_color!("#4cbf99")),
+                ..Default::default()
+            },
             ..Self::dark_theme()
         }
     }

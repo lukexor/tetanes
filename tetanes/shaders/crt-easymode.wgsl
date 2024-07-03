@@ -37,8 +37,8 @@ var<private> vertices: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) dims: vec2<f32>,
-    @location(1) inv_dims: vec2<f32>,
+    @location(0) tex_dims: vec2<f32>,
+    @location(1) inv_tex_dims: vec2<f32>,
     @location(2) v_uv: vec2<f32>,
 };
 
@@ -50,23 +50,25 @@ fn vs_main(
     let vert = vertices[v_idx];
 
     // Convert x from -1.0..1.0 to 0.0..1.0 and y from -1.0..1.0 to 1.0..0.0
-    out.dims = vec2<f32>(textureDimensions(tex));
-    out.inv_dims = 1.0 / out.dims;
-    out.v_uv = fma(vert, vec2(0.5, -0.5), vec2(0.5, 0.5));
     out.position = vec4(vert, 0.0, 1.0);
+    out.tex_dims = vec2<f32>(textureDimensions(tex));
+    out.inv_tex_dims = 1.0 / out.tex_dims;
+    out.v_uv = fma(vert, vec2(0.5, -0.5), vec2(0.5, 0.5));
     return out;
 }
 
 // Fragment shader
 
 struct Output {
-    size: vec2<f32>,
-    padding: vec2<f32>,
+    screen_size: vec2<f32>,
+    // Uniform buffers need to be at least 16 bytes in WebGL.
+    // See https://github.com/gfx-rs/wgpu/issues/2072
+    _padding: vec2<f32>,
 }
-
 @group(0) @binding(0) var<uniform> out: Output;
-@group(0) @binding(1) var tex: texture_2d<f32>;
-@group(0) @binding(2) var tex_sampler: sampler;
+
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var tex_sampler: sampler;
 
 const PI = 3.141592653589;
 
@@ -77,15 +79,15 @@ const MASK_DOT_WIDTH = 1.0;
 const MASK_DOT_HEIGHT = 1.0;
 const MASK_STAGGER = 0.0;
 const MASK_SIZE = 1.0;
-const SCANLINE_STRENGTH = 0.95;
-const SCANLINE_BEAM_WIDTH_MIN = 2.5;
-const SCANLINE_BEAM_WIDTH_MAX = 2.5;
-const SCANLINE_BRIGHT_MIN = 0.3;
-const SCANLINE_BRIGHT_MAX = 0.6;
+const SCANLINE_STRENGTH = 1.0;
+const SCANLINE_BEAM_WIDTH_MIN = 1.5;
+const SCANLINE_BEAM_WIDTH_MAX = 1.5;
+const SCANLINE_BRIGHT_MIN = 0.35;
+const SCANLINE_BRIGHT_MAX = 0.65;
 const SCANLINE_CUTOFF = 400.0;
-const GAMMA_INPUT = 1.0;
-const GAMMA_OUTPUT = 2.2;
-const BRIGHT_BOOST = 1.1;
+const GAMMA_INPUT = 2.0;
+const GAMMA_OUTPUT = 1.8;
+const BRIGHT_BOOST = 1.2;
 const DILATION = 1.0;
 
 // apply half-circle s-curve to distance for sharper (more pixelated) interpolation
@@ -123,12 +125,12 @@ fn get_color_matrix(co: vec2<f32>, dx: vec2<f32>) -> mat4x4<f32> {
 
 @fragment
 fn fs_main(
-    @location(0) dims: vec2<f32>,
-    @location(1) inv_dims: vec2<f32>,
+    @location(0) tex_dims: vec2<f32>,
+    @location(1) inv_tex_dims: vec2<f32>,
     @location(2) v_uv: vec2<f32>
 ) -> @location(0) vec4<f32> {
-    let pix_co = v_uv * dims - vec2<f32>(0.5, 0.5);
-    let tex_co = (floor(pix_co) + vec2<f32>(0.5, 0.5)) * inv_dims;
+    let pix_co = v_uv * tex_dims - vec2<f32>(0.5, 0.5);
+    let tex_co = (floor(pix_co) + vec2<f32>(0.5, 0.5)) * inv_tex_dims;
     let dist = fract(pix_co);
 
     var curve_x = curve_distance(dist.x, SHARPNESS_H * SHARPNESS_H);
@@ -138,8 +140,8 @@ fn fs_main(
     coeffs = 2.0 * sin(coeffs) * sin(coeffs * 0.5) / (coeffs * coeffs);
     coeffs /= dot(coeffs, vec4<f32>(1.0));
 
-    let dx = vec2<f32>(inv_dims.x, 0.0);
-    let dy = vec2<f32>(0.0, inv_dims.y);
+    let dx = vec2<f32>(inv_tex_dims.x, 0.0);
+    let dy = vec2<f32>(0.0, inv_tex_dims.y);
     var col = filter_lanczos(coeffs, get_color_matrix(tex_co, dx));
     var col2 = filter_lanczos(coeffs, get_color_matrix(tex_co + dy, dx));
 
@@ -150,11 +152,11 @@ fn fs_main(
     let bright = (max(col.r, max(col.g, col.b)) + luma) * 0.5;
     let scan_bright = clamp(bright, SCANLINE_BRIGHT_MIN, SCANLINE_BRIGHT_MAX);
     let scan_beam = clamp(bright * SCANLINE_BEAM_WIDTH_MAX, SCANLINE_BEAM_WIDTH_MIN, SCANLINE_BEAM_WIDTH_MAX);
-    var scan_weight = 1.0 - pow(cos(v_uv.y * 2.0 * PI * dims.y) * 0.5 + 0.5, scan_beam) * SCANLINE_STRENGTH;
+    var scan_weight = 1.0 - pow(cos(v_uv.y * 2.0 * PI * tex_dims.y) * 0.5 + 0.5, scan_beam) * SCANLINE_STRENGTH;
 
-    let insize = dims;
+    let insize = tex_dims;
     let mask = 1.0 - MASK_STRENGTH;
-    let mod_fac = floor(v_uv * out.size * dims / (insize * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
+    let mod_fac = floor(v_uv * out.screen_size * tex_dims / (insize * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
     let dot_no = i32(((mod_fac.x + (mod_fac.y % 2.0) * MASK_STAGGER) / MASK_DOT_WIDTH % 3.0));
 
     var mask_weight: vec3<f32>;

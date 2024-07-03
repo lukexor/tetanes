@@ -1,11 +1,11 @@
 use crate::{
     nes::{
         event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
-        renderer::Renderer,
+        renderer::{gui, Renderer, State},
         rom::RomData,
         Running,
     },
-    platform::{BuilderExt, EventLoopExt, Initialize},
+    platform::{BuilderExt, Initialize},
     thread,
 };
 use anyhow::{bail, Context};
@@ -17,12 +17,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{
     js_sys::Uint8Array, FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement,
 };
-use winit::{
-    event::Event,
-    event_loop::{EventLoop, EventLoopWindowTarget},
-    platform::web::{EventLoopExtWebSys, WindowBuilderExtWebSys},
-    window::WindowBuilder,
-};
+use winit::{platform::web::WindowAttributesExtWebSys, window::WindowAttributes};
 
 const BIN_NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -223,9 +218,9 @@ pub mod renderer {
     use super::*;
     use crate::nes::{
         config::Config,
-        renderer::{gui::Gui, State},
+        event::Response,
+        renderer::{gui::Gui, Viewport},
     };
-    use egui_winit::EventResponse;
     use std::cell::RefCell;
     use wasm_bindgen_futures::JsFuture;
     use winit::dpi::LogicalSize;
@@ -234,7 +229,7 @@ pub mod renderer {
         renderer: &Renderer,
         desired_window_width: f32,
         cfg: &Config,
-    ) -> EventResponse {
+    ) -> Response {
         if let Some(window) = renderer.root_window() {
             if let Some(canvas) = crate::platform::get_canvas() {
                 // Can't use `Window::inner_size` here because it's reported incorrectly so
@@ -266,7 +261,7 @@ pub mod renderer {
                             new_window_size.y,
                         ));
                     }
-                    return EventResponse {
+                    return Response {
                         consumed: true,
                         repaint: true,
                     };
@@ -274,35 +269,35 @@ pub mod renderer {
             }
         }
 
-        EventResponse::default()
+        Response::default()
     }
 
-    pub fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> EventResponse {
-        let State { viewports, .. } = &mut *state.borrow_mut();
-        let egui_state = viewports
-            .get_mut(&egui::ViewportId::ROOT)
-            .and_then(|viewport| viewport.egui_state.as_mut());
-        match egui_state {
-            Some(egui_state) => {
-                // Requires creating an event and setting the clipboard
-                // here because egui_winit internally tries to manage a
-                // fallback clipboard for platforms not supported by the
-                // clipboard crates being used.
-                //
-                // This has associated behavior in the renderer to prevent
-                // sending 'paste events' (ctrl/cmd+V) to egui_state to
-                // bypass its internal clipboard handling.
-                egui_state
-                    .egui_input_mut()
-                    .events
-                    .push(egui::Event::Paste(text.clone()));
-                egui_state.set_clipboard_text(text);
-                EventResponse {
-                    consumed: true,
-                    repaint: true,
-                }
-            }
-            _ => EventResponse::default(),
+    pub fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> Response {
+        let State {
+            viewports, focused, ..
+        } = &mut *state.borrow_mut();
+
+        let Some(viewport) = focused.and_then(|id| viewports.get_mut(&id)) else {
+            return Response::default();
+        };
+
+        // Requires creating an event and setting the clipboard
+        // here because internally we try to manage a
+        // fallback clipboard for platforms not supported by the current
+        // clipboard backends.
+        //
+        // This has associated behavior in the renderer to prevent
+        // sending 'paste events' (ctrl/cmd+V) to bypass its internal
+        // clipboard handling.
+        viewport
+            .raw_input
+            .events
+            .push(egui::Event::Paste(text.clone()));
+        viewport.clipboard.set(text);
+
+        Response {
+            consumed: true,
+            repaint: true,
         }
     }
 
@@ -310,63 +305,96 @@ pub mod renderer {
         ctx: &egui::Context,
         state: &Rc<RefCell<State>>,
         gui: &Rc<RefCell<Gui>>,
-    ) -> EventResponse {
+    ) -> Response {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let raw_input = {
-            let State { viewports, .. } = &mut *state.borrow_mut();
+        // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
+        gui.borrow_mut()
+            .prepare(&Default::default(), &Default::default());
 
-            let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) else {
-                return EventResponse::default();
+        let (viewport_ui_cb, raw_input) = {
+            let State {
+                viewports,
+                start_time,
+                focused,
+                ..
+            } = &mut *state.borrow_mut();
+
+            let Some(viewport) = focused.and_then(|id| viewports.get_mut(&id)) else {
+                return Response::default();
             };
             let Some(window) = &viewport.window else {
-                return EventResponse::default();
+                return Response::default();
             };
-            if !window.has_focus() {
-                return EventResponse::default();
+            if viewport.occluded {
+                return Response::default();
             }
-            let Some(egui_state) = viewport.egui_state.as_mut() else {
-                return EventResponse::default();
-            };
-            egui_state.take_egui_input(window)
+
+            Viewport::update_info(&mut viewport.info, ctx, window);
+
+            let viewport_ui_cb = viewport.viewport_ui_cb.clone();
+
+            // On Windows, a minimized window will have 0 width and height.
+            // See: https://github.com/rust-windowing/winit/issues/208
+            // This solves an issue where egui window positions would be changed when minimizing on Windows.
+            let screen_size_in_pixels = gui::lib::screen_size_in_pixels(window);
+            let screen_size_in_points =
+                screen_size_in_pixels / gui::lib::pixels_per_point(ctx, window);
+
+            let mut raw_input = viewport.raw_input.take();
+            raw_input.time = Some(start_time.elapsed().as_secs_f64());
+            raw_input.screen_rect = (screen_size_in_points.x > 0.0
+                && screen_size_in_points.y > 0.0)
+                .then(|| egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size_in_points));
+            raw_input.viewport_id = viewport.ids.this;
+            raw_input.viewports = viewports
+                .iter()
+                .map(|(id, viewport)| (*id, viewport.info.clone()))
+                .collect();
+
+            (viewport_ui_cb, raw_input.take())
         };
 
-        let mut output = ctx.run(raw_input, |ctx| {
-            gui.borrow_mut().ui(ctx, None);
+        let mut output = ctx.run(raw_input, |ctx| match viewport_ui_cb {
+            Some(viewport_ui_cb) => viewport_ui_cb(ctx),
+            None => gui.borrow_mut().ui(ctx, None),
         });
 
-        let State { viewports, .. } = &mut *state.borrow_mut();
+        let State {
+            viewports, focused, ..
+        } = &mut *state.borrow_mut();
 
-        if let Some(viewport) = viewports.get_mut(&egui::ViewportId::ROOT) {
-            viewport.info.events.clear();
-
-            let copied_text = std::mem::take(&mut output.platform_output.copied_text);
-            if !copied_text.is_empty() {
-                if let Some(clipboard) =
-                    web_sys::window().and_then(|window| window.navigator().clipboard())
-                {
-                    let promise = clipboard.write_text(&copied_text);
-                    let future = JsFuture::from(promise);
-                    let future = async move {
-                        if let Err(err) = future.await {
-                            tracing::error!(
-                                "Cut/Copy failed: {}",
-                                err.as_string().unwrap_or_else(|| format!("{err:#?}"))
-                            );
-                        }
-                    };
-                    thread::spawn(future);
-                }
-            }
-
-            return EventResponse {
-                consumed: true,
-                repaint: true,
-            };
+        let Some(viewport) = focused.and_then(|id| viewports.get_mut(&id)) else {
+            return Response::default();
         };
 
-        EventResponse::default()
+        viewport.info.events.clear();
+
+        let copied_text = std::mem::take(&mut output.platform_output.copied_text);
+        tracing::warn!("Copied text: {copied_text}");
+        if !copied_text.is_empty() {
+            if let Some(clipboard) =
+                web_sys::window().and_then(|window| window.navigator().clipboard())
+            {
+                let promise = clipboard.write_text(&copied_text);
+                let future = JsFuture::from(promise);
+                let future = async move {
+                    if let Err(err) = future.await {
+                        tracing::error!(
+                            "Cut/Copy failed: {}",
+                            err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                        );
+                    }
+                };
+                thread::spawn(future);
+            }
+        }
+
+        Response {
+            consumed: true,
+            repaint: true,
+        }
     }
 }
 
@@ -819,22 +847,11 @@ pub fn download_save_states() -> anyhow::Result<()> {
     Ok(())
 }
 
-impl BuilderExt for WindowBuilder {
+impl BuilderExt for WindowAttributes {
     /// Sets platform-specific window options.
     fn with_platform(self, _title: &str) -> Self {
         // Prevent default false allows cut/copy/paste
         self.with_canvas(get_canvas()).with_prevent_default(false)
-    }
-}
-
-impl<T> EventLoopExt<T> for EventLoop<T> {
-    /// Runs the event loop for the current platform.
-    fn run_platform<F>(self, event_handler: F) -> anyhow::Result<()>
-    where
-        F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static,
-    {
-        self.spawn(event_handler);
-        Ok(())
     }
 }
 
