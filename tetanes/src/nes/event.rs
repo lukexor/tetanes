@@ -29,11 +29,12 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 use uuid::Uuid;
 use winit::{
-    event::{ElementState, Event, WindowEvent},
-    event_loop::{ControlFlow, DeviceEvents, EventLoop, EventLoopProxy, EventLoopWindowTarget},
+    application::ApplicationHandler,
+    event::{DeviceEvent, DeviceId, ElementState, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop, EventLoopProxy},
     keyboard::PhysicalKey,
     window::WindowId,
 };
@@ -58,6 +59,13 @@ impl NesEventProxy {
     pub const fn inner(&self) -> &EventLoopProxy<NesEvent> {
         &self.0
     }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+#[must_use]
+pub struct Response {
+    pub consumed: bool,
+    pub repaint: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,6 +181,7 @@ pub enum EmulationEvent {
     RunState(RunState),
     ReplayRecord(bool),
     Reset(ResetKind),
+    RequestFrame,
     Rewinding(bool),
     SaveState(u8),
     ShowFrameStats(bool),
@@ -202,6 +211,14 @@ pub enum RendererEvent {
     Menu(Menu),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+pub enum AccessKitWindowEvent {
+    InitialTreeRequested,
+    ActionRequested(accesskit::ActionRequest),
+    AccessibilityDeactivated,
+}
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum NesEvent {
@@ -209,11 +226,11 @@ pub enum NesEvent {
     Emulation(EmulationEvent),
     Renderer(RendererEvent),
     Config(ConfigEvent),
-    // For some reason ActionRequestEvent isn't Clone
+    // For some reason accesskit_winit::Event isn't Clone
     #[cfg(not(target_arch = "wasm32"))]
     AccessKit {
         window_id: WindowId,
-        request: egui::accesskit::ActionRequest,
+        event: AccessKitWindowEvent,
     },
 }
 
@@ -242,405 +259,492 @@ impl From<ConfigEvent> for NesEvent {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<egui_winit::accesskit_winit::ActionRequestEvent> for NesEvent {
-    fn from(event: egui_winit::accesskit_winit::ActionRequestEvent) -> Self {
+impl From<accesskit_winit::Event> for NesEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        use accesskit_winit::WindowEvent;
         Self::AccessKit {
             window_id: event.window_id,
-            request: event.request,
+            event: match event.window_event {
+                WindowEvent::InitialTreeRequested => AccessKitWindowEvent::InitialTreeRequested,
+                WindowEvent::ActionRequested(request) => {
+                    AccessKitWindowEvent::ActionRequested(request)
+                }
+                WindowEvent::AccessibilityDeactivated => {
+                    AccessKitWindowEvent::AccessibilityDeactivated
+                }
+            },
         }
     }
 }
 
-impl Nes {
-    pub fn event_loop(
-        &mut self,
-        event: Event<NesEvent>,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
-    ) {
+impl ApplicationHandler<NesEvent> for Nes {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: NesEvent) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if !matches!(event, Event::NewEvents(..) | Event::AboutToWait) {
-            trace!("event: {event:?}");
-        }
+        trace!("user event: {event:?}");
 
-        match &event {
-            Event::Resumed => {
-                let state = if let State::Running(state) = &mut self.state {
-                    if feature!(Suspend) {
-                        state.renderer.recreate_window(event_loop);
-                    }
-                    state
-                } else {
-                    if self.state.is_suspended() {
-                        if let Err(err) = self.request_resources(event_loop) {
-                            error!("failed to request renderer resources: {err:?}");
-                            event_loop.exit();
-                        }
-                    }
+        match event {
+            NesEvent::Renderer(RendererEvent::ResourcesReady) => {
+                if let Err(err) = self.init_running() {
+                    error!("failed to create window: {err:?}");
+                    event_loop.exit();
                     return;
-                };
-                if let Some(window_id) = state.renderer.root_window_id() {
-                    state.repaint_times.insert(window_id, Instant::now());
                 }
-            }
-            Event::UserEvent(event) => match event {
-                NesEvent::Renderer(RendererEvent::ResourcesReady) => {
-                    if let Err(err) = self.init_running(event_loop) {
-                        error!("failed to create window: {err:?}");
-                        event_loop.exit();
-                        return;
-                    }
 
-                    // Disable device events to save some cpu as they're mostly duplicated in
-                    // WindowEvents
-                    event_loop.listen_device_events(DeviceEvents::Never);
+                // Disable device events to save some cpu as they're mostly duplicated in
+                // WindowEvents
+                event_loop.listen_device_events(DeviceEvents::Never);
 
-                    if let State::Running(state) = &mut self.state {
-                        if let Some(window) = state.renderer.root_window() {
-                            if window.is_visible().unwrap_or(true) {
-                                state.repaint_times.insert(window.id(), Instant::now());
-                            } else {
-                                // Immediately redraw the root window on start if not
-                                // visible. Fixes a bug where `window.request_redraw()` events
-                                // may not be sent if the window isn't visible, which is the
-                                // case until the first frame is drawn.
-                                if let Err(err) = state.renderer.redraw(
-                                    window.id(),
-                                    event_loop,
-                                    &mut state.gamepads,
-                                    &mut state.cfg,
-                                ) {
-                                    state.renderer.on_error(err);
-                                }
+                if let State::Running(state) = &mut self.state {
+                    if let Some(window) = state.renderer.root_window() {
+                        if window.is_visible().unwrap_or(true) {
+                            state.repaint_times.insert(window.id(), Instant::now());
+                        } else {
+                            // Immediately redraw the root window on start if not
+                            // visible. Fixes a bug where `window.request_redraw()` events
+                            // may not be sent if the window isn't visible, which is the
+                            // case until the first frame is drawn.
+                            if let Err(err) = state.renderer.redraw(
+                                window.id(),
+                                event_loop,
+                                &mut state.gamepads,
+                                &mut state.cfg,
+                            ) {
+                                state.renderer.on_error(err);
                             }
                         }
                     }
                 }
-                NesEvent::Ui(UiEvent::Terminate) => event_loop.exit(),
-                _ => (),
-            },
-            Event::LoopExiting => {
-                #[cfg(feature = "profiling")]
-                puffin::set_scopes_on(false);
-
-                if feature!(AbortOnExit) && !matches!(self.state, State::Running(_)) {
-                    panic!("exited unexpectedly");
-                }
             }
+            NesEvent::Ui(UiEvent::Terminate) => event_loop.exit(),
             _ => (),
         }
 
         if let State::Running(state) = &mut self.state {
-            state.on_event(event, event_loop);
+            state.user_event(event_loop, event);
+        }
+    }
 
-            let mut next_repaint_time = state.repaint_times.values().min().copied();
-            state.repaint_times.retain(|window_id, when| {
-                if *when > Instant::now() {
-                    return true;
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        debug!("resumed event");
+
+        let state = if let State::Running(state) = &mut self.state {
+            if feature!(Suspend) {
+                state.renderer.recreate_window(event_loop);
+            }
+            state
+        } else {
+            if self.state.is_suspended() {
+                if let Err(err) = self.request_renderer_resources(event_loop) {
+                    error!("failed to request renderer resources: {err:?}");
+                    event_loop.exit();
                 }
-                next_repaint_time = None;
+            }
+            return;
+        };
+        if let Some(window_id) = state.renderer.root_window_id() {
+            state.repaint_times.insert(window_id, Instant::now());
+        }
+    }
 
-                if let Some(window) = state.renderer.window(*window_id) {
-                    if !window.is_minimized().unwrap_or(false) {
-                        window.request_redraw();
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        trace!("window event: {window_id:?} {event:?}");
+
+        if let State::Running(state) = &mut self.state {
+            state.window_event(event_loop, window_id, event);
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        trace!("device event: {device_id:?} {event:?}");
+
+        if let State::Running(state) = &mut self.state {
+            state.device_event(event_loop, device_id, event);
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        if let State::Running(state) = &mut self.state {
+            state.about_to_wait(event_loop);
+        }
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        debug!("suspended event");
+
+        if let State::Running(state) = &mut self.state {
+            state.suspended(event_loop);
+        }
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        debug!("exiting");
+
+        #[cfg(feature = "profiling")]
+        puffin::set_scopes_on(false);
+
+        if let State::Running(state) = &mut self.state {
+            state.exiting(event_loop);
+        } else if feature!(AbortOnExit) {
+            panic!("exited unexpectedly");
+        }
+    }
+}
+
+impl ApplicationHandler<NesEvent> for Running {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: NesEvent) {
+        match event {
+            NesEvent::Config(ref event) => {
+                let Config {
+                    deck,
+                    emulation,
+                    audio,
+                    renderer,
+                    input,
+                } = &mut self.cfg;
+                match event {
+                    ConfigEvent::ActionBindings(bindings) => {
+                        input.action_bindings.clone_from(bindings);
+                        self.input_bindings = InputBindings::from_input_config(input);
                     }
-                    // Repaint time will get removed as soon as we receive the RequestRedraw event
-                    true
-                } else {
-                    false
+                    ConfigEvent::ActionBindingSet((action, set_input, binding)) => {
+                        input.set_binding(*action, *set_input, *binding);
+                        self.input_bindings.insert(*set_input, *action);
+                    }
+                    ConfigEvent::ActionBindingClear(clear_input) => {
+                        input.clear_binding(*clear_input);
+                        self.input_bindings.remove(clear_input);
+                    }
+                    ConfigEvent::AlwaysOnTop(always_on_top) => {
+                        renderer.always_on_top = *always_on_top;
+                        self.renderer
+                            .set_always_on_top(self.cfg.renderer.always_on_top);
+                    }
+                    ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
+                        deck.channels_enabled[*channel as usize] = *enabled;
+                    }
+                    ConfigEvent::ApuChannelsEnabled(enabled) => {
+                        deck.channels_enabled = *enabled;
+                    }
+                    ConfigEvent::AudioBuffer(buffer_size) => {
+                        audio.buffer_size = *buffer_size;
+                    }
+                    ConfigEvent::AudioEnabled(enabled) => audio.enabled = *enabled,
+                    ConfigEvent::AudioLatency(latency) => audio.latency = *latency,
+                    ConfigEvent::AutoLoad(enabled) => emulation.auto_load = *enabled,
+                    ConfigEvent::AutoSave(enabled) => emulation.auto_save = *enabled,
+                    ConfigEvent::AutoSaveInterval(interval) => {
+                        emulation.auto_save_interval = *interval;
+                    }
+                    ConfigEvent::ConcurrentDpad(enabled) => deck.concurrent_dpad = *enabled,
+                    ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
+                    ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
+                    ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
+                    ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
+                    ConfigEvent::Fullscreen(fullscreen) => renderer.fullscreen = *fullscreen,
+                    ConfigEvent::GamepadAssign((player, uuid)) => {
+                        input.assign_gamepad(*player, *uuid);
+                        if let Some(name) = self.gamepads.gamepad_name_by_uuid(uuid) {
+                            self.tx.event(UiEvent::Message((
+                                MessageType::Info,
+                                format!("Assigned gamepad `{name}` to player {player:?}.",),
+                            )));
+                        }
+                    }
+                    ConfigEvent::GamepadUnassign(player) => {
+                        if let Some(uuid) = input.unassign_gamepad(*player) {
+                            if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
+                                self.tx.event(UiEvent::Message((
+                                    MessageType::Info,
+                                    format!("Unassigned gamepad `{name}` from player {player:?}."),
+                                )));
+                            }
+                        }
+                    }
+                    ConfigEvent::GamepadAssignments(assignments) => {
+                        input.gamepad_assignments = *assignments;
+                    }
+                    ConfigEvent::GenieCodeAdded(genie_code) => {
+                        deck.genie_codes.push(genie_code.clone());
+                    }
+                    ConfigEvent::GenieCodeClear => deck.genie_codes.clear(),
+                    ConfigEvent::GenieCodeRemoved(code) => {
+                        deck.genie_codes.retain(|genie| genie.code() != code);
+                    }
+                    ConfigEvent::HideOverscan(hide) => renderer.hide_overscan = *hide,
+                    ConfigEvent::MapperRevisions(revs) => deck.mapper_revisions = *revs,
+                    ConfigEvent::RamState(ram_state) => deck.ram_state = *ram_state,
+                    ConfigEvent::RecentRomsClear => renderer.recent_roms.clear(),
+                    ConfigEvent::Region(region) => deck.region = *region,
+                    ConfigEvent::RewindEnabled(enabled) => emulation.rewind = *enabled,
+                    ConfigEvent::RewindInterval(interval) => {
+                        emulation.rewind_interval = *interval;
+                    }
+                    ConfigEvent::RewindSeconds(seconds) => {
+                        emulation.rewind_seconds = *seconds;
+                    }
+                    ConfigEvent::RunAhead(run_ahead) => emulation.run_ahead = *run_ahead,
+                    ConfigEvent::SaveSlot(slot) => emulation.save_slot = *slot,
+                    ConfigEvent::Scale(scale) => renderer.scale = *scale,
+                    ConfigEvent::Shader(shader) => renderer.shader = *shader,
+                    ConfigEvent::ShowMenubar(show) => renderer.show_menubar = *show,
+                    ConfigEvent::ShowMessages(show) => renderer.show_messages = *show,
+                    ConfigEvent::Speed(speed) => emulation.speed = *speed,
+                    ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
+                    ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                 }
-            });
 
-            event_loop.set_control_flow(ControlFlow::WaitUntil(match next_repaint_time {
-                Some(next_repaint_time) => next_repaint_time,
-                None => Instant::now() + Duration::from_millis(16),
-            }));
+                self.renderer.prepare(&self.gamepads, &self.cfg);
+            }
+            NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
+                if let Some(window_id) = self.renderer.window_id_for_viewport(viewport_id) {
+                    self.repaint_times.insert(
+                        window_id,
+                        self.repaint_times
+                            .get(&window_id)
+                            .map_or(when, |last| (*last).min(when)),
+                    );
+                }
+            }
+            NesEvent::Ui(ref event) => self.on_ui_event(event),
+            _ => (),
+        }
+
+        // Only wake emulation of relevant events
+        if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
+            self.emulation.on_event(&event);
+        }
+        self.renderer.on_event(&event, &self.cfg);
+    }
+
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let res = self.renderer.on_window_event(window_id, &event);
+        if res.repaint && event != WindowEvent::RedrawRequested {
+            self.repaint_times.insert(window_id, Instant::now());
+        }
+
+        if !res.consumed {
+            match event {
+                WindowEvent::RedrawRequested => {
+                    self.emulation.try_clock_frame();
+
+                    if let Err(err) = self.renderer.redraw(
+                        window_id,
+                        event_loop,
+                        &mut self.gamepads,
+                        &mut self.cfg,
+                    ) {
+                        self.renderer.on_error(err);
+                    }
+                    self.repaint_times.remove(&window_id);
+                }
+                WindowEvent::Resized(_) => {
+                    if Some(window_id) == self.renderer.root_window_id() {
+                        self.cfg.renderer.fullscreen = self.renderer.fullscreen();
+                    }
+                }
+                WindowEvent::Focused(focused) => {
+                    if focused {
+                        self.repaint_times.insert(window_id, Instant::now());
+                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
+                            self.run_state = RunState::Running;
+                            self.event(EmulationEvent::RunState(self.run_state));
+                        }
+                    } else {
+                        let time_since_last_save = Instant::now() - self.renderer.last_save_time;
+                        if time_since_last_save > Duration::from_secs(30) {
+                            if let Err(err) = self.renderer.save(&self.cfg) {
+                                error!("failed to save rendererer state: {err:?}");
+                            }
+                        }
+                        if self
+                            .renderer
+                            .window(window_id)
+                            .and_then(|win| win.is_minimized())
+                            .unwrap_or(false)
+                        {
+                            self.repaint_times.remove(&window_id);
+                            if self.renderer.rom_loaded() {
+                                self.run_state = RunState::Paused;
+                                self.event(EmulationEvent::RunState(self.run_state));
+                            }
+                        }
+                    }
+                }
+                WindowEvent::Occluded(occluded) => {
+                    // Note: Does not trigger on all platforms (e.g. linux)
+                    if occluded {
+                        self.repaint_times.remove(&window_id);
+                        if self.renderer.rom_loaded() {
+                            self.run_state = RunState::Paused;
+                            self.event(EmulationEvent::RunState(self.run_state));
+                        }
+                    } else {
+                        self.repaint_times.insert(window_id, Instant::now());
+                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
+                            self.run_state = RunState::Running;
+                            self.event(EmulationEvent::RunState(self.run_state));
+                        }
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    event,
+                    is_synthetic,
+                    ..
+                } => {
+                    // Winit generates fake "synthetic" KeyboardInput events when the focus
+                    // is changed to the window, or away from it. Synthetic key presses
+                    // represent no real key presses and should be ignored.
+                    // See https://github.com/rust-windowing/winit/issues/3543
+                    if !is_synthetic || event.state != ElementState::Pressed {
+                        if let PhysicalKey::Code(key) = event.physical_key {
+                            self.on_input(
+                                window_id,
+                                Input::Key(key, self.modifiers.state()),
+                                event.state,
+                                event.repeat,
+                            );
+                        }
+                    }
+                }
+                WindowEvent::ModifiersChanged(modifiers) => {
+                    self.modifiers = modifiers;
+                }
+                WindowEvent::MouseInput { button, state, .. } => {
+                    self.on_input(window_id, Input::Mouse(button), state, false);
+                }
+                WindowEvent::DroppedFile(path) => {
+                    if Some(window_id) == self.renderer.root_window_id() {
+                        self.event(EmulationEvent::LoadRomPath(path));
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.renderer.on_mouse_motion(delta);
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        self.gamepads.update_events();
+        if let Some(window_id) = self.renderer.root_window_id() {
+            let res = self.renderer.on_gamepad_update(&self.gamepads);
+            if res.repaint {
+                self.repaint_times.insert(window_id, Instant::now());
+            }
+
+            if res.consumed {
+                self.gamepads.clear_events();
+            } else {
+                while let Some(event) = self.gamepads.next_event() {
+                    self.on_gamepad_event(window_id, event);
+                    self.repaint_times.insert(window_id, Instant::now());
+                }
+            }
+        }
+
+        self.update_repaint_times(event_loop);
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if feature!(Suspend) {
+            if let Err(err) = self.renderer.drop_window() {
+                error!("failed to suspend window: {err:?}");
+                event_loop.exit();
+            }
+        }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Err(err) = self.renderer.save(&self.cfg) {
+            error!("failed to save rendererer state: {err:?}");
+        }
+        self.renderer.destroy();
+
+        if feature!(AbortOnExit) {
+            panic!("exited unexpectedly");
+        }
+    }
+
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        self.renderer
+            .add_message(MessageType::Warn, "Your system memory is running low...");
+        if self.cfg.emulation.rewind {
+            self.cfg.emulation.rewind = false;
+            self.event(ConfigEvent::RewindEnabled(false));
         }
     }
 }
 
 impl Running {
-    pub fn on_event(
-        &mut self,
-        event: Event<NesEvent>,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
-    ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        match event {
-            Event::Suspended => {
-                if feature!(Suspend) {
-                    if let Err(err) = self.renderer.drop_window() {
-                        error!("failed to suspend window: {err:?}");
-                        event_loop.exit();
-                    }
-                }
+    pub fn update_repaint_times(&mut self, event_loop: &ActiveEventLoop) {
+        let mut next_repaint_time = self.repaint_times.values().min().copied();
+        self.repaint_times.retain(|window_id, when| {
+            if *when > Instant::now() {
+                return true;
             }
-            Event::MemoryWarning => {
-                self.renderer
-                    .add_message(MessageType::Warn, "Your system memory is running low...");
-                if self.cfg.emulation.rewind {
-                    self.cfg.emulation.rewind = false;
-                    self.event(ConfigEvent::RewindEnabled(false));
+            next_repaint_time = None;
+
+            if let Some(window) = self.renderer.window(*window_id) {
+                if !window.is_minimized().unwrap_or(false) {
+                    window.request_redraw();
                 }
+                // Repaint time will get removed as soon as we receive the RequestRedraw event
+                true
+            } else {
+                false
             }
-            Event::AboutToWait => {
-                self.gamepads.update_events();
-                if let Some(window_id) = self.renderer.root_window_id() {
-                    let res = self.renderer.on_gamepad_update(&self.gamepads);
-                    if res.repaint {
-                        self.repaint_times.insert(window_id, Instant::now());
-                    }
+        });
 
-                    if res.consumed {
-                        self.gamepads.clear_events();
-                    } else {
-                        while let Some(event) = self.gamepads.next_event() {
-                            self.on_gamepad_event(window_id, event);
-                            self.repaint_times.insert(window_id, Instant::now());
-                        }
-                    }
-                }
-            }
-            Event::WindowEvent {
-                window_id, event, ..
-            } => {
-                let res = self.renderer.on_window_event(window_id, &event);
-                if res.repaint && event != WindowEvent::RedrawRequested {
-                    self.repaint_times.insert(window_id, Instant::now());
-                }
-
-                if !res.consumed {
-                    match event {
-                        WindowEvent::RedrawRequested => {
-                            self.emulation.try_clock_frame();
-
-                            if let Err(err) = self.renderer.redraw(
-                                window_id,
-                                event_loop,
-                                &mut self.gamepads,
-                                &mut self.cfg,
-                            ) {
-                                self.renderer.on_error(err);
-                            }
-                            self.repaint_times.remove(&window_id);
-                        }
-                        WindowEvent::Resized(_) => {
-                            if Some(window_id) == self.renderer.root_window_id() {
-                                self.cfg.renderer.fullscreen = self.renderer.fullscreen();
-                            }
-                        }
-                        WindowEvent::Focused(focused) => {
-                            if focused {
-                                self.repaint_times.insert(window_id, Instant::now());
-                                if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                                    self.run_state = RunState::Running;
-                                    self.event(EmulationEvent::RunState(self.run_state));
-                                }
-                            } else {
-                                let time_since_last_save =
-                                    Instant::now() - self.renderer.last_save_time;
-                                if time_since_last_save > Duration::from_secs(30) {
-                                    if let Err(err) = self.renderer.save(&self.cfg) {
-                                        error!("failed to save rendererer state: {err:?}");
-                                    }
-                                }
-                                if self
-                                    .renderer
-                                    .window(window_id)
-                                    .and_then(|win| win.is_minimized())
-                                    .unwrap_or(false)
-                                {
-                                    self.repaint_times.remove(&window_id);
-                                    if self.renderer.rom_loaded() {
-                                        self.run_state = RunState::Paused;
-                                        self.event(EmulationEvent::RunState(self.run_state));
-                                    }
-                                }
-                            }
-                        }
-                        WindowEvent::Occluded(occluded) => {
-                            // Note: Does not trigger on all platforms (e.g. linux)
-                            if occluded {
-                                self.repaint_times.remove(&window_id);
-                                if self.renderer.rom_loaded() {
-                                    self.run_state = RunState::Paused;
-                                    self.event(EmulationEvent::RunState(self.run_state));
-                                }
-                            } else {
-                                self.repaint_times.insert(window_id, Instant::now());
-                                if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                                    self.run_state = RunState::Running;
-                                    self.event(EmulationEvent::RunState(self.run_state));
-                                }
-                            }
-                        }
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            if let PhysicalKey::Code(key) = event.physical_key {
-                                self.on_input(
-                                    window_id,
-                                    Input::Key(key, self.modifiers.state()),
-                                    event.state,
-                                    event.repeat,
-                                );
-                            }
-                        }
-                        WindowEvent::ModifiersChanged(modifiers) => {
-                            self.modifiers = modifiers;
-                        }
-                        WindowEvent::MouseInput { button, state, .. } => {
-                            self.on_input(window_id, Input::Mouse(button), state, false);
-                        }
-                        WindowEvent::DroppedFile(path) => {
-                            if Some(window_id) == self.renderer.root_window_id() {
-                                self.event(EmulationEvent::LoadRomPath(path));
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-            }
-            Event::UserEvent(event) => {
-                match &event {
-                    NesEvent::Config(event) => {
-                        let Config {
-                            deck,
-                            emulation,
-                            audio,
-                            renderer,
-                            input,
-                        } = &mut self.cfg;
-                        match event {
-                            ConfigEvent::ActionBindings(bindings) => {
-                                input.action_bindings.clone_from(bindings);
-                                self.input_bindings = InputBindings::from_input_config(input);
-                            }
-                            ConfigEvent::ActionBindingSet((action, set_input, binding)) => {
-                                input.set_binding(*action, *set_input, *binding);
-                                self.input_bindings.insert(*set_input, *action);
-                            }
-                            ConfigEvent::ActionBindingClear(clear_input) => {
-                                input.clear_binding(*clear_input);
-                                self.input_bindings.remove(clear_input);
-                            }
-                            ConfigEvent::AlwaysOnTop(always_on_top) => {
-                                renderer.always_on_top = *always_on_top;
-                                self.renderer
-                                    .set_always_on_top(self.cfg.renderer.always_on_top);
-                            }
-                            ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
-                                deck.channels_enabled[*channel as usize] = *enabled;
-                            }
-                            ConfigEvent::ApuChannelsEnabled(enabled) => {
-                                deck.channels_enabled = *enabled;
-                            }
-                            ConfigEvent::AudioBuffer(buffer_size) => {
-                                audio.buffer_size = *buffer_size;
-                            }
-                            ConfigEvent::AudioEnabled(enabled) => audio.enabled = *enabled,
-                            ConfigEvent::AudioLatency(latency) => audio.latency = *latency,
-                            ConfigEvent::AutoLoad(enabled) => emulation.auto_load = *enabled,
-                            ConfigEvent::AutoSave(enabled) => emulation.auto_save = *enabled,
-                            ConfigEvent::AutoSaveInterval(interval) => {
-                                emulation.auto_save_interval = *interval;
-                            }
-                            ConfigEvent::ConcurrentDpad(enabled) => deck.concurrent_dpad = *enabled,
-                            ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
-                            ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
-                            ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
-                            ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
-                            ConfigEvent::Fullscreen(fullscreen) => {
-                                renderer.fullscreen = *fullscreen
-                            }
-                            ConfigEvent::GamepadAssign((player, uuid)) => {
-                                input.assign_gamepad(*player, *uuid);
-                                if let Some(name) = self.gamepads.gamepad_name_by_uuid(uuid) {
-                                    self.tx.event(UiEvent::Message((
-                                        MessageType::Info,
-                                        format!("Assigned gamepad `{name}` to player {player:?}.",),
-                                    )));
-                                }
-                            }
-                            ConfigEvent::GamepadUnassign(player) => {
-                                if let Some(uuid) = input.unassign_gamepad(*player) {
-                                    if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                                        self.tx.event(UiEvent::Message((
-                                            MessageType::Info,
-                                            format!("Unassigned gamepad `{name}` from player {player:?}."),
-                                        )));
-                                    }
-                                }
-                            }
-                            ConfigEvent::GamepadAssignments(assignments) => {
-                                input.gamepad_assignments = *assignments;
-                            }
-                            ConfigEvent::GenieCodeAdded(genie_code) => {
-                                deck.genie_codes.push(genie_code.clone());
-                            }
-                            ConfigEvent::GenieCodeClear => deck.genie_codes.clear(),
-                            ConfigEvent::GenieCodeRemoved(code) => {
-                                deck.genie_codes.retain(|genie| genie.code() != code);
-                            }
-                            ConfigEvent::HideOverscan(hide) => renderer.hide_overscan = *hide,
-                            ConfigEvent::MapperRevisions(revs) => deck.mapper_revisions = *revs,
-                            ConfigEvent::RamState(ram_state) => deck.ram_state = *ram_state,
-                            ConfigEvent::RecentRomsClear => renderer.recent_roms.clear(),
-                            ConfigEvent::Region(region) => deck.region = *region,
-                            ConfigEvent::RewindEnabled(enabled) => emulation.rewind = *enabled,
-                            ConfigEvent::RewindInterval(interval) => {
-                                emulation.rewind_interval = *interval;
-                            }
-                            ConfigEvent::RewindSeconds(seconds) => {
-                                emulation.rewind_seconds = *seconds;
-                            }
-                            ConfigEvent::RunAhead(run_ahead) => emulation.run_ahead = *run_ahead,
-                            ConfigEvent::SaveSlot(slot) => emulation.save_slot = *slot,
-                            ConfigEvent::Scale(scale) => renderer.scale = *scale,
-                            ConfigEvent::Shader(shader) => renderer.shader = *shader,
-                            ConfigEvent::ShowMenubar(show) => renderer.show_menubar = *show,
-                            ConfigEvent::ShowMessages(show) => renderer.show_messages = *show,
-                            ConfigEvent::Speed(speed) => emulation.speed = *speed,
-                            ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
-                            ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
-                        }
-
-                        self.renderer.prepare(&self.gamepads, &self.cfg);
-                    }
-                    NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
-                        if let Some(window_id) = self.renderer.window_id_for_viewport(*viewport_id)
-                        {
-                            self.repaint_times.insert(
-                                window_id,
-                                self.repaint_times
-                                    .get(&window_id)
-                                    .map_or(*when, |last| (*last).min(*when)),
-                            );
-                        }
-                    }
-                    NesEvent::Ui(event) => self.on_ui_event(event),
-                    _ => (),
-                }
-
-                // Only wake emulation of relevant events
-                if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
-                    self.emulation.on_event(&event);
-                }
-                self.renderer.on_event(&event, &self.cfg);
-            }
-            Event::LoopExiting => {
-                if let Err(err) = self.renderer.save(&self.cfg) {
-                    error!("failed to save rendererer state: {err:?}");
-                }
-                self.renderer.destroy();
-
-                if feature!(AbortOnExit) {
-                    panic!("exited unexpectedly");
-                }
-            }
-            _ => (),
-        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(match next_repaint_time {
+            Some(next_repaint_time) => next_repaint_time,
+            None => Instant::now() + Duration::from_millis(16),
+        }));
     }
 
     pub fn on_ui_event(&mut self, event: &UiEvent) {

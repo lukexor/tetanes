@@ -1,6 +1,5 @@
 use crate::sys::platform;
 use std::path::{Path, PathBuf};
-use winit::{event::Event, event_loop::EventLoopWindowTarget};
 
 pub use platform::*;
 
@@ -14,14 +13,6 @@ pub trait Initialize {
 pub trait BuilderExt {
     /// Sets platform-specific options.
     fn with_platform(self, title: &str) -> Self;
-}
-
-/// Extension trait for `EventLoop` that provides platform-specific behavior.
-pub trait EventLoopExt<T> {
-    /// Runs the event loop for the current platform.
-    fn run_platform<F>(self, event_handler: F) -> anyhow::Result<()>
-    where
-        F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static;
 }
 
 /// Method for platforms supporting opening a file dialog.
@@ -42,14 +33,13 @@ pub fn speak_text(text: &str) {
 
 pub mod renderer {
     use super::*;
-    use crate::nes::{config::Config, renderer::Renderer};
-    use egui_winit::EventResponse;
+    use crate::nes::{config::Config, event::Response, renderer::Renderer};
 
     pub fn constrain_window_to_viewport(
         renderer: &Renderer,
         desired_window_width: f32,
         cfg: &Config,
-    ) -> EventResponse {
+    ) -> Response {
         platform::renderer::constrain_window_to_viewport_impl(renderer, desired_window_width, cfg)
     }
 }
@@ -59,16 +49,14 @@ pub mod renderer {
 #[must_use]
 pub enum Feature {
     AbortOnExit,
-    AccessKit,
     Blocking,
     ConstrainedViewport,
     ConsumePaste,
-    DeferredViewport,
     Filesystem,
     ScreenReader,
     Storage,
     Suspend,
-    Viewports,
+    OsViewports,
 }
 
 /// Checks if the current platform supports a given feature.
@@ -79,9 +67,7 @@ macro_rules! feature {
         match $feature {
             // Wasm should never be able to exit
             AbortOnExit => cfg!(target_arch = "wasm32"),
-            // FIXME: Deadlock thread sleep issue with zbus/async-io on linux when menus are opened
-            AccessKit => cfg!(any(target_os = "macos", target_os = "windows")),
-            Blocking | DeferredViewport | Filesystem | Viewports => {
+            Blocking | Filesystem | OsViewports => {
                 cfg!(not(target_arch = "wasm32"))
             }
             ConstrainedViewport | ConsumePaste | ScreenReader => {

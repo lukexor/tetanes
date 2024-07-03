@@ -2,28 +2,26 @@
 
 use crate::{
     nes::{
-        event::{NesEventProxy, RendererEvent, RunState, UiEvent},
+        event::{NesEventProxy, RunState},
         input::{Gamepads, InputBindings},
-        renderer::{FrameRecycle, Resources},
+        renderer::{painter::Painter, FrameRecycle, Resources},
     },
-    platform::{EventLoopExt, Initialize},
-    thread,
+    platform::Initialize,
 };
 use anyhow::Context;
+use cfg_if::cfg_if;
 use config::Config;
-use crossbeam::channel::{self, Receiver};
-use egui::{ahash::HashMap, ViewportBuilder};
-use egui_wgpu::winit::Painter;
+use crossbeam::channel::Receiver;
+use egui::ahash::HashMap;
 use emulation::Emulation;
 use event::NesEvent;
 use renderer::Renderer;
 use std::sync::Arc;
 use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
-use tracing::{debug, error};
 use winit::{
     event::Modifiers,
-    event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget},
+    event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
 
@@ -58,7 +56,6 @@ pub(crate) enum State {
     Pending {
         ctx: egui::Context,
         window: Arc<Window>,
-        viewport_builder: ViewportBuilder,
         painter_rx: Receiver<Painter>,
     },
     Running(Running),
@@ -97,10 +94,17 @@ impl Nes {
     /// If event loop fails to build or run, then an error is returned.
     pub fn run(cfg: Config) -> anyhow::Result<()> {
         // Set up window, events and NES state
-        let event_loop = EventLoopBuilder::<NesEvent>::with_user_event().build()?;
-        let mut nes = Nes::new(cfg, &event_loop);
-        event_loop
-            .run_platform(move |event, window_target| nes.event_loop(event, window_target))?;
+        let event_loop = EventLoop::<NesEvent>::with_user_event().build()?;
+        let nes = Nes::new(cfg, &event_loop);
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                use winit::platform::web::EventLoopExtWebSys;
+                event_loop.spawn_app(nes);
+            } else {
+                let mut nes = nes;
+                event_loop.run_app(&mut nes)?;
+            }
+        }
         Ok(())
     }
 
@@ -118,41 +122,20 @@ impl Nes {
     ///
     /// Returns an error if any resources can't be created correctly or `init_running` has already
     /// been called.
-    pub(crate) fn request_resources(
+    pub(crate) fn request_renderer_resources(
         &mut self,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
+        event_loop: &ActiveEventLoop,
     ) -> anyhow::Result<()> {
         let (cfg, tx) = self
             .init_state
             .as_ref()
             .context("config unexpectedly already taken")?;
-        let ctx = egui::Context::default();
-        let (window, viewport_builder) = Renderer::create_window(event_loop, &ctx, cfg)?;
-        let window = Arc::new(window);
 
-        let (painter_tx, painter_rx) = channel::bounded(1);
-        thread::spawn({
-            let window = Arc::clone(&window);
-            let event_tx = tx.clone();
-            async move {
-                debug!("creating painter...");
-                match Renderer::create_painter(window).await {
-                    Ok(painter) => {
-                        painter_tx.send(painter).expect("failed to send painter");
-                        event_tx.event(RendererEvent::ResourcesReady);
-                    }
-                    Err(err) => {
-                        error!("failed to create painter: {err:?}");
-                        event_tx.event(UiEvent::Terminate);
-                    }
-                }
-            }
-        });
+        let (ctx, window, painter_rx) = Renderer::request_resources(event_loop, tx, cfg)?;
 
         self.state = State::Pending {
             ctx,
             window,
-            viewport_builder,
             painter_rx,
         };
 
@@ -166,21 +149,16 @@ impl Nes {
     ///
     /// If GPU resources failed to be requested, the emulation or renderer fails to build, then an
     /// error is returned.
-    pub(crate) fn init_running(
-        &mut self,
-        event_loop: &EventLoopWindowTarget<NesEvent>,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn init_running(&mut self) -> anyhow::Result<()> {
         match std::mem::take(&mut self.state) {
             State::Pending {
                 ctx,
                 window,
-                viewport_builder,
                 painter_rx,
             } => {
                 let resources = Resources {
                     ctx,
                     window,
-                    viewport_builder,
                     painter: painter_rx.recv()?,
                 };
                 let (frame_tx, frame_rx) = blocking::with_recycle::<Frame, _>(10, FrameRecycle);
@@ -194,7 +172,7 @@ impl Nes {
                 cfg.input.update_gamepad_assignments(&gamepads);
 
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
-                let renderer = Renderer::new(tx.clone(), event_loop, resources, frame_rx, &cfg)?;
+                let renderer = Renderer::new(tx.clone(), resources, frame_rx, &cfg)?;
 
                 let mut running = Running {
                     cfg,

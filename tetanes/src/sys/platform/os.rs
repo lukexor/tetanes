@@ -1,14 +1,10 @@
 use crate::{
     nes::{event::EmulationEvent, renderer::Renderer, Running},
-    platform::{BuilderExt, EventLoopExt, Initialize},
+    platform::{BuilderExt, Initialize},
 };
 use std::path::{Path, PathBuf};
 use tracing::error;
-use winit::{
-    event::Event,
-    event_loop::{EventLoop, EventLoopWindowTarget},
-    window::WindowBuilder,
-};
+use winit::window::WindowAttributes;
 
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(
@@ -53,7 +49,7 @@ impl Initialize for Renderer {
     }
 }
 
-impl BuilderExt for WindowBuilder {
+impl BuilderExt for WindowAttributes {
     /// Sets platform-specific window options.
     fn with_platform(self, _title: &str) -> Self {
         use anyhow::Context;
@@ -66,7 +62,7 @@ impl BuilderExt for WindowBuilder {
             .decode()
             .context("failed to decode window icon");
 
-        let window_builder = self.with_window_icon(
+        let window_attrs = self.with_window_icon(
             icon.and_then(|png| {
                 let width = png.width();
                 let height = png.height();
@@ -77,41 +73,37 @@ impl BuilderExt for WindowBuilder {
             .ok(),
         );
 
+        #[cfg(target_os = "linux")]
+        let window_attrs = {
+            use winit::platform::wayland::WindowAttributesExtWayland as _;
+
+            window_attrs.with_name(_title, "")
+        };
+
         // Ensures that viewport windows open in a separate window instead of a tab, which has
         // issues with certain preference toggles like fullscreen that effect the root viewport.
         #[cfg(target_os = "macos")]
-        let window_builder = {
-            use winit::platform::macos::{OptionAsAlt, WindowBuilderExtMacOS};
+        let window_attrs = {
+            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
 
-            window_builder
+            window_attrs
                 .with_tabbing_identifier(_title)
                 .with_option_as_alt(OptionAsAlt::Both)
         };
-        window_builder
-    }
-}
 
-impl<T> EventLoopExt<T> for EventLoop<T> {
-    /// Runs the event loop for the current platform.
-    fn run_platform<F>(self, event_handler: F) -> anyhow::Result<()>
-    where
-        F: FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'static,
-    {
-        self.run(event_handler)?;
-        Ok(())
+        window_attrs
     }
 }
 
 pub mod renderer {
     use super::*;
-    use crate::nes::config::Config;
-    use egui_winit::EventResponse;
+    use crate::nes::{config::Config, event::Response};
 
     pub fn constrain_window_to_viewport_impl(
         _renderer: &Renderer,
         _desired_window_width: f32,
         _cfg: &Config,
-    ) -> EventResponse {
-        EventResponse::default()
+    ) -> Response {
+        Response::default()
     }
 }

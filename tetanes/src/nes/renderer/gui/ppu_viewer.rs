@@ -1,7 +1,4 @@
-use crate::{
-    feature,
-    nes::{config::Config, event::NesEventProxy, renderer::gui::lib::ViewportOptions},
-};
+use crate::nes::{config::Config, event::NesEventProxy, renderer::gui::lib::ViewportOptions};
 use egui::{CentralPanel, Context, Ui, ViewportClass};
 use parking_lot::Mutex;
 use std::sync::{
@@ -74,11 +71,6 @@ impl PpuViewer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
-        if opts.always_on_top {
-            viewport_builder = viewport_builder.with_always_on_top();
-        }
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
         let Some(cfg) = self.resources.take() else {
@@ -87,37 +79,25 @@ impl PpuViewer {
         };
 
         let viewport_id = egui::ViewportId::from_hash_of("ppu_viewer");
-        fn viewport_cb(
-            ctx: &Context,
-            class: ViewportClass,
-            open: &Arc<AtomicBool>,
-            enabled: bool,
-            state: &Arc<Mutex<State>>,
-            cfg: &Config,
-        ) {
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
+        if opts.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
+
+        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(PpuViewer::TITLE)
                     .open(&mut window_open)
-                    .show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                    .show(ctx, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, enabled, cfg));
+                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ctx.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
             }
-        }
-
-        if feature!(DeferredViewport) {
-            ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-            });
-        } else {
-            ctx.show_viewport_immediate(viewport_id, viewport_builder, move |ctx, class| {
-                viewport_cb(ctx, class, &open, opts.enabled, &state, &cfg);
-            });
-        }
+        });
     }
 }
 

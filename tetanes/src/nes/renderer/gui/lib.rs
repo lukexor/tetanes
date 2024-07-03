@@ -1,17 +1,17 @@
 use crate::nes::{
     config::Config,
     input::{Gamepads, Input},
+    renderer::event::{
+        key_from_keycode, modifiers_from_modifiers_state, pointer_button_from_mouse,
+    },
 };
 use egui::{
-    Align, Checkbox, Context, Key, KeyboardShortcut, Layout, Modifiers, PointerButton, Pos2, Rect,
-    Response, RichText, Ui, Widget, WidgetText,
+    Align, Checkbox, Context, KeyboardShortcut, Layout, Pos2, Rect, Response, RichText, Ui, Widget,
+    WidgetText,
 };
 use std::ops::{Deref, DerefMut};
 use tetanes_core::ppu::Ppu;
-use winit::{
-    event::{ElementState, MouseButton},
-    keyboard::{KeyCode, ModifiersState},
-};
+use winit::{event::ElementState, window::Window};
 
 #[derive(Debug, Copy, Clone)]
 #[must_use]
@@ -82,12 +82,6 @@ pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input:
                 dir == Some(direction) && state == ElementState::Pressed
             }),
     })
-}
-
-pub fn is_paste_command(modifiers: egui::Modifiers, keycode: Key) -> bool {
-    keycode == Key::Paste
-        || (modifiers.command && keycode == Key::V)
-        || (cfg!(target_os = "windows") && modifiers.shift && keycode == Key::Insert)
 }
 
 #[must_use]
@@ -203,309 +197,6 @@ impl TryFrom<Input> for KeyboardShortcut {
     }
 }
 
-impl TryFrom<(Key, Modifiers)> for Input {
-    type Error = ();
-
-    fn try_from((key, modifiers): (Key, Modifiers)) -> Result<Self, Self::Error> {
-        let keycode = keycode_from_key(key).ok_or(())?;
-        let modifiers = modifiers_state_from_modifiers(modifiers);
-        Ok(Input::Key(keycode, modifiers))
-    }
-}
-
-impl From<PointerButton> for Input {
-    fn from(button: PointerButton) -> Self {
-        Input::Mouse(mouse_button_from_pointer(button))
-    }
-}
-
-pub const fn key_from_keycode(keycode: KeyCode) -> Option<Key> {
-    Some(match keycode {
-        KeyCode::ArrowDown => Key::ArrowDown,
-        KeyCode::ArrowLeft => Key::ArrowLeft,
-        KeyCode::ArrowRight => Key::ArrowRight,
-        KeyCode::ArrowUp => Key::ArrowUp,
-
-        KeyCode::Escape => Key::Escape,
-        KeyCode::Tab => Key::Tab,
-        KeyCode::Backspace => Key::Backspace,
-        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
-
-        KeyCode::Insert => Key::Insert,
-        KeyCode::Delete => Key::Delete,
-        KeyCode::Home => Key::Home,
-        KeyCode::End => Key::End,
-        KeyCode::PageUp => Key::PageUp,
-        KeyCode::PageDown => Key::PageDown,
-
-        // Punctuation
-        KeyCode::Space => Key::Space,
-        KeyCode::Comma => Key::Comma,
-        KeyCode::Period => Key::Period,
-        KeyCode::Semicolon => Key::Semicolon,
-        KeyCode::Backslash => Key::Backslash,
-        KeyCode::Slash | KeyCode::NumpadDivide => Key::Slash,
-        KeyCode::BracketLeft => Key::OpenBracket,
-        KeyCode::BracketRight => Key::CloseBracket,
-        KeyCode::Backquote => Key::Backtick,
-
-        KeyCode::Cut => Key::Cut,
-        KeyCode::Copy => Key::Copy,
-        KeyCode::Paste => Key::Paste,
-        KeyCode::Minus | KeyCode::NumpadSubtract => Key::Minus,
-        KeyCode::NumpadAdd => Key::Plus,
-        KeyCode::Equal => Key::Equals,
-
-        KeyCode::Digit0 | KeyCode::Numpad0 => Key::Num0,
-        KeyCode::Digit1 | KeyCode::Numpad1 => Key::Num1,
-        KeyCode::Digit2 | KeyCode::Numpad2 => Key::Num2,
-        KeyCode::Digit3 | KeyCode::Numpad3 => Key::Num3,
-        KeyCode::Digit4 | KeyCode::Numpad4 => Key::Num4,
-        KeyCode::Digit5 | KeyCode::Numpad5 => Key::Num5,
-        KeyCode::Digit6 | KeyCode::Numpad6 => Key::Num6,
-        KeyCode::Digit7 | KeyCode::Numpad7 => Key::Num7,
-        KeyCode::Digit8 | KeyCode::Numpad8 => Key::Num8,
-        KeyCode::Digit9 | KeyCode::Numpad9 => Key::Num9,
-
-        KeyCode::KeyA => Key::A,
-        KeyCode::KeyB => Key::B,
-        KeyCode::KeyC => Key::C,
-        KeyCode::KeyD => Key::D,
-        KeyCode::KeyE => Key::E,
-        KeyCode::KeyF => Key::F,
-        KeyCode::KeyG => Key::G,
-        KeyCode::KeyH => Key::H,
-        KeyCode::KeyI => Key::I,
-        KeyCode::KeyJ => Key::J,
-        KeyCode::KeyK => Key::K,
-        KeyCode::KeyL => Key::L,
-        KeyCode::KeyM => Key::M,
-        KeyCode::KeyN => Key::N,
-        KeyCode::KeyO => Key::O,
-        KeyCode::KeyP => Key::P,
-        KeyCode::KeyQ => Key::Q,
-        KeyCode::KeyR => Key::R,
-        KeyCode::KeyS => Key::S,
-        KeyCode::KeyT => Key::T,
-        KeyCode::KeyU => Key::U,
-        KeyCode::KeyV => Key::V,
-        KeyCode::KeyW => Key::W,
-        KeyCode::KeyX => Key::X,
-        KeyCode::KeyY => Key::Y,
-        KeyCode::KeyZ => Key::Z,
-
-        KeyCode::F1 => Key::F1,
-        KeyCode::F2 => Key::F2,
-        KeyCode::F3 => Key::F3,
-        KeyCode::F4 => Key::F4,
-        KeyCode::F5 => Key::F5,
-        KeyCode::F6 => Key::F6,
-        KeyCode::F7 => Key::F7,
-        KeyCode::F8 => Key::F8,
-        KeyCode::F9 => Key::F9,
-        KeyCode::F10 => Key::F10,
-        KeyCode::F11 => Key::F11,
-        KeyCode::F12 => Key::F12,
-        KeyCode::F13 => Key::F13,
-        KeyCode::F14 => Key::F14,
-        KeyCode::F15 => Key::F15,
-        KeyCode::F16 => Key::F16,
-        KeyCode::F17 => Key::F17,
-        KeyCode::F18 => Key::F18,
-        KeyCode::F19 => Key::F19,
-        KeyCode::F20 => Key::F20,
-        KeyCode::F21 => Key::F21,
-        KeyCode::F22 => Key::F22,
-        KeyCode::F23 => Key::F23,
-        KeyCode::F24 => Key::F24,
-        KeyCode::F25 => Key::F25,
-        KeyCode::F26 => Key::F26,
-        KeyCode::F27 => Key::F27,
-        KeyCode::F28 => Key::F28,
-        KeyCode::F29 => Key::F29,
-        KeyCode::F30 => Key::F30,
-        KeyCode::F31 => Key::F31,
-        KeyCode::F32 => Key::F32,
-        KeyCode::F33 => Key::F33,
-        KeyCode::F34 => Key::F34,
-        KeyCode::F35 => Key::F35,
-
-        _ => {
-            return None;
-        }
-    })
-}
-
-pub const fn keycode_from_key(key: Key) -> Option<KeyCode> {
-    Some(match key {
-        Key::ArrowDown => KeyCode::ArrowDown,
-        Key::ArrowLeft => KeyCode::ArrowLeft,
-        Key::ArrowRight => KeyCode::ArrowRight,
-        Key::ArrowUp => KeyCode::ArrowUp,
-
-        Key::Escape => KeyCode::Escape,
-        Key::Tab => KeyCode::Tab,
-        Key::Backspace => KeyCode::Backspace,
-        Key::Enter => KeyCode::Enter,
-
-        Key::Insert => KeyCode::Insert,
-        Key::Delete => KeyCode::Delete,
-        Key::Home => KeyCode::Home,
-        Key::End => KeyCode::End,
-        Key::PageUp => KeyCode::PageUp,
-        Key::PageDown => KeyCode::PageDown,
-
-        // Punctuation
-        Key::Space => KeyCode::Space,
-        Key::Comma => KeyCode::Comma,
-        Key::Period => KeyCode::Period,
-        Key::Semicolon => KeyCode::Semicolon,
-        Key::Backslash => KeyCode::Backslash,
-        Key::Slash => KeyCode::Slash,
-        Key::OpenBracket => KeyCode::BracketLeft,
-        Key::CloseBracket => KeyCode::BracketRight,
-
-        Key::Cut => KeyCode::Cut,
-        Key::Copy => KeyCode::Copy,
-        Key::Paste => KeyCode::Paste,
-        Key::Minus => KeyCode::Minus,
-        Key::Plus => KeyCode::NumpadAdd,
-        Key::Equals => KeyCode::Equal,
-
-        Key::Num0 => KeyCode::Digit0,
-        Key::Num1 => KeyCode::Digit1,
-        Key::Num2 => KeyCode::Digit2,
-        Key::Num3 => KeyCode::Digit3,
-        Key::Num4 => KeyCode::Digit4,
-        Key::Num5 => KeyCode::Digit5,
-        Key::Num6 => KeyCode::Digit6,
-        Key::Num7 => KeyCode::Digit7,
-        Key::Num8 => KeyCode::Digit8,
-        Key::Num9 => KeyCode::Digit9,
-
-        Key::A => KeyCode::KeyA,
-        Key::B => KeyCode::KeyB,
-        Key::C => KeyCode::KeyC,
-        Key::D => KeyCode::KeyD,
-        Key::E => KeyCode::KeyE,
-        Key::F => KeyCode::KeyF,
-        Key::G => KeyCode::KeyG,
-        Key::H => KeyCode::KeyH,
-        Key::I => KeyCode::KeyI,
-        Key::J => KeyCode::KeyJ,
-        Key::K => KeyCode::KeyK,
-        Key::L => KeyCode::KeyL,
-        Key::M => KeyCode::KeyM,
-        Key::N => KeyCode::KeyN,
-        Key::O => KeyCode::KeyO,
-        Key::P => KeyCode::KeyP,
-        Key::Q => KeyCode::KeyQ,
-        Key::R => KeyCode::KeyR,
-        Key::S => KeyCode::KeyS,
-        Key::T => KeyCode::KeyT,
-        Key::U => KeyCode::KeyU,
-        Key::V => KeyCode::KeyV,
-        Key::W => KeyCode::KeyW,
-        Key::X => KeyCode::KeyX,
-        Key::Y => KeyCode::KeyY,
-        Key::Z => KeyCode::KeyZ,
-
-        Key::F1 => KeyCode::F1,
-        Key::F2 => KeyCode::F2,
-        Key::F3 => KeyCode::F3,
-        Key::F4 => KeyCode::F4,
-        Key::F5 => KeyCode::F5,
-        Key::F6 => KeyCode::F6,
-        Key::F7 => KeyCode::F7,
-        Key::F8 => KeyCode::F8,
-        Key::F9 => KeyCode::F9,
-        Key::F10 => KeyCode::F10,
-        Key::F11 => KeyCode::F11,
-        Key::F12 => KeyCode::F12,
-        Key::F13 => KeyCode::F13,
-        Key::F14 => KeyCode::F14,
-        Key::F15 => KeyCode::F15,
-        Key::F16 => KeyCode::F16,
-        Key::F17 => KeyCode::F17,
-        Key::F18 => KeyCode::F18,
-        Key::F19 => KeyCode::F19,
-        Key::F20 => KeyCode::F20,
-        Key::F21 => KeyCode::F21,
-        Key::F22 => KeyCode::F22,
-        Key::F23 => KeyCode::F23,
-        Key::F24 => KeyCode::F24,
-        Key::F25 => KeyCode::F25,
-        Key::F26 => KeyCode::F26,
-        Key::F27 => KeyCode::F27,
-        Key::F28 => KeyCode::F28,
-        Key::F29 => KeyCode::F29,
-        Key::F30 => KeyCode::F30,
-        Key::F31 => KeyCode::F31,
-        Key::F32 => KeyCode::F32,
-        Key::F33 => KeyCode::F33,
-        Key::F34 => KeyCode::F34,
-        Key::F35 => KeyCode::F35,
-
-        _ => return None,
-    })
-}
-
-pub fn modifiers_from_modifiers_state(modifier_state: ModifiersState) -> Modifiers {
-    Modifiers {
-        alt: modifier_state.alt_key(),
-        ctrl: modifier_state.control_key(),
-        shift: modifier_state.shift_key(),
-        #[cfg(target_os = "macos")]
-        mac_cmd: modifier_state.super_key(),
-        #[cfg(not(target_os = "macos"))]
-        mac_cmd: false,
-        #[cfg(target_os = "macos")]
-        command: modifier_state.super_key(),
-        #[cfg(not(target_os = "macos"))]
-        command: modifier_state.control_key(),
-    }
-}
-
-pub fn modifiers_state_from_modifiers(modifiers: Modifiers) -> ModifiersState {
-    let mut modifiers_state = ModifiersState::empty();
-    if modifiers.shift {
-        modifiers_state |= ModifiersState::SHIFT;
-    }
-    if modifiers.ctrl {
-        modifiers_state |= ModifiersState::CONTROL;
-    }
-    if modifiers.alt {
-        modifiers_state |= ModifiersState::ALT;
-    }
-    #[cfg(target_os = "macos")]
-    if modifiers.mac_cmd {
-        modifiers_state |= ModifiersState::SUPER;
-    }
-    // TODO: egui doesn't seem to support SUPER on Windows/Linux
-    modifiers_state
-}
-
-pub const fn pointer_button_from_mouse(button: MouseButton) -> Option<PointerButton> {
-    Some(match button {
-        MouseButton::Left => PointerButton::Primary,
-        MouseButton::Right => PointerButton::Secondary,
-        MouseButton::Middle => PointerButton::Middle,
-        MouseButton::Back => PointerButton::Extra1,
-        MouseButton::Forward => PointerButton::Extra2,
-        MouseButton::Other(_) => return None,
-    })
-}
-
-pub const fn mouse_button_from_pointer(button: PointerButton) -> MouseButton {
-    match button {
-        PointerButton::Primary => MouseButton::Left,
-        PointerButton::Secondary => MouseButton::Right,
-        PointerButton::Middle => MouseButton::Middle,
-        PointerButton::Extra1 => MouseButton::Back,
-        PointerButton::Extra2 => MouseButton::Forward,
-    }
-}
-
 pub fn screen_center(ctx: &Context) -> Option<Pos2> {
     ctx.input(|i| {
         let outer_rect = i.viewport().outer_rect?;
@@ -519,4 +210,53 @@ pub fn screen_center(ctx: &Context) -> Option<Pos2> {
             None
         }
     })
+}
+
+pub fn screen_size_in_pixels(window: &Window) -> egui::Vec2 {
+    let size = window.inner_size();
+    egui::vec2(size.width as f32, size.height as f32)
+}
+
+pub fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
+    let native_pixels_per_point = window.scale_factor() as f32;
+    let egui_zoom_factor = egui_ctx.zoom_factor();
+    egui_zoom_factor * native_pixels_per_point
+}
+
+pub fn inner_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
+    let inner_pos_px = window.inner_position().ok()?;
+    let inner_pos_px = egui::pos2(inner_pos_px.x as f32, inner_pos_px.y as f32);
+
+    let inner_size_px = window.inner_size();
+    let inner_size_px = egui::vec2(inner_size_px.width as f32, inner_size_px.height as f32);
+
+    let inner_rect_px = egui::Rect::from_min_size(inner_pos_px, inner_size_px);
+
+    Some(inner_rect_px / pixels_per_point)
+}
+
+pub fn outer_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
+    let outer_pos_px = window.outer_position().ok()?;
+    let outer_pos_px = egui::pos2(outer_pos_px.x as f32, outer_pos_px.y as f32);
+
+    let outer_size_px = window.outer_size();
+    let outer_size_px = egui::vec2(outer_size_px.width as f32, outer_size_px.height as f32);
+
+    let outer_rect_px = egui::Rect::from_min_size(outer_pos_px, outer_size_px);
+
+    Some(outer_rect_px / pixels_per_point)
+}
+
+pub fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
+    if icon.is_empty() {
+        None
+    } else {
+        match winit::window::Icon::from_rgba(icon.rgba.clone(), icon.width, icon.height) {
+            Ok(winit_icon) => Some(winit_icon),
+            Err(err) => {
+                tracing::warn!("Invalid IconData: {err}");
+                None
+            }
+        }
+    }
 }
