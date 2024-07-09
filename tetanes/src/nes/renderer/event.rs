@@ -23,11 +23,16 @@ use winit::{
 
 impl Renderer {
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent, cfg: &Config) {
+    pub fn on_event(&mut self, event: &mut NesEvent, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        self.gui.borrow_mut().on_event(event);
+        {
+            let painter = self.painter.borrow();
+            if let Some(render_state) = painter.render_state() {
+                self.gui.borrow_mut().on_event(&render_state.queue, event);
+            }
+        }
 
         match event {
             NesEvent::Renderer(event) => match event {

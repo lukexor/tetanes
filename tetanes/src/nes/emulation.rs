@@ -4,10 +4,9 @@ use crate::{
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
-        event::{
-            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
-        },
+        event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         renderer::{gui::MessageType, FrameRecycle},
+        RunState,
     },
     thread,
 };
@@ -369,6 +368,12 @@ impl State {
         puffin::profile_function!();
 
         match event {
+            EmulationEvent::AddDebugger(debugger) => {
+                self.control_deck.add_debugger(debugger.clone());
+            }
+            EmulationEvent::RemoveDebugger(debugger) => {
+                self.control_deck.remove_debugger(debugger.clone());
+            }
             EmulationEvent::AudioRecord(recording) => {
                 if self.control_deck.is_running() {
                     self.audio_record(*recording);

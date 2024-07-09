@@ -6,7 +6,7 @@ use crate::{
         renderer::{
             gui::{
                 lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
-                Gui, MessageType,
+                MessageType,
             },
             shader::Shader,
         },
@@ -14,7 +14,7 @@ use crate::{
 };
 use egui::{
     Align, CentralPanel, Checkbox, Context, CursorIcon, DragValue, Grid, Key, Layout, ScrollArea,
-    Slider, TextEdit, Ui, Vec2, ViewportClass,
+    Slider, TextEdit, Ui, Vec2, ViewportClass, ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
@@ -39,6 +39,7 @@ pub struct State {
 #[derive(Debug)]
 #[must_use]
 pub struct Preferences {
+    id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
     resources: Option<Config>,
@@ -64,6 +65,7 @@ impl Preferences {
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
+            id: egui::ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
             state: Arc::new(Mutex::new(State {
                 tx,
@@ -72,6 +74,10 @@ impl Preferences {
             })),
             resources: None,
         }
+    }
+
+    pub const fn id(&self) -> ViewportId {
+        self.id
     }
 
     pub fn open(&self) -> bool {
@@ -107,13 +113,12 @@ impl Preferences {
             return;
         };
 
-        let viewport_id = egui::ViewportId::from_hash_of("preferences");
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Preferences::TITLE)
@@ -572,106 +577,132 @@ impl State {
             .num_columns(2)
             .spacing([80.0, 6.0]);
         grid.show(ui, |ui| {
-                let tx = &self.tx;
+            let tx = &self.tx;
 
-                Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, None);
-                let res = ui.checkbox(&mut auto_load, "Auto-Load")
-                    .on_hover_text("Automatically load game state from the current save slot on load.");
-                if res.changed() {
-                    tx.event(ConfigEvent::AutoLoad(
-                        auto_load,
-                    ));
-                }
-                ui.end_row();
+            Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, None);
+            let res = ui.checkbox(&mut auto_load, "Auto-Load")
+                .on_hover_text("Automatically load game state from the current save slot on load.");
+            if res.changed() {
+                tx.event(ConfigEvent::AutoLoad(
+                    auto_load,
+                ));
+            }
+            ui.end_row();
 
-                ui.vertical(|ui| {
-                    Preferences::rewind_checkbox(tx, ui, rewind, None);
+            ui.vertical(|ui| {
+                Preferences::rewind_checkbox(tx, ui, rewind, None);
 
-                    ui.add_enabled_ui(rewind, |ui| {
-                        ui.indent("rewind_settings", |ui| {
-                            ui.label("Seconds:")
-                                .on_hover_text("The maximum number of seconds to rewind.");
+                ui.add_enabled_ui(rewind, |ui| {
+                    ui.indent("rewind_settings", |ui| {
+                        ui.horizontal(|ui| {
+                            let suffix = if rewind_seconds == 1 { " second" } else { " seconds" };
                             let drag = DragValue::new(&mut rewind_seconds)
                                 .range(1..=360)
-                                .suffix(" seconds");
-                            let res = ui.add(drag);
+                                .suffix(suffix);
+                            let res = ui.add(drag)
+                                .on_hover_text("The maximum number of seconds to rewind.");
                             if res.changed() {
                                 tx.event(ConfigEvent::RewindSeconds(rewind_seconds));
                             }
+                        });
 
-                            ui.label("Interval:")
-                                .on_hover_text("The frame interval to save rewind states.");
+                        ui.horizontal(|ui| {
+                    let suffix = if rewind_interval == 1 { " frame" } else { " frames" };
                             let drag = DragValue::new(&mut rewind_interval)
                                 .range(1..=60)
-                                .suffix(" frames");
-                            let res = ui.add(drag);
+                                .prefix("every ")
+                                .suffix(suffix);
+                            let res = ui.add(drag)
+                                .on_hover_text("The frame interval to save rewind states.");
                             if res.changed() {
                                 tx.event(ConfigEvent::RewindInterval(rewind_interval));
                             }
                         });
                     });
                 });
+            });
 
-                ui.vertical(|ui| {
-                    let res = ui.checkbox(&mut auto_save, "Auto-Save")
-                        .on_hover_text(concat!(
-                            "Automatically save game state to the current save slot ",
-                            "on exit or unloading and an optional interval. ",
-                            "Setting to 0 will disable saving on an interval.",
-                        ));
-                    if res.changed() {
-                        tx.event(ConfigEvent::AutoSave(
-                            auto_save,
-                        ));
-                    }
+            ui.vertical(|ui| {
+                let res = ui.checkbox(&mut auto_save, "Auto-Save")
+                    .on_hover_text(concat!(
+                        "Automatically save game state to the current save slot ",
+                        "on exit or unloading and an optional interval. ",
+                        "Setting to 0 will disable saving on an interval.",
+                    ));
+                if res.changed() {
+                    tx.event(ConfigEvent::AutoSave(
+                        auto_save,
+                    ));
+                }
 
-                    ui.add_enabled_ui(auto_save, |ui| {
-                        ui.indent("auto_save_settings", |ui| {
+                ui.add_enabled_ui(auto_save, |ui| {
+                    ui.indent("auto_save_settings", |ui| {
+                        ui.horizontal(|ui| {
                             let mut auto_save_interval = auto_save_interval.as_secs();
-                            ui.label("Interval:")
+                            let suffix = if auto_save_interval == 1 { " second" } else { " seconds" };
+                            let drag = DragValue::new(&mut auto_save_interval)
+                                .range(0..=60)
+                                .prefix("every ")
+                                .suffix(suffix);
+                            let res = ui.add(drag)
                                 .on_hover_text(concat!(
                                     "Set the interval to auto-save game state. ",
                                     "A value of `0` will still save on exit or unload while Auto-Save is enabled."
                                 ));
-                            let drag = DragValue::new(&mut auto_save_interval)
-                                .range(0..=60)
-                                .suffix(" seconds");
-                            let res = ui.add(drag);
                             if res.changed() {
                                 tx.event(ConfigEvent::AutoSaveInterval(Duration::from_secs(auto_save_interval)));
                             }
                         });
                     });
                 });
-                ui.end_row();
-
-                let res = ui.checkbox(&mut emulate_ppu_warmup, "Emulate PPU Warmup")
-                    .on_hover_text(concat!(
-                        "Set whether to emulate PPU warmup where writes to certain registers are ignored. ",
-                        "Can result in some games not working correctly"
-                    ));
-                if res.clicked() {
-                    tx.event(EmulationEvent::EmulatePpuWarmup(emulate_ppu_warmup));
-                }
-                ui.end_row();
             });
+            ui.end_row();
+
+            let res = ui.checkbox(&mut emulate_ppu_warmup, "Emulate PPU Warmup")
+                .on_hover_text(concat!(
+                    "Set whether to emulate PPU warmup where writes to certain registers are ignored. ",
+                    "Can result in some games not working correctly"
+                ));
+            if res.clicked() {
+                tx.event(EmulationEvent::EmulatePpuWarmup(emulate_ppu_warmup));
+            }
+            ui.end_row();
+        });
 
         ui.separator();
 
-        let grid = Grid::new("emulation_preferences")
-            .num_columns(4)
+        let grid = Grid::new("emulation_sliders")
+            .num_columns(2)
             .spacing([40.0, 6.0]);
         grid.show(ui, |ui| {
             let tx = &self.tx;
 
-            ui.strong("Emulation Speed:");
-            Preferences::speed_slider(tx, ui, speed);
-
-            ui.strong("Run Ahead:")
-                .on_hover_cursor(CursorIcon::Help)
-                .on_hover_text("Simulate a number of frames in the future to reduce input lag.");
-            Preferences::run_ahead_slider(tx, ui, run_ahead);
+            ui.horizontal(|ui| {
+                Preferences::speed_slider(tx, ui, speed);
+                ui.label("Emulation Speed")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text("Change the speed of the emulation.");
+            });
             ui.end_row();
+
+            ui.horizontal(|ui| {
+                Preferences::run_ahead_slider(tx, ui, run_ahead);
+                ui.label("Run Ahead")
+                    .on_hover_cursor(CursorIcon::Help)
+                    .on_hover_text(
+                        "Simulate a number of frames in the future to reduce input lag.",
+                    );
+            });
+            ui.end_row();
+        });
+
+        ui.separator();
+
+        let grid = Grid::new("emulation_radios")
+            .num_columns(4)
+            .spacing([20.0, 6.0]);
+        grid.show(ui, |ui| {
+            let tx = &self.tx;
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                 ui.strong("Save Slot:")
@@ -780,34 +811,35 @@ impl State {
                     .spacing([40.0, 6.0])
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.strong("Buffer Size:")
-                            .on_hover_cursor(CursorIcon::Help)
-                            .on_hover_text(
-                                "The audio sample buffer size allocated to the sound driver. Increased audio buffer size can help reduce audio underruns.",
-                            );
-                        let drag = DragValue::new(&mut buffer_size)
-                            .speed(10)
-                            .range(0..=8192)
-                            .suffix(" samples");
-                        let res = ui.add(drag);
-                        if res.changed() {
-                            tx.event(ConfigEvent::AudioBuffer(buffer_size));
-                        }
+                        ui.horizontal(|ui| {
+                            let drag = DragValue::new(&mut buffer_size)
+                                .speed(10)
+                                .range(128..=8192)
+                                .prefix("buffer ")
+                                .suffix(" samples");
+                            let res = ui.add(drag)
+                                .on_hover_text(
+                                    "The audio sample buffer size allocated to the sound driver. Increased audio buffer size can help reduce audio underruns.",
+                                );
+                            if res.changed() {
+                                tx.event(ConfigEvent::AudioBuffer(buffer_size));
+                            }
+                        });
                         ui.end_row();
 
-                        ui.strong("Latency:")
-                            .on_hover_cursor(CursorIcon::Help)
-                            .on_hover_text(
-                                "The amount of queued audio before sending to the sound driver. Increased audio latency can help reduce audio underruns.",
-                            );
-                        let mut latency = latency.as_millis() as u64;
-                        let drag = DragValue::new(&mut latency)
-                            .range(0..=1000)
-                            .suffix(" ms");
-                        let res = ui.add(drag);
-                        if res.changed() {
-                            tx.event(ConfigEvent::AudioLatency(Duration::from_millis(latency)));
-                        }
+                        ui.horizontal(|ui| {
+                            let mut latency = latency.as_millis() as u64;
+                            let drag = DragValue::new(&mut latency)
+                                .range(1..=1000)
+                                .suffix(" ms latency");
+                            let res = ui.add(drag)
+                                .on_hover_text(
+                                    "The amount of queued audio before sending to the sound driver. Increased audio latency can help reduce audio underruns.",
+                                );
+                            if res.changed() {
+                                tx.event(ConfigEvent::AudioLatency(Duration::from_millis(latency)));
+                            }
+                    });
                         ui.end_row();
                     });
             });
@@ -904,7 +936,8 @@ impl State {
     pub fn genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
         let tx = &self.tx;
         ui.vertical(|ui| {
-            ui.allocate_space(Vec2::new(Gui::MENU_WIDTH, 0.0));
+            // desired_width below doesn't have the desired effect
+            ui.allocate_space(Vec2::new(200.0, 0.0));
 
             let genie_label = ui.strong("Add Genie Code(s):")
                 .on_hover_cursor(CursorIcon::Help)

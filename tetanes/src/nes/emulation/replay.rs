@@ -6,24 +6,59 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
-use tetanes_core::{cpu::Cpu, fs};
+use tetanes_core::{
+    cpu::Cpu,
+    fs,
+    input::{JoypadBtn, Player},
+};
 use tracing::warn;
+use winit::event::ElementState;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct State((Cpu, Vec<ReplayEvent>));
+pub struct State((Cpu, Vec<ReplayFrame>));
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ReplayEvent {
+    Joypad((Player, JoypadBtn, ElementState)),
+    ZapperAim((u32, u32)),
+    ZapperTrigger,
+}
+
+impl From<ReplayEvent> for EmulationEvent {
+    fn from(event: ReplayEvent) -> Self {
+        match event {
+            ReplayEvent::Joypad(state) => Self::Joypad(state),
+            ReplayEvent::ZapperAim(pos) => Self::ZapperAim(pos),
+            ReplayEvent::ZapperTrigger => Self::ZapperTrigger,
+        }
+    }
+}
+
+impl TryFrom<EmulationEvent> for ReplayEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(event: EmulationEvent) -> Result<Self, Self::Error> {
+        Ok(match event {
+            EmulationEvent::Joypad(state) => Self::Joypad(state),
+            EmulationEvent::ZapperAim(pos) => Self::ZapperAim(pos),
+            EmulationEvent::ZapperTrigger => Self::ZapperTrigger,
+            _ => return Err(anyhow::anyhow!("invalid replay event: {event:?}")),
+        })
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[must_use]
-pub struct ReplayEvent {
+pub struct ReplayFrame {
     pub frame: u32,
-    pub event: EmulationEvent,
+    pub event: ReplayEvent,
 }
 
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Record {
     pub start: Option<Cpu>,
-    pub events: Vec<ReplayEvent>,
+    pub events: Vec<ReplayFrame>,
 }
 
 impl Record {
@@ -41,13 +76,10 @@ impl Record {
     }
 
     pub fn push(&mut self, frame: u32, event: EmulationEvent) {
-        if self.start.is_some()
-            && matches!(
-                event,
-                EmulationEvent::Joypad(..) | EmulationEvent::ZapperTrigger
-            )
-        {
-            self.events.push(ReplayEvent { frame, event });
+        if self.start.is_some() {
+            if let Ok(event) = ReplayEvent::try_from(event) {
+                self.events.push(ReplayFrame { frame, event });
+            }
         }
     }
 
@@ -80,7 +112,7 @@ impl Record {
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Replay {
-    pub events: Vec<ReplayEvent>,
+    pub events: Vec<ReplayFrame>,
 }
 
 impl Replay {
@@ -114,7 +146,7 @@ impl Replay {
                     if event.frame < frame {
                         warn!("out of order replay event: {} < {frame}", event.frame);
                     }
-                    return self.events.pop().map(|event| event.event);
+                    return self.events.pop().map(|event| event.event).map(Into::into);
                 }
                 Ordering::Greater => (),
             }
