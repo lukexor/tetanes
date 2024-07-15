@@ -280,3 +280,25 @@ pub fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
         }
     }
 }
+
+pub fn dashed_rect(
+    ui: &mut Ui,
+    rect: Rect,
+    stroke: impl Into<egui::Stroke>,
+    dash_length: f32,
+    gap_length: f32,
+) {
+    let path = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+        rect.left_top(),
+    ];
+    ui.painter().add(egui::Shape::dashed_line(
+        &path,
+        stroke,
+        dash_length,
+        gap_length,
+    ));
+}

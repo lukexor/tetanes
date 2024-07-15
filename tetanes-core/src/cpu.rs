@@ -187,6 +187,8 @@ impl Cpu {
         if cpu.bus.ppu.bus.chr_rom.is_empty() {
             cpu.bus.ppu.bus.chr_rom = std::mem::take(&mut self.bus.ppu.bus.chr_rom);
         };
+        // Doesn't make sense to load a debugger from a previous state
+        cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
         *self = cpu;
     }
 

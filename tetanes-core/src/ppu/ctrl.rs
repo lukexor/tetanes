@@ -84,6 +84,10 @@ impl Ctrl {
         // 32 or 1
         self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT) as u16 * 31 + 1
     }
+
+    pub const fn nametable_select(&self) -> u8 {
+        self.bits.bits() & 0b11
+    }
 }
 
 impl Reset for Ctrl {

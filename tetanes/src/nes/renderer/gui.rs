@@ -169,6 +169,12 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        let res = self.ppu_viewer.on_window_event(event);
+
+        if res.consumed {
+            return res;
+        }
+
         if self.keybinds.wants_input()
             && matches!(
                 event,
@@ -177,10 +183,10 @@ impl Gui {
         {
             Response {
                 consumed: true,
-                ..Default::default()
+                ..res
             }
         } else {
-            Response::default()
+            res
         }
     }
 
@@ -225,9 +231,6 @@ impl Gui {
                     self.run_state = RunState::Running;
                     self.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.loaded_rom = Some(rom.clone());
-                    if self.ppu_viewer.open() {
-                        self.ppu_viewer.attach();
-                    }
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.about_open = !self.about_open,
@@ -1241,7 +1244,6 @@ impl Gui {
                     };
                     ui.with_layout(layout, |ui| {
                         let image = Image::from_texture(self.nes_texture.sized())
-                            .maintain_aspect_ratio(true)
                             .shrink_to_fit()
                             .sense(Sense::click());
 
