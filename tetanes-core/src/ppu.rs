@@ -372,17 +372,20 @@ impl Ppu {
                 let x_scroll = addr & Scroll::COARSE_X_MASK;
                 let y_scroll = (addr & Scroll::COARSE_Y_MASK) >> 5;
 
-                let nt_base_addr = Ppu::NT_START | (addr & (Scroll::NT_X_MASK | Scroll::NT_Y_MASK));
+                let base_nametable_addr =
+                    Ppu::NT_START | (addr & (Scroll::NT_X_MASK | Scroll::NT_Y_MASK));
+                let base_attr_addr = base_nametable_addr + Ppu::ATTR_OFFSET;
+
                 let tile_index = u16::from(self.bus.peek_ciram(addr, Access::Dummy));
                 let tile_addr = self.ctrl.bg_select | (tile_index << 4);
-                let supertile = (x_scroll / 4) + ((y_scroll / 4) << 3);
+
+                let supertile = ((y_scroll & 0xFC) << 1) + (x_scroll >> 2);
                 let attr = u16::from(
                     self.bus
-                        .peek_ciram(nt_base_addr + Ppu::ATTR_OFFSET + supertile, Access::Dummy),
+                        .peek_ciram(base_attr_addr + supertile, Access::Dummy),
                 );
-                let corner = ((x_scroll % 4) / 2 + (y_scroll % 4) / 2 * 2) << 1;
-                let mask = 0x03 << corner;
-                let palette_attr = ((attr & mask) >> corner) << 2;
+                let attr_shift = (x_scroll & 0x02) | ((y_scroll & 0x02) << 1);
+                let palette_addr = ((attr >> attr_shift) & 0x03) << 2;
 
                 let tile_num = x_scroll + (y_scroll << 5);
                 let tile_x = (tile_num % 32) << 3;
@@ -395,7 +398,7 @@ impl Ppu {
                     let tile_hi = self.bus.peek_chr(tile_addr + 8, Access::Dummy);
                     for x in 0..8 {
                         let tile_palette = ((tile_hi >> x) & 1) << 1 | (tile_lo >> x) & 1;
-                        let palette = palette_attr | u16::from(tile_palette);
+                        let palette = palette_addr | u16::from(tile_palette);
                         let color = self.bus.peek_palette(
                             Ppu::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
                             Access::Dummy,

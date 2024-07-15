@@ -1246,12 +1246,6 @@ impl Renderer {
         if !self.fullscreen() {
             let desired_window_size = self.window_size(cfg);
 
-            if cfg.renderer.scale == 1.0 && cfg.renderer.zoom == 1.0 {
-                self.ctx.set_zoom_factor(0.7);
-            } else {
-                self.ctx.set_zoom_factor(cfg.renderer.zoom);
-            }
-
             // On some platforms, e.g. wasm, window width is constrained by the
             // viewport width, so try to find the max scale that will fit
             if feature!(ConstrainedViewport) {
