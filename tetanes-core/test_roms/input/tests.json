@@ -1,0 +1,114 @@
+[
+  {
+    "name": "zapper_flip",
+    "frames": [
+      {
+        "number": 0,
+        "action": "ToggleZapperConnected"
+      },
+      {
+        "number": 0,
+        "action": {
+          "ZapperAim": [
+            10,
+            10
+          ]
+        }
+      },
+      {
+        "number": 4,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 5,
+        "action": "ZapperTrigger"
+      },
+      {
+        "number": 6,
+        "hash": 14878161860519346933
+      },
+      {
+        "number": 13,
+        "hash": 8615630426075156747
+      }
+    ]
+  },
+  {
+    "name": "zapper_light",
+    "frames": [
+      {
+        "number": 0,
+        "action": "ToggleZapperConnected"
+      },
+      {
+        "number": 0,
+        "action": {
+          "ZapperAim": [
+            10,
+            10
+          ]
+        }
+      },
+      {
+        "number": 4,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 5,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 5,
+        "action": {
+          "ZapperAim": [
+            61,
+            61
+          ]
+        }
+      },
+      {
+        "number": 6,
+        "hash": 8615630426075156747
+      },
+      {
+        "number": 7,
+        "action": {
+          "ZapperAim": [
+            194,
+            178
+          ]
+        }
+      },
+      {
+        "number": 8,
+        "hash": 8615630426075156747
+      }
+    ]
+  },
+  {
+    "name": "zapper_stream",
+    "frames": [
+      {
+        "number": 0,
+        "action": "ToggleZapperConnected"
+      },
+      {
+        "number": 20,
+        "hash": 0
+      }
+    ]
+  },
+  {
+    "name": "zapper_trigger",
+    "frames": [
+      {
+        "number": 0,
+        "action": "ToggleZapperConnected"
+      },
+      {
+        "number": 20,
+        "hash": 0
+      }
+    ]
+  }
+]

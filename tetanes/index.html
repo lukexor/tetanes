@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TetaNES Web</title>
+    <link
+      rel="preload"
+      href="./pixeloid-sans.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
+    <link
+      rel="preload"
+      href="./pixeloid-sans-bold.ttf"
+      crossorigin="anonymous"
+      as="font"
+      type="font/ttf"
+    />
+
+    <base data-trunk-public-url />
+    <link data-trunk rel="inline" href="assets/main.css" />
+    <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
+    <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />
+    <link
+      data-trunk
+      rel="rust"
+      data-bin="tetanes"
+      data-initializer="initializer.js"
+      data-wasm-opt="4"
+      data-no-import
+    />
+  </head>
+  <body>
+    <noscript>
+      This page contains WebAssembly and Javascript content, please enable
+      Javascript in your browser.
+    </noscript>
+
+    <h1>TetaNES<br /><span id="version"></span></h1>
+
+    <div id="wrapper">
+      <canvas id="frame" width="512" height="480"></canvas>
+      <input type="file" id="load-rom" accept=".nes" class="hidden" />
+      <input type="file" id="load-replay" accept=".replay" class="hidden" />
+    </div>
+
+    <h2 id="loading-status">
+      <div class="loader"></div>
+      Loading...
+    </h2>
+    <p id="error" class="hidden">
+      An internal error occurred. Try refreshing the page or filing a
+      <a href="https://github.com/lukexor/tetanes/issues/new">bug report</a>.
+    </p>
+
+    <div id="content">
+      <p>
+        <em>TetaNES</em> is a cross-platform emulator for the Nintendo
+        Entertainment System (NES) released in Japan in 1983 and North America
+        in 1986, written using
+        <a href="https://www.rust-lang.org/" title="Rust">Rust</a> and
+        <a href="https://wgpu.rs/" title="wgpu">wgpu</a>. It runs on Linux,
+        macOS, Windows, and in a web browser with
+        <a href="https://webassembly.org/">WebAssembly</a>. While the web
+        version is playable, the desktop version is much more performant and
+        fully featured.
+      </p>
+
+      <p>
+        Load any NES ROM which uses the
+        <a href="https://www.nesdev.org/wiki/INES">iNES</a> or
+        <a href="https://www.nesdev.org/wiki/NES_2.0">NES 2.0</a> header format.
+      </p>
+
+      <p>
+        You can check out the code on
+        <a href="https://github.com/lukexor/tetanes">github</a> or download the
+        desktop version:
+      </p>
+
+      <div id="version-download" class="version-download">
+        <a id="selected-version" rel="nofollow noopener" target="_blank">
+          Download for Windows
+        </a>
+        <div id="version-options" class="hidden absolute">
+          <a
+            id="x86_64-pc-windows-msvc"
+            rel="nofollow noopener"
+            target="_blank"
+          >
+            Download for Windows
+          </a>
+          <a id="aarch64-apple-darwin" rel="nofollow noopener" target="_blank">
+            Download for Mac - Apple Chip
+          </a>
+          <a id="x86_64-apple-darwin" rel="nofollow noopener" target="_blank">
+            Download for Mac - Intel Chip
+          </a>
+          <a
+            id="x86_64-unknown-linux-gnu"
+            rel="nofollow noopener"
+            target="_blank"
+          >
+            Download for Linux
+          </a>
+        </div>
+      </div>
+
+      <h2>Controls</h2>
+      <table>
+        <tr>
+          <th>Action</th>
+          <th>Key</th>
+        </tr>
+        <tr>
+          <td>A Button</td>
+          <td>Z</td>
+        </tr>
+        <tr>
+          <td>B Button</td>
+          <td>X</td>
+        </tr>
+        <tr>
+          <td>A Button (Turbo)</td>
+          <td>A</td>
+        </tr>
+        <tr>
+          <td>B Button (Turbo)</td>
+          <td>S</td>
+        </tr>
+        <tr>
+          <td>Start Button</td>
+          <td>Q</td>
+        </tr>
+        <tr>
+          <td>Select Button</td>
+          <td>W</td>
+        </tr>
+        <tr>
+          <td>D-Pad</td>
+          <td>Arrow Keys</td>
+        </tr>
+      </table>
+      <p>
+        Other mappings can be found and modified in the `Config -> Keybinds`
+        menu.
+      </p>
+    </div>
+  </body>
+</html>

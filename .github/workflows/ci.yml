@@ -5,11 +5,16 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
   pull_request:
-    branches: [main]
+    paths-ignore:
+      - "**.md"
 
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   format:
@@ -17,15 +22,63 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
 
-  build-and-test:
+  lint-web:
+    name: Lint Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo clippy --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+
+  lint-tetanes:
+    name: Lint TetaNES (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [stable, 1.70.0]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
+      - run: |
+          cargo clippy -p tetanes --all-features --keep-going -- -D warnings
+
+  lint-tetanes-core:
+    name: Lint TetaNES Core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        toolchain: [nightly, stable, 1.78]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,25 +86,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-          targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy
-      - uses: ./.github/actions/install-linuxbrew
-        if: matrix.os == 'ubuntu-latest'
-        name: Install Homebrew for Linux
-      - uses: ./.github/actions/install-sdl2
-        if: matrix.os != 'windows-latest'
-        name: Install SDL2
-      - name: Install wasm-pack
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: cargo install wasm-pack
-      - name: Build
-        shell: bash
-        run: |
-          cargo build --all-targets --verbose
-          cd web
-          bash bin/build.sh --dev
-      - run: cargo doc --verbose
-      - run: cargo test --verbose
+      - run: |
+          cargo clippy -p tetanes-core --all-features --keep-going -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
+      - run: |
+          cargo test --all-targets --all-features --no-fail-fast
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --document-private-items --all-features --workspace --examples --keep-going

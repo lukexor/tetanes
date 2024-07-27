@@ -1,5 +1,5 @@
 ---
-name: Triage
+name: Triage Issues
 
 # yamllint disable-line rule:truthy
 on:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   triage:
+    name: Triage Issue
     runs-on: ubuntu-latest
     steps:
       - name: add needs-triage label
@@ -15,8 +16,3 @@ jobs:
         with:
           add-labels: "needs-triage"
           ignore-if-labeled: true
-      - name: auto-assign
-        uses: pozil/auto-assign-issue@v1
-        with:
-          assignees: lukexor
-          numOfAssignee.github/workflows/ci.yml: 1

@@ -3,9 +3,14 @@ changelog_config = "cliff.toml"
 changelog_update = true
 dependencies_update = true
 git_tag_enable = true
-# Handled by cargo-dist
-git_release_enable = false
+git_release_enable = true
 pr_labels = ["release"]
 allow_dirty = false
 publish_allow_dirty = false
-semver_check = false
+semver_check = true
+
+[[package]]
+name = "tetanes"
+
+[[package]]
+name = "tetanes-core"

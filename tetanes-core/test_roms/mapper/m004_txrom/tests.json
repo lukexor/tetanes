@@ -1,0 +1,92 @@
+[
+  {
+    "name": "a12_clocking",
+    "frames": [
+      {
+        "number": 25,
+        "hash": 12040201839270376890
+      }
+    ]
+  },
+  {
+    "name": "clocking",
+    "frames": [
+      {
+        "number": 25,
+        "hash": 3159592045864818260
+      }
+    ]
+  },
+  {
+    "name": "details",
+    "frames": [
+      {
+        "number": 30,
+        "hash": 15211845500498666234
+      }
+    ]
+  },
+  {
+    "name": "scanline_timing",
+    "frames": [
+      {
+        "number": 90,
+        "hash": 6306567989779835575
+      }
+    ]
+  },
+  {
+    "name": "big_chr_ram",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 5491179751774366132
+      },
+      {
+        "number": 11,
+        "action": {
+          "Joypad": ["One", "Start"]
+        }
+      },
+      {
+        "number": 80,
+        "hash": 14367881047247501485
+      }
+    ]
+  },
+  {
+    "name": "rev_a",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "MapperRevision": {
+            "Mmc3": "A"
+          }
+        }
+      },
+      {
+        "number": 30,
+        "hash": 7203694655519112220
+      }
+    ]
+  },
+  {
+    "name": "rev_b",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "MapperRevision": {
+            "Mmc3": "BC"
+          }
+        }
+      },
+      {
+        "number": 30,
+        "hash": 5332315838929142497
+      }
+    ]
+  }
+]
+

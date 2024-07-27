@@ -1,21 +1,24 @@
 ---
-name: Outdated
+name: Check Outdated
 
 # yamllint disable-line rule:truthy
 on:
   schedule:
-    - cron: "10 16 * * 1"
+    # At 06:00 on day-of-month 2 and 16
+    - cron: "0 6 2,16 * *"
 
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   outdated:
-    name: Outdated
+    name: Check Outdated
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: dtolnay/install@cargo-outdated
-      - run: cargo outdated --exit-code 1
+      - run: cargo outdated -e --exit-code 1

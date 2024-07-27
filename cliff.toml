@@ -43,7 +43,7 @@ body = """
 trim = true
 footer = ""
 postprocessors = [
-  { pattern = '<REPO>', replace = "https://github.com/lukexor/pix-engine" },
+  { pattern = '<REPO>', replace = "https://github.com/lukexor/tetanes" },
 ]
 
 [git]

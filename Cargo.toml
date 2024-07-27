@@ -1,103 +1,105 @@
-[package]
-authors = ["Luke Petherbridge <me@lukeworks.tech>"]
-categories = ["emulators", "wasm"]
-description = "A NES Emulator written in Rust with SDL2 and WebAssembly support"
-documentation = "https://docs.rs/tetanes"
-edition = "2021"
-keywords = ["nes", "emulator", "wasm"]
-license = "MIT OR Apache-2.0"
-name = "tetanes"
-repository = "https://github.com/lukexor/tetanes.git"
-resolver = "2"
-version = "0.9.0"
-default-run = "tetanes"
-exclude = ["/bin", "/static", "/test_roms", "/docs", "/test_results"]
-
-[package.metadata]
-msrv = "1.70.0"
-
-[package.metadata.wix]
-upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
-path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
-
-[dependencies]
-anyhow = "1.0"
-bincode = "1.3"
-bitflags = { version = "2.4", features = ["serde"] }
-chrono = "0.4"
-dirs = "5.0"
-enum_dispatch = "0.3"
-flate2 = "1.0"
-log = { version = "0.4", features = ["release_max_level_warn", "serde"] }
-once_cell = "1.16"
-pretty_env_logger = "0.5"
-rand = "0.8"
-ringbuf = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-structopt = "0.3"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pix-engine = { version = "0.8", features = ["serde"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-# Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.2", features = ["js"] }
-wasm-bindgen = "0.2"
-
-[features]
-default = ["cycle-accurate"]
-cycle-accurate = []
-profile-rate-control = []
-
-# Optimized development for playable framerates
-[profile.dev-opt]
-inherits = "dev"
-opt-level = 2
-
-[profile.test]
-inherits = "dev-opt"
-
-[profile.release]
-codegen-units = 1
-
-# The profile that 'cargo dist' will build with
-[profile.dist]
-inherits = "release"
-lto = "thin"
+# Disabled for now since it was ICEing
+# cargo-features = ["codegen-backend"]
 
 [workspace]
-members = ["utils", "web"]
+resolver = "2"
+members = ["tetanes", "tetanes-core", "tetanes-utils"]
 
-# Config for 'cargo dist'
-[workspace.metadata.dist]
-# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.4.3"
-# CI backends to support
-ci = ["github"]
-# The installers to generate for each app
-installers = ["shell", "homebrew", "msi"]
-# Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
-# Publish jobs to run in CI
-pr-run-mode = "plan"
-# A GitHub repo to push Homebrew formulas to
-tap = "lukexor/formulae"
-# Publish jobs to run in CI
-publish-jobs = ["homebrew", "./package-macos"]
-# Skip checking whether the specified configuration files are up to date
-allow-dirty = ["msi"]
+[workspace.package]
+version = "0.11.0"
+rust-version = "1.78.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Luke Petherbridge <me@lukeworks.tech>"]
+readme = "README.md"
+documentation = "https://docs.rs/tetanes"
+repository = "https://github.com/lukexor/tetanes.git"
+homepage = "https://lukeworks.tech/tetanes"
 
-[workspace.metadata.dist.dependencies.homebrew]
-sdl2 = { stage = ["build", "run"] }
-sdl2_gfx = { stage = ["build", "run"] }
-sdl2_image = { stage = ["build", "run"] }
-sdl2_mixer = { stage = ["build", "run"] }
-sdl2_ttf = { stage = ["build", "run"] }
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+missing_const_for_fn = "warn"
+print_literal = "warn"
 
-[workspace.metadata.dist.dependencies.apt]
-libsdl2-dev = { stage = ["build", "run"] }
-libsdl2-gfx = { stage = ["build", "run"] }
-libsdl2-image = { stage = ["build", "run"] }
-libsdl2-mixer = { stage = ["build", "run"] }
-libsdl2-ttf = { stage = ["build", "run"] }
+[workspace.lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+
+[workspace.dependencies]
+anyhow = "1.0"
+bincode = "1.3"
+cfg-if = "1.0"
+clap = { version = "4.5", default-features = false, features = [
+  "std",
+  "help",
+  "usage",
+  "suggestions",
+  "derive",
+] }
+dirs = "5.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
+puffin = "0.19"
+serde = { version = "1.0", features = ["derive"] }
+tetanes-core = { version = "0.11", path = "tetanes-core" }
+thiserror = "1.0.58"
+tracing = { version = "0.1", default-features = false, features = [
+  "std",
+  "release_max_level_info",
+] }
+tracing-subscriber = "0.3"
+serde_json = "1.0"
+web-time = "1.0"
+web-sys = "0.3"
+
+# Playable framerates in development
+[profile.dev]
+opt-level = 1
+
+# TODO: Would be nice to move lto to `dist` but Trunk doesn't support profiles yet
+# See: https://github.com/trunk-rs/trunk/issues/605
+[profile.release]
+codegen-units = 1
+lto = true
+# See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
+panic = "abort"
+
+[profile.flamegraph]
+inherits = "release"
+debug = true
+
+[profile.dist]
+inherits = "release"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[workspace.metadata.cross.target.x86_64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
+
+[workspace.metadata.cross.target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]
+
+[workspace.metadata.wix]
+upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
+path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
+license = false
+eula = false

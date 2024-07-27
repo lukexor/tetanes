@@ -1,0 +1,154 @@
+[
+  {
+    "name": "exram",
+    "frames": [
+      {
+        "number": 0,
+        "action": {
+          "SetVideoFilter": "Ntsc"
+        }
+      },
+      {
+        "number": 10,
+        "hash": 17551728759146689352
+      },
+      {
+        "number": 15,
+        "hash": 4756351708356043917
+      },
+      {
+        "number": 45,
+        "hash": 1380234192467300615
+      },
+      {
+        "number": 100,
+        "hash": 9477694461559011324
+      }
+    ]
+  },
+  {
+    "name": "basics",
+    "frames": [
+      {
+        "number": 10,
+        "hash": 13185952026495389028
+      },
+      {
+        "number": 11,
+        "action": {
+          "Joypad": [
+            "One",
+            "A"
+          ]
+        }
+      },
+      {
+        "number": 14,
+        "name": "obj_table",
+        "hash": 5835282650047076017
+      },
+      {
+        "number": 15,
+        "action": {
+          "Joypad": [
+            "One",
+            "B"
+          ]
+        }
+      },
+      {
+        "number": 18,
+        "name": "bg_table",
+        "hash": 14203633185999536969
+      },
+      {
+        "number": 19,
+        "action": {
+          "Joypad": [
+            "One",
+            "Start"
+          ]
+        }
+      },
+      {
+        "number": 22,
+        "name": "obj_size",
+        "hash": 14397147232086588632
+      },
+      {
+        "number": 23,
+        "action": {
+          "Joypad": [
+            "One",
+            "Select"
+          ]
+        }
+      },
+      {
+        "number": 26,
+        "name": "exram",
+        "hash": 14992356073095190656
+      },
+      {
+        "number": 27,
+        "action": {
+          "Joypad": [
+            "One",
+            "Up"
+          ]
+        }
+      },
+      {
+        "number": 30,
+        "name": "fill",
+        "hash": 8833133164801041322
+      },
+      {
+        "number": 31,
+        "action": {
+          "Joypad": [
+            "One",
+            "Up"
+          ]
+        }
+      },
+      {
+        "number": 33,
+        "action": {
+          "Joypad": [
+            "One",
+            "Left"
+          ]
+        }
+      },
+      {
+        "number": 36,
+        "name": "bank_left",
+        "hash": 13357435064697061420
+      },
+      {
+        "number": 37,
+        "action": {
+          "Joypad": [
+            "One",
+            "Right"
+          ]
+        }
+      },
+      {
+        "number": 39,
+        "action": {
+          "Joypad": [
+            "One",
+            "Right"
+          ]
+        }
+      },
+      {
+        "number": 42,
+        "name": "bank_right",
+        "hash": 10119745483606927626
+      }
+    ]
+  }
+]
