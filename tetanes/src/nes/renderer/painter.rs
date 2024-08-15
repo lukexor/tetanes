@@ -368,11 +368,11 @@ impl RenderState {
         let device_descriptor = wgpu::DeviceDescriptor {
             label: Some("wgpu device"),
             // TODO: maybe CLEAR_TEXTURE?
-            required_features: wgpu::Features::default(),
             required_limits: wgpu::Limits {
                 max_texture_dimension_2d: 8192,
                 ..base_limits
             },
+            ..Default::default()
         };
         let mut connection = adapter.request_device(&device_descriptor, None).await;
         // Creating device may fail if adapter doesn't support the default cfg, so try to
@@ -522,6 +522,7 @@ impl RenderState {
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
+                cache: None,
             }
         );
 
