@@ -375,7 +375,7 @@ pub mod renderer {
         tracing::warn!("Copied text: {copied_text}");
         if !copied_text.is_empty() {
             if let Some(clipboard) =
-                web_sys::window().and_then(|window| window.navigator().clipboard())
+                web_sys::window().map(|window| window.navigator().clipboard())
             {
                 let promise = clipboard.write_text(&copied_text);
                 let future = JsFuture::from(promise);

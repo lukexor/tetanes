@@ -13,7 +13,7 @@ pub fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)
 where
     S: SubscriberExt + for<'a> LookupSpan<'a> + Sync + Send,
 {
-    panic::set_hook(Box::new(|info: &panic::PanicInfo<'_>| {
+    panic::set_hook(Box::new(|info: &panic::PanicHookInfo<'_>| {
         let error_div = web_sys::window()
             .and_then(|window| window.document())
             .and_then(|document| document.get_element_by_id("error"));
