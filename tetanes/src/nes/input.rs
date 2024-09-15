@@ -543,8 +543,7 @@ impl Gamepads {
                         None
                     }
                 }
-                EventType::ButtonChanged(_, _, _) => None,
-                EventType::Connected | EventType::Disconnected | EventType::Dropped => None,
+                _ => None,
             }
         } else {
             None

@@ -30,7 +30,7 @@ cycle-accurate = []
 
 [dependencies]
 bincode.workspace = true
-bitflags = { version = "2.4", features = ["serde"] }
+bitflags = { version = "2.6", features = ["serde"] }
 cfg-if.workspace = true
 dirs.workspace = true
 enum_dispatch = "0.3"

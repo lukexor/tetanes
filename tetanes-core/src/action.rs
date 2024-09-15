@@ -1,6 +1,7 @@
-//! An [`Action`] is an enumerated list of possible state changes to the [`ControlDeck`] instance that
-//! allows for event handling and test abstractions such as being able to map a custom keybind to a
-//! given state change.
+//! An [`Action`] is an enumerated list of possible state changes to [`ControlDeck`].
+//!
+//! It allows for event handling and test abstractions such as being able to map a custom keybind
+//! to a given state change.
 //!
 //! [`ControlDeck`]: crate::control_deck::ControlDeck
 
