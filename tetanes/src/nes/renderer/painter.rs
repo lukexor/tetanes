@@ -20,7 +20,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 #[must_use]
 pub struct Surface {
     inner: wgpu::Surface<'static>,
-    shader: Option<shader::Resources>,
+    shader_resources: Option<shader::Resources>,
     width: u32,
     height: u32,
 }
@@ -33,7 +33,7 @@ impl Surface {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             inner: instance.create_surface(window)?,
-            shader: None,
+            shader_resources: None,
             width: size.width,
             height: size.height,
         })
@@ -71,9 +71,9 @@ impl Surface {
         shader: Shader,
     ) {
         if matches!(shader, Shader::None) {
-            self.shader = None;
+            self.shader_resources = None;
         } else {
-            self.shader = Some(shader::Resources::new(
+            self.shader_resources = Some(shader::Resources::new(
                 device,
                 format,
                 self.create_texture_view(device, format),
@@ -117,11 +117,7 @@ impl Painter {
     pub fn set_shader(&mut self, shader: Shader) {
         if let Some(render_state) = &mut self.render_state {
             render_state.shader = shader;
-            if let Some((_, surface)) = self
-                .surfaces
-                .iter_mut()
-                .find(|(id, _)| **id == ViewportId::ROOT)
-            {
+            for surface in self.surfaces.values_mut() {
                 surface.set_shader(
                     &render_state.device,
                     render_state.format,
@@ -213,7 +209,7 @@ impl Painter {
         };
 
         {
-            let view = match &surface.shader {
+            let view = match &surface.shader_resources {
                 Some(shader) => &shader.view,
                 None => &output_frame
                     .texture
@@ -237,7 +233,7 @@ impl Painter {
             render_state.render(&mut render_pass, clipped_primitives, &screen_descriptor);
         }
 
-        if let Some(shader) = &surface.shader {
+        if let Some(shader) = &surface.shader_resources {
             let view = &output_frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
@@ -563,10 +559,6 @@ impl RenderState {
             next_texture_id: 0,
             samplers: Default::default(),
         })
-    }
-
-    pub fn set_shader(&mut self, shader: Shader) {
-        self.shader = shader;
     }
 
     pub fn max_texture_side(&self) -> u32 {

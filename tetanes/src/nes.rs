@@ -2,7 +2,7 @@
 
 use crate::{
     nes::{
-        event::{NesEventProxy, RunState},
+        event::NesEventProxy,
         input::{Gamepads, InputBindings},
         renderer::{painter::Painter, FrameRecycle, Resources},
     },
@@ -64,6 +64,28 @@ pub(crate) enum State {
 impl State {
     pub const fn is_suspended(&self) -> bool {
         matches!(self, Self::Suspended)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[must_use]
+pub enum RunState {
+    Running,
+    ManuallyPaused,
+    Paused,
+}
+
+impl RunState {
+    pub const fn paused(&self) -> bool {
+        matches!(self, Self::ManuallyPaused | Self::Paused)
+    }
+
+    pub const fn auto_paused(&self) -> bool {
+        matches!(self, Self::Paused)
+    }
+
+    pub const fn manually_paused(&self) -> bool {
+        matches!(self, Self::ManuallyPaused)
     }
 }
 
