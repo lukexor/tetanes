@@ -47,7 +47,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.28", features = [
+egui = { version = "0.29", features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
@@ -55,7 +55,7 @@ egui = { version = "0.28", features = [
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.28", default-features = false, features = [
+egui_extras = { version = "0.29", default-features = false, features = [
   "image",
   "serde",
 ] }
@@ -86,12 +86,12 @@ arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
 ] }
 clap.workspace = true
-egui = { version = "0.28", default-features = false, features = ["accesskit"] }
+egui = { version = "0.29", default-features = false, features = ["accesskit"] }
 pollster = "0.3"
 reqwest = { version = "0.12", features = ["blocking"] }
-rfd = "0.14"
+rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.31", default-features = false, features = ["system"] }
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

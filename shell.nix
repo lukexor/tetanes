@@ -20,6 +20,10 @@ with (import <nixpkgs> {
   LD_LIBRARY_PATH = "${with pkgs; lib.makeLibraryPath [
       wayland
       libxkbcommon
+      xorg.libX11
+      xorg.libXcursor
+      xorg.libXrandr
+      xorg.libXi
       vulkan-loader
   ]}";
 }

@@ -272,14 +272,14 @@ impl State {
         connected_gamepads: Option<&[ConnectedGamepad]>,
     ) {
         ui.horizontal(|ui| {
-            ui.strong("🎮 Assigned Gamepad:");
+            let gamepad_label = "🎮 Assigned Gamepad:";
 
             let unassigned = "Unassigned".to_string();
             match connected_gamepads {
                 Some(gamepads) => {
                     if gamepads.is_empty() {
                         ui.add_enabled_ui(false, |ui| {
-                            let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                            let combo = egui::ComboBox::from_label(gamepad_label)
                                 .selected_text("No Gamepads Connected");
                             combo.show_ui(ui, |_| {});
                         });
@@ -288,12 +288,11 @@ impl State {
                             .iter()
                             .find(|gamepad| gamepad.assignment == Some(player));
                         let previous_assigned = assigned;
-                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
-                            .selected_text(
-                                assigned
-                                    .as_ref()
-                                    .map_or(&unassigned, |assignment| &assignment.name),
-                            );
+                        let combo = egui::ComboBox::from_label(gamepad_label).selected_text(
+                            assigned
+                                .as_ref()
+                                .map_or(&unassigned, |assignment| &assignment.name),
+                        );
                         combo.show_ui(ui, |ui| {
                             ui.selectable_value(&mut assigned, None, unassigned);
                             for assignment in gamepads {
@@ -327,7 +326,7 @@ impl State {
                 }
                 None => {
                     ui.add_enabled_ui(false, |ui| {
-                        let combo = egui::ComboBox::from_id_source("assigned_gamepad")
+                        let combo = egui::ComboBox::from_label(gamepad_label)
                             .selected_text("Gamepads not supported");
                         combo.show_ui(ui, |_| {});
                     });
