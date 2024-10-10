@@ -91,20 +91,20 @@ pub struct ShortcutWidget<'a, T> {
     phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a, T> Deref for ShortcutWidget<'a, T> {
+impl<T> Deref for ShortcutWidget<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<'a, T> DerefMut for ShortcutWidget<'a, T> {
+impl<T> DerefMut for ShortcutWidget<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<'a, T> Widget for ShortcutWidget<'a, T>
+impl<T> Widget for ShortcutWidget<'_, T>
 where
     T: Widget,
 {
@@ -139,7 +139,7 @@ impl<'a> ToggleValue<'a> {
     }
 }
 
-impl<'a> Widget for ToggleValue<'a> {
+impl Widget for ToggleValue<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let mut res = ui.selectable_label(*self.selected, self.text);
         if res.clicked() {
@@ -167,7 +167,7 @@ impl<'a, T: PartialEq> RadioValue<'a, T> {
     }
 }
 
-impl<'a, T: PartialEq> Widget for RadioValue<'a, T> {
+impl<T: PartialEq> Widget for RadioValue<'_, T> {
     fn ui(self, ui: &mut Ui) -> Response {
         let mut res = ui.radio(*self.current_value == self.alternative, self.text);
         if res.clicked() && *self.current_value != self.alternative {
