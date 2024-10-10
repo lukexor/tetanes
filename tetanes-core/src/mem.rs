@@ -2,7 +2,7 @@
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{num::NonZeroUsize, str::FromStr};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
@@ -123,107 +123,130 @@ impl FromStr for RamState {
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct MemBanks {
+pub struct Banks {
     start: usize,
-    end: usize,
-    size: usize,
-    window: usize,
+    end: NonZeroUsize,
+    size: NonZeroUsize,
+    window: NonZeroUsize,
     shift: usize,
     mask: usize,
     banks: Vec<usize>,
-    page_count: usize,
+    page_count: NonZeroUsize,
 }
 
-impl MemBanks {
-    pub fn new(start: usize, end: usize, capacity: usize, window: usize) -> Self {
-        let size = end - start;
-        let mut banks = vec![0; (size + 1) / window];
+#[derive(thiserror::Error, Debug)]
+#[must_use]
+pub enum Error {
+    #[error("bank `{field}` must be non-zero.{context}")]
+    Zero {
+        field: &'static str,
+        context: String,
+    },
+    #[error("bank `window` must be greater than total bank `size`")]
+    InvalidWindow,
+}
+
+impl Banks {
+    pub fn new(
+        start: usize,
+        end: impl TryInto<NonZeroUsize>,
+        capacity: impl TryInto<NonZeroUsize>,
+        window: impl TryInto<NonZeroUsize>,
+    ) -> Result<Self, Error> {
+        let end = end.try_into().map_err(|_| Error::Zero {
+            field: "end",
+            context: format!(" bank start: ${start:04X}"),
+        })?;
+        let capacity = capacity.try_into().map_err(|_| Error::Zero {
+            field: "capacity",
+            context: format!(" bank range: ${start:04X}..=${end:04X}"),
+        })?;
+        let window = window.try_into().map_err(|_| Error::Zero {
+            field: "window",
+            context: format!(" bank range: ${start:04X}..=${end:04X} (capacity: ${capacity:04X})"),
+        })?;
+        let size = NonZeroUsize::new(end.get() - start).ok_or(Error::Zero {
+            field: "size",
+            context: format!(
+                "  bank range: ${start:04X}..=${end:04X} (capacity: ${capacity:04X}, window: ${window:04X})"
+            ),
+        })?;
+        let bank_count =
+            NonZeroUsize::new((size.get() + 1) / window).ok_or(Error::InvalidWindow)?;
+
+        let mut banks = vec![0; bank_count.get()];
         for (i, bank) in banks.iter_mut().enumerate() {
-            *bank = i * window;
+            *bank = i * window.get();
         }
-        let page_count = std::cmp::max(1, capacity / window);
-        Self {
+        // If capacity < window, clamp page_count to 1
+        let page_count =
+            NonZeroUsize::new(capacity.get() / window.get()).unwrap_or(NonZeroUsize::MIN);
+
+        Ok(Self {
             start,
             end,
             size,
             window,
             shift: window.trailing_zeros() as usize,
-            mask: page_count - 1,
+            mask: page_count.get() - 1,
             banks,
             page_count,
-        }
+        })
     }
 
     pub fn set(&mut self, slot: usize, bank: usize) {
         assert!(slot < self.banks.len());
         self.banks[slot] = (bank & self.mask) << self.shift;
-        debug_assert!(self.banks[slot] < self.page_count * self.window);
+        debug_assert!(self.banks[slot] < self.page_count.get() * self.window.get());
     }
 
-    pub fn set_range(&mut self, start: usize, end: usize, bank: usize) {
+    pub fn set_range(&mut self, start: usize, end: impl TryInto<NonZeroUsize>, bank: usize) {
+        let Ok(end) = end.try_into() else {
+            tracing::warn!("invalid bank range: `end` must be non-zero");
+            return;
+        };
+
         let mut new_addr = (bank & self.mask) << self.shift;
-        for slot in start..=end {
+        for slot in start..=end.get() {
             assert!(slot < self.banks.len());
             self.banks[slot] = new_addr;
-            debug_assert!(self.banks[slot] < self.page_count * self.window);
-            new_addr += self.window;
+            debug_assert!(self.banks[slot] < self.page_count.get() * self.window.get());
+            new_addr += self.window.get();
         }
     }
 
     #[must_use]
     pub const fn last(&self) -> usize {
-        self.page_count.saturating_sub(1)
+        self.page_count.get() - 1
     }
 
     #[must_use]
     pub const fn get(&self, addr: u16) -> usize {
-        // $6005    - 0b0110000000000101 -> bank 0
-        //  ($2000)   0b0010000000000000
-        //
-        // $8005    - 0b1000000000000101 -> bank 0
-        //   ($4000)  0b0100000000000000
-        // $C005    - 0b1100000000000101 -> bank 1
-        //
-        // $8005    - 0b1000000000000101 -> bank 0
-        // $A005    - 0b1010000000000101 -> bank 1
-        // $C005    - 0b1100000000000101 -> bank 2
-        // $E005    - 0b1110000000000101 -> bank 3
-        //   ($2000)  0b0010000000000000
-        ((addr as usize) & self.size) >> self.shift
+        ((addr as usize) & self.size.get()) >> self.shift
     }
 
     #[must_use]
     pub fn translate(&self, addr: u16) -> usize {
-        // $6005    - 0b0110000000000101 -> bank 0
-        //  ($2000)   0b0010000000000000
-        //
-        // $8005    - 0b1000000000000101 -> bank 0
-        //   ($4000)  0b0100000000000000
-        // $C005    - 0b1100000000000101 -> bank 1
-        //
-        // $8005    - 0b1000000000000101 -> bank 0
-        //  0 -> $0000
-        //  1
-        //  2
-        // $A005    - 0b1010000000000101 -> bank 1
-        // $C005    - 0b1100000000000101 -> bank 2
-        // $E005    - 0b1110000000000101 -> bank 3
-        //   ($2000)  0b0010000000000000
         let slot = self.get(addr);
         assert!(slot < self.banks.len());
         let page = self.banks[slot];
-        page | (addr as usize) & (self.window - 1)
+        page | (addr as usize) & (self.window.get() - 1)
     }
 
     #[must_use]
-    pub const fn page_count(&self) -> usize {
+    pub fn page(&self, slot: usize) -> usize {
+        self.banks[slot]
+    }
+
+    #[must_use]
+    pub const fn page_count(&self) -> NonZeroUsize {
         self.page_count
     }
 }
 
-impl std::fmt::Debug for MemBanks {
+impl std::fmt::Debug for Banks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Bank")
             .field("start", &format_args!("${:04X}", self.start))
@@ -244,8 +267,14 @@ mod tests {
 
     #[test]
     fn get_bank() {
-        let size = 128 * 1024;
-        let banks = MemBanks::new(0x8000, 0xFFFF, size, 0x4000);
+        let size = NonZeroUsize::new(128 * 1024).unwrap();
+        let banks = Banks::new(
+            0x8000,
+            NonZeroUsize::new(0xFFFF).unwrap(),
+            size,
+            NonZeroUsize::new(0x4000).unwrap(),
+        )
+        .unwrap();
         assert_eq!(banks.get(0x8000), 0);
         assert_eq!(banks.get(0x9FFF), 0);
         assert_eq!(banks.get(0xA000), 0);
@@ -258,8 +287,14 @@ mod tests {
 
     #[test]
     fn bank_translate() {
-        let size = 128 * 1024;
-        let mut banks = MemBanks::new(0x8000, 0xFFFF, size, 0x2000);
+        let size = NonZeroUsize::new(128 * 1024).unwrap();
+        let mut banks = Banks::new(
+            0x8000,
+            NonZeroUsize::new(0xFFFF).unwrap(),
+            size,
+            NonZeroUsize::new(0x2000).unwrap(),
+        )
+        .unwrap();
 
         let last_bank = banks.last();
         assert_eq!(last_bank, 15, "bank count");

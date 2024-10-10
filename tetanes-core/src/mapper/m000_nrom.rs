@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ impl Nrom {
     const PRG_RAM_SIZE: usize = 8 * 1024;
     const CHR_RAM_SIZE: usize = 8 * 1024;
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         // Family Basic supported 2-4K of PRG-RAM, but we'll provide 8K by default.
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         // NROM doesn't have CHR-RAM - but a lot of homebrew games use Mapper 000 with CHR-RAM, so
@@ -33,7 +33,7 @@ impl Nrom {
             mirroring: cart.mirroring(),
             mirror_prg_rom: cart.prg_rom.len() <= 0x4000,
         };
-        nrom.into()
+        Ok(nrom.into())
     }
 }
 

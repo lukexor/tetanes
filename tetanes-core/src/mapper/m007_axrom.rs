@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Axrom {
     pub mirroring: Mirroring,
-    pub prg_rom_banks: MemBanks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Axrom {
@@ -23,15 +23,15 @@ impl Axrom {
     const CHR_RAM_SIZE: usize = 8 * 1024;
     const SINGLE_SCREEN_B: u8 = 0x10; // 0b10000
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         }
         let axrom = Self {
             mirroring: cart.mirroring(),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
         };
-        axrom.into()
+        Ok(axrom.into())
     }
 }
 

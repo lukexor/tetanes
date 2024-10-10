@@ -7,8 +7,8 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -60,9 +60,9 @@ pub struct Txrom {
     pub regs: Regs,
     pub mirroring: Mirroring,
     pub revision: Revision,
-    pub chr_banks: MemBanks,
-    pub prg_ram_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Txrom {
@@ -76,7 +76,7 @@ impl Txrom {
     const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
     const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         if cart.mirroring() == Mirroring::FourScreen {
             cart.add_exram(Self::FOUR_SCREEN_RAM_SIZE);
@@ -93,14 +93,14 @@ impl Txrom {
             regs: Regs::default(),
             mirroring: cart.mirroring(),
             revision: Revision::BC, // TODO compare to known games
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
-            prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW)?,
+            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
         };
         let last_bank = txrom.prg_rom_banks.last();
         txrom.prg_rom_banks.set(2, last_bank - 1);
         txrom.prg_rom_banks.set(3, last_bank);
-        txrom.into()
+        Ok(txrom.into())
     }
 
     pub fn set_revision(&mut self, rev: Revision) {
