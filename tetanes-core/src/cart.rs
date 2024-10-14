@@ -5,8 +5,8 @@ use crate::{
     fs,
     mapper::{
         self, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG,
-        Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom,
-        Sxrom, Txrom, Uxrom, Vrc6,
+        Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom154, Dxrom206, Dxrom76, Dxrom88, Dxrom95, Exrom,
+        Fxrom, Gxrom, Mapper, Mmc1Revision, Nrom, Pxrom, Sxrom, Txrom, Uxrom, Vrc6,
     },
     mem::RamState,
     ppu::Mirroring,
@@ -219,6 +219,11 @@ impl Cart {
             }
             66 => Gxrom::load(&mut cart)?,
             71 => Bf909x::load(&mut cart)?,
+            76 => Dxrom76::load(&mut cart)?,
+            88 => Dxrom88::load(&mut cart)?,
+            95 => Dxrom95::load(&mut cart)?,
+            154 => Dxrom154::load(&mut cart)?,
+            206 => Dxrom206::load(&mut cart)?,
             155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };

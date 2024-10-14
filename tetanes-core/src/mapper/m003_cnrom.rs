@@ -68,7 +68,7 @@ impl Mapped for Cnrom {
     }
 }
 
+impl Reset for Cnrom {}
 impl Clock for Cnrom {}
 impl Regional for Cnrom {}
-impl Reset for Cnrom {}
 impl Sram for Cnrom {}

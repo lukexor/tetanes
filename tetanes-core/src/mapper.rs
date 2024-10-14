@@ -26,6 +26,11 @@ pub use m034_bnrom::Bnrom;
 pub use m034_nina001::Nina001;
 pub use m066_gxrom::Gxrom;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
+pub use m076_dxrom::Dxrom as Dxrom76;
+pub use m088_dxrom::Dxrom as Dxrom88;
+pub use m095_dxrom::Dxrom as Dxrom95;
+pub use m154_dxrom::Dxrom as Dxrom154;
+pub use m206_dxrom::Dxrom as Dxrom206;
 
 pub mod bandai_fcg;
 pub mod m000_nrom;
@@ -43,6 +48,11 @@ pub mod m034_bnrom;
 pub mod m034_nina001;
 pub mod m066_gxrom;
 pub mod m071_bf909x;
+pub mod m076_dxrom;
+pub mod m088_dxrom;
+pub mod m095_dxrom;
+pub mod m154_dxrom;
+pub mod m206_dxrom;
 pub mod vrc_irq;
 
 #[derive(thiserror::Error, Debug)]
@@ -100,6 +110,11 @@ pub enum Mapper {
     Nina001,
     Gxrom,
     Bf909x,
+    Dxrom76,
+    Dxrom88,
+    Dxrom95,
+    Dxrom154,
+    Dxrom206,
 }
 
 impl Mapper {

@@ -102,7 +102,7 @@ impl MemMap for Bf909x {
     }
 }
 
+impl Reset for Bf909x {}
 impl Clock for Bf909x {}
 impl Regional for Bf909x {}
-impl Reset for Bf909x {}
 impl Sram for Bf909x {}

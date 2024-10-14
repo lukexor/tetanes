@@ -68,7 +68,7 @@ impl MemMap for ColorDreams {
     }
 }
 
+impl Reset for ColorDreams {}
 impl Clock for ColorDreams {}
 impl Regional for ColorDreams {}
-impl Reset for ColorDreams {}
 impl Sram for ColorDreams {}

@@ -74,7 +74,7 @@ impl MemMap for Axrom {
     }
 }
 
+impl Reset for Axrom {}
 impl Clock for Axrom {}
 impl Regional for Axrom {}
-impl Reset for Axrom {}
 impl Sram for Axrom {}

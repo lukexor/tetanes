@@ -323,10 +323,10 @@ impl MemMap for Vrc6 {
     }
 }
 
-impl Sample for Vrc6 {
-    #[must_use]
-    fn output(&self) -> f32 {
-        self.audio.output()
+impl Reset for Vrc6 {
+    fn reset(&mut self, kind: ResetKind) {
+        self.irq.reset(kind);
+        self.audio.reset(kind);
     }
 }
 
@@ -338,15 +338,15 @@ impl Clock for Vrc6 {
     }
 }
 
-impl Reset for Vrc6 {
-    fn reset(&mut self, kind: ResetKind) {
-        self.irq.reset(kind);
-        self.audio.reset(kind);
-    }
-}
-
 impl Regional for Vrc6 {}
 impl Sram for Vrc6 {}
+
+impl Sample for Vrc6 {
+    #[must_use]
+    fn output(&self) -> f32 {
+        self.audio.output()
+    }
+}
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
