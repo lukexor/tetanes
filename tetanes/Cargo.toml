@@ -41,7 +41,7 @@ cycle-accurate = []
 [dependencies]
 anyhow.workspace = true
 bincode.workspace = true
-bytemuck = "1.15"
+bytemuck = "1.19"
 cfg-if.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
