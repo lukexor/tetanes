@@ -59,8 +59,8 @@ impl Frame {
     /// Allocate a new frame for video output.
     pub fn new() -> Self {
         Self(
-            [(); Self::SIZE]
-                .iter()
+            [(); Self::SIZE / 4]
+                .into_iter()
                 .flat_map(|_| [0, 0, 0, 255])
                 .collect(),
         )
