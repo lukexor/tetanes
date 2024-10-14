@@ -70,7 +70,7 @@ impl Mapped for Uxrom {
     }
 }
 
+impl Reset for Uxrom {}
 impl Clock for Uxrom {}
 impl Regional for Uxrom {}
-impl Reset for Uxrom {}
 impl Sram for Uxrom {}

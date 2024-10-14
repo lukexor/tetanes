@@ -68,7 +68,7 @@ impl Mapped for Gxrom {
     }
 }
 
+impl Reset for Gxrom {}
 impl Clock for Gxrom {}
 impl Regional for Gxrom {}
-impl Reset for Gxrom {}
 impl Sram for Gxrom {}

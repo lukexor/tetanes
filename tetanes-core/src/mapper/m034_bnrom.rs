@@ -65,7 +65,7 @@ impl MemMap for Bnrom {
     }
 }
 
+impl Reset for Bnrom {}
 impl Clock for Bnrom {}
 impl Regional for Bnrom {}
-impl Reset for Bnrom {}
 impl Sram for Bnrom {}

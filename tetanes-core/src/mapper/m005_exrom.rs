@@ -554,16 +554,6 @@ impl Mapped for Exrom {
     }
 }
 
-impl Regional for Exrom {
-    fn region(&self) -> NesRegion {
-        self.dmc.region()
-    }
-
-    fn set_region(&mut self, region: NesRegion) {
-        self.dmc.set_region(region);
-    }
-}
-
 impl MemMap for Exrom {
     // CHR mode 0
     // PPU $0000..=$1FFF 8K switchable CHR bank
@@ -1008,14 +998,10 @@ impl MemMap for Exrom {
     }
 }
 
-impl Sample for Exrom {
-    #[must_use]
-    fn output(&self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        let pulse = PULSE_TABLE[(pulse1 + pulse2) as usize];
-        let dmc = TND_TABLE[self.dmc.output() as usize];
-        -(pulse + dmc)
+impl Reset for Exrom {
+    fn reset(&mut self, _kind: ResetKind) {
+        self.regs.prg_mode = PrgMode::Bank8k;
+        self.regs.chr_mode = ChrMode::Bank1k;
     }
 }
 
@@ -1052,14 +1038,28 @@ impl Clock for Exrom {
     }
 }
 
-impl Reset for Exrom {
-    fn reset(&mut self, _kind: ResetKind) {
-        self.regs.prg_mode = PrgMode::Bank8k;
-        self.regs.chr_mode = ChrMode::Bank1k;
+impl Regional for Exrom {
+    fn region(&self) -> NesRegion {
+        self.dmc.region()
+    }
+
+    fn set_region(&mut self, region: NesRegion) {
+        self.dmc.set_region(region);
     }
 }
 
 impl Sram for Exrom {}
+
+impl Sample for Exrom {
+    #[must_use]
+    fn output(&self) -> f32 {
+        let pulse1 = self.pulse1.output();
+        let pulse2 = self.pulse2.output();
+        let pulse = PULSE_TABLE[(pulse1 + pulse2) as usize];
+        let dmc = TND_TABLE[self.dmc.output() as usize];
+        -(pulse + dmc)
+    }
+}
 
 impl std::fmt::Debug for Exrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

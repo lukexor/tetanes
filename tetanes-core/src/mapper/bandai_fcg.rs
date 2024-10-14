@@ -1,4 +1,4 @@
-//! `Bandai FCG` (Mapper 016)
+//! `Bandai FCG` (Mappers 016, 153, 157, and 159)
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_016>
 

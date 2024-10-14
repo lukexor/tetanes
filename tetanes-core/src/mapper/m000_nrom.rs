@@ -37,6 +37,16 @@ impl Nrom {
     }
 }
 
+impl Mapped for Nrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl MemMap for Nrom {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
     // CPU $6000..=$7FFF 2K or 4K PRG-RAM Family Basic only. 8K is provided by default.
@@ -65,17 +75,7 @@ impl MemMap for Nrom {
     }
 }
 
-impl Mapped for Nrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
+impl Reset for Nrom {}
 impl Clock for Nrom {}
 impl Regional for Nrom {}
-impl Reset for Nrom {}
 impl Sram for Nrom {}

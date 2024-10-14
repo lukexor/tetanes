@@ -275,15 +275,6 @@ impl MemMap for Sxrom {
     }
 }
 
-impl Clock for Sxrom {
-    fn clock(&mut self) -> usize {
-        if self.regs.write_just_occurred > 0 {
-            self.regs.write_just_occurred -= 1;
-        }
-        1
-    }
-}
-
 impl Reset for Sxrom {
     fn reset(&mut self, kind: ResetKind) {
         self.regs.shift_register = Self::DEFAULT_SHIFT_REGISTER;
@@ -293,6 +284,15 @@ impl Reset for Sxrom {
         if kind == ResetKind::Hard {
             self.regs.write_just_occurred = 0;
         }
+    }
+}
+
+impl Clock for Sxrom {
+    fn clock(&mut self) -> usize {
+        if self.regs.write_just_occurred > 0 {
+            self.regs.write_just_occurred -= 1;
+        }
+        1
     }
 }
 
