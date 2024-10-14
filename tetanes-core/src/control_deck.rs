@@ -6,6 +6,7 @@ use crate::{
     cart::{self, Cart},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
     cpu::Cpu,
+    debug::Debugger,
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -421,6 +422,21 @@ impl ControlDeck {
     #[inline]
     pub fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
         self.cpu.bus.ppu.emulate_warmup = enabled;
+    }
+
+    /// Adds a debugger callback to be executed any time the debugger conditions
+    /// match.
+    pub fn add_debugger(&mut self, debugger: Debugger) {
+        match debugger {
+            Debugger::Ppu(debugger) => self.cpu.bus.ppu.debugger = Some(debugger),
+        }
+    }
+
+    /// Removes a debugger callback.
+    pub fn remove_debugger(&mut self, debugger: Debugger) {
+        match debugger {
+            Debugger::Ppu(_) => self.cpu.bus.ppu.debugger = None,
+        }
     }
 
     /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.

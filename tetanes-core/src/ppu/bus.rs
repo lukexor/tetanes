@@ -17,11 +17,11 @@ pub trait PpuAddr {
 
 impl PpuAddr for u16 {
     fn is_attr(&self) -> bool {
-        (*self & 0x03FF) >= 0x03C0
+        (*self & (Ppu::NT_SIZE - 1)) >= Ppu::ATTR_OFFSET
     }
 
     fn is_palette(&self) -> bool {
-        *self >= 0x3F00
+        *self >= Ppu::PALETTE_START
     }
 }
 
@@ -46,8 +46,8 @@ impl Default for Bus {
 }
 
 impl Bus {
-    const VRAM_SIZE: usize = 0x0800; // Two 1k Nametables
-    const PALETTE_SIZE: usize = 32; // 32 possible colors at a time
+    pub const VRAM_SIZE: usize = 0x0800; // Two 1k Nametables
+    pub const PALETTE_SIZE: usize = 32; // 32 possible colors at a time
 
     pub fn new() -> Self {
         Self {
@@ -134,6 +134,24 @@ impl Bus {
         val
     }
 
+    pub fn peek_ciram(&self, addr: u16, _access: Access) -> u8 {
+        match self.mapper.map_peek(addr) {
+            MappedRead::Bus => self.ciram[self.ciram_mirror(addr as usize)],
+            MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
+            MappedRead::ExRam(addr) => self.exram[addr],
+            MappedRead::Data(data) => data,
+            MappedRead::Chr(mapped) => {
+                panic!("unexpected mapped CHR read at ${addr:04X} for ${mapped:04X}")
+            }
+            MappedRead::PrgRom(mapped) => {
+                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+            }
+            MappedRead::PrgRam(mapped) => {
+                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+            }
+        }
+    }
+
     pub fn read_chr(&mut self, addr: u16, _access: Access) -> u8 {
         let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
             addr
@@ -149,10 +167,27 @@ impl Bus {
         val
     }
 
+    pub fn peek_chr(&self, addr: u16, _access: Access) -> u8 {
+        let addr = if let MappedRead::Chr(addr) = self.mapper.map_peek(addr) {
+            addr
+        } else {
+            addr.into()
+        };
+        if self.chr_ram.is_empty() {
+            self.chr_rom[addr]
+        } else {
+            self.chr_ram[addr]
+        }
+    }
+
     pub fn read_palette(&mut self, addr: u16, _access: Access) -> u8 {
         let val = self.palette[self.palette_mirror(addr as usize)];
         self.open_bus = val;
         val
+    }
+
+    pub const fn peek_palette(&self, addr: u16, _access: Access) -> u8 {
+        self.palette[self.palette_mirror(addr as usize)]
     }
 }
 

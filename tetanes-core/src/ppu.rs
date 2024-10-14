@@ -3,6 +3,7 @@
 use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
+    debug::PpuDebugger,
     mapper::{Mapped, Mapper},
     mem::{Access, Mem},
     ppu::{bus::Bus, frame::Frame},
@@ -80,7 +81,7 @@ pub struct Ppu {
     pub clock_divider: usize,
     /// (0, 340) cycles per scanline.
     pub cycle: u32,
-    /// (0,happen  261) NTSC or (0, 311) PAL/Dendy scanlines per frame.
+    /// (0, 261) NTSC or (0, 311) PAL/Dendy scanlines per frame.
     pub scanline: u32,
     /// Scanline that Vertical Blank (VBlank) starts on.
     pub vblank_scanline: u32,
@@ -149,6 +150,9 @@ pub struct Ppu {
     pub emulate_warmup: bool,
 
     pub open_bus: u8,
+
+    #[serde(skip)]
+    pub debugger: Option<PpuDebugger>,
 }
 
 impl Default for Ppu {
@@ -164,35 +168,47 @@ impl Ppu {
 
     pub const NT_START: u16 = 0x2000;
     pub const NT_SIZE: u16 = 0x0400;
+    pub const ATTR_OFFSET: u16 = 0x03C0;
     pub const PALETTE_START: u16 = 0x3F00;
     pub const PALETTE_END: u16 = 0x3F20;
 
-    const OAM_SIZE: usize = 256; // 64 4-byte sprites per frame
-    const SECONDARY_OAM_SIZE: usize = 32; // 8 4-byte sprites per scanline
+    pub const OAM_SIZE: usize = 256; // 64 4-byte sprites per frame
+    pub const SECONDARY_OAM_SIZE: usize = 32; // 8 4-byte sprites per scanline
 
     // Cycles
     // https://www.nesdev.org/wiki/PPU_rendering
-    const VBLANK: u32 = 1; // When VBlank flag gets set
-    const VISIBLE_START: u32 = 1; // Tile data fetching starts
-    const VISIBLE_END: u32 = 256; // 2 cycles each for 4 fetches = 32 tiles
-    const OAM_CLEAR_START: u32 = 1;
-    const OAM_CLEAR_END: u32 = 64;
-    const SPR_EVAL_START: u32 = 65;
-    const SPR_EVAL_END: u32 = 256;
-    const SPR_FETCH_START: u32 = 257; // Sprites for next scanline fetch starts
-    const SPR_FETCH_END: u32 = 320; // 2 cycles each for 4 fetches = 8 sprites
-    const COPY_Y_START: u32 = 280; // Copy Y scroll start
-    const COPY_Y_END: u32 = 304; // Copy Y scroll stop
-    const INC_Y: u32 = 256; // Increase Y scroll when it reaches end of the screen
-    const COPY_X: u32 = 257; // Copy X scroll when starting a new scanline
-    const BG_PREFETCH_START: u32 = 321; // Tile data for next scanline fetched
-    const BG_PREFETCH_END: u32 = 336; // 2 cycles each for 4 fetches = 2 tiles
-    const BG_DUMMY_START: u32 = 337; // Dummy fetches - use is unknown
-    const ODD_SKIP: u32 = 339; // Odd frames skip the last cycle
-    const CYCLE_END: u32 = 340; // 2 cycles each for 2 fetches
+    pub const VBLANK: u32 = 1; // When VBlank flag gets set
+    pub const VISIBLE_START: u32 = 1; // Tile data fetching starts
+    pub const VISIBLE_END: u32 = 256; // 2 cycles each for 4 fetches = 32 tiles
+    pub const OAM_CLEAR_START: u32 = 1;
+    pub const OAM_CLEAR_END: u32 = 64;
+    pub const SPR_EVAL_START: u32 = 65;
+    pub const SPR_EVAL_END: u32 = 256;
+    pub const SPR_FETCH_START: u32 = 257; // Sprites for next scanline fetch starts
+    pub const SPR_FETCH_END: u32 = 320; // 2 cycles each for 4 fetches = 8 sprites
+    pub const COPY_Y_START: u32 = 280; // Copy Y scroll start
+    pub const COPY_Y_END: u32 = 304; // Copy Y scroll stop
+    pub const INC_Y: u32 = 256; // Increase Y scroll when it reaches end of the screen
+    pub const COPY_X: u32 = 257; // Copy X scroll when starting a new scanline
+    pub const BG_PREFETCH_START: u32 = 321; // Tile data for next scanline fetched
+    pub const BG_PREFETCH_END: u32 = 336; // 2 cycles each for 4 fetches = 2 tiles
+    pub const BG_DUMMY_START: u32 = 337; // Dummy fetches - use is unknown
+    pub const ODD_SKIP: u32 = 339; // Odd frames skip the last cycle
+    pub const CYCLE_END: u32 = 340; // 2 cycles each for 2 fetches
 
     // Scanlines
-    const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
+    pub const VISIBLE_SCANLINE_END: u32 = 239; // Rendering graphics for the screen
+    pub const PRERENDER_SCANLINE_NTSC: u32 = 261;
+    pub const PRERENDER_SCANLINE_PAL: u32 = 311;
+    pub const PRERENDER_SCANLINE_DENDY: u32 = Self::PRERENDER_SCANLINE_PAL;
+    pub const VBLANK_SCANLINE_NTSC: u32 = 241;
+    pub const VBLANK_SCANLINE_PAL: u32 = Self::VBLANK_SCANLINE_NTSC;
+    pub const VBLANK_SCANLINE_DENDY: u32 = 291;
+
+    // Clock
+    pub const CLOCK_DIVIDER_NTSC: usize = 4;
+    pub const CLOCK_DIVIDER_PAL: usize = 5;
+    pub const CLOCK_DIVIDER_DENDY: usize = Self::CLOCK_DIVIDER_PAL;
 
     pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
 
@@ -274,9 +290,14 @@ impl Ppu {
             cycle_count: 0,
             reset_signal: false,
             emulate_warmup: false,
+
             open_bus: 0x00,
+
+            debugger: None,
         };
+
         ppu.set_region(ppu.region);
+
         ppu
     }
 
@@ -306,6 +327,250 @@ impl Ppu {
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.bus.mapper = mapper;
         self.bus.update_mirroring();
+    }
+
+    /// Return the current Nametable mirroring mode.
+    #[inline]
+    pub fn mirroring(&self) -> Mirroring {
+        self.bus.mirroring()
+    }
+
+    /// Clone the PPU state, excluding internal transient state, the current frame buffer.
+    pub fn clone_state(&self) -> Self {
+        Self {
+            master_clock: self.master_clock,
+            clock_divider: self.clock_divider,
+            cycle: self.cycle,
+            scanline: self.scanline,
+            vblank_scanline: self.vblank_scanline,
+            prerender_scanline: self.prerender_scanline,
+            pal_spr_eval_scanline: self.pal_spr_eval_scanline,
+            scroll: self.scroll,
+            mask: self.mask,
+            ctrl: self.ctrl,
+            status: self.status,
+            bus: self.bus.clone(), // We actually want to clone CHR ROM
+            curr_palette: self.curr_palette,
+            secondary_oamaddr: self.secondary_oamaddr,
+            oamdata: self.oamdata.clone(),
+            secondary_oamdata: self.secondary_oamdata,
+            sprites: self.sprites,
+            region: self.region,
+            cycle_count: self.cycle_count,
+            ..Default::default()
+        }
+    }
+
+    /// Load the passed given buffer with RGBA pixels from the current nametables.
+    pub fn load_nametables(&self, nametables: &mut [u8]) {
+        for i in 0..4 {
+            let base_addr = Ppu::NT_START + (i as u16) * Ppu::NT_SIZE;
+            let x_offset = (i % 2) * Ppu::WIDTH;
+            let y_offset = (i / 2) * Ppu::HEIGHT;
+
+            for addr in base_addr..(base_addr + Ppu::NT_SIZE - 64) {
+                let x_scroll = addr & Scroll::COARSE_X_MASK;
+                let y_scroll = (addr & Scroll::COARSE_Y_MASK) >> 5;
+
+                let base_nametable_addr =
+                    Ppu::NT_START | (addr & (Scroll::NT_X_MASK | Scroll::NT_Y_MASK));
+                let base_attr_addr = base_nametable_addr + Ppu::ATTR_OFFSET;
+
+                let tile_index = u16::from(self.bus.peek_ciram(addr, Access::Dummy));
+                let tile_addr = self.ctrl.bg_select | (tile_index << 4);
+
+                let supertile = ((y_scroll & 0xFC) << 1) + (x_scroll >> 2);
+                let attr = u16::from(
+                    self.bus
+                        .peek_ciram(base_attr_addr + supertile, Access::Dummy),
+                );
+                let attr_shift = (x_scroll & 0x02) | ((y_scroll & 0x02) << 1);
+                let palette_addr = ((attr >> attr_shift) & 0x03) << 2;
+
+                let tile_num = x_scroll + (y_scroll << 5);
+                let tile_x = (tile_num % 32) << 3;
+                let tile_y = (tile_num / 32) << 3;
+
+                // self.nametable_ids[(addr - Ppu::NT_START) as usize] = tile;
+                for y in 0..8 {
+                    let tile_addr = tile_addr + y;
+                    let tile_lo = self.bus.peek_chr(tile_addr, Access::Dummy);
+                    let tile_hi = self.bus.peek_chr(tile_addr + 8, Access::Dummy);
+                    for x in 0..8 {
+                        let tile_palette = ((tile_hi >> x) & 1) << 1 | (tile_lo >> x) & 1;
+                        let palette = palette_addr | u16::from(tile_palette);
+                        let color = self.bus.peek_palette(
+                            Ppu::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
+                            Access::Dummy,
+                        );
+                        let x = u32::from(tile_x + (7 - x));
+                        let y = u32::from(tile_y + y);
+                        Self::set_pixel(
+                            u16::from(color & self.mask.grayscale) | self.mask.emphasis,
+                            x + x_offset,
+                            y + y_offset,
+                            2 * Ppu::WIDTH,
+                            nametables,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Load the given buffer with RGBA pixels from the current pattern tables.
+    pub fn load_pattern_tables(&self, pattern_tables: &mut [u8]) {
+        for i in 0..2 {
+            let start = (i as u16) * 0x1000;
+            let end = start + 0x1000;
+            let x_offset = (i % 2) * Ppu::WIDTH / 2;
+            for tile_addr in (start..end).step_by(16) {
+                let tile_x = ((tile_addr % 0x1000) % 256) / 2;
+                let tile_y = ((tile_addr % 0x1000) / 256) * 8;
+                for y in 0..8 {
+                    let tile_lo = u16::from(self.bus.peek_chr(tile_addr + y, Access::Dummy));
+                    let tile_hi = u16::from(self.bus.peek_chr(tile_addr + y + 8, Access::Dummy));
+                    for x in 0..8 {
+                        let palette = (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01);
+                        let color = u16::from(
+                            self.bus
+                                .peek_palette(Ppu::PALETTE_START | palette, Access::Dummy),
+                        );
+                        let x = u32::from(tile_x + (7 - x));
+                        let y = u32::from(tile_y + y);
+                        Self::set_pixel(color, x + x_offset, y, Ppu::WIDTH, pattern_tables);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Load the given buffer with RGBA pixels from the current pattern tables.
+    pub fn load_oam(
+        &self,
+        oam_table: &mut [u8],
+        sprite_nametable: &mut [u8],
+        sprites: &mut [Sprite],
+    ) {
+        // TODO: de-duplicate this with load_sprites
+        for (i, oamdata) in self.oamdata.chunks(4).enumerate() {
+            if let [y, tile_index, attr, x] = oamdata {
+                let sprite_x = u32::from(*x);
+                let sprite_y = u32::from(*y);
+                let tile_index = u16::from(*tile_index);
+                let palette = ((attr & 0x03) << 2) | 0x10;
+                let bg_priority = (attr & 0x20) == 0x20;
+                let flip_horizontal = (attr & 0x40) == 0x40;
+                let flip_vertical = (attr & 0x80) == 0x80;
+
+                let height = self.ctrl.spr_height;
+                let tile_addr = if height == 16 {
+                    // Use bit 0 of tile index to determine pattern table
+                    ((tile_index & 0x01) * 0x1000) | ((tile_index & 0xFE) << 4)
+                } else {
+                    self.ctrl.spr_select | (tile_index << 4)
+                };
+
+                sprites[i] = Sprite {
+                    x: sprite_x,
+                    y: sprite_y,
+                    tile_addr,
+                    palette,
+                    bg_priority,
+                    flip_horizontal,
+                    flip_vertical,
+                    attr: *attr,
+                    ..Sprite::default()
+                };
+
+                let tile_x = (i % 8) as u32 * 8;
+                let tile_y = (i / 8) as u32 * 8;
+                for y in 0..(height as u16) {
+                    let mut line_offset = if flip_vertical {
+                        (height as u16) - 1 - y
+                    } else {
+                        y
+                    };
+                    if height == 16 && line_offset >= 8 {
+                        line_offset += 8;
+                    }
+                    let tile_lo = self.bus.peek_chr(tile_addr + line_offset, Access::Dummy);
+                    let tile_hi = self
+                        .bus
+                        .peek_chr(tile_addr + line_offset + 8, Access::Dummy);
+                    let y = u32::from(y);
+                    for x in 0..8 {
+                        // let spr_color = (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01);
+                        let spr_color = if flip_horizontal {
+                            (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01)
+                        } else {
+                            (((tile_hi << x) & 0x80) >> 6) | ((tile_lo << x) & 0x80) >> 7
+                        };
+                        let palette = palette + spr_color;
+                        let color = self.bus.peek_palette(
+                            Self::PALETTE_START
+                                | ((palette & 0x03 > 0) as u16 * u16::from(palette)),
+                            Access::Dummy,
+                        );
+
+                        Self::set_pixel(u16::from(color), tile_x + x, tile_y + y, 64, oam_table);
+
+                        let x = sprite_x + x;
+                        let y = sprite_y + y;
+                        let show_left_bg = self.mask.show_left_bg;
+                        let show_left_spr = self.mask.show_left_spr;
+                        let show_bg = self.mask.show_bg;
+                        let show_spr = self.mask.show_spr;
+                        let fine_x = self.scroll.fine_x;
+
+                        let left_clip_bg = x < 8 && !show_left_bg;
+                        let bg_color = if show_bg && !left_clip_bg {
+                            ((((self.tile_shift_hi << fine_x) & 0x8000) >> 14)
+                                | (((self.tile_shift_lo << fine_x) & 0x8000) >> 15))
+                                as u8
+                        } else {
+                            0
+                        };
+
+                        let left_clip_spr = x < 8 && !show_left_spr;
+                        if show_spr && !left_clip_spr && x < Ppu::WIDTH && y < Ppu::HEIGHT {
+                            let color = if bg_color == 0 || !bg_priority {
+                                color
+                            } else if (fine_x + ((x & 0x07) as u16)) < 8 {
+                                self.prev_palette + bg_color
+                            } else {
+                                self.curr_palette + bg_color
+                            };
+                            Self::set_pixel(u16::from(color), x, y, Ppu::WIDTH, sprite_nametable);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Load the given buffer with RGBA pixels from the current palettes.
+    pub fn load_palettes(&self, palettes: &mut [u8], colors: &mut [u8]) {
+        for addr in Ppu::PALETTE_START..Ppu::PALETTE_END {
+            let offset = addr - Ppu::PALETTE_START;
+            let x = u32::from(offset % 16);
+            let y = u32::from(offset / 16);
+            let color = self.bus.peek_palette(addr, Access::Dummy);
+            colors[offset as usize] = color;
+            Self::set_pixel(u16::from(color), x, y, 16, palettes);
+        }
+    }
+
+    fn set_pixel(color: u16, x: u32, y: u32, width: u32, pixels: &mut [u8]) {
+        let index = (color as usize) * 3;
+        let idx = 4 * (x + y * width) as usize;
+        assert!(Ppu::NTSC_PALETTE.len() > index + 2);
+        assert!(pixels.len() > 2);
+        assert!(idx + 2 < pixels.len());
+        pixels[idx] = Ppu::NTSC_PALETTE[index];
+        pixels[idx + 1] = Ppu::NTSC_PALETTE[index + 1];
+        pixels[idx + 2] = Ppu::NTSC_PALETTE[index + 2];
+        pixels[idx + 3] = 0xFF;
     }
 }
 
@@ -521,10 +786,10 @@ impl Ppu {
         let idx = (cycle - Self::SPR_FETCH_START) as usize / 8;
         let oam_idx = idx << 2;
 
-        if let [y, tile_number, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
+        if let [y, tile_index, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
             let x = u32::from(x);
             let y = u32::from(y);
-            let mut tile_number = u16::from(tile_number);
+            let mut tile_index = u16::from(tile_index);
             let flip_vertical = (attr & 0x80) == 0x80;
 
             let height = self.ctrl.spr_height;
@@ -540,18 +805,18 @@ impl Ppu {
 
             if idx >= spr_count {
                 line_offset = 0;
-                tile_number = 0xFF;
+                tile_index = 0xFF;
             }
 
             let tile_addr = if height == 16 {
                 // Use bit 0 of tile index to determine pattern table
-                let sprite_select = (tile_number & 0x01) * 0x1000;
+                let sprite_select = (tile_index & 0x01) * 0x1000;
                 if line_offset >= 8 {
                     line_offset += 8;
                 }
-                sprite_select | ((tile_number & 0xFE) << 4) | line_offset as u16
+                sprite_select | ((tile_index & 0xFE) << 4) | line_offset as u16
             } else {
-                self.ctrl.spr_select | (tile_number << 4) | line_offset as u16
+                self.ctrl.spr_select | (tile_index << 4) | line_offset as u16
             };
 
             if idx < spr_count {
@@ -564,6 +829,7 @@ impl Ppu {
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
                 sprite.flip_vertical = flip_vertical;
+                sprite.attr = attr;
                 for spr in self.spr_present.iter_mut().skip(sprite.x as usize).take(8) {
                     *spr = true;
                 }
@@ -593,7 +859,7 @@ impl Ppu {
         }
     }
 
-    fn pixel_color(&mut self) -> u8 {
+    fn pixel_palette(&mut self) -> u8 {
         // Local variables improve cache locality
         let x = self.cycle - 1;
         let show_left_bg = self.mask.show_left_bg;
@@ -662,9 +928,9 @@ impl Ppu {
 
         let color =
             if self.mask.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START {
-                let color = u16::from(self.pixel_color());
+                let palette = u16::from(self.pixel_palette());
                 self.bus.read_palette(
-                    Self::PALETTE_START + (color & 0x03 > 0) as u16 * color,
+                    Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
                     Access::Read,
                 )
             } else {
@@ -1096,9 +1362,9 @@ impl Clock for Ppu {
             // Post-render line
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
-            } else {
+            } else if self.scanline == self.prerender_scanline + 1 {
                 // Wrap scanline back to 0
-                self.scanline *= (self.scanline <= self.prerender_scanline) as u32;
+                self.scanline = 0;
             }
         } else {
             // cycle > 0
@@ -1115,6 +1381,12 @@ impl Clock for Ppu {
         }
 
         self.cycle_count = self.cycle_count.wrapping_add(1);
+
+        if let Some(inspector) = &self.debugger {
+            if self.cycle == inspector.cycle && self.scanline == inspector.scanline {
+                (*inspector.callback)(self.clone_state());
+            }
+        }
 
         1
     }
@@ -1137,10 +1409,23 @@ impl Regional for Ppu {
     }
 
     fn set_region(&mut self, region: NesRegion) {
+        // https://www.nesdev.org/wiki/Cycle_reference_chart
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
-            NesRegion::Auto | NesRegion::Ntsc => (4, 241, 261),
-            NesRegion::Pal => (5, 241, 311),
-            NesRegion::Dendy => (5, 291, 311),
+            NesRegion::Auto | NesRegion::Ntsc => (
+                Self::CLOCK_DIVIDER_NTSC,
+                Self::VBLANK_SCANLINE_NTSC,
+                Self::PRERENDER_SCANLINE_NTSC,
+            ),
+            NesRegion::Pal => (
+                Self::CLOCK_DIVIDER_PAL,
+                Self::VBLANK_SCANLINE_PAL,
+                Self::PRERENDER_SCANLINE_PAL,
+            ),
+            NesRegion::Dendy => (
+                Self::CLOCK_DIVIDER_DENDY,
+                Self::VBLANK_SCANLINE_DENDY,
+                Self::PRERENDER_SCANLINE_DENDY,
+            ),
         };
         self.region = region;
         self.clock_divider = clock_divider;

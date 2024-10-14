@@ -6,8 +6,8 @@ use crate::nes::{
     },
 };
 use egui::{
-    Align, Checkbox, Context, KeyboardShortcut, Layout, Pos2, Rect, Response, RichText, Ui, Widget,
-    WidgetText,
+    Checkbox, Context, KeyboardShortcut, Pos2, Rect, Response, Sense, TextStyle, TextWrapMode, Ui,
+    Widget, WidgetText,
 };
 use std::ops::{Deref, DerefMut};
 use tetanes_core::ppu::Ppu;
@@ -39,7 +39,7 @@ pub trait ShortcutText<'a>
 where
     Self: Sized + 'a,
 {
-    fn shortcut_text(self, shortcut_text: impl Into<RichText>) -> ShortcutWidget<'a, Self> {
+    fn shortcut_text(self, shortcut_text: impl Into<WidgetText>) -> ShortcutWidget<'a, Self> {
         ShortcutWidget {
             inner: self,
             shortcut_text: shortcut_text.into(),
@@ -87,7 +87,7 @@ pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input:
 #[must_use]
 pub struct ShortcutWidget<'a, T> {
     inner: T,
-    shortcut_text: RichText,
+    shortcut_text: WidgetText,
     phantom: std::marker::PhantomData<&'a ()>,
 }
 
@@ -111,12 +111,32 @@ where
     fn ui(self, ui: &mut Ui) -> Response {
         ui.horizontal(|ui| {
             let res = self.inner.ui(ui);
+
             if !self.shortcut_text.is_empty() {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    // Ensure sense is set to hover so that screen readers don't try to read it,
-                    // consistent with `shortcut_text` on `Button`
-                    ui.add(egui::Label::new(self.shortcut_text.weak()).sense(egui::Sense::hover()));
-                });
+                let shortcut_galley = self.shortcut_text.into_galley(
+                    ui,
+                    Some(TextWrapMode::Extend),
+                    f32::INFINITY,
+                    TextStyle::Button,
+                );
+
+                let available_rect = ui.available_rect_before_wrap();
+
+                let gap_before_shortcut_text = ui.spacing().item_spacing.x;
+                let mut desired_size = shortcut_galley.size();
+                desired_size.x += gap_before_shortcut_text;
+                // Ensure sense is set to hover so that screen readers don't try to read it,
+                // consistent with `shortcut_text` on `Button`
+                let (rect, _) = ui.allocate_at_least(desired_size, Sense::hover());
+
+                if ui.is_rect_visible(rect) {
+                    let text_pos = Pos2::new(
+                        available_rect.max.x - shortcut_galley.size().x,
+                        rect.center().y - 0.5 * shortcut_galley.size().y,
+                    );
+                    ui.painter()
+                        .galley(text_pos, shortcut_galley, ui.visuals().weak_text_color());
+                }
             }
             res
         })
@@ -258,5 +278,37 @@ pub fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
                 None
             }
         }
+    }
+}
+
+/// An animated dashed rectangle.
+pub fn animated_dashed_rect(
+    ui: &mut Ui,
+    rect: Rect,
+    stroke: impl Into<egui::Stroke>,
+    dash_length: f32,
+    gap_length: f32,
+) {
+    if ui.is_rect_visible(rect) {
+        ui.ctx().request_repaint(); // because it is animated
+
+        let rect = [
+            rect.left_top(),
+            rect.right_top(),
+            rect.right_bottom(),
+            rect.left_bottom(),
+            rect.left_top(),
+        ];
+        let time = ui.input(|i| i.time as f32);
+        let total_length = dash_length + gap_length;
+        let dash_offset = (time * 10.0) % total_length;
+
+        ui.painter().add(egui::Shape::dashed_line_with_offset(
+            &rect,
+            stroke,
+            &[dash_length],
+            &[gap_length],
+            dash_offset,
+        ));
     }
 }

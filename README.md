@@ -9,8 +9,6 @@
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
 [doc status]: https://img.shields.io/docsrs/tetanes?style=plastic
 [docs]: https://docs.rs/tetanes/
-[codecov]: https://codecov.io/gh/lukexor/tetanes/branch/main/graph/badge.svg?token=AMQJJ7B0LS
-[coverage]: https://codecov.io/gh/lukexor/tetanes
 [latest version]: https://img.shields.io/crates/v/tetanes?style=plastic
 [crates.io]: https://crates.io/crates/tetanes
 [downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
@@ -153,7 +151,8 @@ This will install the latest released version of the `TetaNES` binary to your
 `cargo` bin directory located at either `$HOME/.cargo/bin/` on a Unix-like
 platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
-Alternatively, if you have [`cargo binstall`](https://crates.io/crates/cargo-binstall/) installed:
+Alternatively, if you have [`cargo binstall`](https://crates.io/crates/cargo-binstall/)
+installed:
 
 ```sh
 cargo binstall tetanes

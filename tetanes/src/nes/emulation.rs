@@ -4,10 +4,9 @@ use crate::{
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
-        event::{
-            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
-        },
+        event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         renderer::{gui::MessageType, FrameRecycle},
+        RunState,
     },
     thread,
 };
@@ -32,7 +31,7 @@ use tetanes_core::{
     video::Frame,
 };
 use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 use winit::event::ElementState;
 
 pub mod replay;
@@ -369,6 +368,12 @@ impl State {
         puffin::profile_function!();
 
         match event {
+            EmulationEvent::AddDebugger(debugger) => {
+                self.control_deck.add_debugger(debugger.clone());
+            }
+            EmulationEvent::RemoveDebugger(debugger) => {
+                self.control_deck.remove_debugger(debugger.clone());
+            }
             EmulationEvent::AudioRecord(recording) => {
                 if self.control_deck.is_running() {
                     self.audio_record(*recording);
@@ -621,7 +626,7 @@ impl State {
     fn send_frame(&mut self) {
         match self.frame_tx.try_send_ref() {
             Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
-            Err(TrySendError::Full(_)) => debug!("dropped frame"),
+            Err(TrySendError::Full(_)) => trace!("dropped frame"),
             Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
     }

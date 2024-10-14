@@ -5,7 +5,9 @@ use crate::nes::{
     input::{Gamepads, Input},
     renderer::gui::lib::ViewportOptions,
 };
-use egui::{Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass};
+use egui::{
+    Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass, ViewportId,
+};
 use parking_lot::Mutex;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -35,6 +37,7 @@ pub struct State {
 #[derive(Debug)]
 #[must_use]
 pub struct Keybinds {
+    id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
     resources: Option<(Config, GamepadState)>,
@@ -68,6 +71,7 @@ impl Keybinds {
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
+            id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
             state: Arc::new(Mutex::new(State {
                 tx,
@@ -83,6 +87,10 @@ impl Keybinds {
         self.state.try_lock().map_or(false, |state| {
             state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
         })
+    }
+
+    pub const fn id(&self) -> ViewportId {
+        self.id
     }
 
     pub fn open(&self) -> bool {
@@ -138,13 +146,12 @@ impl Keybinds {
             return;
         };
 
-        let viewport_id = egui::ViewportId::from_hash_of("keybinds");
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Keybinds::TITLE)

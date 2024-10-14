@@ -16,7 +16,7 @@ pub struct Scroll {
     pub fine_y: u16,
     pub coarse_y: u16,
     pub v: u16,            // Subject to ADDR_MIRROR
-    t: u16,                // Temporary v - Also the addr of top-left onscreen tile
+    pub t: u16,            // Temporary v - Also the addr of top-left onscreen tile
     pub write_latch: bool, // 1st or 2nd write toggle
     delay_v_cycles: u32,
     delay_v: u16,
@@ -31,11 +31,11 @@ impl Scroll {
     // ||| |+------------- Nametable X offset
     // ||| +-------------- Nametable Y offset
     // +++---------------- 3 bit fine Y
-    pub(crate) const COARSE_X_MASK: u16 = 0x001F;
-    pub(crate) const COARSE_Y_MASK: u16 = 0x03E0;
-    pub(crate) const NT_X_MASK: u16 = 0x0400;
-    pub(crate) const NT_Y_MASK: u16 = 0x0800;
-    const FINE_Y_MASK: u16 = 0x7000;
+    pub const COARSE_X_MASK: u16 = 0x001F;
+    pub const COARSE_Y_MASK: u16 = 0x03E0;
+    pub const NT_X_MASK: u16 = 0x0400;
+    pub const NT_Y_MASK: u16 = 0x0800;
+    pub const FINE_Y_MASK: u16 = 0x7000;
     const X_MAX_COL: u16 = 31; // last column of tiles - 255 pixel width / 8 pixel wide tiles
     const Y_MAX_COL: u16 = 29; // last row of tiles - (240 pixel height / 8 pixel tall tiles) - 1
     const Y_OVER_COL: u16 = 31; // overscan row
@@ -94,7 +94,7 @@ impl Scroll {
             // Write Y on second write
             // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
             // val: HGFEDCBA
-            // t: .CBA..HG FED.....
+            // t:   .CBA..HG FED.....
             let coarse_y_lshift = 5;
             let fine_y_lshift = 12;
             self.t = self.t & !(Self::FINE_Y_MASK | Self::COARSE_Y_MASK) // Empty Y
@@ -104,8 +104,8 @@ impl Scroll {
             // Write X on first write
             // lo 3 bits goes into fine x, remaining 5 bits go into t for coarse x
             // val: HGFEDCBA
-            // t: ........ ...HGFED
-            // x:               CBA
+            // t:   ........ ...HGFED
+            // x:                 CBA
             self.t = self.t & !Self::COARSE_X_MASK // Empty coarse X
                 | ((val >> fine_rshift) & lo_5_bit_mask); // Set coarse X
             self.fine_x = val & fine_mask; // Set fine X
@@ -122,8 +122,8 @@ impl Scroll {
             // Write lo address on second write
             let lo_bits_mask = 0x7F00;
             // val: HGFEDCBA
-            // t: ........ HGFEDCBA
-            // v: t
+            // t:   ........ HGFEDCBA
+            // v:   t
             self.t = (self.t & lo_bits_mask) | u16::from(val);
             // PPUADDR update is apparently delayed by 2-3 PPU cycles (based on Visual NES findings)
             // A 3-cycle delay causes issues with the scanline test.
@@ -134,8 +134,8 @@ impl Scroll {
             let hi_bits_mask = 0x00FF;
             let six_bits_mask = 0x003F;
             // val: ..FEDCBA
-            //    FEDCBA98 76543210
-            // t: 00FEDCBA ........
+            //      FEDCBA98 76543210
+            // t:   00FEDCBA ........
             self.t = (self.t & hi_bits_mask) | ((u16::from(val) & six_bits_mask) << 8);
         }
         self.write_latch = !self.write_latch;
@@ -178,7 +178,6 @@ impl Scroll {
     }
 
     // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
-
     pub fn copy_y(&mut self) {
         //    .yyyN.YY YYY.....
         // t: .IHGF.ED CBA.....

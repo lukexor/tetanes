@@ -7,7 +7,8 @@ pub struct Texture {
     pub label: Option<&'static str>,
     pub id: TextureId,
     pub texture: wgpu::Texture,
-    pub size: wgpu::Extent3d,
+    pub size: Vec2,
+    pub output_size: Vec2,
     pub view: wgpu::TextureView,
     pub aspect_ratio: f32,
 }
@@ -20,16 +21,15 @@ impl Texture {
         label: Option<&'static str>,
     ) -> Self {
         let max_texture_side = render_state.max_texture_side() as f32;
-        let size = wgpu::Extent3d {
-            width: size.x.min(max_texture_side) as u32,
-            height: size.y.min(max_texture_side) as u32,
-            depth_or_array_layers: 1,
-        };
         let texture = render_state
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
-                size,
+                size: wgpu::Extent3d {
+                    width: size.x.min(max_texture_side) as u32,
+                    height: size.y.min(max_texture_side) as u32,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -59,6 +59,10 @@ impl Texture {
             label,
             texture,
             size,
+            output_size: Vec2 {
+                x: size.x * aspect_ratio,
+                y: size.y,
+            },
             view,
             aspect_ratio,
             id,
@@ -69,31 +73,38 @@ impl Texture {
         *self = Self::new(render_state, size, aspect_ratio, self.label);
     }
 
-    pub fn sized_texture(&self) -> SizedTexture {
-        SizedTexture::new(
-            self.id,
-            Vec2 {
-                x: self.size.width as f32 * self.aspect_ratio,
-                y: self.size.height as f32,
-            },
-        )
+    pub fn sized(&self) -> SizedTexture {
+        SizedTexture::new(self.id, self.output_size)
     }
 
     pub fn update(&self, queue: &wgpu::Queue, bytes: &[u8]) {
+        self.update_partial(queue, bytes, Vec2::ZERO, self.size);
+    }
+
+    pub fn update_partial(&self, queue: &wgpu::Queue, bytes: &[u8], origin: Vec2, size: Vec2) {
+        let size = wgpu::Extent3d {
+            width: size.x as u32,
+            height: size.y as u32,
+            depth_or_array_layers: 1,
+        };
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: wgpu::Origin3d {
+                    x: origin.x as u32,
+                    y: origin.y as u32,
+                    z: 0,
+                },
             },
             bytes,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * self.size.width),
-                rows_per_image: Some(self.size.height),
+                bytes_per_row: Some(4 * size.width),
+                rows_per_image: Some(size.height),
             },
-            self.size,
+            size,
         );
     }
 }
