@@ -227,15 +227,18 @@ Support for the following mappers is currently implemented or in development:
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | &lt;0.01%              |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;0.01%              |
+| 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | &lt;0.01%              |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;0.01%              |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;0.01%              |
+| 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;0.01%              |
+| 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;0.01%              |
 | 153 | Bandai FCG            | Famicom Jump II: Saikyou no 7-nin          | 1                      | &lt;0.01%              |
 | 154 | DxROM/Namco 108       | Devil Man                                  | 1                      | &lt;0.01%              |
 | 157 | Bandai FCG/Datach     | SD Gundam Wars                             | 7                      | &lt;0.01%              |
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;0.01%              |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;0.01%              |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
-|     |                       |                                            | ~2186 / 2447           | ~89.0%                 |
+|     |                       |                                            | ~2202 / 2447           | ~90.0%                 |
 
 <!-- markdownlint-enable line-length -->
 

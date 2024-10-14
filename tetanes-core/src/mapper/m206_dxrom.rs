@@ -73,6 +73,18 @@ impl Mapped for Dxrom {
 }
 
 impl MemMap for Dxrom {
+    // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
+    // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
+    // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
+    // PPU $1400..=$17FF (or $0400..=$07FF) 1K CHR-ROM/RAM Bank 4 Switchable --+ |
+    // PPU $1800..=$1BFF (or $0800..=$0BFF) 1K CHR-ROM/RAM Bank 5 Switchable ----+
+    // PPU $1C00..=$1FFF (or $0C00..=$0FFF) 1K CHR-ROM/RAM Bank 6 Switchable ----+
+
+    // CPU $8000..=$9FFF (or $C000..=$DFFF) 8K PRG-ROM Bank 1 Switchable
+    // CPU $A000..=$BFFF 8K PRG-ROM Bank 2 Switchable
+    // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
+    // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
+
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.inner.map_read(addr)
     }
@@ -82,13 +94,11 @@ impl MemMap for Dxrom {
     }
 
     fn map_write(&mut self, mut addr: u16, mut val: u8) -> MappedWrite {
-        // Redirect all 0x8000..=0xFFFF writes to 0x8000..=0x8001
-        if matches!(addr, 0x8000..=0xFFFF) {
-            addr &= 0x8001;
-            if addr == 0x8000 {
-                // Disable CHR mode 1 and Prg mode 1
-                val &= 0x3F;
-            }
+        // Apply register mask
+        addr &= 0xE001;
+        if addr == 0x8000 {
+            // Disable CHR mode 1 and Prg mode 1
+            val &= 0x3F;
         }
         self.inner.map_write(addr, val)
     }

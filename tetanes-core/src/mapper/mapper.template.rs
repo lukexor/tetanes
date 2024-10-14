@@ -43,6 +43,8 @@ impl Mapped for MapperName {
 }
 
 impl MemMap for MapperName {
+    // Memory and banking comment
+
     /// Implement MemMap methods
 }
 

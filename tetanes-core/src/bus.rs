@@ -176,12 +176,12 @@ impl ClockTo for Bus {
 impl Mem for Bus {
     fn read(&mut self, addr: u16, _access: Access) -> u8 {
         let val = match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
+            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_read(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
+                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -204,12 +204,12 @@ impl Mem for Bus {
 
     fn peek(&self, addr: u16, _access: Access) -> u8 {
         match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
+            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_peek(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
+                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -229,12 +229,18 @@ impl Mem for Bus {
 
     fn write(&mut self, addr: u16, val: u8, _access: Access) {
         match addr {
-            0x0000..=0x07FF => self.wram[addr as usize] = val,
+            0x0000..=0x07FF => {
+                if let Some(v) = self.wram.get_mut(addr as usize) {
+                    *v = val;
+                }
+            }
             0x4020..=0xFFFF => {
                 match self.ppu.bus.mapper.map_write(addr, val) {
                     MappedWrite::PrgRam(addr, val) => {
                         if !self.prg_ram.is_empty() && !self.prg_ram_protect {
-                            self.prg_ram[addr] = val;
+                            if let Some(v) = self.prg_ram.get_mut(addr) {
+                                *v = val;
+                            }
                         }
                     }
                     MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,

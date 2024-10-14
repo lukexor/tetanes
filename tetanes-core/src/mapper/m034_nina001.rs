@@ -38,8 +38,6 @@ impl Mapped for Nina001 {
         // hardwired to horizontal
         Mirroring::Horizontal
     }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
 impl MemMap for Nina001 {

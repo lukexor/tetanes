@@ -38,8 +38,6 @@ impl Mapped for Bnrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
 impl MemMap for Bnrom {
