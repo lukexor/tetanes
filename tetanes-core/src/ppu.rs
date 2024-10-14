@@ -479,7 +479,6 @@ impl Ppu {
                     bg_priority,
                     flip_horizontal,
                     flip_vertical,
-                    attr: *attr,
                     ..Sprite::default()
                 };
 
@@ -829,7 +828,6 @@ impl Ppu {
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
                 sprite.flip_vertical = flip_vertical;
-                sprite.attr = attr;
                 for spr in self.spr_present.iter_mut().skip(sprite.x as usize).take(8) {
                     *spr = true;
                 }
@@ -1362,7 +1360,7 @@ impl Clock for Ppu {
             // Post-render line
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
-            } else if self.scanline == self.prerender_scanline + 1 {
+            } else if self.scanline > self.prerender_scanline {
                 // Wrap scanline back to 0
                 self.scanline = 0;
             }

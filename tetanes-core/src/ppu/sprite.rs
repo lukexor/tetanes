@@ -16,7 +16,6 @@ pub struct Sprite {
     pub tile_addr: u16,
     pub tile_lo: u8,
     pub tile_hi: u8,
-    pub attr: u8,
     pub palette: u8,
     pub bg_priority: bool,
     pub flip_horizontal: bool,
@@ -31,7 +30,6 @@ impl Sprite {
             tile_addr: 0x0000,
             tile_lo: 0x00,
             tile_hi: 0x00,
-            attr: 0xFF,
             palette: 0x07,
             bg_priority: true,
             flip_horizontal: true,
@@ -54,7 +52,6 @@ impl fmt::Debug for Sprite {
             .field("tile_addr", &format_args!("${:04X}", &self.tile_addr))
             .field("tile_lo", &format_args!("${:02X}", &self.tile_lo))
             .field("tile_hi", &format_args!("${:02X}", &self.tile_hi))
-            .field("attr", &format_args!("${:02X}", &self.attr))
             .field("palette", &format_args!("${:02X}", &self.palette))
             .field("bg_priority", &self.bg_priority)
             .field("flip_horizontal", &self.flip_horizontal)
