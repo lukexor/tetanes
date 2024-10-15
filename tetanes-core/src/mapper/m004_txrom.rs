@@ -248,7 +248,7 @@ impl MemMap for Txrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
                 MappedWrite::ExRam((addr & 0x1FFF) as usize, val)
             }

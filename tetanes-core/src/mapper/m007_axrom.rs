@@ -59,7 +59,7 @@ impl MemMap for Axrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x8000..=0xFFFF => {
                 self.prg_rom_banks.set(0, (val & 0x0F).into());
                 self.mirroring = if val & Self::SINGLE_SCREEN_B == Self::SINGLE_SCREEN_B {

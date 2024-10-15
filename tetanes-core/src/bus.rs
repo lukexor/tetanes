@@ -158,6 +158,7 @@ impl Clock for Bus {
         let output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
+            Mapper::SunsoftFme7(ref sunsoft_fme7) => sunsoft_fme7.output(),
             _ => 0.0,
         };
         self.apu.add_mapper_output(output);

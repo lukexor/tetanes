@@ -283,7 +283,7 @@ impl Mem for Bus {
                         *v = val;
                     }
                 }
-                MappedWrite::Chr(mapped, val) => {
+                MappedWrite::ChrRam(mapped, val) => {
                     panic!("unexpected mapped CHR write at ${addr:04X} for ${mapped:04X} with ${val:02X}");
                 }
                 MappedWrite::PrgRam(mapped, val) => {
@@ -296,7 +296,7 @@ impl Mem for Bus {
             },
             0x0000..=0x1FFF => {
                 if !self.chr_ram.is_empty() {
-                    if let MappedWrite::Chr(addr, val) = self.mapper.map_write(addr, val) {
+                    if let MappedWrite::ChrRam(addr, val) = self.mapper.map_write(addr, val) {
                         if let Some(v) = self.chr_ram.get_mut(addr) {
                             *v = val;
                         }

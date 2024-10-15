@@ -68,7 +68,7 @@ impl MemMap for Nrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
             _ => MappedWrite::Bus,
         }

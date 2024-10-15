@@ -225,6 +225,7 @@ Support for the following mappers is currently implemented or in development:
 | 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;0.01%              |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;0.01%              |
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | &lt;0.01%              |
+| 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | &lt;0.01%              |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | &lt;0.01%              |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;0.01%              |
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | &lt;0.01%              |
@@ -238,7 +239,7 @@ Support for the following mappers is currently implemented or in development:
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;0.01%              |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;0.01%              |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
-|     |                       |                                            | ~2202 / 2447           | ~90.0%                 |
+|     |                       |                                            | ~2217 / 2447           | ~91.0%                 |
 
 <!-- markdownlint-enable line-length -->
 
