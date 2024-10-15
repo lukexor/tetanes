@@ -190,7 +190,7 @@ impl MemMap for Sxrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0x7FFF if self.prg_ram_enabled() => {
                 MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val)
             }

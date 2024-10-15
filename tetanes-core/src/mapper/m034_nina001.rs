@@ -56,7 +56,7 @@ impl MemMap for Nina001 {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => return MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => return MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0x7FFF => {
                 match addr {
                     0x7FFD => self.prg_rom_banks.set(0, (val & 0x01).into()),

@@ -25,6 +25,7 @@ pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
 pub use m034_nina001::Nina001;
 pub use m066_gxrom::Gxrom;
+pub use m069_sunsoft_fme7::SunsoftFme7;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 pub use m076_dxrom::Dxrom as Dxrom76;
 pub use m079_nina003_006::Nina003006;
@@ -48,6 +49,7 @@ pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
 pub mod m034_nina001;
 pub mod m066_gxrom;
+pub mod m069_sunsoft_fme7;
 pub mod m071_bf909x;
 pub mod m076_dxrom;
 pub mod m079_nina003_006;
@@ -111,6 +113,7 @@ pub enum Mapper {
     Bnrom,
     Nina001,
     Gxrom,
+    SunsoftFme7,
     Bf909x,
     Dxrom76,
     Nina003006,
@@ -136,27 +139,46 @@ impl Default for Mapper {
     }
 }
 
+/// Type of read operation for an address for a given Mapper.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedRead {
+    /// Defer to default data bus behavior for this read. Primarily used to read from
+    /// a mirrored Console-Internal RAM (i.e Nametable) address.
     Bus,
+    /// Read from a CHR ROM or RAM address.
     Chr(usize),
+    /// Read from a non-mirrored Console-Internal RAM (i.e. Nameteable) address for Mappers that
+    /// support custom Nametable Mirroring.
     CIRam(usize),
+    /// Read from an External RAM address for Mappers that support EXRAM.
     ExRam(usize),
+    /// Read from a PRG ROM address.
     PrgRom(usize),
+    /// Read from a PRG ROM address.
     PrgRam(usize),
+    /// Provide data directly for this read (i.e. from an internal Mapper register).
     Data(u8),
 }
 
+/// Type of write operation for an address for a given Mapper.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum MappedWrite {
+    /// Do nothing with this write.
     None,
+    /// Defer to default data bus behavior for this write.
     Bus,
-    Chr(usize, u8),
+    /// Write value to CHR RAM address.
+    ChrRam(usize, u8),
+    /// Write value to a non-mirrored Console-Internal RAM (i.e. Nametable) address for Mappers
+    /// that support custom Nametable Mirroring.
     CIRam(usize, u8),
+    /// Write value to an External RAM address for Mappers that support EXRAM.
     ExRam(usize, u8),
+    /// Write value to a PRG RAM address.
     PrgRam(usize, u8),
+    /// Toggle PRG RAM write protection.
     PrgRamProtect(bool),
 }
 

@@ -36,6 +36,16 @@ impl Gxrom {
     }
 }
 
+impl Mapped for Gxrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl MemMap for Gxrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
@@ -55,16 +65,6 @@ impl MemMap for Gxrom {
                 .set(0, ((val & Self::PRG_BANK_MASK) >> 4).into());
         }
         MappedWrite::Bus
-    }
-}
-
-impl Mapped for Gxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 

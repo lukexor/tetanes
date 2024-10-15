@@ -84,7 +84,7 @@ impl MemMap for Bf909x {
             self.revision = Revision::Bf9097;
         }
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x8000..=0xFFFF => {
                 if addr >= 0xC000 || self.revision != Revision::Bf9097 {
                     self.prg_rom_banks.set(0, val.into());
