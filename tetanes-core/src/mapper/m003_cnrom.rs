@@ -33,6 +33,16 @@ impl Cnrom {
     }
 }
 
+impl Mapped for Cnrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl MemMap for Cnrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Banks Switchable
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Fixed
@@ -55,16 +65,6 @@ impl MemMap for Cnrom {
             self.chr_banks.set(0, val.into());
         }
         MappedWrite::Bus
-    }
-}
-
-impl Mapped for Cnrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 

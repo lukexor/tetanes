@@ -35,6 +35,16 @@ impl Uxrom {
     }
 }
 
+impl Mapped for Uxrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
+}
+
 impl MemMap for Uxrom {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM/CHR-RAM Bank
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
@@ -50,23 +60,13 @@ impl MemMap for Uxrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x8000..=0xFFFF => {
                 self.prg_rom_banks.set(0, val.into());
                 MappedWrite::Bus
             }
             _ => MappedWrite::Bus,
         }
-    }
-}
-
-impl Mapped for Uxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 

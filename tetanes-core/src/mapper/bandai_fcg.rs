@@ -322,7 +322,7 @@ impl MemMap for BandaiFCG {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0xFFFF => {
                 // println!("write ${addr:04X} -> ${val:02X}");
                 match addr & 0x0F {
@@ -337,12 +337,11 @@ impl MemMap for BandaiFCG {
                         } else if matches!(self.sram_access, MemoryOp::Write | MemoryOp::ReadWrite)
                         {
                             self.write_eeprom_ctrl(val);
-                            return MappedWrite::None;
                         }
                     }
                     _ => (),
                 }
-                MappedWrite::Bus
+                MappedWrite::None
             }
             _ => MappedWrite::Bus,
         }
