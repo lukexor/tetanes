@@ -242,6 +242,19 @@ impl Emulation {
             Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
         }
     }
+
+    pub fn terminate(&mut self) {
+        match &mut self.threads {
+            Threads::Single(_) => (),
+            Threads::Multi(Multi { tx, handle }) => {
+                handle.thread().unpark();
+                if let Err(err) = tx.try_send(NesEvent::Ui(UiEvent::Terminate)) {
+                    error!("failed to send termination event. {err:?}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -356,6 +369,10 @@ impl State {
         puffin::profile_function!();
 
         match event {
+            NesEvent::Ui(UiEvent::Terminate) => {
+                self.unload_rom();
+                debug!("emulation stopped");
+            }
             NesEvent::Emulation(event) => self.on_emulation_event(event),
             NesEvent::Config(event) => self.on_config_event(event),
             _ => (),

@@ -2,7 +2,7 @@
 
 use crate::{
     cpu::{Cpu, Status},
-    mem::{Access, Mem},
+    mem::Mem,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
@@ -117,7 +117,7 @@ impl Cpu {
     ///    2    PC     R  read next instruction byte (and throw it away)
     /// ```
     pub fn acc(&mut self) {
-        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc); // Cycle 2, Read and throw away
     }
 
     /// Implied Addressing.
@@ -131,7 +131,7 @@ impl Cpu {
     ///    2    PC     R  read next instruction byte (and throw it away)
     /// ```
     pub fn imp(&mut self) {
-        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc); // Cycle 2, Read and throw away
     }
 
     /// Immediate Addressing.
@@ -252,7 +252,7 @@ impl Cpu {
     /// ```
     pub fn zpx(&mut self) {
         let addr = u16::from(self.read_instr()); // Cycle 2
-        let _ = self.read(addr, Access::Read); // Cycle 3
+        let _ = self.read(addr); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.x.into()) & 0x00FF;
     }
 
@@ -293,7 +293,7 @@ impl Cpu {
     /// ```
     pub fn zpy(&mut self) {
         let addr = u16::from(self.read_instr()); // Cycle 2
-        let _ = self.read(addr, Access::Read); // Cycle 3
+        let _ = self.read(addr); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.y.into()) & 0x00FF;
     }
 
@@ -455,7 +455,7 @@ impl Cpu {
         let addr = self.read_instr_u16(); // Cycle 2 & 3
         self.abs_addr = addr.wrapping_add(self.x.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     /// Absolute Address w/ Y offset.
@@ -533,7 +533,7 @@ impl Cpu {
         let addr = self.read_instr_u16(); // Cycles 2 & 3
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
     /// Indirect Addressing.
@@ -563,8 +563,8 @@ impl Cpu {
         let addr = self.read_instr_u16();
         if addr & 0xFF == 0xFF {
             // Simulate bug
-            let lo = self.read(addr, Access::Read);
-            let hi = self.read(addr & 0xFF00, Access::Read);
+            let lo = self.read(addr);
+            let hi = self.read(addr & 0xFF00);
             self.abs_addr = u16::from_le_bytes([lo, hi]);
         } else {
             // Normal behavior
@@ -635,7 +635,7 @@ impl Cpu {
     /// ```
     pub fn idx(&mut self) {
         let addr = self.read_instr(); // Cycle 2
-        let _ = self.read(u16::from(addr), Access::Read); // Cycle 3
+        let _ = self.read(u16::from(addr)); // Cycle 3
         let addr = addr.wrapping_add(self.x);
         self.abs_addr = self.read_zp_u16(addr); // Cycles 4 & 5
     }
@@ -720,7 +720,7 @@ impl Cpu {
         let addr = self.read_zp_u16(addr); // Cycles 3 & 4
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 }
 
@@ -751,17 +751,17 @@ impl Cpu {
 
     /// STA: Store A into M
     pub fn sta(&mut self) {
-        self.write(self.abs_addr, self.acc, Access::Write);
+        self.write(self.abs_addr, self.acc);
     }
 
     /// STX: Store X into M
     pub fn stx(&mut self) {
-        self.write(self.abs_addr, self.x, Access::Write);
+        self.write(self.abs_addr, self.x);
     }
 
     /// STY: Store Y into M
     pub fn sty(&mut self) {
-        self.write(self.abs_addr, self.y, Access::Write);
+        self.write(self.abs_addr, self.y);
     }
 
     /// TAX: Transfer A to X
@@ -961,7 +961,7 @@ impl Cpu {
             self.run_irq = false;
         }
 
-        self.read(self.pc, Access::Read); // Dummy read
+        self.read(self.pc); // Dummy read
 
         self.abs_addr = if self.rel_addr & 0x80 == 0x80 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
@@ -969,7 +969,7 @@ impl Cpu {
             self.pc.wrapping_add(self.rel_addr)
         };
         if Self::pages_differ(self.abs_addr, self.pc) {
-            self.read(self.pc, Access::Read); // Dummy read
+            self.read(self.pc); // Dummy read
         }
         self.pc = self.abs_addr;
     }
@@ -1060,7 +1060,7 @@ impl Cpu {
     ///                 byte to PCH
     /// ```
     pub fn jsr(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.push_u16(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
@@ -1078,7 +1078,7 @@ impl Cpu {
     ///  6  $0100,S  R  pull PCH from stack
     /// ```
     pub fn rti(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop()); // Cycle 4
         self.status &= !Status::U;
         self.status &= !Status::B;
@@ -1098,9 +1098,9 @@ impl Cpu {
     ///  6    PC     R  increment PC
     /// ```
     pub fn rts(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.pc = self.pop_u16().wrapping_add(1); // Cycles 4 & 5
-        let _ = self.read(self.pc, Access::Read); // Cycle 6
+        let _ = self.read(self.pc); // Cycle 6
     }
 
     //  Register opcodes
@@ -1194,7 +1194,7 @@ impl Cpu {
     ///  4  $0100,S  R  pull register from stack
     ///  ```
     pub fn plp(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop());
     }
 
@@ -1222,7 +1222,7 @@ impl Cpu {
     ///  4  $0100,S  R  pull register from stack
     /// ```
     pub fn pla(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.acc = self.pop();
         self.set_zn_status(self.acc);
     }
@@ -1448,7 +1448,7 @@ impl Cpu {
     /// TAS: Shortcut for STA then TXS
     pub fn tas(&mut self) {
         // STA
-        self.write(self.abs_addr, self.acc, Access::Write);
+        self.write(self.abs_addr, self.acc);
         // TXS
         self.sp = self.x;
     }

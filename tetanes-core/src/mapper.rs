@@ -21,6 +21,7 @@ pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
 pub use m010_fxrom::Fxrom;
 pub use m011_color_dreams::ColorDreams;
+pub use m019_namco163::Namco163;
 pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
 pub use m034_nina001::Nina001;
@@ -45,6 +46,7 @@ pub mod m007_axrom;
 pub mod m009_pxrom;
 pub mod m010_fxrom;
 pub mod m011_color_dreams;
+pub mod m019_namco163;
 pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
 pub mod m034_nina001;
@@ -71,19 +73,21 @@ pub enum Error {
 #[must_use]
 pub enum MapperRevision {
     // Mmc1 and Vrc6 should be properly detected by the mapper number
-    Mmc3(Mmc3Revision),   // No known detection except DB lookup
-    Bf909(Bf909Revision), // Can compare to submapper 1, if header is correct
+    /// No known detection except DB lookup
+    Mmc3(Mmc3Revision),
+    /// Can compare to submapper 1, if header is correct
+    Bf909(Bf909Revision),
 }
 
 impl std::fmt::Display for MapperRevision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            MapperRevision::Mmc3(rev) => match rev {
+            Self::Mmc3(rev) => match rev {
                 Mmc3Revision::A => "MMC3A",
                 Mmc3Revision::BC => "MMC3B/C",
                 Mmc3Revision::Acc => "MMC3Acc",
             },
-            MapperRevision::Bf909(rev) => match rev {
+            Self::Bf909(rev) => match rev {
                 Bf909Revision::Bf909x => "BF909x",
                 Bf909Revision::Bf9097 => "BF9097",
             },
@@ -109,6 +113,7 @@ pub enum Mapper {
     Fxrom,
     ColorDreams,
     BandaiFCG,
+    Namco163,
     Vrc6,
     Bnrom,
     Nina001,

@@ -384,7 +384,30 @@ impl ControlDeck {
             Mapper::Bf909x(mapper) => {
                 mapper.set_revision(self.mapper_revisions.bf909);
             }
-            _ => (),
+            // Remaining mappers all have more concrete detection via ROM headers
+            Mapper::None(_)
+            | Mapper::Nrom(_)
+            | Mapper::Sxrom(_)
+            | Mapper::Uxrom(_)
+            | Mapper::Cnrom(_)
+            | Mapper::Exrom(_)
+            | Mapper::Axrom(_)
+            | Mapper::Pxrom(_)
+            | Mapper::Fxrom(_)
+            | Mapper::ColorDreams(_)
+            | Mapper::BandaiFCG(_)
+            | Mapper::Namco163(_)
+            | Mapper::Vrc6(_)
+            | Mapper::Bnrom(_)
+            | Mapper::Nina001(_)
+            | Mapper::Gxrom(_)
+            | Mapper::SunsoftFme7(_)
+            | Mapper::Dxrom76(_)
+            | Mapper::Nina003006(_)
+            | Mapper::Dxrom88(_)
+            | Mapper::Dxrom95(_)
+            | Mapper::Dxrom154(_)
+            | Mapper::Dxrom206(_) => tracing::warn!("unhandled mapper revision variant"),
         }
     }
 

@@ -5,7 +5,7 @@
 use crate::{
     bus::Bus,
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
-    mem::{Access, Mem},
+    mem::Mem,
 };
 use bitflags::bitflags;
 use instr::{
@@ -213,7 +213,7 @@ impl Cpu {
     /// Peek at the next instruction.
     #[inline]
     pub fn next_instr(&self) -> Instr {
-        let opcode = self.peek(self.pc, Access::Dummy);
+        let opcode = self.peek(self.pc);
         Cpu::INSTRUCTIONS[opcode as usize]
     }
 
@@ -319,8 +319,8 @@ impl Cpu {
     ///  6    PC     R  fetch low byte of interrupt vector
     ///  7    PC     R  fetch high byte of interrupt vector
     pub fn irq(&mut self) {
-        self.read(self.pc, Access::Dummy);
-        self.read(self.pc, Access::Dummy);
+        self.read(self.pc);
+        self.read(self.pc);
         self.push_u16(self.pc);
 
         // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
@@ -421,7 +421,7 @@ impl Cpu {
         trace!("Starting DMA - CYC:{}", self.cycle);
 
         self.start_cycle(self.read_cycles.start);
-        self.bus.read(addr, Access::Dummy);
+        self.bus.read(addr);
         self.end_cycle(self.read_cycles.end);
         Self::clear_dma_halt();
 
@@ -437,7 +437,7 @@ impl Cpu {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.start_dma_cycle();
                     let dma_addr = self.bus.apu.dmc.dma_addr();
-                    read_val = self.bus.read(dma_addr, Access::Dummy);
+                    read_val = self.bus.read(dma_addr);
                     trace!(
                         "Loaded DMC DMA byte. ${dma_addr:04X}: {read_val} - CYC:{}",
                         self.cycle
@@ -448,9 +448,7 @@ impl Cpu {
                 } else if oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.start_dma_cycle();
-                    read_val = self
-                        .bus
-                        .read(Self::dma_oam_addr() + oam_offset, Access::Dummy);
+                    read_val = self.bus.read(Self::dma_oam_addr() + oam_offset);
                     self.end_cycle(self.read_cycles.end);
                     oam_offset += 1;
                     oam_dma_count += 1;
@@ -460,14 +458,14 @@ impl Cpu {
                     debug_assert!(Self::halt_for_dma() || Self::dma_dummy_read());
                     self.start_dma_cycle();
                     if !skip_dummy_reads {
-                        self.bus.read(addr, Access::Dummy); // throw away
+                        self.bus.read(addr); // throw away
                     }
                     self.end_cycle(self.read_cycles.end);
                 }
             } else if oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.start_dma_cycle();
-                self.bus.write(0x2004, read_val, Access::Dummy);
+                self.bus.write(0x2004, read_val);
                 self.end_cycle(self.read_cycles.end);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
@@ -477,7 +475,7 @@ impl Cpu {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
                 self.start_dma_cycle();
                 if !skip_dummy_reads {
-                    self.bus.read(addr, Access::Dummy); // throw away
+                    self.bus.read(addr); // throw away
                 }
                 self.end_cycle(self.read_cycles.end);
             }
@@ -504,7 +502,7 @@ impl Cpu {
     /// Push a byte to the stack.
     #[inline]
     fn push(&mut self, val: u8) {
-        self.write(Self::SP_BASE | u16::from(self.sp), val, Access::Write);
+        self.write(Self::SP_BASE | u16::from(self.sp), val);
         self.sp = self.sp.wrapping_sub(1);
     }
 
@@ -513,28 +511,22 @@ impl Cpu {
     #[must_use]
     fn pop(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(Self::SP_BASE | u16::from(self.sp), Access::Read)
+        self.read(Self::SP_BASE | u16::from(self.sp))
     }
 
     /// Peek byte at the top of the stack.
     #[inline]
     #[must_use]
     pub fn peek_stack(&self) -> u8 {
-        self.peek(
-            Self::SP_BASE | u16::from(self.sp.wrapping_add(1)),
-            Access::Dummy,
-        )
+        self.peek(Self::SP_BASE | u16::from(self.sp.wrapping_add(1)))
     }
 
     /// Peek at the top of the stack.
     #[inline]
     #[must_use]
     pub fn peek_stack_u16(&self) -> u16 {
-        let lo = self.peek(Self::SP_BASE | u16::from(self.sp), Access::Dummy);
-        let hi = self.peek(
-            Self::SP_BASE | u16::from(self.sp.wrapping_add(1)),
-            Access::Dummy,
-        );
+        let lo = self.peek(Self::SP_BASE | u16::from(self.sp));
+        let hi = self.peek(Self::SP_BASE | u16::from(self.sp.wrapping_add(1)));
         u16::from_le_bytes([lo, hi])
     }
 
@@ -565,7 +557,7 @@ impl Cpu {
         self.fetched_data = if matches!(mode, IMP | ACC) {
             acc
         } else {
-            self.read(abs_addr, Access::Read) // Cycle 2/4/5 read
+            self.read(abs_addr) // Cycle 2/4/5 read
         };
     }
 
@@ -587,7 +579,7 @@ impl Cpu {
             // ABX/ABY/IDY all add `reg` to `abs_addr`, so this checks if it wrapped
             // around to 0.
             if (abs_addr & 0x00FF) < u16::from(reg) {
-                self.fetched_data = self.read(abs_addr, Access::Read);
+                self.fetched_data = self.read(abs_addr);
             }
         } else {
             self.fetch_data();
@@ -600,7 +592,7 @@ impl Cpu {
         match self.instr.addr_mode() {
             IMP | ACC => self.acc = val,
             IMM => (), // noop
-            _ => self.write(self.abs_addr, val, Access::Write),
+            _ => self.write(self.abs_addr, val),
         }
     }
 
@@ -608,7 +600,7 @@ impl Cpu {
     #[inline]
     #[must_use]
     fn read_instr(&mut self) -> u8 {
-        let val = self.read(self.pc, Access::Read);
+        let val = self.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         val
     }
@@ -626,8 +618,8 @@ impl Cpu {
     #[inline]
     #[must_use]
     pub fn read_u16(&mut self, addr: u16) -> u16 {
-        let lo = self.read(addr, Access::Read);
-        let hi = self.read(addr.wrapping_add(1), Access::Read);
+        let lo = self.read(addr);
+        let hi = self.read(addr.wrapping_add(1));
         u16::from_le_bytes([lo, hi])
     }
 
@@ -635,8 +627,8 @@ impl Cpu {
     #[inline]
     #[must_use]
     pub fn peek_u16(&self, addr: u16) -> u16 {
-        let lo = self.peek(addr, Access::Dummy);
-        let hi = self.peek(addr.wrapping_add(1), Access::Dummy);
+        let lo = self.peek(addr);
+        let hi = self.peek(addr.wrapping_add(1));
         u16::from_le_bytes([lo, hi])
     }
 
@@ -644,8 +636,8 @@ impl Cpu {
     #[inline]
     #[must_use]
     fn read_zp_u16(&mut self, addr: u8) -> u16 {
-        let lo = self.read(addr.into(), Access::Read);
-        let hi = self.read(addr.wrapping_add(1).into(), Access::Read);
+        let lo = self.read(addr.into());
+        let hi = self.read(addr.wrapping_add(1).into());
         u16::from_le_bytes([lo, hi])
     }
 
@@ -653,14 +645,14 @@ impl Cpu {
     #[inline]
     #[must_use]
     fn peek_zp_u16(&self, addr: u8) -> u16 {
-        let lo = self.peek(addr.into(), Access::Dummy);
-        let hi = self.peek(addr.wrapping_add(1).into(), Access::Dummy);
+        let lo = self.peek(addr.into());
+        let hi = self.peek(addr.wrapping_add(1).into());
         u16::from_le_bytes([lo, hi])
     }
 
     /// Disassemble the instruction at the given program counter.
     pub fn disassemble(&mut self, pc: &mut u16) -> &str {
-        let opcode = self.peek(*pc, Access::Dummy);
+        let opcode = self.peek(*pc);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
         self.disasm.clear();
 
@@ -669,42 +661,42 @@ impl Cpu {
 
         match instr.addr_mode() {
             IMM => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
                 let _ = write!(self.disasm, "${byte:02X}     {instr} #${byte:02X}");
             }
             ZP0 => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
-                let val = self.peek(byte.into(), Access::Dummy);
+                let val = self.peek(byte.into());
                 let _ = write!(
                     self.disasm,
                     "${byte:02X}     {instr} ${byte:02X} = #${val:02X}"
                 );
             }
             ZPX => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
                 let x_offset = byte.wrapping_add(self.x);
-                let val = self.peek(x_offset.into(), Access::Dummy);
+                let val = self.peek(x_offset.into());
                 let _ = write!(
                     self.disasm,
                     "${byte:02X}     {instr} ${byte:02X},X @ ${x_offset:02X} = #${val:02X}"
                 );
             }
             ZPY => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
                 let y_offset = byte.wrapping_add(self.y);
-                let val = self.peek(y_offset.into(), Access::Dummy);
+                let val = self.peek(y_offset.into());
                 let _ = write!(
                     self.disasm,
                     "${byte:02X}     {instr} ${byte:02X},Y @ ${y_offset:02X} = #${val:02X}"
                 );
             }
             ABS => {
-                let byte1 = self.peek(addr, Access::Dummy);
-                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
+                let byte1 = self.peek(addr);
+                let byte2 = self.peek(addr.wrapping_add(1));
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 if instr.op() == JMP || instr.op() == JSR {
@@ -713,7 +705,7 @@ impl Cpu {
                         "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X}"
                     );
                 } else {
-                    let val = self.peek(abs_addr, Access::Dummy);
+                    let val = self.peek(abs_addr);
                     let _ = write!(
                         self.disasm,
                         "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X} = #${val:02X}"
@@ -721,33 +713,33 @@ impl Cpu {
                 }
             }
             ABX => {
-                let byte1 = self.peek(addr, Access::Dummy);
-                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
+                let byte1 = self.peek(addr);
+                let byte2 = self.peek(addr.wrapping_add(1));
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
-                let val = self.peek(x_offset, Access::Dummy);
+                let val = self.peek(x_offset);
                 let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}");
             }
             ABY => {
-                let byte1 = self.peek(addr, Access::Dummy);
-                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
+                let byte1 = self.peek(addr);
+                let byte2 = self.peek(addr.wrapping_add(1));
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
-                let val = self.peek(y_offset, Access::Dummy);
+                let val = self.peek(y_offset);
                 let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}");
             }
             IND => {
-                let byte1 = self.peek(addr, Access::Dummy);
-                let byte2 = self.peek(addr.wrapping_add(1), Access::Dummy);
+                let byte1 = self.peek(addr);
+                let byte2 = self.peek(addr.wrapping_add(1));
                 let abs_addr = self.peek_u16(addr);
                 addr = addr.wrapping_add(2);
-                let lo = self.peek(abs_addr, Access::Dummy);
+                let lo = self.peek(abs_addr);
                 let hi = if abs_addr & 0x00FF == 0x00FF {
-                    self.peek(abs_addr & 0xFF00, Access::Dummy)
+                    self.peek(abs_addr & 0xFF00)
                 } else {
-                    self.peek(abs_addr + 1, Access::Dummy)
+                    self.peek(abs_addr + 1)
                 };
                 let val = u16::from_le_bytes([lo, hi]);
                 let _ = write!(
@@ -756,30 +748,30 @@ impl Cpu {
                 );
             }
             IDX => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
                 let x_offset = byte.wrapping_add(self.x);
                 let abs_addr = self.peek_zp_u16(x_offset);
-                let val = self.peek(abs_addr, Access::Dummy);
+                let val = self.peek(abs_addr);
                 let _ = write!(
                     self.disasm,
                     "${byte:02X}     {instr} (${byte:02X},X) @ ${abs_addr:04X} = #${val:02X}"
                 );
             }
             IDY => {
-                let byte = self.peek(addr, Access::Dummy);
+                let byte = self.peek(addr);
                 addr = addr.wrapping_add(1);
                 let abs_addr = self.peek_zp_u16(byte);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
-                let val = self.peek(y_offset, Access::Dummy);
+                let val = self.peek(y_offset);
                 let _ = write!(
                     self.disasm,
                     "${byte:02X}     {instr} (${byte:02X}),Y @ ${y_offset:04X} = #${val:02X}"
                 );
             }
             REL => {
-                let byte = self.peek(addr, Access::Dummy);
-                let mut rel_addr = self.peek(addr, Access::Dummy).into();
+                let byte = self.peek(addr);
+                let mut rel_addr = self.peek(addr).into();
                 addr = addr.wrapping_add(1);
                 if rel_addr & 0x80 == 0x80 {
                     // If address is negative, extend sign to 16-bits
@@ -952,24 +944,24 @@ impl Clock for Cpu {
 }
 
 impl Mem for Cpu {
-    fn read(&mut self, addr: u16, access: Access) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         if Self::halt_for_dma() {
             self.handle_dma(addr);
         }
 
         self.start_cycle(self.read_cycles.start);
-        let val = self.bus.read(addr, access);
+        let val = self.bus.read(addr);
         self.end_cycle(self.read_cycles.end);
         val
     }
 
-    fn peek(&self, addr: u16, access: Access) -> u8 {
-        self.bus.peek(addr, access)
+    fn peek(&self, addr: u16) -> u8 {
+        self.bus.peek(addr)
     }
 
-    fn write(&mut self, addr: u16, val: u8, access: Access) {
+    fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.write_cycles.start);
-        self.bus.write(addr, val, access);
+        self.bus.write(addr, val);
         self.end_cycle(self.write_cycles.end);
     }
 }
@@ -1039,8 +1031,8 @@ impl Reset for Cpu {
         Self::clear_dma_dummy_read();
 
         // Read directly from bus so as to not clock other components during reset
-        let lo = self.bus.read(Self::RESET_VECTOR, Access::Read);
-        let hi = self.bus.read(Self::RESET_VECTOR + 1, Access::Read);
+        let lo = self.bus.read(Self::RESET_VECTOR);
+        let hi = self.bus.read(Self::RESET_VECTOR + 1);
         self.pc = u16::from_le_bytes([lo, hi]);
 
         // The CPU takes 7 cycles to reset/power on
@@ -1105,7 +1097,7 @@ mod tests {
                 continue;
             }
             cpu.reset(ResetKind::Hard);
-            cpu.bus.write(0x0000, instr.opcode(), Access::Write);
+            cpu.bus.write(0x0000, instr.opcode());
             cpu.clock();
             let cpu_cyc = 7 + instr.cycles() + extra_cycle;
             assert_eq!(

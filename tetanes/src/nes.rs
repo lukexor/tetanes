@@ -59,11 +59,16 @@ pub(crate) enum State {
         painter_rx: Receiver<Painter>,
     },
     Running(Running),
+    Exiting,
 }
 
 impl State {
     pub const fn is_suspended(&self) -> bool {
         matches!(self, Self::Suspended)
+    }
+
+    pub const fn is_exiting(&self) -> bool {
+        matches!(self, Self::Exiting)
     }
 }
 
@@ -214,11 +219,11 @@ impl Nes {
                 self.state = State::Running(running);
                 Ok(())
             }
-            State::Suspended => anyhow::bail!("not in pending state"),
             State::Running(running) => {
                 self.state = State::Running(running);
                 Ok(())
             }
+            State::Suspended | State::Exiting => anyhow::bail!("not in pending state"),
         }
     }
 }
