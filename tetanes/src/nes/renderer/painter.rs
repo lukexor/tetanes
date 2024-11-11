@@ -481,7 +481,7 @@ impl RenderState {
                 label: Some("gui pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    entry_point: "vs_main",
+                    entry_point: Some("vs_main"),
                     module: &shader_module,
                     buffers: &[wgpu::VertexBufferLayout {
                         array_stride: 5 * 4,
@@ -495,7 +495,7 @@ impl RenderState {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader_module,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
                         blend: Some(wgpu::BlendState {
