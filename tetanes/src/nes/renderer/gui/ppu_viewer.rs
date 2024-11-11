@@ -345,10 +345,6 @@ impl PpuViewer {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        // let Some(cfg) = self.resources.take() else {
-        //     warn!("PpuViewer::prepare was not called with required resources");
-        //     return;
-        // };
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)

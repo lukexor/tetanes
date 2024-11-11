@@ -356,7 +356,7 @@ pub mod renderer {
             (viewport_ui_cb, raw_input.take())
         };
 
-        let mut output = ctx.run(raw_input, |ctx| match viewport_ui_cb {
+        let mut output = ctx.run(raw_input, |ctx| match &viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
             None => gui.borrow_mut().ui(ctx, None),
         });

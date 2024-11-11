@@ -14,6 +14,7 @@ with (import <nixpkgs> {
       ];
       targets = ["wasm32-unknown-unknown"];
     }))
+    trunk
     udev
   ];
 
