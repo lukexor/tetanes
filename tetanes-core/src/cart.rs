@@ -6,8 +6,8 @@ use crate::{
     mapper::{
         self, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG,
         Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom154, Dxrom206, Dxrom76, Dxrom88, Dxrom95, Exrom,
-        Fxrom, Gxrom, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom,
-        Txrom, Uxrom, Vrc6,
+        Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom,
+        SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
     },
     mem::{Memory, RamState},
     ppu::Mirroring,
@@ -220,6 +220,7 @@ impl Cart {
             10 => Fxrom::load(&mut cart)?,
             11 => ColorDreams::load(&mut cart)?,
             16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart)?,
+            18 => JalecoSs88006::load(&mut cart)?,
             19 | 210 => Namco163::load(&mut cart)?,
             24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
             26 => Vrc6::load(&mut cart, Vrc6Revision::B)?,

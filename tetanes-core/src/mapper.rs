@@ -21,6 +21,7 @@ pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
 pub use m010_fxrom::Fxrom;
 pub use m011_color_dreams::ColorDreams;
+pub use m018_jalecoss88006::JalecoSs88006;
 pub use m019_namco163::Namco163;
 pub use m024_m026_vrc6::Vrc6;
 pub use m034_bnrom::Bnrom;
@@ -46,6 +47,7 @@ pub mod m007_axrom;
 pub mod m009_pxrom;
 pub mod m010_fxrom;
 pub mod m011_color_dreams;
+pub mod m018_jalecoss88006;
 pub mod m019_namco163;
 pub mod m024_m026_vrc6;
 pub mod m034_bnrom;
@@ -113,6 +115,7 @@ pub enum Mapper {
     Fxrom,
     ColorDreams,
     BandaiFCG,
+    JalecoSs88006,
     Namco163,
     Vrc6,
     Bnrom,

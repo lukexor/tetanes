@@ -396,6 +396,7 @@ impl ControlDeck {
             | Mapper::Fxrom(_)
             | Mapper::ColorDreams(_)
             | Mapper::BandaiFCG(_)
+            | Mapper::JalecoSs88006(_)
             | Mapper::Namco163(_)
             | Mapper::Vrc6(_)
             | Mapper::Bnrom(_)
@@ -407,7 +408,7 @@ impl ControlDeck {
             | Mapper::Dxrom88(_)
             | Mapper::Dxrom95(_)
             | Mapper::Dxrom154(_)
-            | Mapper::Dxrom206(_) => tracing::warn!("unhandled mapper revision variant"),
+            | Mapper::Dxrom206(_) => (),
         }
     }
 

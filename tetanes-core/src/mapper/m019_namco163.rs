@@ -287,7 +287,8 @@ impl MemMap for Namco163 {
                             0 => Mirroring::SingleScreenA,
                             1 => Mirroring::Vertical,
                             2 => Mirroring::Horizontal,
-                            _ => Mirroring::SingleScreenB,
+                            3 => Mirroring::SingleScreenB,
+                            _ => unreachable!("invalid mirroring mode: ${val:02X}"),
                         });
                     }
                     Board::Namco163 => self.audio.write_register(addr, val),

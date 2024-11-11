@@ -221,6 +221,8 @@ Support for the following mappers is currently implemented or in development:
 | 010 | FxROM/MMC4            | Fire Emblem Gaiden                         | 3                      | &lt;0.01%              |
 | 011 | Color Dreams          | Crystal Mines, Metal Fighter               | 15                     | ~1%                    |
 | 016 | Bandai FCG            | Dragon Ball: Daimaou Fukkatsu              | 14                     | ~1%                    |
+| 018 | Jaleco SS 88006       | Magic John                                 | 15                     | ~1%                    |
+| 019 | Namco163              | Battle Fleet, Dragon Ninja                 | 20                     | ~1%                    |
 | 024 | VRC6a                 | Akumajou Densetsu                          | 1                      | &lt;0.01%              |
 | 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;0.01%              |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;0.01%              |
@@ -239,7 +241,8 @@ Support for the following mappers is currently implemented or in development:
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;0.01%              |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;0.01%              |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
-|     |                       |                                            | ~2217 / 2447           | ~91.0%                 |
+| 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;0.01%              |
+|     |                       |                                            | ~2256 / 2447           | ~92.2%                 |
 
 <!-- markdownlint-enable line-length -->
 

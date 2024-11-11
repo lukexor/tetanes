@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, Mapper, MemMap},
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ impl MapperName {
 }
 
 impl Mapped for MapperName {
-    // Implement Mapped methods
+    // Optional, Mapped methods
 }
 
 impl MemMap for MapperName {

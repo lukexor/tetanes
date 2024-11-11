@@ -360,6 +360,11 @@ impl Banks {
     }
 
     #[must_use]
+    pub fn page(&self, bank: usize) -> usize {
+        self.banks[bank] >> self.shift
+    }
+
+    #[must_use]
     pub fn page_offset(&self, bank: usize) -> usize {
         self.banks[bank]
     }
