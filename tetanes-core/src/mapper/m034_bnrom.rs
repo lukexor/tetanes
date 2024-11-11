@@ -38,8 +38,6 @@ impl Mapped for Bnrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
 impl MemMap for Bnrom {
@@ -56,7 +54,7 @@ impl MemMap for Bnrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => return MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => return MappedWrite::ChrRam(addr.into(), val),
             // Support up to 8MB PRG-ROM
             0x8000..=0xFFFF => self.prg_rom_banks.set(0, val.into()),
             _ => (),

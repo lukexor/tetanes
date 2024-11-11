@@ -11,7 +11,7 @@ use crate::{
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{Access, Mem, RamState},
+    mem::{Mem, Memory, RamState},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,7 @@ use std::{collections::HashMap, path::Path};
 /// |- - - - - - - - -| $0100 |                 |
 /// | Zero Page       |       |                 |
 /// |-----------------| $0000 |-----------------|
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bus {
     pub apu: Apu,
@@ -55,12 +55,12 @@ pub struct Bus {
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
-    pub prg_ram: Vec<u8>,
+    pub prg_ram: Memory,
     #[serde(skip)]
-    pub prg_rom: Vec<u8>,
+    pub prg_rom: Memory,
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: Vec<u8>,
+    pub wram: Memory,
 }
 
 impl Default for Bus {
@@ -79,12 +79,12 @@ impl Bus {
             input: Input::new(region),
             open_bus: 0x00,
             ppu: Ppu::new(region),
-            prg_ram: vec![],
+            prg_ram: Memory::new(),
             prg_ram_protect: false,
-            prg_rom: vec![],
+            prg_rom: Memory::new(),
             ram_state,
             region,
-            wram: RamState::filled(Self::WRAM_SIZE, ram_state),
+            wram: Memory::ram(ram_state, Self::WRAM_SIZE),
         }
     }
 
@@ -102,15 +102,18 @@ impl Bus {
     }
 
     #[must_use]
+    #[inline]
     pub fn sram(&self) -> &[u8] {
         &self.prg_ram
     }
 
-    pub fn load_sram(&mut self, sram: Vec<u8>) {
+    #[inline]
+    pub fn load_sram(&mut self, sram: Memory) {
         self.prg_ram = sram;
     }
 
     #[must_use]
+    #[inline]
     pub fn wram(&self) -> &[u8] {
         &self.wram
     }
@@ -157,7 +160,9 @@ impl Clock for Bus {
         self.ppu.bus.mapper.clock();
         let output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
+            Mapper::Namco163(ref namco163) => namco163.output(),
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
+            Mapper::SunsoftFme7(ref sunsoft_fme7) => sunsoft_fme7.output(),
             _ => 0.0,
         };
         self.apu.add_mapper_output(output);
@@ -174,14 +179,14 @@ impl ClockTo for Bus {
 }
 
 impl Mem for Bus {
-    fn read(&mut self, addr: u16, _access: Access) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
+            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_read(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
+                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -193,8 +198,8 @@ impl Mem for Bus {
             0x4016 => self.input.read(Player::One, &self.ppu),
             0x4017 => self.input.read(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
-            0x0800..=0x1FFF => self.read(addr & 0x07FF, _access), // WRAM Mirrors
-            0x2008..=0x3FFF => self.read(addr & 0x2007, _access), // Ppu Mirrors
+            0x0800..=0x1FFF => self.read(addr & 0x07FF), // WRAM Mirrors
+            0x2008..=0x3FFF => self.read(addr & 0x2007), // Ppu Mirrors
             _ => self.open_bus,
         };
         self.open_bus = val;
@@ -202,14 +207,14 @@ impl Mem for Bus {
         val
     }
 
-    fn peek(&self, addr: u16, _access: Access) -> u8 {
+    fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
+            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_peek(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
+                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -221,27 +226,30 @@ impl Mem for Bus {
             0x4016 => self.input.peek(Player::One, &self.ppu),
             0x4017 => self.input.peek(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
-            0x0800..=0x1FFF => self.peek(addr & 0x07FF, _access), // WRAM Mirrors
-            0x2008..=0x3FFF => self.peek(addr & 0x2007, _access), // Ppu Mirrors
+            0x0800..=0x1FFF => self.peek(addr & 0x07FF), // WRAM Mirrors
+            0x2008..=0x3FFF => self.peek(addr & 0x2007), // Ppu Mirrors
             _ => self.open_bus,
         }
     }
 
-    fn write(&mut self, addr: u16, val: u8, _access: Access) {
+    fn write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x07FF => self.wram[addr as usize] = val,
-            0x4020..=0xFFFF => {
-                match self.ppu.bus.mapper.map_write(addr, val) {
-                    MappedWrite::PrgRam(addr, val) => {
-                        if !self.prg_ram.is_empty() && !self.prg_ram_protect {
-                            self.prg_ram[addr] = val;
+            0x0000..=0x07FF => {
+                if let Some(v) = self.wram.get_mut(addr as usize) {
+                    *v = val;
+                }
+            }
+            0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val) {
+                MappedWrite::PrgRam(addr, val) => {
+                    if !self.prg_ram.is_empty() && !self.prg_ram_protect {
+                        if let Some(v) = self.prg_ram.get_mut(addr) {
+                            *v = val;
                         }
                     }
-                    MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                    _ => (),
                 }
-                self.ppu.bus.update_mirroring();
-            }
+                MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
+                _ => (),
+            },
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
             0x2003 => self.ppu.write_oamaddr(val),
@@ -272,8 +280,8 @@ impl Mem for Bus {
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
             0x2002 => self.ppu.open_bus = val,
-            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, _access), // WRAM Mirrors
-            0x2008..=0x3FFF => return self.write(addr & 0x2007, val, _access), // Ppu Mirrors
+            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val), // WRAM Mirrors
+            0x2008..=0x3FFF => return self.write(addr & 0x2007, val), // Ppu Mirrors
             _ => (),
         }
         self.open_bus = val;
@@ -296,9 +304,7 @@ impl Regional for Bus {
 
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
-        if kind == ResetKind::Hard {
-            RamState::fill(&mut self.wram, self.ram_state);
-        }
+        self.wram.reset(kind);
         self.ppu.reset(kind);
         self.apu.reset(kind);
     }
@@ -313,24 +319,6 @@ impl Sram for Bus {
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         fs::load(path.as_ref()).map(|data| self.load_sram(data))?;
         self.ppu.bus.mapper.load(path)
-    }
-}
-
-impl std::fmt::Debug for Bus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Bus")
-            .field("wram_len", &self.wram.len())
-            .field("region", &self.region)
-            .field("ram_state", &self.ram_state)
-            .field("prg_ram_len", &self.prg_ram.len())
-            .field("prg_ram_protect", &self.prg_ram_protect)
-            .field("prg_rom_len", &self.prg_rom.len())
-            .field("ppu", &self.ppu)
-            .field("apu", &self.apu)
-            .field("input", &self.input)
-            .field("genie_codes", &self.genie_codes.values())
-            .field("open_bus", &format_args!("${:02X}", &self.open_bus))
-            .finish()
     }
 }
 
@@ -370,62 +358,64 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = vec![0x66; 0x2000];
+        cart.chr_rom = Memory::with_size(0x2000);
+        cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x66, "chr_rom start");
-        bus.write(0x2006, 0x1F, Access::Write);
-        bus.write(0x2006, 0xFF, Access::Write);
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x66, "chr_rom end");
+        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x00);
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x66, "chr_rom start");
+        bus.write(0x2006, 0x1F);
+        bus.write(0x2006, 0xFF);
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x66, "chr_rom end");
 
         // Writes disallowed
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.write(0x2006, 0x10, Access::Write);
-        bus.write(0x2007, 0x77, Access::Write);
+        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x10);
+        bus.write(0x2007, 0x77);
 
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.write(0x2006, 0x10, Access::Write);
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x66, "chr_rom read-only");
+        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x10);
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x66, "chr_rom read-only");
     }
 
     #[test]
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = vec![0x66; 0x2000];
+        cart.chr_ram = Memory::with_size(0x2000);
+        cart.chr_ram.fill(0x66);
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.write(0x2006, 0x00, Access::Write);
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x66, "chr_ram start");
-        bus.write(0x2006, 0x1F, Access::Write);
-        bus.write(0x2006, 0xFF, Access::Write);
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x66, "chr_ram end");
+        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x00);
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x66, "chr_ram start");
+        bus.write(0x2006, 0x1F);
+        bus.write(0x2006, 0xFF);
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x66, "chr_ram end");
 
         // Writes allowed
-        bus.write(0x2006, 0x10, Access::Write);
-        bus.write(0x2006, 0x00, Access::Write);
+        bus.write(0x2006, 0x10);
+        bus.write(0x2006, 0x00);
         // PPU writes to $2006 are delayed by 2 PPU clocks
         bus.ppu.clock();
         bus.ppu.clock();
-        bus.write(0x2007, 0x77, Access::Write);
+        bus.write(0x2007, 0x77);
 
-        bus.write(0x2006, 0x10, Access::Write);
-        bus.write(0x2006, 0x00, Access::Write);
+        bus.write(0x2006, 0x10);
+        bus.write(0x2006, 0x00);
         // PPU writes to $2006 are delayed by 2 PPU clocks
         bus.ppu.clock();
         bus.ppu.clock();
-        bus.read(0x2007, Access::Read);
-        assert_eq!(bus.read(0x2007, Access::Read), 0x77, "chr_ram write");
+        bus.read(0x2007);
+        assert_eq!(bus.read(0x2007), 0x77, "chr_ram write");
     }
 
     #[test]
@@ -442,11 +432,11 @@ mod test {
         bus.load_cart(cart);
         bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
 
-        assert_eq!(bus.peek(addr, Access::Read), new_value, "peek code value");
-        assert_eq!(bus.read(addr, Access::Read), new_value, "read code value");
+        assert_eq!(bus.peek(addr), new_value, "peek code value");
+        assert_eq!(bus.read(addr), new_value, "read code value");
         bus.remove_genie_code(code);
-        assert_eq!(bus.peek(addr, Access::Read), orig_value, "peek orig value");
-        assert_eq!(bus.read(addr, Access::Read), orig_value, "read orig value");
+        assert_eq!(bus.peek(addr), orig_value, "peek orig value");
+        assert_eq!(bus.read(addr), orig_value, "read orig value");
     }
 
     #[test]
@@ -463,22 +453,22 @@ mod test {
     fn read_write_ram() {
         let mut bus = Bus::default();
 
-        bus.write(0x0001, 0x66, Access::Write);
-        assert_eq!(bus.peek(0x0001, Access::Read), 0x66, "peek ram");
-        assert_eq!(bus.read(0x0001, Access::Read), 0x66, "read ram");
-        assert_eq!(bus.read(0x0801, Access::Read), 0x66, "peek mirror 1");
-        assert_eq!(bus.read(0x0801, Access::Read), 0x66, "read mirror 1");
-        assert_eq!(bus.read(0x1001, Access::Read), 0x66, "peek mirror 2");
-        assert_eq!(bus.read(0x1001, Access::Read), 0x66, "read mirror 2");
-        assert_eq!(bus.read(0x1801, Access::Read), 0x66, "peek mirror 3");
-        assert_eq!(bus.read(0x1801, Access::Read), 0x66, "read mirror 3");
+        bus.write(0x0001, 0x66);
+        assert_eq!(bus.peek(0x0001), 0x66, "peek ram");
+        assert_eq!(bus.read(0x0001), 0x66, "read ram");
+        assert_eq!(bus.read(0x0801), 0x66, "peek mirror 1");
+        assert_eq!(bus.read(0x0801), 0x66, "read mirror 1");
+        assert_eq!(bus.read(0x1001), 0x66, "peek mirror 2");
+        assert_eq!(bus.read(0x1001), 0x66, "read mirror 2");
+        assert_eq!(bus.read(0x1801), 0x66, "peek mirror 3");
+        assert_eq!(bus.read(0x1801), 0x66, "read mirror 3");
 
-        bus.write(0x0802, 0x77, Access::Write);
-        assert_eq!(bus.read(0x0002, Access::Read), 0x77, "write mirror 1");
-        bus.write(0x1002, 0x88, Access::Write);
-        assert_eq!(bus.read(0x0002, Access::Read), 0x88, "write mirror 2");
-        bus.write(0x1802, 0x99, Access::Write);
-        assert_eq!(bus.read(0x0002, Access::Read), 0x99, "write mirror 3");
+        bus.write(0x0802, 0x77);
+        assert_eq!(bus.read(0x0002), 0x77, "write mirror 1");
+        bus.write(0x1002, 0x88);
+        assert_eq!(bus.read(0x0002), 0x88, "write mirror 2");
+        bus.write(0x1802, 0x99);
+        assert_eq!(bus.read(0x0002), 0x99, "write mirror 3");
     }
 
     #[test]

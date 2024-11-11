@@ -8,7 +8,7 @@ use crate::{
     cpu::{Cpu, Irq},
     fs,
     mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
-    mem::{Banks, RamState},
+    mem::{Banks, Memory},
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
@@ -91,8 +91,7 @@ impl BandaiFCG {
             if matches!(bandai_fcg.submapper_num, 0 | 5) && cart.prg_ram().len() == 256 {
                 // Connect a 256-byte EEPROM for iNES roms, and when submapper 5 + 256 bytes of
                 // save ram in header
-                bandai_fcg.standard_eeprom =
-                    Some(Eeprom::new(EepromModel::X24C02, cart.ram_state()));
+                bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C02));
             }
         } else if bandai_fcg.mapper_num == 157 {
             bandai_fcg.barcode_reader = Some(BarcodeReader::new());
@@ -107,14 +106,14 @@ impl BandaiFCG {
             // The NES 2.0 header's PRG-NVRAM field will only denote whether the game cartridge has
             // an additional 128-byte serial EEPROM
             if !cart.is_nes2() || cart.prg_ram().len() == 128 {
-                bandai_fcg.extra_eeprom = Some(Eeprom::new(EepromModel::X24C01, cart.ram_state()));
+                bandai_fcg.extra_eeprom = Some(Eeprom::new(EepromModel::X24C01));
             }
 
             // All mapper 157 games have an internal 256-byte EEPROM
-            bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C02, cart.ram_state()));
+            bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C02));
         } else if bandai_fcg.mapper_num == 159 {
             // LZ93D50 with 128 byte serial EEPROM (24C01)
-            bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C01, cart.ram_state()));
+            bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C01));
         }
 
         if bandai_fcg.mapper_num == 16 {
@@ -145,20 +144,17 @@ impl BandaiFCG {
     fn write_chr_bank(&mut self, addr: u16, val: u8) {
         let bank = usize::from(addr & 0x07);
         self.regs.chr_regs[bank] = val;
-        if self.mapper_num == 153 || self.prg_rom_banks.page_count().get() >= 0x20 {
+        if self.mapper_num == 153 || self.prg_rom_banks.page_count() >= 0x20 {
             self.regs.prg_bank_select = 0;
             for reg in self.regs.chr_regs {
                 self.regs.prg_bank_select |= (reg & 0x01) << 4;
             }
             self.prg_rom_banks
                 .set(0, (self.regs.prg_page | self.regs.prg_bank_select).into());
-            // println!("prg bank: 0 -> ${:04X}", self.prg_rom_banks.page(0));
             self.prg_rom_banks
                 .set(1, 0x0F | usize::from(self.regs.prg_bank_select));
-            // println!("prg bank: 1 -> ${:04X}", self.prg_rom_banks.page(1));
         } else if !self.has_chr_ram && self.mapper_num != 157 {
             self.chr_banks.set(bank, val.into());
-            // println!("chr bank: {bank} -> ${:04X}", self.chr_banks.page(bank));
         }
 
         if let Some(eeprom) = &mut self.extra_eeprom {
@@ -172,7 +168,6 @@ impl BandaiFCG {
         self.regs.prg_page = val & 0x0F;
         self.prg_rom_banks
             .set(0, (self.regs.prg_page | self.regs.prg_bank_select).into());
-        // println!("prg bank: 0 -> ${:04X}", self.prg_rom_banks.page(0));
     }
 
     fn write_mirroring(&mut self, val: u8) {
@@ -281,14 +276,6 @@ impl MemMap for BandaiFCG {
     // CPU $C000..=$FFFF 16K PRG-ROM bank, fixed to the last bank
 
     fn map_read(&mut self, addr: u16) -> MappedRead {
-        // if matches!(addr, 0x6000..=0xFFFF) {
-        //     let slot = self.prg_rom_banks.get(addr);
-        //     let page = self.prg_rom_banks.page(slot);
-        //     let translated = page | (addr as usize) & (Self::PRG_WINDOW - 1);
-        //     println!(
-        //         "addr: ${addr:04X} - slot: {slot} - page: ${page:04X} - translated: ${translated:04X}",
-        //     );
-        // }
         if matches!(addr, 0x6000..=0x7FFF) {
             if !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite) {
                 return MappedRead::Data(0x00);
@@ -322,9 +309,8 @@ impl MemMap for BandaiFCG {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0xFFFF => {
-                // println!("write ${addr:04X} -> ${val:02X}");
                 match addr & 0x0F {
                     0x00..=0x07 => self.write_chr_bank(addr, val),
                     0x08 => self.write_prg_bank(val),
@@ -337,12 +323,11 @@ impl MemMap for BandaiFCG {
                         } else if matches!(self.sram_access, MemoryOp::Write | MemoryOp::ReadWrite)
                         {
                             self.write_eeprom_ctrl(val);
-                            return MappedWrite::None;
                         }
                     }
                     _ => (),
                 }
-                MappedWrite::Bus
+                MappedWrite::None
             }
             _ => MappedWrite::Bus,
         }
@@ -613,11 +598,11 @@ pub struct Eeprom {
     output: u8,
     prev_scl: u8,
     prev_sda: u8,
-    rom_data: Vec<u8>,
+    rom_data: Memory,
 }
 
 impl Eeprom {
-    pub fn new(model: EepromModel, ram_state: RamState) -> Self {
+    pub fn new(model: EepromModel) -> Self {
         let rom_size = match model {
             EepromModel::X24C01 => 128,
             EepromModel::X24C02 => 256,
@@ -633,7 +618,7 @@ impl Eeprom {
             output: 0,
             prev_scl: 0,
             prev_sda: 0,
-            rom_data: RamState::filled(rom_size, ram_state),
+            rom_data: Memory::with_size(rom_size),
         }
     }
 
@@ -889,13 +874,13 @@ impl Eeprom {
 }
 
 impl Sram for Eeprom {
-    fn save(&self, dir: impl AsRef<Path>) -> fs::Result<()> {
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
-        fs::save(dir.as_ref().with_extension(extension), &self.rom_data)
+        fs::save(path.as_ref().with_extension(extension), &self.rom_data)
     }
 
-    fn load(&mut self, dir: impl AsRef<Path>) -> fs::Result<()> {
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
-        fs::load(dir.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
+        fs::load(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
     }
 }

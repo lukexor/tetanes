@@ -271,6 +271,10 @@ impl AsRef<[u8]> for ReplayData {
 
 impl ApplicationHandler<NesEvent> for Nes {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: NesEvent) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -319,6 +323,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -349,6 +357,10 @@ impl ApplicationHandler<NesEvent> for Nes {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -365,6 +377,10 @@ impl ApplicationHandler<NesEvent> for Nes {
         device_id: DeviceId,
         event: DeviceEvent,
     ) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -376,6 +392,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -385,6 +405,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -396,6 +420,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         debug!("exiting");
 
         #[cfg(feature = "profiling")]
@@ -406,6 +434,7 @@ impl ApplicationHandler<NesEvent> for Nes {
         } else if feature!(AbortOnExit) {
             panic!("exited unexpectedly");
         }
+        self.state = State::Exiting;
     }
 }
 
@@ -589,7 +618,7 @@ impl ApplicationHandler<NesEvent> for Running {
                             .unwrap_or(false)
                         {
                             self.repaint_times.remove(&window_id);
-                            if self.renderer.rom_loaded() {
+                            if self.renderer.rom_loaded() && !self.run_state.paused() {
                                 self.run_state = RunState::Paused;
                                 self.event(EmulationEvent::RunState(self.run_state));
                             }
@@ -600,7 +629,7 @@ impl ApplicationHandler<NesEvent> for Running {
                     // Note: Does not trigger on all platforms (e.g. linux)
                     if occluded {
                         self.repaint_times.remove(&window_id);
-                        if self.renderer.rom_loaded() {
+                        if self.renderer.rom_loaded() && !self.run_state.paused() {
                             self.run_state = RunState::Paused;
                             self.event(EmulationEvent::RunState(self.run_state));
                         }
@@ -678,6 +707,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
             }
+            // Always repaint when single threaded
+            if !self.cfg.emulation.threaded {
+                self.repaint_times.insert(window_id, Instant::now());
+            }
         }
 
         self.update_repaint_times(event_loop);
@@ -696,6 +729,7 @@ impl ApplicationHandler<NesEvent> for Running {
         if let Err(err) = self.renderer.save(&self.cfg) {
             error!("failed to save rendererer state: {err:?}");
         }
+        self.emulation.terminate();
         self.renderer.destroy();
 
         if feature!(AbortOnExit) {

@@ -270,10 +270,12 @@ impl Renderer {
         let State {
             viewports,
             viewport_from_window,
+            focused,
             ..
         } = &mut *self.state.borrow_mut();
         viewports.clear();
         viewport_from_window.clear();
+        *focused = None;
         self.painter.borrow_mut().destroy();
     }
 

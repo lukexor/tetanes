@@ -5,7 +5,7 @@ use crate::{
     cpu::Cpu,
     debug::PpuDebugger,
     mapper::{Mapped, Mapper},
-    mem::{Access, Mem},
+    mem::Mem,
     ppu::{bus::Bus, frame::Frame},
 };
 use ctrl::Ctrl;
@@ -326,7 +326,6 @@ impl Ppu {
     #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.bus.mapper = mapper;
-        self.bus.update_mirroring();
     }
 
     /// Return the current Nametable mirroring mode.
@@ -376,14 +375,11 @@ impl Ppu {
                     Ppu::NT_START | (addr & (Scroll::NT_X_MASK | Scroll::NT_Y_MASK));
                 let base_attr_addr = base_nametable_addr + Ppu::ATTR_OFFSET;
 
-                let tile_index = u16::from(self.bus.peek_ciram(addr, Access::Dummy));
+                let tile_index = u16::from(self.bus.peek_ciram(addr));
                 let tile_addr = self.ctrl.bg_select | (tile_index << 4);
 
                 let supertile = ((y_scroll & 0xFC) << 1) + (x_scroll >> 2);
-                let attr = u16::from(
-                    self.bus
-                        .peek_ciram(base_attr_addr + supertile, Access::Dummy),
-                );
+                let attr = u16::from(self.bus.peek_ciram(base_attr_addr + supertile));
                 let attr_shift = (x_scroll & 0x02) | ((y_scroll & 0x02) << 1);
                 let palette_addr = ((attr >> attr_shift) & 0x03) << 2;
 
@@ -394,14 +390,13 @@ impl Ppu {
                 // self.nametable_ids[(addr - Ppu::NT_START) as usize] = tile;
                 for y in 0..8 {
                     let tile_addr = tile_addr + y;
-                    let tile_lo = self.bus.peek_chr(tile_addr, Access::Dummy);
-                    let tile_hi = self.bus.peek_chr(tile_addr + 8, Access::Dummy);
+                    let tile_lo = self.bus.peek_chr(tile_addr);
+                    let tile_hi = self.bus.peek_chr(tile_addr + 8);
                     for x in 0..8 {
                         let tile_palette = ((tile_hi >> x) & 1) << 1 | (tile_lo >> x) & 1;
                         let palette = palette_addr | u16::from(tile_palette);
                         let color = self.bus.peek_palette(
                             Ppu::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
-                            Access::Dummy,
                         );
                         let x = u32::from(tile_x + (7 - x));
                         let y = u32::from(tile_y + y);
@@ -428,14 +423,11 @@ impl Ppu {
                 let tile_x = ((tile_addr % 0x1000) % 256) / 2;
                 let tile_y = ((tile_addr % 0x1000) / 256) * 8;
                 for y in 0..8 {
-                    let tile_lo = u16::from(self.bus.peek_chr(tile_addr + y, Access::Dummy));
-                    let tile_hi = u16::from(self.bus.peek_chr(tile_addr + y + 8, Access::Dummy));
+                    let tile_lo = u16::from(self.bus.peek_chr(tile_addr + y));
+                    let tile_hi = u16::from(self.bus.peek_chr(tile_addr + y + 8));
                     for x in 0..8 {
                         let palette = (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01);
-                        let color = u16::from(
-                            self.bus
-                                .peek_palette(Ppu::PALETTE_START | palette, Access::Dummy),
-                        );
+                        let color = u16::from(self.bus.peek_palette(Ppu::PALETTE_START | palette));
                         let x = u32::from(tile_x + (7 - x));
                         let y = u32::from(tile_y + y);
                         Self::set_pixel(color, x + x_offset, y, Ppu::WIDTH, pattern_tables);
@@ -484,7 +476,7 @@ impl Ppu {
 
                 let tile_x = (i % 8) as u32 * 8;
                 let tile_y = (i / 8) as u32 * 8;
-                for y in 0..(height as u16) {
+                for y in 0..8 {
                     let mut line_offset = if flip_vertical {
                         (height as u16) - 1 - y
                     } else {
@@ -493,10 +485,8 @@ impl Ppu {
                     if height == 16 && line_offset >= 8 {
                         line_offset += 8;
                     }
-                    let tile_lo = self.bus.peek_chr(tile_addr + line_offset, Access::Dummy);
-                    let tile_hi = self
-                        .bus
-                        .peek_chr(tile_addr + line_offset + 8, Access::Dummy);
+                    let tile_lo = self.bus.peek_chr(tile_addr + line_offset);
+                    let tile_hi = self.bus.peek_chr(tile_addr + line_offset + 8);
                     let y = u32::from(y);
                     for x in 0..8 {
                         // let spr_color = (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01);
@@ -509,7 +499,6 @@ impl Ppu {
                         let color = self.bus.peek_palette(
                             Self::PALETTE_START
                                 | ((palette & 0x03 > 0) as u16 * u16::from(palette)),
-                            Access::Dummy,
                         );
 
                         Self::set_pixel(u16::from(color), tile_x + x, tile_y + y, 64, oam_table);
@@ -554,7 +543,7 @@ impl Ppu {
             let offset = addr - Ppu::PALETTE_START;
             let x = u32::from(offset % 16);
             let y = u32::from(offset / 16);
-            let color = self.bus.peek_palette(addr, Access::Dummy);
+            let color = self.bus.peek_palette(addr);
             colors[offset as usize] = color;
             Self::set_pixel(u16::from(color), x, y, 16, palettes);
         }
@@ -629,7 +618,7 @@ impl Ppu {
 
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = Self::NT_START | (self.scroll.addr() & nametable_addr_mask);
-        let tile_index = u16::from(self.bus.read_ciram(addr, Access::Read));
+        let tile_index = u16::from(self.bus.read_ciram(addr));
         self.tile_addr = self.ctrl.bg_select | (tile_index << 4) | self.scroll.fine_y;
     }
 
@@ -639,7 +628,7 @@ impl Ppu {
     fn fetch_bg_attr_byte(&mut self) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
-        self.next_palette = ((self.bus.read_ciram(addr, Access::Read) >> shift) & 0x03) << 2;
+        self.next_palette = ((self.bus.read_ciram(addr) >> shift) & 0x03) << 2;
     }
 
     /// Fetch 4 tiles and write out shift registers every 8th cycle.
@@ -650,8 +639,8 @@ impl Ppu {
         match self.cycle & 0x07 {
             1 => self.fetch_bg_nt_byte(),
             3 => self.fetch_bg_attr_byte(),
-            5 => self.tile_lo = self.bus.read_chr(self.tile_addr, Access::Read),
-            7 => self.tile_hi = self.bus.read_chr(self.tile_addr + 8, Access::Read),
+            5 => self.tile_lo = self.bus.read_chr(self.tile_addr),
+            7 => self.tile_hi = self.bus.read_chr(self.tile_addr + 8),
             _ => (),
         }
     }
@@ -822,8 +811,8 @@ impl Ppu {
                 let sprite = &mut self.sprites[idx];
                 sprite.x = x;
                 sprite.y = y;
-                sprite.tile_lo = self.bus.read_chr(tile_addr, Access::Read);
-                sprite.tile_hi = self.bus.read_chr(tile_addr + 8, Access::Read);
+                sprite.tile_lo = self.bus.read_chr(tile_addr);
+                sprite.tile_hi = self.bus.read_chr(tile_addr + 8);
                 sprite.palette = ((attr & 0x03) << 2) | 0x10;
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
@@ -834,8 +823,8 @@ impl Ppu {
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
-                let _ = self.bus.read_chr(tile_addr, Access::Read);
-                let _ = self.bus.read_chr(tile_addr + 8, Access::Read);
+                let _ = self.bus.read_chr(tile_addr);
+                let _ = self.bus.read_chr(tile_addr + 8);
             }
         }
     }
@@ -927,12 +916,10 @@ impl Ppu {
         let color =
             if self.mask.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START {
                 let palette = u16::from(self.pixel_palette());
-                self.bus.read_palette(
-                    Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
-                    Access::Read,
-                )
+                self.bus
+                    .read_palette(Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
             } else {
-                self.bus.read_palette(addr, Access::Read)
+                self.bus.read_palette(addr)
             };
 
         self.frame.set_pixel(
@@ -1293,7 +1280,7 @@ impl Registers for Ppu {
 
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in $0000 - $3EFF
-        let val = self.bus.read(addr, Access::Read);
+        let val = self.bus.read(addr);
         let val = if addr < Self::PALETTE_START {
             let buffer = self.vram_buffer;
             self.vram_buffer = val;
@@ -1302,7 +1289,7 @@ impl Registers for Ppu {
             // Set internal buffer with mirrors of nametable when reading palettes
             // Since we're reading from > $3EFF subtract $1000 to fill
             // buffer with nametable mirror data
-            self.vram_buffer = self.bus.read(addr - 0x1000, Access::Dummy);
+            self.vram_buffer = self.bus.read(addr - 0x1000);
             // Hi 2 bits of palette should be open bus
             val | (self.open_bus & 0xC0)
         };
@@ -1330,7 +1317,7 @@ impl Registers for Ppu {
             self.vram_buffer
         } else {
             // Hi 2 bits of palette should be open bus
-            self.bus.peek(addr, Access::Dummy) | (self.open_bus & 0xC0)
+            self.bus.peek(addr) | (self.open_bus & 0xC0)
         }
     }
 
@@ -1344,7 +1331,7 @@ impl Registers for Ppu {
             self.scanline
         );
         self.increment_vram_addr();
-        self.bus.write(addr, val, Access::Write);
+        self.bus.write(addr, val);
 
         // MMC3 clocks using A12
         let addr = self.scroll.addr();
@@ -1534,14 +1521,14 @@ mod tests {
         ppu.clock();
         ppu.write_data(0x66); // write to $2305
 
-        assert_eq!(ppu.bus.read_ciram(0x2305, Access::Read), 0x66);
+        assert_eq!(ppu.bus.read_ciram(0x2305), 0x66);
     }
 
     #[test]
     fn vram_reads() {
         let mut ppu = Ppu::default();
         ppu.write_ctrl(0x00);
-        ppu.bus.write(0x2305, 0x66, Access::Write);
+        ppu.bus.write(0x2305, 0x66);
 
         ppu.write_addr(0x23);
         ppu.write_addr(0x05);
@@ -1558,8 +1545,8 @@ mod tests {
     fn vram_read_pagecross() {
         let mut ppu = Ppu::default();
         ppu.write_ctrl(0x00);
-        ppu.bus.write(0x21FF, 0x66, Access::Write);
-        ppu.bus.write(0x2200, 0x77, Access::Write);
+        ppu.bus.write(0x21FF, 0x66);
+        ppu.bus.write(0x2200, 0x77);
 
         ppu.write_addr(0x21);
         ppu.write_addr(0xFF);
@@ -1575,9 +1562,9 @@ mod tests {
     fn vram_read_vertical_increment() {
         let mut ppu = Ppu::default();
         ppu.write_ctrl(0b100);
-        ppu.bus.write(0x21FF, 0x66, Access::Write);
-        ppu.bus.write(0x21FF + 32, 0x77, Access::Write);
-        ppu.bus.write(0x21FF + 64, 0x88, Access::Write);
+        ppu.bus.write(0x21FF, 0x66);
+        ppu.bus.write(0x21FF + 32, 0x77);
+        ppu.bus.write(0x21FF + 64, 0x88);
 
         ppu.write_addr(0x21);
         ppu.write_addr(0xFF);
@@ -1672,7 +1659,7 @@ mod tests {
     #[test]
     fn read_status_resets_latch() {
         let mut ppu = Ppu::default();
-        ppu.bus.write(0x2305, 0x66, Access::Write);
+        ppu.bus.write(0x2305, 0x66);
 
         ppu.write_addr(0x21);
         ppu.write_addr(0x23);
@@ -1698,7 +1685,7 @@ mod tests {
     fn vram_mirroring() {
         let mut ppu = Ppu::default();
         ppu.write_ctrl(0);
-        ppu.bus.write(0x2305, 0x66, Access::Write);
+        ppu.bus.write(0x2305, 0x66);
 
         ppu.write_addr(0x63); // 0x6305 mirrors to 0x2305
         ppu.write_addr(0x05);
