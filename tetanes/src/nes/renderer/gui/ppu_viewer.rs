@@ -345,10 +345,6 @@ impl PpuViewer {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        // let Some(cfg) = self.resources.take() else {
-        //     warn!("PpuViewer::prepare was not called with required resources");
-        //     return;
-        // };
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)
@@ -357,7 +353,7 @@ impl PpuViewer {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
+        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, _| {
             if class == ViewportClass::Embedded {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(PpuViewer::TITLE)
