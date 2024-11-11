@@ -345,10 +345,6 @@ impl PpuViewer {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        // let Some(cfg) = self.resources.take() else {
-        //     warn!("PpuViewer::prepare was not called with required resources");
-        //     return;
-        // };
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)
@@ -357,20 +353,15 @@ impl PpuViewer {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
-            if class == ViewportClass::Embedded {
-                let mut window_open = open.load(Ordering::Acquire);
-                egui::Window::new(PpuViewer::TITLE)
-                    .open(&mut window_open)
-                    .show(ctx, |ui| state.lock().ui(ui, opts.enabled));
-                open.store(window_open, Ordering::Release);
-            } else {
-                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, opts.enabled));
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    open.store(false, Ordering::Release);
-                }
-            }
-        });
+        let show_viewport = move |ctx: &Context, _: ViewportClass| {
+            let mut window_open = open.load(Ordering::Acquire);
+            egui::Window::new(PpuViewer::TITLE)
+                .open(&mut window_open)
+                .show(ctx, |ui| state.lock().ui(ui, opts.enabled));
+            open.store(window_open, Ordering::Release);
+        };
+
+        ctx.show_viewport_deferred(self.id, viewport_builder, show_viewport);
     }
 }
 
