@@ -279,9 +279,9 @@ pub struct Exrom {
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
     pub ex_ram: Vec<u8>,
+    pub chr_banks: Banks,
     pub prg_ram_banks: Banks,
     pub prg_rom_banks: Banks,
-    pub chr_banks: Banks,
     pub tile_cache: u16,
     pub last_chr_write: ChrBank,
     pub region: NesRegion,
@@ -361,9 +361,9 @@ impl Exrom {
             // Cart provides an `add_ex_ram` method used by the PpuBus, but during reads from the
             // PpuBus we need access to it for bank selection so we need to store it here instead.
             ex_ram: vec![0x00; Self::EXRAM_SIZE],
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
             prg_ram_banks: Banks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
             prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
-            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
             tile_cache: 0,
             last_chr_write: ChrBank::Spr,
             region: cart.region(),

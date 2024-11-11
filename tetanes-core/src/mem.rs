@@ -225,12 +225,12 @@ pub enum BankAccess {
 #[must_use]
 pub struct Banks {
     start: usize,
-    end: NonZeroUsize,
-    size: usize,
+    end: usize,
+    size: NonZeroUsize,
     window: NonZeroUsize,
-    pub(crate) shift: usize,
-    pub(crate) mask: usize,
-    pub(crate) banks: Vec<usize>,
+    shift: usize,
+    mask: usize,
+    banks: Vec<usize>,
     access: Vec<BankAccess>,
     page_count: usize,
 }
@@ -238,35 +238,26 @@ pub struct Banks {
 #[derive(thiserror::Error, Debug)]
 #[must_use]
 pub enum Error {
-    #[error("bank `{field}` must be non-zero.{context}")]
-    Zero {
-        field: &'static str,
-        context: String,
-    },
-    #[error("bank `window` must be greater than total bank `size`")]
+    #[error("bank `window` must a non-zero power of two")]
     InvalidWindow,
+    #[error("bank `size` must be non-zero")]
+    InvalidSize,
 }
 
 impl Banks {
     pub fn new(
         start: usize,
-        end: impl TryInto<NonZeroUsize>,
+        end: usize,
         capacity: usize,
         window: impl TryInto<NonZeroUsize>,
     ) -> Result<Self, Error> {
-        let end = end.try_into().map_err(|_| Error::Zero {
-            field: "end",
-            context: format!(" bank start: ${start:04X}"),
-        })?;
-        let window = window.try_into().map_err(|_| Error::Zero {
-            field: "window",
-            context: format!(" bank range: ${start:04X}..=${end:04X} (capacity: ${capacity:04X})"),
-        })?;
-        let mut size = end.get() - start;
-        if size > capacity {
-            size = capacity;
+        let window = window.try_into().map_err(|_| Error::InvalidWindow)?;
+        if !window.is_power_of_two() {
+            return Err(Error::InvalidWindow);
         }
-        let bank_count = (size + 1) / window;
+
+        let size = NonZeroUsize::try_from(end - start).map_err(|_| Error::InvalidSize)?;
+        let bank_count = (size.get() + 1) / window;
 
         let mut banks = vec![0; bank_count];
         let access = vec![BankAccess::ReadWrite; bank_count];
@@ -348,7 +339,7 @@ impl Banks {
 
     #[must_use]
     pub const fn get(&self, addr: u16) -> usize {
-        (addr as usize & self.size) >> self.shift
+        (addr as usize & self.size.get()) >> self.shift
     }
 
     #[must_use]
@@ -398,7 +389,7 @@ mod tests {
     fn get_bank() {
         let banks = Banks::new(
             0x8000,
-            NonZeroUsize::new(0xFFFF).unwrap(),
+            0xFFFF,
             128 * 1024,
             NonZeroUsize::new(0x4000).unwrap(),
         )
@@ -417,7 +408,7 @@ mod tests {
     fn bank_translate() {
         let mut banks = Banks::new(
             0x8000,
-            NonZeroUsize::new(0xFFFF).unwrap(),
+            0xFFFF,
             128 * 1024,
             NonZeroUsize::new(0x2000).unwrap(),
         )
