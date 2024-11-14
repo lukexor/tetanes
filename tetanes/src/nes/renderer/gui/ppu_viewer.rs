@@ -820,14 +820,14 @@ impl State {
             // During rendering, subtract according to current cycle/scanline
             if cycle <= Ppu::VISIBLE_END {
                 if cycle >= 8 {
-                    scroll_x -= (cycle & !0x07) as u16;
+                    scroll_x = scroll_x.saturating_sub((cycle & !0x07) as u16);
                 }
                 // Adjust for 2x increments at end of last scanline
-                scroll_x -= 16;
+                scroll_x = scroll_x.saturating_sub(16);
             } else if cycle >= Ppu::BG_PREFETCH_START + 7 {
-                scroll_x -= 8;
+                scroll_x = scroll_x.saturating_sub(8);
                 if cycle >= Ppu::BG_PREFETCH_END {
-                    scroll_x -= 8;
+                    scroll_x = scroll_x.saturating_sub(8);
                 }
             }
             scroll_x += scroll.fine_x;

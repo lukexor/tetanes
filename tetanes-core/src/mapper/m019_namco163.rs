@@ -8,7 +8,7 @@ use crate::{
     cpu::{Cpu, Irq},
     fs,
     mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{BankAccess, Banks, Memory},
+    mem::{BankAccess, Banks, StaticMemory},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -374,7 +374,7 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: Memory,
+    ram: StaticMemory<u8, 0x80>,
     addr: usize,
     auto_increment: bool,
     disabled: bool,
@@ -391,7 +391,6 @@ impl Default for Audio {
 }
 
 impl Audio {
-    const RAM_SIZE: usize = 0x80;
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
@@ -406,7 +405,7 @@ impl Audio {
 
     pub fn new() -> Self {
         Self {
-            ram: Memory::with_size(Self::RAM_SIZE),
+            ram: StaticMemory::new(),
             addr: 0,
             auto_increment: false,
             disabled: false,

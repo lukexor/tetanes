@@ -8,7 +8,7 @@ use crate::{
     cpu::{Cpu, Irq},
     fs,
     mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
-    mem::{Banks, Memory},
+    mem::{Banks, DynMemory},
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
@@ -598,7 +598,7 @@ pub struct Eeprom {
     output: u8,
     prev_scl: u8,
     prev_sda: u8,
-    rom_data: Memory,
+    rom_data: DynMemory<u8>,
 }
 
 impl Eeprom {
@@ -618,7 +618,7 @@ impl Eeprom {
             output: 0,
             prev_scl: 0,
             prev_sda: 0,
-            rom_data: Memory::with_size(rom_size),
+            rom_data: DynMemory::with_size(rom_size),
         }
     }
 
