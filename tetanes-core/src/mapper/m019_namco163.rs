@@ -8,7 +8,7 @@ use crate::{
     cpu::{Cpu, Irq},
     fs,
     mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{BankAccess, Banks, Memory},
+    mem::{BankAccess, Banks, ConstMemory},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -374,7 +374,7 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: Memory,
+    ram: ConstMemory<u8, 0x80>,
     addr: usize,
     auto_increment: bool,
     disabled: bool,
@@ -391,7 +391,6 @@ impl Default for Audio {
 }
 
 impl Audio {
-    const RAM_SIZE: usize = 0x80;
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
@@ -406,7 +405,7 @@ impl Audio {
 
     pub fn new() -> Self {
         Self {
-            ram: Memory::with_size(Self::RAM_SIZE),
+            ram: ConstMemory::new(),
             addr: 0,
             auto_increment: false,
             disabled: false,
@@ -427,6 +426,7 @@ impl Audio {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn peek_register(&self, addr: u16) -> u8 {
         if matches!(addr, 0x4800..=0x4FFF) {
             self.ram[self.addr]
@@ -504,12 +504,14 @@ impl Audio {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn volume(&self) -> u8 {
         let base_addr = self.base_addr();
         self.ram[base_addr + Self::REG_VOLUME] & 0x0F
     }
 
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn set_phase(&mut self, phase: u32) {
         let base_addr = self.base_addr();
         self.ram[base_addr + Self::REG_PHASE_HIGH] = ((phase >> 16) & 0xFF) as u8;
@@ -550,6 +552,7 @@ impl Audio {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn channel_count(&self) -> u8 {
         (self.ram[0x7F] >> 4) & 0x07
     }

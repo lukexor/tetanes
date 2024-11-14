@@ -40,12 +40,13 @@ impl Timer {
 
 impl Clock for Timer {
     fn clock(&mut self) -> usize {
-        self.clock_to(self.cycle + 1)
+        self.clock_to((self.cycle + 1) as u64)
     }
 }
 
 impl ClockTo for Timer {
-    fn clock_to(&mut self, cycle: usize) -> usize {
+    fn clock_to(&mut self, cycle: u64) -> usize {
+        let cycle = cycle as usize;
         let cycles = cycle - self.cycle;
         if cycles > self.counter {
             self.cycle += self.counter + 1;

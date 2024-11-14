@@ -34,8 +34,8 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn is_auto(&self) -> bool {
-        self == &Self::Auto
+    pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     #[must_use]
@@ -44,13 +44,13 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn is_pal(&self) -> bool {
-        self == &Self::Pal
+    pub const fn is_pal(&self) -> bool {
+        matches!(self, Self::Pal)
     }
 
     #[must_use]
-    pub fn is_dendy(&self) -> bool {
-        self == &Self::Dendy
+    pub const fn is_dendy(&self) -> bool {
+        matches!(self, Self::Dendy)
     }
 
     #[must_use]
@@ -152,7 +152,7 @@ pub trait Clock {
 
 /// Trait for types that can clock to a target cycle.
 pub trait ClockTo {
-    fn clock_to(&mut self, _cycle: usize) -> usize {
+    fn clock_to(&mut self, _cycle: u64) -> usize {
         0
     }
 }

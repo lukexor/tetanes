@@ -88,8 +88,8 @@ bitflags! {
 /// Every cycle is either a read or a write.
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Cycle {
-    start: usize,
-    end: usize,
+    start: u64,
+    end: u64,
 }
 
 /// The Central Processing Unit status and registers
@@ -103,7 +103,7 @@ pub struct Cpu {
     pub read_cycles: Cycle,
     // start/end cycle counts for writes
     pub write_cycles: Cycle,
-    pub master_clock: usize,
+    pub master_clock: u64,
     pub instr: Instr,     // The currently executing instruction
     pub fetched_data: u8, // Represents data fetched for the ALU
     pub status: Status,   // Status Registers
@@ -136,7 +136,7 @@ impl Cpu {
     // Represents CPU/PPU alignment and would range from 1..=Ppu::clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
-    const PPU_OFFSET: usize = 1;
+    const PPU_OFFSET: u64 = 1;
 
     const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
     const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
@@ -380,7 +380,7 @@ impl Cpu {
     }
 
     /// Start a CPU cycle.
-    fn start_cycle(&mut self, increment: usize) {
+    fn start_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
 
@@ -391,7 +391,7 @@ impl Cpu {
     }
 
     /// End a CPU cycle.
-    fn end_cycle(&mut self, increment: usize) {
+    fn end_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
 
         if self.cycle_accurate {
