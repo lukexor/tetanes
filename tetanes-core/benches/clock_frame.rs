@@ -1,5 +1,5 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use std::{fs::File, io::BufReader, path::Path, time::Duration};
+use std::{fs::File, path::Path, time::Duration};
 use tetanes_core::{
     control_deck::{Config, ControlDeck},
     mem::RamState,
@@ -9,7 +9,7 @@ fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
     let base_path = Path::new(env!("CARGO_MANIFEST_DIR"));
     let rom_path = base_path.join(rom_path);
     assert!(rom_path.exists(), "No test rom found for {rom_path:?}");
-    let mut rom = BufReader::new(File::open(&rom_path).expect("failed to open path"));
+    let mut rom = File::open(&rom_path).expect("failed to open path");
     let mut deck = ControlDeck::with_config(Config {
         ram_state: RamState::AllZeros,
         ..Default::default()

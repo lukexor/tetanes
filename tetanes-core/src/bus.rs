@@ -11,7 +11,7 @@ use crate::{
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{Mem, Memory, RamState},
+    mem::{ConstMemory, DynMemory, Mem, RamState},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -55,12 +55,12 @@ pub struct Bus {
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
-    pub prg_ram: Memory,
+    pub prg_ram: DynMemory<u8>,
     #[serde(skip)]
-    pub prg_rom: Memory,
+    pub prg_rom: DynMemory<u8>,
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: Memory,
+    pub wram: ConstMemory<u8, 0x0800>, // 2K NES Work Ram available to the CPU
 }
 
 impl Default for Bus {
@@ -70,8 +70,6 @@ impl Default for Bus {
 }
 
 impl Bus {
-    const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
-
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
             apu: Apu::new(region),
@@ -79,12 +77,12 @@ impl Bus {
             input: Input::new(region),
             open_bus: 0x00,
             ppu: Ppu::new(region),
-            prg_ram: Memory::new(),
+            prg_ram: DynMemory::new(),
             prg_ram_protect: false,
-            prg_rom: Memory::new(),
+            prg_rom: DynMemory::new(),
             ram_state,
             region,
-            wram: Memory::ram(ram_state, Self::WRAM_SIZE),
+            wram: ConstMemory::new(),
         }
     }
 
@@ -109,7 +107,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn load_sram(&mut self, sram: Memory) {
+    pub fn load_sram(&mut self, sram: DynMemory<u8>) {
         self.prg_ram = sram;
     }
 
@@ -117,7 +115,7 @@ impl Bus {
     #[inline]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn wram(&self) -> &[u8] {
-        &self.wram
+        self.wram.as_ref()
     }
 
     /// Add a Game Genie code to override memory reads/writes.
@@ -178,7 +176,7 @@ impl Clock for Bus {
 }
 
 impl ClockTo for Bus {
-    fn clock_to(&mut self, clock: usize) -> usize {
+    fn clock_to(&mut self, clock: u64) -> usize {
         self.ppu.clock_to(clock)
     }
 }
@@ -363,7 +361,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = Memory::with_size(0x2000);
+        cart.chr_rom = DynMemory::with_size(0x2000);
         cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
@@ -393,7 +391,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = Memory::with_size(0x2000);
+        cart.chr_ram = DynMemory::with_size(0x2000);
         cart.chr_ram.fill(0x66);
         bus.load_cart(cart);
 

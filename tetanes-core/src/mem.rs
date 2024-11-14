@@ -1,112 +1,227 @@
-//! Memory and Bankswitching implementations.
+//! Memory and Bankswitching implementations.tetanes-core/src/mem.rs
 
 use crate::common::{Reset, ResetKind};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{SeqAccess, Visitor},
+    ser::SerializeTuple,
+};
 use std::{
     fmt,
+    marker::PhantomData,
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
     str::FromStr,
 };
 
-/// Represents ROM or RAM memory in bytes, with a custom Debug implementation that avoids printing
-/// the entire contents..
-#[derive(Default, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Memory(Vec<u8>);
+/// Represents stack ROM or RAM memory in bytes, with a custom Debug implementation that avoids
+/// printing the entire contents.
+#[derive(Clone)]
+pub struct ConstMemory<T, const N: usize> {
+    ram_state: RamState,
+    data: [T; N],
+}
 
-impl Memory {
-    /// Create a new, empty `Memory` instance.
-    pub const fn new() -> Self {
-        Self(Vec::new())
+impl<T, const N: usize> Default for ConstMemory<T, N>
+where
+    T: Default + Copy,
+{
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    /// Create a new `Memory` instance of a given size, zeroed out.
-    pub fn with_size(size: usize) -> Self {
-        Self(vec![0; size])
-    }
-
-    /// Create a new `Memory` instance of a given size based on [`RamState`], zeroed out.
-    pub fn ram(state: RamState, size: usize) -> Self {
-        let mut ram = Self::with_size(size);
-        ram.fill_ram(state);
-        ram
-    }
-
-    /// Fills `Memory` based on [`RamState`].
-    pub fn fill_ram(&mut self, state: RamState) {
-        match state {
-            RamState::AllZeros => self.0.fill(0x00),
-            RamState::AllOnes => self.0.fill(0xFF),
-            RamState::Random => {
-                let mut rng = rand::rng();
-                for val in &mut self.0 {
-                    *val = rng.random_range(0x00..=0xFF);
-                }
-            }
+impl<T, const N: usize> ConstMemory<T, N> {
+    /// Create a new, empty `StaticMemory` instance.
+    pub fn new() -> Self
+    where
+        T: Default + Copy,
+    {
+        Self {
+            ram_state: RamState::AllZeros,
+            data: [T::default(); N],
         }
     }
 }
 
-impl Reset for Memory {
+impl<const N: usize> ConstMemory<u8, N> {
+    /// Fill ram based on [`RamState`].
+    pub fn with_ram_state(mut self, state: RamState) -> Self {
+        self.ram_state = state;
+        self.ram_state.fill(&mut self.data);
+        self
+    }
+}
+
+impl<const N: usize> Reset for ConstMemory<u8, N> {
     fn reset(&mut self, kind: ResetKind) {
-        if kind == ResetKind::Hard {}
+        if kind == ResetKind::Hard {
+            self.ram_state.fill(&mut self.data);
+        }
     }
 }
 
-impl From<Vec<u8>> for Memory {
-    fn from(val: Vec<u8>) -> Self {
-        Self(val)
-    }
-}
-
-impl fmt::Debug for Memory {
+impl<T, const N: usize> fmt::Debug for ConstMemory<T, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Memory")
-            .field("len", &self.0.len())
-            .field("capacity", &self.0.capacity())
+        f.debug_struct("StaticMemory")
+            .field("len", &self.data.len())
+            .field("ram_state", &self.ram_state)
             .finish()
     }
 }
 
-impl Deref for Memory {
-    type Target = Vec<u8>;
+impl<T, const N: usize> Deref for ConstMemory<T, N> {
+    type Target = [T; N];
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.data
     }
 }
 
-impl DerefMut for Memory {
+impl<T, const N: usize> DerefMut for ConstMemory<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.data
     }
 }
 
-impl IntoIterator for Memory {
-    type Item = u8;
-    type IntoIter = std::vec::IntoIter<u8>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+impl<T: Serialize, const N: usize> Serialize for ConstMemory<T, N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_tuple(N)?;
+        for item in &self.data {
+            s.serialize_element(item)?;
+        }
+        s.end()
     }
 }
 
-impl<'a> IntoIterator for &'a Memory {
-    type Item = &'a u8;
-    type IntoIter = std::slice::Iter<'a, u8>;
+impl<'de, T, const N: usize> Deserialize<'de> for ConstMemory<T, N>
+where
+    T: Deserialize<'de> + Default + Copy,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ArrayVisitor<T, const N: usize>(PhantomData<T>);
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        impl<'de, T, const N: usize> Visitor<'de> for ArrayVisitor<T, N>
+        where
+            T: Deserialize<'de> + Default + Copy,
+        {
+            type Value = [T; N];
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(&format!("an array of length {}", N))
+            }
+
+            #[inline]
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut data = [T::default(); N];
+                for data in &mut data {
+                    match (seq.next_element())? {
+                        Some(val) => *data = val,
+                        None => return Err(serde::de::Error::invalid_length(N, &self)),
+                    }
+                }
+                Ok(data)
+            }
+        }
+
+        deserializer
+            .deserialize_tuple(N, ArrayVisitor(PhantomData))
+            .map(|data| Self {
+                ram_state: RamState::default(),
+                data,
+            })
     }
 }
 
-impl<'a> IntoIterator for &'a mut Memory {
-    type Item = &'a mut u8;
-    type IntoIter = std::slice::IterMut<'a, u8>;
+/// Represents dynamic ROM or RAM memory in bytes, with a custom Debug implementation that avoids
+/// printing the entire contents.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct DynMemory<T> {
+    ram_state: RamState,
+    data: Vec<T>,
+}
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter_mut()
+impl<T> DynMemory<T> {
+    /// Create a new, empty `Memory` instance.
+    pub const fn new() -> Self {
+        Self {
+            ram_state: RamState::AllZeros,
+            data: Vec::new(),
+        }
+    }
+
+    /// Create a new `Memory` instance of a given size, zeroed out.
+    pub fn with_size(size: usize) -> Self
+    where
+        T: Default + Copy,
+    {
+        Self {
+            ram_state: RamState::default(),
+            data: vec![T::default(); size],
+        }
+    }
+}
+
+impl DynMemory<u8> {
+    /// Fill ram based on [`RamState`].
+    pub fn with_ram_state(mut self, state: RamState, size: usize) -> Self {
+        self.ram_state = state;
+        self.resize(size);
+        self
+    }
+
+    pub fn resize(&mut self, size: usize) {
+        self.data.resize(size, 0);
+        self.ram_state.fill(&mut self.data);
+    }
+}
+
+impl<T> Deref for DynMemory<T> {
+    type Target = Vec<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T> DerefMut for DynMemory<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl From<Vec<u8>> for DynMemory<u8> {
+    fn from(data: Vec<u8>) -> Self {
+        Self {
+            ram_state: RamState::default(),
+            data,
+        }
+    }
+}
+
+impl<T> fmt::Debug for DynMemory<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DynMemory")
+            .field("len", &self.data.len())
+            .field("capacity", &self.data.capacity())
+            .field("ram_state", &self.ram_state)
+            .finish()
+    }
+}
+
+impl Reset for DynMemory<u8> {
+    fn reset(&mut self, kind: ResetKind) {
+        if kind == ResetKind::Hard {
+            self.ram_state.fill(&mut self.data);
+        }
     }
 }
 
@@ -168,6 +283,20 @@ impl RamState {
             Self::AllZeros => "all-zeros",
             Self::AllOnes => "all-ones",
             Self::Random => "random",
+        }
+    }
+
+    /// Fills data slice based on `RamState`.
+    pub fn fill(&self, data: &mut [u8]) {
+        match self {
+            RamState::AllZeros => data.fill(0x00),
+            RamState::AllOnes => data.fill(0xFF),
+            RamState::Random => {
+                let mut rng = rand::rng();
+                for val in data {
+                    *val = rng.random_range(0x00..=0xFF);
+                }
+            }
         }
     }
 }
