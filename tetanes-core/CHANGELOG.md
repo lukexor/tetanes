@@ -7,6 +7,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1](https://github.com/lukexor/tetanes/compare/0.11.0..0.11.1) - 2024-11-20
+
+### ⛰️  Features
+
+
+- Jalecoss88006 - ([406777a](https://github.com/lukexor/tetanes/commit/406777abad8d61490aae2a33e2e71fc617db3f55))
+- Namco163 - ([89d7fb4](https://github.com/lukexor/tetanes/commit/89d7fb4617bf844ad2090cd92f0e92cda9cc91fc))
+- Added sunsoft/fme-7 - ([303dad8](https://github.com/lukexor/tetanes/commit/303dad85d0a6586a88b7067f2070c5ac9e4da6e4))
+- Added nina003/nina006 - ([29503c3](https://github.com/lukexor/tetanes/commit/29503c3efc81fb3110eef63e9666de1e0c912015))
+- Added dxrom ([#340](https://github.com/lukexor/tetanes/pull/340)) - ([906af59](https://github.com/lukexor/tetanes/commit/906af59038e95874dda254e02998030c913d8c61))
+- Ppu-viewer ([#339](https://github.com/lukexor/tetanes/pull/339)) - ([fce7d89](https://github.com/lukexor/tetanes/commit/fce7d89f78148e9a367d47122eef7e6e8fe45b34))
+- Bandai mappers 016, 153, 157, 159 ([#335](https://github.com/lukexor/tetanes/pull/335)) - ([f555ea4](https://github.com/lukexor/tetanes/commit/f555ea48d0273bc9d41b998926d451398acbb73c))
+- Allow exporting save states in web ([#311](https://github.com/lukexor/tetanes/pull/311)) - ([627bbec](https://github.com/lukexor/tetanes/commit/627bbece49739ff479e69ba9e83df828c4d4a633))
+
+### 🐛 Bug Fixes
+
+
+- Fix tetanes-core compiling on stable. closes [#360](https://github.com/lukexor/tetanes/pull/360) - ([adc5673](https://github.com/lukexor/tetanes/commit/adc5673a3ed5d80aff339c3ab6d95013fcb2d715))
+- Fixed bank size check - ([c84c012](https://github.com/lukexor/tetanes/commit/c84c012c310ad466c5167b94f0228f5a482dec43))
+- Fixed video frame size - ([153094d](https://github.com/lukexor/tetanes/commit/153094d81d444376b112224409544375588c4f97))
+- Ensure pixel brightness is using the same palette - ([ad2f873](https://github.com/lukexor/tetanes/commit/ad2f873f5652016b96317c000b4abbe0e35de421))
+
+### 🎨 Styling
+
+
+- Slight cleanup - ([63e31a9](https://github.com/lukexor/tetanes/commit/63e31a9755266bec88d5c79e064506999f03aea2))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- More dependency cleanup - ([1971e4f](https://github.com/lukexor/tetanes/commit/1971e4f2c5aaf6f8a2d6ce2a03c978362d44afe1))
+
+
 ## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
