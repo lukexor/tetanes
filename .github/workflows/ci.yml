@@ -46,7 +46,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo clippy -p tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+          cargo clippy --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
 
   lint-tetanes:
     name: Lint TetaNES (${{ matrix.os }})
@@ -104,6 +104,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
       - run: |
           cargo test -p tetanes --all-features --no-fail-fast
 
@@ -119,9 +120,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - run: |
-          sudo apt update
-      - run: |
-          cargo test --lib tetanes-core --all-features --no-fail-fast
+          cargo test -p tetanes-core --all-features --no-fail-fast
 
   docs:
     name: Docs

@@ -59,7 +59,7 @@ pub fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
 
 pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input: Input) -> bool {
     ui.input_mut(|i| match input {
-        Input::Key(keycode, modifier_state) => key_from_keycode(keycode).map_or(false, |key| {
+        Input::Key(keycode, modifier_state) => key_from_keycode(keycode).is_some_and(|key| {
             let modifiers = modifiers_from_modifiers_state(modifier_state);
             i.key_down(key) && i.modifiers == modifiers
         }),
@@ -68,16 +68,16 @@ pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input:
             .gamepad_assigned_to(player)
             .and_then(|uuid| gamepads.map(|g| g.gamepad_by_uuid(&uuid)))
             .flatten()
-            .map_or(false, |g| g.is_pressed(button)),
+            .is_some_and(|g| g.is_pressed(button)),
         Input::Mouse(mouse_button) => pointer_button_from_mouse(mouse_button)
-            .map_or(false, |pointer| i.pointer.button_down(pointer)),
+            .is_some_and(|pointer| i.pointer.button_down(pointer)),
         Input::Axis(player, axis, direction) => cfg
             .input
             .gamepad_assigned_to(player)
             .and_then(|uuid| gamepads.map(|g| g.gamepad_by_uuid(&uuid)))
             .flatten()
             .and_then(|g| g.axis_data(axis).map(|data| data.value()))
-            .map_or(false, |value| {
+            .is_some_and(|value| {
                 let (dir, state) = Gamepads::axis_state(value);
                 dir == Some(direction) && state == ElementState::Pressed
             }),
