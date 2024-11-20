@@ -210,7 +210,7 @@ impl Audio {
 
     #[must_use]
     #[inline]
-    pub const fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         let pulse_scale = PULSE_TABLE[PULSE_TABLE.len() - 1] / 15.0;
         pulse_scale * self.out
     }
