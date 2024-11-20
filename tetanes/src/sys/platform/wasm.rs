@@ -1,3 +1,6 @@
+// TODO: Remove. See: https://github.com/rustwasm/wasm-bindgen/issues/4283
+#![allow(unexpected_cfgs)]
+
 use crate::{
     nes::{
         event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
