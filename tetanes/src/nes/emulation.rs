@@ -209,7 +209,7 @@ impl Emulation {
         cfg: &Config,
     ) -> anyhow::Result<Self> {
         let threaded = cfg.emulation.threaded
-            && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
+            && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1);
         let backend = if threaded {
             Threads::Multi(Multi::spawn(tx, frame_tx, cfg)?)
         } else {
@@ -323,7 +323,7 @@ impl State {
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::Paused,
             threaded: cfg.emulation.threaded
-                && std::thread::available_parallelism().map_or(false, |count| count.get() > 1),
+                && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
             rewind,
             record: Record::new(),

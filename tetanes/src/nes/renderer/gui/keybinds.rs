@@ -84,7 +84,7 @@ impl Keybinds {
     }
 
     pub fn wants_input(&self) -> bool {
-        self.state.try_lock().map_or(false, |state| {
+        self.state.try_lock().is_some_and(|state| {
             state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
         })
     }
