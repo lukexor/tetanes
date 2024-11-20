@@ -7,6 +7,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1](https://github.com/lukexor/tetanes/compare/0.11.0..0.11.1) - 2024-11-20
+
+### ⛰️  Features
+
+
+- Namco163 - ([89d7fb4](https://github.com/lukexor/tetanes/commit/89d7fb4617bf844ad2090cd92f0e92cda9cc91fc))
+- Ppu-viewer ([#339](https://github.com/lukexor/tetanes/pull/339)) - ([fce7d89](https://github.com/lukexor/tetanes/commit/fce7d89f78148e9a367d47122eef7e6e8fe45b34))
+- Allow exporting save states in web ([#311](https://github.com/lukexor/tetanes/pull/311)) - ([627bbec](https://github.com/lukexor/tetanes/commit/627bbece49739ff479e69ba9e83df828c4d4a633))
+- Add a debug build label - ([46b3d94](https://github.com/lukexor/tetanes/commit/46b3d94e5fd24900a95554a295257f0891ac1c53))
+- Add test panic debug button - ([3866efa](https://github.com/lukexor/tetanes/commit/3866efab39ced8f3431ee27d24962a55397a9f07))
+- Added screen reader/accesskit support - ([5fd1a73](https://github.com/lukexor/tetanes/commit/5fd1a73f112f74a6c0a81e722485842dd37e0a38))
+- Added ui setting/debug windows - ([db8b122](https://github.com/lukexor/tetanes/commit/db8b122af6c5a52ad23ed89ffd6f2feb35515603))
+
+### 🐛 Bug Fixes
+
+
+- Fixed wasm - ([bd27814](https://github.com/lukexor/tetanes/commit/bd278140bcc7e7d433917f14e99038f2e6453027))
+- Fix scroll issues - ([218d786](https://github.com/lukexor/tetanes/commit/218d7860421eb4cfc4d7b833132f4c476935777a))
+- Fixed increasing scale on web - ([8c4265e](https://github.com/lukexor/tetanes/commit/8c4265e10fc8b62cd7dcaa8a828fed1a07100a9f))
+- Fixed shortcut text - ([cb73c21](https://github.com/lukexor/tetanes/commit/cb73c216936ad49dca4e2595485df4ccea957eaa))
+- Fixed joypad keybinds and some UI styling - ([bc2f093](https://github.com/lukexor/tetanes/commit/bc2f093b4d02c54744f791f336a102424a7e5af1))
+- Enable puffin on wasm - ([0b6f794](https://github.com/lukexor/tetanes/commit/0b6f79429c5d2a642c0ef6301bbcc9818973a234))
+- Fix window theme - ([e3c42c7](https://github.com/lukexor/tetanes/commit/e3c42c7720f558c7348e2b82b3573d4748158850))
+- Fixed window aspect ratio - ([17db5c8](https://github.com/lukexor/tetanes/commit/17db5c8a037ab3aefab560bca67545964069658f))
+- Don't log/error when sending frames while paused - ([50825f8](https://github.com/lukexor/tetanes/commit/50825f82e9f04418fdefd56707ef2ec50cddd5ed))
+- Fixed pause state when loading replay - ([d743b31](https://github.com/lukexor/tetanes/commit/d743b31c190cd93e42e3ab78b497e59bcc4ade88))
+- Fixed roms path to default to current directory, if valid, and canonicalize - ([e00273f](https://github.com/lukexor/tetanes/commit/e00273f740f7fc095bc02c7ce6d0ba132a14c9bc))
+- Move some calculations to vertex shader that don't depend on v_uv - ([a6f262d](https://github.com/lukexor/tetanes/commit/a6f262db5d83950e86e0ec78bb74fc63e5c2bf85))
+- Fixed logging location - ([ff36033](https://github.com/lukexor/tetanes/commit/ff36033d7bbbf64924d97d6e9a88dcf4db7dc60c))
+- Fixed issue with lower end platforms not supporting larger texture dimensions - ([ef214db](https://github.com/lukexor/tetanes/commit/ef214dbc2f2eee016b7abdb0c2b0ee1858381ee4))
+- Fix window resizing while handling zoom changes - ([6b3f690](https://github.com/lukexor/tetanes/commit/6b3f690b8ec21b907d353a7cad8561217e8d9dcf))
+
+### 🚜 Refactor
+
+
+- Removed egui-wgpu and egui-winit dependencies. ([#315](https://github.com/lukexor/tetanes/pull/315)) - ([b3d4e2c](https://github.com/lukexor/tetanes/commit/b3d4e2c70c6ee4cfa9aaf53a11c1ae802610ff99))
+- Platform/ui cleanup - ([39f66e6](https://github.com/lukexor/tetanes/commit/39f66e6e912f9c95cf9c458cd072e5e041af09e3))
+- Moved around platform code to condense it - ([0f18928](https://github.com/lukexor/tetanes/commit/0f18928b8f8ed031cac7a170557c0296916c99bc))
+- Prefer deferred viewports ([#306](https://github.com/lukexor/tetanes/pull/306)) - ([e1e60d1](https://github.com/lukexor/tetanes/commit/e1e60d19599ab883cbb034047519e6eb831d6c6c))
+
+### 🎨 Styling
+
+
+- Fixed format - ([d62ea28](https://github.com/lukexor/tetanes/commit/d62ea285cb5fe73ac41e7364f0ca3f32281a0e88))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Updated deps - ([4712d6d](https://github.com/lukexor/tetanes/commit/4712d6d6de3ce7eccec8f1971fcb0f2411f91e3d))
+- More dependency cleanup - ([1971e4f](https://github.com/lukexor/tetanes/commit/1971e4f2c5aaf6f8a2d6ce2a03c978362d44afe1))
+- Clean up dependencies - ([254fe54](https://github.com/lukexor/tetanes/commit/254fe543293b0c96c78ce25bdaeef2f250a9fb14))
+
+
 ## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
