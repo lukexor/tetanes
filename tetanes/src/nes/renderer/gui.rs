@@ -1257,7 +1257,7 @@ impl Gui {
                             if self
                                 .cfg
                                 .action_input(DeckAction::ZapperAimOffscreen)
-                                .map_or(false, |input| input_down(ui, gamepads, &self.cfg, input))
+                                .is_some_and(|input| input_down(ui, gamepads, &self.cfg, input))
                             {
                                 let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
                                 tx.event(EmulationEvent::ZapperAim(pos));

@@ -95,7 +95,7 @@ impl Audio {
                 .output
                 .as_ref()
                 .and_then(|output| output.mixer.as_ref())
-                .map_or(false, |mixer| !mixer.paused)
+                .is_some_and(|mixer| !mixer.paused)
     }
 
     /// Set whether the audio mixer is enabled. Returns [`State`] representing the state of
@@ -186,7 +186,7 @@ impl Audio {
         self.output
             .as_ref()
             .and_then(|output| output.mixer.as_ref())
-            .map_or(false, |mixer| mixer.recording.is_some())
+            .is_some_and(|mixer| mixer.recording.is_some())
     }
 
     /// Start recording audio to a file.
