@@ -40,9 +40,9 @@ dependencies = [
 
 [[package]]
 name = "accesskit"
-version = "0.17.0"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45c97bb3cc1dacbdc6d1147040fc61309590d3e1ab5efd92a8a09c7a2e07284c"
+checksum = "d3d3b8f9bae46a948369bc4a03e815d4ed6d616bd00de4051133a5019dc31c5a"
 
 [[package]]
 name = "accesskit_atspi_common"
@@ -50,7 +50,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03db49d2948db6875c69a1ef17816efa8e3d9f36c7cd79e467d8562a6695662b"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_consumer",
  "atspi-common",
  "serde",
@@ -64,7 +64,7 @@ version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa3a17950ce0d911f132387777b9b3d05eddafb59b773ccaa53fceefaeb0228e"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "immutable-chunkmap",
 ]
 
@@ -74,7 +74,7 @@ version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8d94b7544775dddce398e2500a8b3cc2be3655190879071ce6a9e5610195be4"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_consumer",
  "objc2",
  "objc2-app-kit",
@@ -88,7 +88,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a88d913b144104dd825f75db1b82c63d754b01c53c2f9b7545dcdfae63bb0ed"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_atspi_common",
  "async-channel",
  "async-executor",
@@ -106,7 +106,7 @@ version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0aaa870a5d047338f03707706141f22c98c20e79d5403bf3c9b195549e6cdeea"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_consumer",
  "paste",
  "static_assertions",
@@ -120,7 +120,7 @@ version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3555a67a9bb208f620cfc3746f1502d1512f0ffbdb19c6901aa90b111aa56ec5"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_macos",
  "accesskit_unix",
  "accesskit_windows",
@@ -4085,7 +4085,7 @@ dependencies = [
 name = "tetanes"
 version = "0.11.0"
 dependencies = [
- "accesskit 0.17.0",
+ "accesskit 0.17.1",
  "accesskit_winit",
  "anyhow",
  "arboard",
