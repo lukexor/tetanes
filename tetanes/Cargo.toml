@@ -127,7 +127,7 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-zip = { version = "2.1", default-features = false, features = ["deflate"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [package.metadata.docs.rs]
 rustc-args = ["--cfg=web_sys_unstable_apis"]
