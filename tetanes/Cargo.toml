@@ -47,7 +47,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.28", features = [
+egui = { version = "0.29", features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
@@ -55,17 +55,17 @@ egui = { version = "0.28", features = [
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.28", default-features = false, features = [
+egui_extras = { version = "0.29", default-features = false, features = [
   "image",
   "serde",
 ] }
-gilrs = { version = "0.10", features = ["serde-serialize"] }
+gilrs = { version = "0.11", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
 nohash-hasher = "0.2"
 parking_lot = "0.12"
 puffin = { workspace = true, optional = true, features = ["web"] }
-puffin_egui = { version = "0.27", optional = true }
+puffin_egui = { version = "0.29", optional = true }
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
@@ -74,24 +74,28 @@ thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-uuid = { version = "1.8", features = ["v4", "fast-rng", "serde"] }
+uuid = { version = "1.10", features = ["v4", "fast-rng", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = { version = "0.20", features = ["webgl", "webgpu"] }
+wgpu = { version = "23.0", features = [
+  "webgl",
+  "webgpu",
+  "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
+] }
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-accesskit = "0.16"
-accesskit_winit = "0.22"
+accesskit = "0.17"
+accesskit_winit = "0.23"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
 ] }
 clap.workspace = true
-egui = { version = "0.28", default-features = false, features = ["accesskit"] }
-pollster = "0.3"
+egui = { version = "0.29", default-features = false, features = ["accesskit"] }
+pollster = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }
-rfd = "0.14"
+rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.30", default-features = false }
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

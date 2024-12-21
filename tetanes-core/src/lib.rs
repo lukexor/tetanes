@@ -8,6 +8,7 @@ pub mod action;
 pub mod apu;
 pub mod bus;
 pub mod cart;
+pub mod debug;
 pub mod fs;
 pub mod time;
 #[macro_use]

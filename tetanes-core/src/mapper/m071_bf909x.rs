@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ pub enum Revision {
 pub struct Bf909x {
     pub revision: Revision,
     pub mirroring: Mirroring,
-    pub prg_rom_banks: MemBanks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Bf909x {
@@ -33,7 +33,7 @@ impl Bf909x {
 
     const SINGLE_SCREEN_A: u8 = 0x10; // 0b10000
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
         };
@@ -44,10 +44,10 @@ impl Bf909x {
                 Revision::Bf909x
             },
             mirroring: cart.mirroring(),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
         };
         bf909x.prg_rom_banks.set(1, bf909x.prg_rom_banks.last());
-        bf909x.into()
+        Ok(bf909x.into())
     }
 
     pub fn set_revision(&mut self, rev: Revision) {
@@ -84,7 +84,7 @@ impl MemMap for Bf909x {
             self.revision = Revision::Bf9097;
         }
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(addr.into(), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x8000..=0xFFFF => {
                 if addr >= 0xC000 || self.revision != Revision::Bf9097 {
                     self.prg_rom_banks.set(0, val.into());
@@ -102,7 +102,7 @@ impl MemMap for Bf909x {
     }
 }
 
+impl Reset for Bf909x {}
 impl Clock for Bf909x {}
 impl Regional for Bf909x {}
-impl Reset for Bf909x {}
 impl Sram for Bf909x {}

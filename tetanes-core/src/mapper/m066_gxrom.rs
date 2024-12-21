@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Gxrom {
     pub mirroring: Mirroring,
-    pub chr_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Gxrom {
@@ -26,13 +26,23 @@ impl Gxrom {
     const CHR_BANK_MASK: u8 = 0x0F; // 0b1111
     const PRG_BANK_MASK: u8 = 0x30; // 0b110000
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let gxrom = Self {
             mirroring: cart.mirroring(),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
         };
-        gxrom.into()
+        Ok(gxrom.into())
+    }
+}
+
+impl Mapped for Gxrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 }
 
@@ -58,17 +68,7 @@ impl MemMap for Gxrom {
     }
 }
 
-impl Mapped for Gxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
+impl Reset for Gxrom {}
 impl Clock for Gxrom {}
 impl Regional for Gxrom {}
-impl Reset for Gxrom {}
 impl Sram for Gxrom {}

@@ -2,16 +2,20 @@
 
 use crate::{
     cpu::{Cpu, Status},
-    mem::{Access, Mem},
+    mem::Mem,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{error, trace};
 
+/// List of all CPU official and unofficial operations.
+///
+/// # References
+///
+/// - <http://wiki.nesdev.com/w/index.php/6502_instructions>
+/// - <http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf>
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-// List of all CPU official and unofficial operations
-// http://wiki.nesdev.com/w/index.php/6502_instructions
-// http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf
 #[must_use]
 pub enum Operation {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI, CLV, CMP, CPX,
@@ -22,6 +26,7 @@ pub enum Operation {
     SLO, #[default] XXX
 }
 
+/// CPU Addressing mode.
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
@@ -35,7 +40,6 @@ pub enum AddrMode {
     REL, ACC, IMP,
 }
 
-use tracing::{error, trace};
 use AddrMode::{ABS, ABX, ABY, ACC, IDX, IDY, IMM, IMP, IND, REL, ZP0, ZPX, ZPY};
 use Operation::{
     ADC, AHX, ALR, ANC, AND, ARR, ASL, AXS, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS, CLC,
@@ -45,7 +49,9 @@ use Operation::{
     XXX,
 };
 
-// (opcode, Addressing Mode, Operation, cycles taken)
+/// CPU Instruction.
+///
+/// (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Instr(u8, AddrMode, Operation, usize);
@@ -75,7 +81,7 @@ impl Instr {
 /// The 6502 can address 64KB from 0x0000 - 0xFFFF. The high byte is usually the page and the
 /// low byte the offset into the page. There are 256 total pages of 256 bytes.
 impl Cpu {
-    // 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
+    /// 16x16 grid of 6502 opcodes. Matches datasheet matrix for easy lookup
     #[rustfmt::skip]
     pub const INSTRUCTIONS: [Instr; 256] = [
         Instr(0x00, IMM, BRK, 7), Instr(0x01, IDX, ORA, 6), Instr(0x02, IMP, XXX, 2), Instr(0x03, IDX, SLO, 8), Instr(0x04, ZP0, NOP, 3), Instr(0x05, ZP0, ORA, 3), Instr(0x06, ZP0, ASL, 5), Instr(0x07, ZP0, SLO, 5), Instr(0x08, IMP, PHP, 3), Instr(0x09, IMM, ORA, 2), Instr(0x0A, ACC, ASL, 2), Instr(0x0B, IMM, ANC, 2), Instr(0x0C, ABS, NOP, 4), Instr(0x0D, ABS, ORA, 4), Instr(0x0E, ABS, ASL, 6), Instr(0x0F, ABS, SLO, 6),
@@ -96,378 +102,469 @@ impl Cpu {
         Instr(0xF0, REL, BEQ, 2), Instr(0xF1, IDY, SBC, 5), Instr(0xF2, IMP, XXX, 2), Instr(0xF3, IDY, ISB, 8), Instr(0xF4, ZPX, NOP, 4), Instr(0xF5, ZPX, SBC, 4), Instr(0xF6, ZPX, INC, 6), Instr(0xF7, ZPX, ISB, 6), Instr(0xF8, IMP, SED, 2), Instr(0xF9, ABY, SBC, 4), Instr(0xFA, IMP, NOP, 2), Instr(0xFB, ABY, ISB, 7), Instr(0xFC, ABX, IGN, 4), Instr(0xFD, ABX, SBC, 4), Instr(0xFE, ABX, INC, 7), Instr(0xFF, ABX, ISB, 7),
     ];
 
-    /// Accumulator
+    /// Accumulator Addressing.
+    ///
     /// No additional data is required, but the default target will be the accumulator.
-    //  ASL, ROL, LSR, ROR
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
+    ///
+    /// # Instructions
+    ///
+    /// ASL, ROL, LSR, ROR
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- -----------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  read next instruction byte (and throw it away)
+    /// ```
     pub fn acc(&mut self) {
-        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc); // Cycle 2, Read and throw away
     }
 
-    /// Implied
+    /// Implied Addressing.
+    ///
     /// No additional data is required, but the default target will be the accumulator.
-    // #  address R/W description
-    //   --- ------- --- -----------------------------------------------
-    //    1    PC     R  fetch opcode, increment PC
-    //    2    PC     R  read next instruction byte (and throw it away)
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- -----------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  read next instruction byte (and throw it away)
+    /// ```
     pub fn imp(&mut self) {
-        let _ = self.read(self.pc, Access::Read); // Cycle 2, Read and throw away
+        let _ = self.read(self.pc); // Cycle 2, Read and throw away
     }
 
-    /// Immediate
+    /// Immediate Addressing.
+    ///
     /// Uses the next byte as the value, so we'll update the `abs_addr` to the next byte.
-    // #  address R/W description
-    //   --- ------- --- ------------------------------------------
-    //    1    PC     R  fetch opcode, increment PC
-    //    2    PC     R  fetch value, increment PC
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- ------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  fetch value, increment PC
+    /// ```
     pub fn imm(&mut self) {
         self.abs_addr = self.pc;
         self.pc = self.pc.wrapping_add(1);
     }
 
-    /// Zero Page
+    /// Zero Page Addressing.
+    ///
     /// Accesses the first 0xFF bytes of the address range, so this only requires one extra byte
     /// instead of the usual two.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, NOP)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  R  read from effective address
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  R  read from effective address
-    //     4  address  W  write the value back to effective address,
-    //                    and do the operation on it
-    //     5  address  W  write the new value to effective address
-
-    //  Write instructions (STA, STX, STY, SAX)
-
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch address, increment PC
-    //     3  address  W  write register to effective address
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- ------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  fetch address, increment PC
+    ///    3  address  R  read from effective address
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- ------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  fetch address, increment PC
+    ///    3  address  R  read from effective address
+    ///    4  address  W  write the value back to effective address,
+    ///                   and do the operation on it
+    ///    5  address  W  write the new value to effective address
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, STX, STY, SAX
+    ///
+    /// ```text
+    ///    #  address R/W description
+    ///   --- ------- --- ------------------------------------------
+    ///    1    PC     R  fetch opcode, increment PC
+    ///    2    PC     R  fetch address, increment PC
+    ///    3  address  W  write register to effective address
+    /// ```
     pub fn zp0(&mut self) {
         self.abs_addr = u16::from(self.read_instr()); // Cycle 2
     }
 
-    /// Zero Page w/ X offset
+    /// Zero Page Addressing w/ X offset.
+    ///
     /// Same as Zero Page, but is offset by adding the x register.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                     LAX, NOP)
-
-    //     #   address  R/W description
-    //    --- --------- --- ------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+X* R  read from effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //     #   address  R/W description
-    //    --- --------- --- ---------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register X to it
-    //     4  address+X* R  read from effective address
-    //     5  address+X* W  write the value back to effective address,
-    //                      and do the operation on it
-    //     6  address+X* W  write the new value to effective address
-
-    //    Note: * The high byte of the effective address is always zero,
-    //            i.e. page boundary crossings are not handled.
-
-    //  Write instructions (STA, STX, STY, SAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- -------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+X* W  write to effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch address, increment PC
+    ///  3   address   R  read from address, add index register to it
+    ///  4  address+X* R  read from effective address
+    ///
+    ///     * The high byte of the effective address is always zero,
+    ///       i.e. page boundary crossings are not handled.
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ---------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch address, increment PC
+    ///  3   address   R  read from address, add index register X to it
+    ///  4  address+X* R  read from effective address
+    ///  5  address+X* W  write the value back to effective address,
+    ///                   and do the operation on it
+    ///  6  address+X* W  write the new value to effective address
+    ///
+    ///     * The high byte of the effective address is always zero,
+    ///       i.e. page boundary crossings are not handled.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, STX, STY, SAX
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- -------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch address, increment PC
+    ///  3   address   R  read from address, add index register to it
+    ///  4  address+X* W  write to effective address
+    ///
+    ///     * The high byte of the effective address is always zero,
+    ///       i.e. page boundary crossings are not handled.
+    /// ```
     pub fn zpx(&mut self) {
         let addr = u16::from(self.read_instr()); // Cycle 2
-        let _ = self.read(addr, Access::Read); // Cycle 3
+        let _ = self.read(addr); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.x.into()) & 0x00FF;
     }
 
-    /// Zero Page w/ Y offset
+    /// Zero Page Addressing w/ Y offset.
+    ///
     /// Same as Zero Page, but is offset by adding the y register.
-    //  Read instructions (LDX, LAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- ------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+Y* R  read from effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
-
-    //  Write instructions (STX, SAX)
-
-    //     #   address  R/W description
-    //    --- --------- --- -------------------------------------------
-    //     1     PC      R  fetch opcode, increment PC
-    //     2     PC      R  fetch address, increment PC
-    //     3   address   R  read from address, add index register to it
-    //     4  address+Y* W  write to effective address
-
-    //           * The high byte of the effective address is always zero,
-    //             i.e. page boundary crossings are not handled.
+    ///
+    /// # Read instructions
+    ///
+    /// LDX, LAX
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch address, increment PC
+    ///  3   address   R  read from address, add index register to it
+    ///  4  address+Y* R  read from effective address
+    ///
+    ///     * The high byte of the effective address is always zero,
+    ///       i.e. page boundary crossings are not handled.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STX, SAX
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- -------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch address, increment PC
+    ///  3   address   R  read from address, add index register to it
+    ///  4  address+Y* W  write to effective address
+    ///
+    ///     * The high byte of the effective address is always zero,
+    ///       i.e. page boundary crossings are not handled.
+    /// ```
     pub fn zpy(&mut self) {
         let addr = u16::from(self.read_instr()); // Cycle 2
-        let _ = self.read(addr, Access::Read); // Cycle 3
+        let _ = self.read(addr); // Cycle 3
         self.abs_addr = addr.wrapping_add(self.y.into()) & 0x00FF;
     }
 
-    /// Relative
+    /// Relative Addressing.
+    ///
     /// This mode is only used by branching instructions. The address must be between -128 and +127,
     /// allowing the branching instruction to move backward or forward relative to the current
     /// program counter.
-    //    #   address  R/W description
-    //   --- --------- --- ---------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch fetched_data, increment PC
-    //    3     PC      R  Fetch opcode of next instruction,
-    //                     If branch is taken, add fetched_data to PCL.
-    //                     Otherwise increment PC.
-    //    4+    PC*     R  Fetch opcode of next instruction.
-    //                     Fix PCH. If it did not change, increment PC.
-    //    5!    PC      R  Fetch opcode of next instruction,
-    //                     increment PC.
-
-    //   Notes: The opcode fetch of the next instruction is included to
-    //          this diagram for illustration purposes. When determining
-    //          real execution times, remember to subtract the last
-    //          cycle.
-
-    //          * The high byte of Program Counter (PCH) may be invalid
-    //            at this time, i.e. it may be smaller or bigger by $100.
-
-    //          + If branch is taken, this cycle will be executed.
-
-    //          ! If branch occurs to different page, this cycle will be
-    //            executed.
+    ///
+    /// # Notes
+    ///
+    /// The opcode fetch of the next instruction is included to this diagram for illustration
+    /// purposes. When determining real execution times, remember to subtract the last cycle.
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ---------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch fetched_data, increment PC
+    ///  3     PC      R  Fetch opcode of next instruction,
+    ///                   If branch is taken, add fetched_data to PCL.
+    ///                   Otherwise increment PC.
+    ///  4+    PC*     R  Fetch opcode of next instruction.
+    ///                   Fix PCH. If it did not change, increment PC.
+    ///  5!    PC      R  Fetch opcode of next instruction,
+    ///                   increment PC.
+    ///
+    ///     * The high byte of Program Counter (PCH) may be invalid
+    ///       at this time, i.e. it may be smaller or bigger by $100.
+    ///     + If branch is taken, this cycle will be executed.
+    ///     ! If branch occurs to different page, this cycle will be
+    ///       executed.
+    /// ```
     pub fn rel(&mut self) {
         self.rel_addr = u16::from(self.read_instr()); // Cycle 2
     }
 
-    /// Absolute
+    /// Absolute Addressing.
+    ///
     /// Uses a full 16-bit address as the next value.
-    //  Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                     LAX, NOP)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  R  read from effective address
-
-    //  Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                  SLO, SRE, RLA, RRA, ISB, DCP)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  R  read from effective address
-    //     5  address  W  write the value back to effective address,
-    //                    and do the operation on it
-    //     6  address  W  write the new value to effective address
-
-    //  Write instructions (STA, STX, STY, SAX)
-    //
-    //     #  address R/W description
-    //    --- ------- --- ------------------------------------------
-    //     1    PC     R  fetch opcode, increment PC
-    //     2    PC     R  fetch low byte of address, increment PC
-    //     3    PC     R  fetch high byte of address, increment PC
-    //     4  address  W  write register to effective address
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, NOP
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- ------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  fetch low byte of address, increment PC
+    ///  3    PC     R  fetch high byte of address, increment PC
+    ///  4  address  R  read from effective address
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- ------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  fetch low byte of address, increment PC
+    ///  3    PC     R  fetch high byte of address, increment PC
+    ///  4  address  R  read from effective address
+    ///  5  address  W  write the value back to effective address,
+    ///                 and do the operation on it
+    ///  6  address  W  write the new value to effective address
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, STX, STY, SAX
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- ------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  fetch low byte of address, increment PC
+    ///  3    PC     R  fetch high byte of address, increment PC
+    ///  4  address  W  write register to effective address
+    /// ```
     pub fn abs(&mut self) {
         self.abs_addr = self.read_instr_u16(); // Cycle 2 & 3
     }
 
-    /// Absolute w/ X offset
+    /// Absolute Address w/ X offset.
+    ///
     /// Same as Absolute, but is offset by adding the x register. If a page boundary is crossed, an
     /// additional clock is required.
-    // Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, LAE, SHS, NOP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5+ address+X  R  re-read from effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #4, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                 SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1    PC       R  fetch opcode, increment PC
-    //    2    PC       R  fetch low byte of address, increment PC
-    //    3    PC       R  fetch high byte of address,
-    //                     add index register X to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+X  R  re-read from effective address
-    //    6  address+X  W  write the value back to effective address,
-    //                     and do the operation on it
-    //    7  address+X  W  write the new value to effective address
-
-    //   Notes: * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, STX, STY, SHA, SHX, SHY)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+X* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+X  W  write to effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100. Because
-    //            the processor cannot undo a write to an invalid
-    //            address, it always reads from the address first.
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, LAE, SHS, NOP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch low byte of address, increment PC
+    ///  3     PC      R  fetch high byte of address,
+    ///                   add index register to low address byte,
+    ///                   increment PC
+    ///  4  address+X* R  read from effective address,
+    ///                   fix the high byte of effective address
+    ///  5+ address+X  R  re-read from effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    ///     + This cycle will be executed only if the effective address
+    ///       was invalid during cycle #4, i.e. page boundary was crossed.
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    /// #   address  R/W description
+    /// -- --------- --- ------------------------------------------
+    /// 1    PC       R  fetch opcode, increment PC
+    /// 2    PC       R  fetch low byte of address, increment PC
+    /// 3    PC       R  fetch high byte of address,
+    ///                  add index register X to low address byte,
+    ///                  increment PC
+    /// 4  address+X* R  read from effective address,
+    ///                  fix the high byte of effective address
+    /// 5  address+X  R  re-read from effective address
+    /// 6  address+X  W  write the value back to effective address,
+    ///                  and do the operation on it
+    /// 7  address+X  W  write the new value to effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, STX, STY, SHA, SHX, SHY
+    ///
+    /// ```text
+    /// #   address  R/W description
+    /// -- --------- --- ------------------------------------------
+    /// 1     PC      R  fetch opcode, increment PC
+    /// 2     PC      R  fetch low byte of address, increment PC
+    /// 3     PC      R  fetch high byte of address,
+    ///                  add index register to low address byte,
+    ///                  increment PC
+    /// 4  address+X* R  read from effective address,
+    ///                  fix the high byte of effective address
+    /// 5  address+X  W  write to effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100. Because
+    ///       the processor cannot undo a write to an invalid
+    ///       address, it always reads from the address first.
+    /// ```
     pub fn abx(&mut self) {
         let addr = self.read_instr_u16(); // Cycle 2 & 3
         self.abs_addr = addr.wrapping_add(self.x.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
-    /// Absolute w/ Y offset
+    /// Absolute Address w/ Y offset.
+    ///
     /// Same as Absolute, but is offset by adding the y register. If a page boundary is crossed, an
     /// additional clock is required.
-    // Read instructions (LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT,
-    //                    LAX, LAE, SHS, NOP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5+ address+Y  R  re-read from effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #4, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (ASL, LSR, ROL, ROR, INC, DEC,
-    //                                 SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1    PC       R  fetch opcode, increment PC
-    //    2    PC       R  fetch low byte of address, increment PC
-    //    3    PC       R  fetch high byte of address,
-    //                     add index register Y to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+Y  R  re-read from effective address
-    //    6  address+Y  W  write the value back to effective address,
-    //                     and do the operation on it
-    //    7  address+Y  W  write the new value to effective address
-
-    //   Notes: * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, STX, STY, SHA, SHX, SHY)
-
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch low byte of address, increment PC
-    //    3     PC      R  fetch high byte of address,
-    //                     add index register to low address byte,
-    //                     increment PC
-    //    4  address+Y* R  read from effective address,
-    //                     fix the high byte of effective address
-    //    5  address+Y  W  write to effective address
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100. Because
-    //            the processor cannot undo a write to an invalid
-    //            address, it always reads from the address first.
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, LDX, LDY, EOR, AND, ORA, ADC, SBC, CMP, BIT, LAX, LAE, SHS, NOP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch low byte of address, increment PC
+    ///  3     PC      R  fetch high byte of address,
+    ///                   add index register to low address byte,
+    ///                   increment PC
+    ///  4  address+Y* R  read from effective address,
+    ///                   fix the high byte of effective address
+    ///  5+ address+Y  R  re-read from effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    ///     + This cycle will be executed only if the effective address
+    ///       was invalid during cycle #4, i.e. page boundary was crossed.
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// ASL, LSR, ROL, ROR, INC, DEC, SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1    PC       R  fetch opcode, increment PC
+    ///  2    PC       R  fetch low byte of address, increment PC
+    ///  3    PC       R  fetch high byte of address,
+    ///                   add index register Y to low address byte,
+    ///                   increment PC
+    ///  4  address+Y* R  read from effective address,
+    ///                   fix the high byte of effective address
+    ///  5  address+Y  R  re-read from effective address
+    ///  6  address+Y  W  write the value back to effective address,
+    ///                   and do the operation on it
+    ///  7  address+Y  W  write the new value to effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, STX, STY, SHA, SHX, SHY
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch low byte of address, increment PC
+    ///  3     PC      R  fetch high byte of address,
+    ///                   add index register to low address byte,
+    ///                   increment PC
+    ///  4  address+Y* R  read from effective address,
+    ///                   fix the high byte of effective address
+    ///  5  address+Y  W  write to effective address
+    ///
+    ///     * The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100. Because
+    ///       the processor cannot undo a write to an invalid
+    ///       address, it always reads from the address first.
+    /// ```
     pub fn aby(&mut self) {
         let addr = self.read_instr_u16(); // Cycles 2 & 3
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 
-    /// Indirect (JMP)
+    /// Indirect Addressing.
+    ///
     /// The next 16-bit address is used to get the actual 16-bit address. This instruction has
     /// a bug in the original hardware. If the lo byte is 0xFF, the hi byte would cross a page
     /// boundary. However, this doesn't work correctly on the original hardware and instead
     /// wraps back around to 0.
-    //    #   address  R/W description
-    //   --- --------- --- ------------------------------------------
-    //    1     PC      R  fetch opcode, increment PC
-    //    2     PC      R  fetch pointer address low, increment PC
-    //    3     PC      R  fetch pointer address high, increment PC
-    //    4   pointer   R  fetch low address to latch
-    //    5  pointer+1* R  fetch PCH, copy latch to PCL
-
-    //   Note: * The PCH will always be fetched from the same page
-    //           than PCL, i.e. page boundary crossing is not handled.
-
-    //            How Real Programmers Acknowledge Interrupts
+    ///
+    /// # Instructions
+    ///
+    /// JMP
+    ///
+    /// ```text
+    ///  #   address  R/W description
+    /// --- --------- --- ------------------------------------------
+    ///  1     PC      R  fetch opcode, increment PC
+    ///  2     PC      R  fetch pointer address low, increment PC
+    ///  3     PC      R  fetch pointer address high, increment PC
+    ///  4   pointer   R  fetch low address to latch
+    ///  5  pointer+1* R  fetch PCH, copy latch to PCL
+    ///
+    ///     * The PCH will always be fetched from the same page
+    ///       than PCL, i.e. page boundary crossing is not handled.
+    /// ```
     pub fn ind(&mut self) {
         let addr = self.read_instr_u16();
         if addr & 0xFF == 0xFF {
             // Simulate bug
-            let lo = self.read(addr, Access::Read);
-            let hi = self.read(addr & 0xFF00, Access::Read);
+            let lo = self.read(addr);
+            let hi = self.read(addr & 0xFF00);
             self.abs_addr = u16::from_le_bytes([lo, hi]);
         } else {
             // Normal behavior
@@ -475,137 +572,161 @@ impl Cpu {
         }
     }
 
-    /// Indirect X
+    /// Indirect X Addressing.
+    ///
     /// The next 8-bit address is offset by the X register to get the actual 16-bit address from
     /// page 0x00.
-    // Read instructions (LDA, ORA, EOR, AND, ADC, CMP, SBC, LAX)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    R  read from effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
-
-    // Read-Modify-Write instructions (SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    R  read from effective address
-    //    7    address    W  write the value back to effective address,
-    //                       and do the operation on it
-    //    8    address    W  write the new value to effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
-
-    // Write instructions (STA, SAX)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  read from the address, add X to it
-    //    4   pointer+X   R  fetch effective address low
-    //    5  pointer+X+1  R  fetch effective address high
-    //    6    address    W  write to effective address
-
-    //   Note: The effective address is always fetched from zero page,
-    //         i.e. the zero page boundary crossing is not handled.
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, ORA, EOR, AND, ADC, CMP, SBC, LAX
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  read from the address, add X to it
+    ///  4   pointer+X*  R  fetch effective address low
+    ///  5  pointer+X+1* R  fetch effective address high
+    ///  6    address    R  read from effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  read from the address, add X to it
+    ///  4   pointer+X*  R  fetch effective address low
+    ///  5  pointer+X+1* R  fetch effective address high
+    ///  6    address    R  read from effective address
+    ///  7    address    W  write the value back to effective address,
+    ///                     and do the operation on it
+    ///  8    address    W  write the new value to effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, SAX
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  read from the address, add X to it
+    ///  4   pointer+X*  R  fetch effective address low
+    ///  5  pointer+X+1* R  fetch effective address high
+    ///  6    address    W  write to effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    /// ```
     pub fn idx(&mut self) {
         let addr = self.read_instr(); // Cycle 2
-        let _ = self.read(u16::from(addr), Access::Read); // Cycle 3
+        let _ = self.read(u16::from(addr)); // Cycle 3
         let addr = addr.wrapping_add(self.x);
         self.abs_addr = self.read_zp_u16(addr); // Cycles 4 & 5
     }
 
-    /// Indirect Y
+    /// Indirect Y Addressing.
+    ///
     /// The next 8-bit address is read to get a 16-bit address from page 0x00, which is then offset
     /// by the Y register. If a page boundary is crossed, add a clock cycle.
-    // Read instructions (LDA, EOR, AND, ORA, ADC, SBC, CMP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6+  address+Y   R  read from effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    //          + This cycle will be executed only if the effective address
-    //            was invalid during cycle #5, i.e. page boundary was crossed.
-
-    // Read-Modify-Write instructions (SLO, SRE, RLA, RRA, ISB, DCP)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6   address+Y   R  re-read from effective address
-    //    7   address+Y   W  write the value back to effective address,
-    //                       and do the operation on it
-    //    8   address+Y   W  write the new value to effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
-
-    // Write instructions (STA, SHA)
-
-    //    #    address   R/W description
-    //   --- ----------- --- ------------------------------------------
-    //    1      PC       R  fetch opcode, increment PC
-    //    2      PC       R  fetch pointer address, increment PC
-    //    3    pointer    R  fetch effective address low
-    //    4   pointer+1   R  fetch effective address high,
-    //                       add Y to low byte of effective address
-    //    5   address+Y*  R  read from effective address,
-    //                       fix high byte of effective address
-    //    6   address+Y   W  write to effective address
-
-    //   Notes: The effective address is always fetched from zero page,
-    //          i.e. the zero page boundary crossing is not handled.
-
-    //          * The high byte of the effective address may be invalid
-    //            at this time, i.e. it may be smaller by $100.
+    ///
+    /// # Read instructions
+    ///
+    /// LDA, EOR, AND, ORA, ADC, SBC, CMP
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  fetch effective address low
+    ///  4   pointer+1*  R  fetch effective address high,
+    ///                     add Y to low byte of effective address
+    ///  5   address+Y+  R  read from effective address,
+    ///                     fix high byte of effective address
+    ///  6!  address+Y   R  read from effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    ///     + The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    ///     ! This cycle will be executed only if the effective address
+    ///       was invalid during cycle #5, i.e. page boundary was crossed.
+    /// ```
+    ///
+    /// # Read-Modify-Write instructions
+    ///
+    /// SLO, SRE, RLA, RRA, ISB, DCP
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  fetch effective address low
+    ///  4   pointer+1*  R  fetch effective address high,
+    ///                     add Y to low byte of effective address
+    ///  5   address+Y+  R  read from effective address,
+    ///                     fix high byte of effective address
+    ///  6   address+Y   R  re-read from effective address
+    ///  7   address+Y   W  write the value back to effective address,
+    ///                     and do the operation on it
+    ///  8   address+Y   W  write the new value to effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    ///     + The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    /// ```
+    ///
+    /// # Write instructions
+    ///
+    /// STA, SHA
+    ///
+    /// ```text
+    ///  #    address   R/W description
+    /// --- ----------- --- ------------------------------------------
+    ///  1      PC       R  fetch opcode, increment PC
+    ///  2      PC       R  fetch pointer address, increment PC
+    ///  3    pointer    R  fetch effective address low
+    ///  4   pointer+1*  R  fetch effective address high,
+    ///                     add Y to low byte of effective address
+    ///  5   address+Y+  R  read from effective address,
+    ///                     fix high byte of effective address
+    ///  6   address+Y   W  write to effective address
+    ///
+    ///     * The effective address is always fetched from zero page,
+    ///       i.e. the zero page boundary crossing is not handled.
+    ///     + The high byte of the effective address may be invalid
+    ///       at this time, i.e. it may be smaller by $100.
+    /// ```
     pub fn idy(&mut self) {
         let addr = self.read_instr(); // Cycle 2
         let addr = self.read_zp_u16(addr); // Cycles 3 & 4
         self.abs_addr = addr.wrapping_add(self.y.into());
         // Cycle 4 Read with fixed high byte
-        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF), Access::Read);
+        self.fetched_data = self.read((addr & 0xFF00) | (self.abs_addr & 0x00FF));
     }
 }
 
 /// CPU instructions
 impl Cpu {
-    /// Storage opcodes
+    // Storage opcodes
 
     /// LDA: Load A with M
     pub fn lda(&mut self) {
@@ -630,17 +751,17 @@ impl Cpu {
 
     /// STA: Store A into M
     pub fn sta(&mut self) {
-        self.write(self.abs_addr, self.acc, Access::Write);
+        self.write(self.abs_addr, self.acc);
     }
 
     /// STX: Store X into M
     pub fn stx(&mut self) {
-        self.write(self.abs_addr, self.x, Access::Write);
+        self.write(self.abs_addr, self.x);
     }
 
     /// STY: Store Y into M
     pub fn sty(&mut self) {
-        self.write(self.abs_addr, self.y, Access::Write);
+        self.write(self.abs_addr, self.y);
     }
 
     /// TAX: Transfer A to X
@@ -678,7 +799,7 @@ impl Cpu {
         self.set_zn_status(self.acc);
     }
 
-    /// Arithmetic opcodes
+    // Arithmetic opcodes
 
     /// ADC: Add M to A with Carry
     pub fn adc(&mut self) {
@@ -752,7 +873,7 @@ impl Cpu {
         self.set_zn_status(self.y);
     }
 
-    /// Bitwise opcodes
+    // Bitwise opcodes
 
     /// AND: "And" M with A
     pub fn and(&mut self) {
@@ -830,7 +951,7 @@ impl Cpu {
         self.write_fetched(ret);
     }
 
-    /// Branch opcodes
+    // Branch opcodes
 
     /// Utility function used by all branch instructions
     pub fn branch(&mut self) {
@@ -840,7 +961,7 @@ impl Cpu {
             self.run_irq = false;
         }
 
-        self.read(self.pc, Access::Read); // Dummy read
+        self.read(self.pc); // Dummy read
 
         self.abs_addr = if self.rel_addr & 0x80 == 0x80 {
             self.pc.wrapping_add(self.rel_addr | 0xFF00)
@@ -848,7 +969,7 @@ impl Cpu {
             self.pc.wrapping_add(self.rel_addr)
         };
         if Self::pages_differ(self.abs_addr, self.pc) {
-            self.read(self.pc, Access::Read); // Dummy read
+            self.read(self.pc); // Dummy read
         }
         self.pc = self.abs_addr;
     }
@@ -909,46 +1030,55 @@ impl Cpu {
         }
     }
 
-    /// Jump opcodes
+    // Jump opcodes
 
     /// JMP: Jump to Location
-    // #  address R/W description
-    //   --- ------- --- -------------------------------------------------
-    //    1    PC     R  fetch opcode, increment PC
-    //    2    PC     R  fetch low address byte, increment PC
-    //    3    PC     R  copy low address byte to PCL, fetch high address
-    //                   byte to PCH
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -------------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  fetch low address byte, increment PC
+    ///  3    PC     R  copy low address byte to PCL, fetch high address
+    ///                   byte to PCH
+    /// ```
     pub fn jmp(&mut self) {
         self.pc = self.abs_addr;
     }
 
     /// JSR: Jump to Location Save Return addr
-    //  #  address R/W description
-    // --- ------- --- -------------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  fetch low address byte, increment PC
-    //  3  $0100,S  R  internal operation (predecrement S?)
-    //  4  $0100,S  W  push PCH on stack, decrement S
-    //  5  $0100,S  W  push PCL on stack, decrement S
-    //  6    PC     R  copy low address byte to PCL, fetch high address
-    //                 byte to PCH
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -------------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  fetch low address byte, increment PC
+    ///  3  $0100,S  R  internal operation (predecrement S?)
+    ///  4  $0100,S  W  push PCH on stack, decrement S
+    ///  5  $0100,S  W  push PCL on stack, decrement S
+    ///  6    PC     R  copy low address byte to PCL, fetch high address
+    ///                 byte to PCH
+    /// ```
     pub fn jsr(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.push_u16(self.pc.wrapping_sub(1));
         self.pc = self.abs_addr;
     }
 
     /// RTI: Return from Interrupt
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  R  increment S
-    //  4  $0100,S  R  pull P from stack, increment S
-    //  5  $0100,S  R  pull PCL from stack, increment S
-    //  6  $0100,S  R  pull PCH from stack
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  R  increment S
+    ///  4  $0100,S  R  pull P from stack, increment S
+    ///  5  $0100,S  R  pull PCL from stack, increment S
+    ///  6  $0100,S  R  pull PCH from stack
+    /// ```
     pub fn rti(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop()); // Cycle 4
         self.status &= !Status::U;
         self.status &= !Status::B;
@@ -956,21 +1086,24 @@ impl Cpu {
     }
 
     /// RTS: Return from Subroutine
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  R  increment S
-    //  4  $0100,S  R  pull PCL from stack, increment S
-    //  5  $0100,S  R  pull PCH from stack
-    //  6    PC     R  increment PC
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  R  increment S
+    ///  4  $0100,S  R  pull PCL from stack, increment S
+    ///  5  $0100,S  R  pull PCH from stack
+    ///  6    PC     R  increment PC
+    /// ```
     pub fn rts(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.pc = self.pop_u16().wrapping_add(1); // Cycles 4 & 5
-        let _ = self.read(self.pc, Access::Read); // Cycle 6
+        let _ = self.read(self.pc); // Cycle 6
     }
 
-    ///  Register opcodes
+    //  Register opcodes
 
     /// CLC: Clear Carry Flag
     pub fn clc(&mut self) {
@@ -1007,7 +1140,7 @@ impl Cpu {
         self.status.set(Status::V, false);
     }
 
-    /// Compare opcodes
+    // Compare opcodes
 
     /// Utility function used by all compare instructions
     pub fn compare(&mut self, a: u8, b: u8) {
@@ -1034,70 +1167,82 @@ impl Cpu {
         self.compare(self.y, self.fetched_data);
     }
 
-    /// Stack opcodes
+    // Stack opcodes
 
     /// PHP: Push Processor Status on Stack
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  W  push register on stack, decrement S
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  W  push register on stack, decrement S
+    /// ```
     pub fn php(&mut self) {
         // Set U and B when pushing during PHP and BRK
         self.push((self.status | Status::U | Status::B).bits());
     }
 
     /// PLP: Pull Processor Status from Stack
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  R  increment S
-    //  4  $0100,S  R  pull register from stack
-
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  R  increment S
+    ///  4  $0100,S  R  pull register from stack
+    ///  ```
     pub fn plp(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.status = Status::from_bits_truncate(self.pop());
     }
 
     /// PHA: Push A on Stack
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  W  push register on stack, decrement S
-
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  W  push register on stack, decrement S
+    /// ```
     pub fn pha(&mut self) {
         self.push(self.acc);
     }
 
     /// PLA: Pull A from Stack
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away)
-    //  3  $0100,S  R  increment S
-    //  4  $0100,S  R  pull register from stack
-
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away)
+    ///  3  $0100,S  R  increment S
+    ///  4  $0100,S  R  pull register from stack
+    /// ```
     pub fn pla(&mut self) {
-        let _ = self.read(Self::SP_BASE | u16::from(self.sp), Access::Read); // Cycle 3
+        let _ = self.read(Self::SP_BASE | u16::from(self.sp)); // Cycle 3
         self.acc = self.pop();
         self.set_zn_status(self.acc);
     }
 
-    /// System opcodes
+    // System opcodes
 
     /// BRK: Force Break Interrupt
-    //  #  address R/W description
-    // --- ------- --- -----------------------------------------------
-    //  1    PC     R  fetch opcode, increment PC
-    //  2    PC     R  read next instruction byte (and throw it away),
-    //                 increment PC
-    //  3  $0100,S  W  push PCH on stack (with B flag set), decrement S
-    //  4  $0100,S  W  push PCL on stack, decrement S
-    //  5  $0100,S  W  push P on stack, decrement S
-    //  6   $FFFE   R  fetch PCL
-    //  7   $FFFF   R  fetch PCH
+    ///
+    /// ```text
+    ///  #  address R/W description
+    /// --- ------- --- -----------------------------------------------
+    ///  1    PC     R  fetch opcode, increment PC
+    ///  2    PC     R  read next instruction byte (and throw it away),
+    ///                 increment PC
+    ///  3  $0100,S  W  push PCH on stack (with B flag set), decrement S
+    ///  4  $0100,S  W  push PCL on stack, decrement S
+    ///  5  $0100,S  W  push P on stack, decrement S
+    ///  6   $FFFE   R  fetch PCL
+    ///  7   $FFFF   R  fetch PCH
+    /// ```
     pub fn brk(&mut self) {
         self.fetch_data(); // throw away
         self.push_u16(self.pc);
@@ -1149,7 +1294,7 @@ impl Cpu {
         self.fetch_data_cross(); // throw away
     }
 
-    /// Unofficial opcodes
+    // Unofficial opcodes
 
     /// SKB: Like NOP
     pub fn skb(&mut self) {
@@ -1303,7 +1448,7 @@ impl Cpu {
     /// TAS: Shortcut for STA then TXS
     pub fn tas(&mut self) {
         // STA
-        self.write(self.abs_addr, self.acc, Access::Write);
+        self.write(self.abs_addr, self.acc);
         // TXS
         self.sp = self.x;
     }

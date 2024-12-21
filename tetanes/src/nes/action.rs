@@ -1,6 +1,7 @@
-//! An [`Action`] is an enumerated list of possible state changes to the `TetaNES` application that
-//! allows for event handling and test abstractions such as being able to map a custom keybind to a
-//! given state change.
+//! An [`Action`] is an enumerated list of possible state changes to `TetaNES`.
+//!
+//! It allows for event handling and test abstractions such as being able to map a custom keybind
+//! to a given state change.
 
 use crate::nes::renderer::gui::Menu;
 use serde::{Deserialize, Serialize};
@@ -152,9 +153,9 @@ impl Action {
         Self::Deck(DeckAction::SetNesRegion(NesRegion::Dendy)),
         Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Pixellate)),
         Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Ntsc)),
-        Self::Debug(Debug::Toggle(Debugger::Cpu)),
-        Self::Debug(Debug::Toggle(Debugger::Ppu)),
-        Self::Debug(Debug::Toggle(Debugger::Apu)),
+        Self::Debug(Debug::Toggle(DebugKind::Cpu)),
+        Self::Debug(Debug::Toggle(DebugKind::Ppu)),
+        Self::Debug(Debug::Toggle(DebugKind::Apu)),
         Self::Debug(Debug::Step(DebugStep::Into)),
         Self::Debug(Debug::Step(DebugStep::Out)),
         Self::Debug(Debug::Step(DebugStep::Over)),
@@ -286,9 +287,9 @@ impl AsRef<str> for Action {
             },
             Action::Debug(debug) => match debug {
                 Debug::Toggle(debugger) => match debugger {
-                    Debugger::Cpu => "Toggle Debugger",
-                    Debugger::Ppu => "Toggle PPU Viewer",
-                    Debugger::Apu => "Toggle APU Mixer",
+                    DebugKind::Cpu => "Toggle Debugger",
+                    DebugKind::Ppu => "Toggle PPU Viewer",
+                    DebugKind::Apu => "Toggle APU Mixer",
                 },
                 Debug::Step(step) => match step {
                     DebugStep::Into => "Debug Step",
@@ -407,9 +408,9 @@ impl TryFrom<&str> for Action {
                 Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Pixellate))
             }
             "Set Filter to NTSC" => Self::Deck(DeckAction::SetVideoFilter(VideoFilter::Ntsc)),
-            "Toggle CPU Debugger" => Self::Debug(Debug::Toggle(Debugger::Cpu)),
-            "Toggle PPU Debugger" => Self::Debug(Debug::Toggle(Debugger::Ppu)),
-            "Toggle APU Debugger" => Self::Debug(Debug::Toggle(Debugger::Apu)),
+            "Toggle CPU Debugger" => Self::Debug(Debug::Toggle(DebugKind::Cpu)),
+            "Toggle PPU Debugger" => Self::Debug(Debug::Toggle(DebugKind::Ppu)),
+            "Toggle APU Debugger" => Self::Debug(Debug::Toggle(DebugKind::Apu)),
             "Step Into (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Into)),
             "Step Out (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Out)),
             "Step Over (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Over)),
@@ -502,7 +503,7 @@ pub enum Setting {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Debugger {
+pub enum DebugKind {
     Cpu,
     Ppu,
     Apu,
@@ -520,6 +521,6 @@ pub enum DebugStep {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Debug {
-    Toggle(Debugger),
+    Toggle(DebugKind),
     Step(DebugStep),
 }

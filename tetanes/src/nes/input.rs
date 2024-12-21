@@ -1,5 +1,5 @@
 use crate::nes::{
-    action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
+    action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
     config::{Config, InputConfig},
     renderer::gui::Menu,
 };
@@ -310,9 +310,9 @@ impl ActionBindings {
             { Debug::Step(DebugStep::Out) => :SHIFT, KeyO },
             { Debug::Step(DebugStep::Over) => KeyO },
             { Debug::Step(DebugStep::Scanline) => :SHIFT, KeyL },
-            { Debug::Toggle(Debugger::Apu) => :SHIFT, KeyA },
-            { Debug::Toggle(Debugger::Cpu) => :SHIFT, KeyD },
-            { Debug::Toggle(Debugger::Ppu) => :SHIFT, KeyP },
+            { Debug::Toggle(DebugKind::Apu) => :SHIFT, KeyA },
+            { Debug::Toggle(DebugKind::Cpu) => :SHIFT, KeyD },
+            { Debug::Toggle(DebugKind::Ppu) => :SHIFT, KeyP },
             { DeckAction::LoadState => :CONTROL, KeyL },
             { DeckAction::Reset(ResetKind::Hard) => :CONTROL, KeyH },
             { DeckAction::Reset(ResetKind::Soft) => :CONTROL, KeyR },
@@ -543,8 +543,7 @@ impl Gamepads {
                         None
                     }
                 }
-                EventType::ButtonChanged(_, _, _) => None,
-                EventType::Connected | EventType::Disconnected | EventType::Dropped => None,
+                _ => None,
             }
         } else {
             None

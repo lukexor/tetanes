@@ -91,8 +91,8 @@ jobs:
       - run: |
           cargo clippy -p tetanes-core --all-features --keep-going -- -D warnings
 
-  test:
-    name: Test
+  test-tetanes:
+    name: Test TetaNES
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,7 +106,21 @@ jobs:
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
       - run: |
-          cargo test --all-targets --all-features --no-fail-fast
+          cargo test -p tetanes --all-features --no-fail-fast
+
+  test-tetanes-core:
+    name: Test TetaNES Core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo test -p tetanes-core --all-features --no-fail-fast
 
   docs:
     name: Docs

@@ -8,15 +8,15 @@ use std::{
     path::{Path, PathBuf},
 };
 use tetanes_core::{
-    cart::{Cart, GameRegion},
+    cart::{Cart, GameInfo},
     common::NesRegion,
     fs,
     mem::RamState,
     ppu::Mirroring,
 };
 
-const GAME_DB: &str = "tetanes-core/game_database.txt";
-const GAME_REGIONS: &str = "tetanes-core/game_regions.dat";
+const GAME_DB_TXT: &str = "tetanes-core/game_database.txt";
+const GAME_DB: &str = "tetanes-core/game_db.dat";
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
@@ -25,8 +25,8 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
     let header = "# CRC, Region, Mapper, PrgRomSize, ChrRomSize, ChrRamSize, PrgRamSize, Battery, Mirroring, SubMapper, Title";
     if path.is_dir() {
-        let mut db_file = BufWriter::new(
-            File::create(GAME_DB).with_context(|| format!("failed to open {GAME_DB}"))?,
+        let mut db_txt_file = BufWriter::new(
+            File::create(GAME_DB_TXT).with_context(|| format!("failed to open {GAME_DB_TXT}"))?,
         );
         let mut games = path
             .read_dir()
@@ -39,8 +39,10 @@ fn main() -> anyhow::Result<()> {
             .collect::<Vec<_>>();
         games.sort_by_key(|game| game.crc32);
         let mut entries = Vec::with_capacity(games.len());
-        writeln!(db_file, "{header}")?;
-        for game in &games {
+        writeln!(db_txt_file, "{header}")?;
+        for game in &mut games {
+            apply_corrections(game);
+
             let Game {
                 crc32,
                 region,
@@ -53,20 +55,51 @@ fn main() -> anyhow::Result<()> {
                 mirroring,
                 title,
             } = game;
+
             writeln!(
-                db_file,
-                "  {crc32:8X}, {region}, {mapper}/{submapper}, {chr_banks}, {prg_rom_banks}, {prg_ram_banks}, {battery}, {mirroring:?}, {title:?}",
+                db_txt_file,
+                "  {crc32:8X}, {region}, {mapper}, {submapper}, {chr_banks}, {prg_rom_banks}, {prg_ram_banks}, {battery}, {mirroring:?}, {title:?}",
             )?;
-            entries.push(GameRegion {
+            entries.push(GameInfo {
                 crc32: *crc32,
                 region: *region,
+                mapper_num: *mapper,
+                submapper_num: *submapper,
             });
         }
-        fs::save(GAME_REGIONS, &entries)?;
+        fs::save(GAME_DB, &entries)?;
     } else if path.is_file() {
-        todo!("adding individual files is not yet supported");
+        todo!("adding individual games is not yet supported");
     }
     Ok(())
+}
+
+fn apply_corrections(game: &mut Game) {
+    match game.crc32 {
+        // Mapper 210 games incorrectly marked as Mapper 19
+        0x808606F0 | 0x81B7F1A8 | 0xC247CC80 | 0xC47946D => {
+            // Famista '91
+            // Heisei Tensai Bakabon
+            // Family Circuit '91
+            // Chibi Maruko-chan: Uki Uki Shopping
+            // Dream Master - TODO: Missing crc
+            game.mapper = 210;
+            game.submapper = 1;
+        }
+        0x1DC0F740 | 0x429103C9 | 0x46FD7843 | 0x47232739 | 0x6EC51DE5 | 0xADFFD64F
+        | 0xD323B806 => {
+            // Famista '92
+            // Famista '93
+            // Famista '94
+            // Splatterhouse: Wanpaku Graffiti
+            // Top Striker
+            // Wagyan Land 2
+            // Wagyan Land 3
+            game.mapper = 210;
+            game.submapper = 2;
+        }
+        _ => (),
+    }
 }
 
 #[derive(Debug)]
@@ -74,7 +107,7 @@ fn main() -> anyhow::Result<()> {
 pub struct Game {
     crc32: u32,
     region: NesRegion,
-    mapper: &'static str,
+    mapper: u16,
     submapper: u8,
     chr_banks: usize,
     prg_rom_banks: usize,
@@ -112,7 +145,7 @@ impl Game {
         Ok(Game {
             crc32,
             region,
-            mapper: cart.mapper_board(),
+            mapper: cart.mapper_num(),
             submapper: cart.submapper_num(),
             chr_banks,
             prg_rom_banks,

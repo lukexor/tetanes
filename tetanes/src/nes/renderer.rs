@@ -2,15 +2,15 @@ use crate::{
     feature,
     nes::{
         config::Config,
-        event::{EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent},
+        event::{EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         input::Gamepads,
         renderer::{
             clipboard::Clipboard,
             event::translate_cursor,
             gui::{Gui, MessageType},
             painter::Painter,
-            texture::Texture,
         },
+        RunState,
     },
     platform::{self, BuilderExt, Initialize},
     thread,
@@ -34,7 +34,7 @@ use thingbuf::{
     mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
 };
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 use winit::{
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event_loop::ActiveEventLoop,
@@ -128,7 +128,6 @@ pub struct Renderer {
     pub(crate) ctx: egui::Context,
     #[cfg(not(target_arch = "wasm32"))]
     accesskit: accesskit_winit::Adapter,
-    texture: Texture,
     first_frame: bool,
     pub(crate) last_save_time: Instant,
     zoom_changed: bool,
@@ -145,7 +144,6 @@ impl std::fmt::Debug for Renderer {
             .field("redraw_tx", &self.redraw_tx)
             .field("gui", &self.gui)
             .field("ctx", &self.ctx)
-            .field("texture", &self.texture)
             .field("first_frame", &self.first_frame)
             .field("last_save_time", &self.last_save_time)
             .field("zoom_changed", &self.zoom_changed)
@@ -210,20 +208,18 @@ impl Renderer {
         viewport_from_window.insert(window.id(), ViewportId::ROOT);
 
         let mut viewports = ViewportIdMap::default();
-        viewports.insert(
-            ViewportId::ROOT,
-            Viewport {
-                ids: ViewportIdPair::ROOT,
-                class: ViewportClass::Root,
-                info: ViewportInfo {
-                    minimized: window.is_minimized(),
-                    maximized: Some(window.is_maximized()),
-                    ..Default::default()
-                },
-                window: Some(Arc::clone(&window)),
+        let mut viewport = Viewport {
+            ids: ViewportIdPair::ROOT,
+            class: ViewportClass::Root,
+            info: ViewportInfo {
+                title: Some(Config::WINDOW_TITLE.to_string()),
                 ..Default::default()
             },
-        );
+            window: Some(Arc::clone(&window)),
+            ..Default::default()
+        };
+        Viewport::update_info(&mut viewport.info, &ctx, &window);
+        viewports.insert(viewport.ids.this, viewport);
 
         painter.set_shader(cfg.renderer.shader);
         let render_state = painter.render_state_mut();
@@ -231,16 +227,10 @@ impl Renderer {
             anyhow::bail!("painter state is not initialized yet");
         };
 
-        let texture = Texture::new(
-            render_state,
-            cfg.texture_size(),
-            cfg.deck.region.aspect_ratio(),
-            Some("nes frame"),
-        );
-
         let gui = Rc::new(RefCell::new(Gui::new(
+            ctx.clone(),
             tx.clone(),
-            texture.sized_texture(),
+            render_state,
             cfg.clone(),
         )));
 
@@ -269,7 +259,6 @@ impl Renderer {
             #[cfg(not(target_arch = "wasm32"))]
             accesskit,
             gui,
-            texture,
             first_frame: true,
             last_save_time: Instant::now(),
             zoom_changed: false,
@@ -281,10 +270,12 @@ impl Renderer {
         let State {
             viewports,
             viewport_from_window,
+            focused,
             ..
         } = &mut *self.state.borrow_mut();
         viewports.clear();
         viewport_from_window.clear();
+        *focused = None;
         self.painter.borrow_mut().destroy();
     }
 
@@ -754,6 +745,7 @@ impl Renderer {
                 let viewport = entry.get_mut();
                 viewport.class = class;
                 viewport.ids.parent = ids.parent;
+                viewport.info.parent = Some(ids.parent);
                 viewport.viewport_ui_cb = viewport_ui_cb;
 
                 let (delta_commands, recreate) = viewport.builder.patch(builder);
@@ -1064,7 +1056,7 @@ impl Renderer {
 
         self.handle_resize(viewport_id, cfg);
 
-        let (viewport_ui_cb, raw_input) = {
+        let (viewport_ui_cb, viewport_info, raw_input) = {
             let State {
                 viewports,
                 start_time,
@@ -1092,6 +1084,7 @@ impl Renderer {
             let screen_size_in_points =
                 screen_size_in_pixels / gui::lib::pixels_per_point(&self.ctx, window);
 
+            let viewport_info = viewport.info.clone();
             let mut raw_input = viewport.raw_input.take();
             raw_input.time = Some(start_time.elapsed().as_secs_f64());
             raw_input.screen_rect = (screen_size_in_points.x > 0.0
@@ -1103,7 +1096,7 @@ impl Renderer {
                 .map(|(id, viewport)| (*id, viewport.info.clone()))
                 .collect();
 
-            (viewport_ui_cb, raw_input)
+            (viewport_ui_cb, viewport_info, raw_input)
         };
 
         // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
@@ -1112,26 +1105,27 @@ impl Renderer {
             if let Some(render_state) = &self.painter.borrow().render_state() {
                 let mut frame_buffer = self.frame_rx.try_recv_ref();
                 while self.frame_rx.remaining() < 2 {
-                    debug!("skipping frame");
+                    trace!("skipping frame");
                     frame_buffer = self.frame_rx.try_recv_ref();
                 }
                 match frame_buffer {
                     Ok(frame_buffer) => {
-                        self.texture.update(
+                        let gui = self.gui.borrow_mut();
+                        let is_ntsc = gui.loaded_region().unwrap_or(cfg.deck.region).is_ntsc();
+                        gui.nes_texture.update(
                             &render_state.queue,
-                            if cfg.renderer.hide_overscan
-                                && self
-                                    .gui
-                                    .borrow()
-                                    .loaded_region()
-                                    .unwrap_or(cfg.deck.region)
-                                    .is_ntsc()
-                            {
+                            if cfg.renderer.hide_overscan && is_ntsc {
                                 &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
                             } else {
                                 &frame_buffer
                             },
                         );
+                        // self.nametables_texture.update_partial(
+                        //     &render_state.queue,
+                        //     &frame_buffer,
+                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
+                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
+                        // );
                     }
                     Err(TryRecvError::Closed) => {
                         error!("frame channel closed unexpectedly, exiting");
@@ -1147,9 +1141,14 @@ impl Renderer {
 
         // Mutated by accesskit below on platforms that support it
         #[allow(unused_mut)]
-        let mut output = self.ctx.run(raw_input, |ctx| match viewport_ui_cb {
-            Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-            None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
+        let mut output = self.ctx.run(raw_input, |ctx| {
+            match &viewport_ui_cb {
+                Some(viewport_ui_cb) => viewport_ui_cb(ctx),
+                None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
+            }
+            self.gui
+                .borrow_mut()
+                .show_viewport_info_window(&self.ctx, viewport_id, &viewport_info);
         });
 
         {
@@ -1205,6 +1204,9 @@ impl Renderer {
 
             Self::handle_platform_output(viewport, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output);
+            if std::mem::take(&mut self.zoom_changed) {
+                cfg.renderer.zoom = self.ctx.zoom_factor();
+            }
 
             // Prune dead viewports
             viewports.retain(|id, _| active_viewports_ids.contains(id));
@@ -1212,19 +1214,6 @@ impl Renderer {
             self.painter
                 .borrow_mut()
                 .retain_surfaces(&active_viewports_ids);
-
-            if viewport_id == ViewportId::ROOT {
-                for (viewport_id, viewport) in viewports {
-                    self.gui.borrow_mut().show_viewport_info_window(
-                        &self.ctx,
-                        *viewport_id,
-                        &viewport.info,
-                    );
-                }
-                if std::mem::take(&mut self.zoom_changed) {
-                    cfg.renderer.zoom = self.ctx.zoom_factor();
-                }
-            }
         }
 
         if let Err(err) = self.auto_save(cfg) {
@@ -1246,9 +1235,10 @@ impl Renderer {
 
             if let Some(render_state) = self.painter.borrow_mut().render_state_mut() {
                 let texture_size = cfg.texture_size();
-                self.texture
-                    .resize(render_state, texture_size, self.gui.borrow().aspect_ratio());
-                self.gui.borrow_mut().texture = self.texture.sized_texture();
+                let mut gui = self.gui.borrow_mut();
+                let aspect_ratio = gui.aspect_ratio();
+                gui.nes_texture
+                    .resize(render_state, texture_size, aspect_ratio);
             }
             self.resize_texture = false;
         }
@@ -1257,12 +1247,6 @@ impl Renderer {
     fn resize_window(&self, cfg: &Config) {
         if !self.fullscreen() {
             let desired_window_size = self.window_size(cfg);
-
-            if cfg.renderer.scale == 1.0 && cfg.renderer.zoom == 1.0 {
-                self.ctx.set_zoom_factor(0.7);
-            } else {
-                self.ctx.set_zoom_factor(cfg.renderer.zoom);
-            }
 
             // On some platforms, e.g. wasm, window width is constrained by the
             // viewport width, so try to find the max scale that will fit
@@ -1319,8 +1303,13 @@ impl Viewport {
                     Some(Arc::clone(&window)),
                 );
 
-                debug!("created new viewport window: {:?}", window.id());
+                debug!(
+                    "created new viewport window: {:?} ({:?})",
+                    self.builder.title,
+                    window.id()
+                );
 
+                self.info.title = self.builder.title.clone();
                 self.info.minimized = window.is_minimized();
                 self.info.maximized = Some(window.is_maximized());
                 self.window = Some(window);
@@ -1345,7 +1334,10 @@ impl Viewport {
             egui::vec2(size.width, size.height)
         });
 
-        info.title = Some(window.title());
+        let title = window.title();
+        if !title.is_empty() {
+            info.title = Some(title);
+        }
         info.native_pixels_per_point = Some(window.scale_factor() as f32);
 
         info.monitor_size = monitor_size;

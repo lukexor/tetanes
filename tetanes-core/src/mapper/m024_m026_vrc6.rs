@@ -6,8 +6,8 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -37,11 +37,11 @@ pub struct Vrc6 {
     pub revision: Revision,
     pub mirroring: Mirroring,
     pub irq: VrcIrq,
-    pub audio: Vrc6Audio,
+    pub audio: Audio,
     pub nt_banks: [usize; 4],
-    pub chr_banks: MemBanks,
-    pub prg_ram_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Vrc6 {
@@ -49,7 +49,7 @@ impl Vrc6 {
     const PRG_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(cart: &mut Cart, revision: Revision) -> Mapper {
+    pub fn load(cart: &mut Cart, revision: Revision) -> Result<Mapper, mapper::Error> {
         if !cart.has_prg_ram() {
             cart.add_prg_ram(Self::PRG_RAM_SIZE);
         }
@@ -58,15 +58,14 @@ impl Vrc6 {
             revision,
             mirroring: cart.mirroring(),
             irq: VrcIrq::default(),
-            audio: Vrc6Audio::new(),
+            audio: Audio::new(),
             nt_banks: [0; 4],
-            prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW),
+            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
         };
-        let last_bank = vrc6.prg_rom_banks.last();
-        vrc6.prg_rom_banks.set(3, last_bank);
-        vrc6.into()
+        vrc6.prg_rom_banks.set(3, vrc6.prg_rom_banks.last());
+        Ok(vrc6.into())
     }
 
     #[must_use]
@@ -324,10 +323,10 @@ impl MemMap for Vrc6 {
     }
 }
 
-impl Sample for Vrc6 {
-    #[must_use]
-    fn output(&self) -> f32 {
-        self.audio.output()
+impl Reset for Vrc6 {
+    fn reset(&mut self, kind: ResetKind) {
+        self.irq.reset(kind);
+        self.audio.reset(kind);
     }
 }
 
@@ -339,42 +338,40 @@ impl Clock for Vrc6 {
     }
 }
 
-impl Reset for Vrc6 {
-    fn reset(&mut self, kind: ResetKind) {
-        self.irq.reset(kind);
-        self.audio.reset(kind);
-    }
-}
-
 impl Regional for Vrc6 {}
 impl Sram for Vrc6 {}
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Vrc6Audio {
-    pulse1: Vrc6Pulse,
-    pulse2: Vrc6Pulse,
-    saw: Vrc6Saw,
-    halt: bool,
-    out: f32,
-    last_out: f32,
+impl Sample for Vrc6 {
+    #[must_use]
+    fn output(&self) -> f32 {
+        self.audio.output()
+    }
 }
 
-impl Default for Vrc6Audio {
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct Audio {
+    pub pulse1: Pulse,
+    pub pulse2: Pulse,
+    pub saw: Saw,
+    pub halt: bool,
+    pub out: f32,
+}
+
+impl Default for Audio {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Vrc6Audio {
+impl Audio {
     const fn new() -> Self {
         Self {
-            pulse1: Vrc6Pulse::new(),
-            pulse2: Vrc6Pulse::new(),
-            saw: Vrc6Saw::new(),
+            pulse1: Pulse::new(),
+            pulse2: Pulse::new(),
+            saw: Saw::new(),
             halt: false,
             out: 0.0,
-            last_out: 0.0,
         }
     }
 
@@ -408,7 +405,7 @@ impl Vrc6Audio {
     }
 }
 
-impl Clock for Vrc6Audio {
+impl Clock for Audio {
     fn clock(&mut self) -> usize {
         if !self.halt {
             self.pulse1.clock();
@@ -421,16 +418,15 @@ impl Clock for Vrc6Audio {
     }
 }
 
-impl Reset for Vrc6Audio {
+impl Reset for Audio {
     fn reset(&mut self, _kind: ResetKind) {
-        self.last_out = 0.0;
         self.halt = false;
     }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Vrc6Pulse {
+pub struct Pulse {
     enabled: bool,
     volume: u8,
     duty_cycle: u8,
@@ -441,13 +437,13 @@ pub struct Vrc6Pulse {
     freq_shift: u8,
 }
 
-impl Default for Vrc6Pulse {
+impl Default for Pulse {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Vrc6Pulse {
+impl Pulse {
     const fn new() -> Self {
         Self {
             enabled: false,
@@ -493,7 +489,7 @@ impl Vrc6Pulse {
     }
 }
 
-impl Clock for Vrc6Pulse {
+impl Clock for Pulse {
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;
@@ -509,7 +505,7 @@ impl Clock for Vrc6Pulse {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Vrc6Saw {
+pub struct Saw {
     enabled: bool,
     accum: u8,
     accum_rate: u8,
@@ -519,13 +515,13 @@ pub struct Vrc6Saw {
     freq_shift: u8,
 }
 
-impl Default for Vrc6Saw {
+impl Default for Saw {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Vrc6Saw {
+impl Saw {
     const fn new() -> Self {
         Self {
             enabled: false,
@@ -569,7 +565,7 @@ impl Vrc6Saw {
     }
 }
 
-impl Clock for Vrc6Saw {
+impl Clock for Saw {
     fn clock(&mut self) -> usize {
         if self.enabled {
             self.timer -= 1;

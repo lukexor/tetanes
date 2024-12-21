@@ -53,7 +53,7 @@ impl BuilderExt for WindowAttributes {
     /// Sets platform-specific window options.
     fn with_platform(self, _title: &str) -> Self {
         use anyhow::Context;
-        use image::{io::Reader as ImageReader, ImageFormat};
+        use image::{ImageFormat, ImageReader};
         use std::io::Cursor;
 
         static WINDOW_ICON: &[u8] = include_bytes!("../../../assets/tetanes_icon.png");

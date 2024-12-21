@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mem::Banks,
 };
 use serde::{Deserialize, Serialize};
 
@@ -26,8 +26,8 @@ pub struct Fxrom {
     //            used when latch 0/1 = $FD/$FE
     pub latch: [usize; 2],
     pub latch_banks: [u8; 4],
-    pub chr_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Fxrom {
@@ -37,18 +37,17 @@ impl Fxrom {
 
     const MIRRORING_MASK: u8 = 0x01;
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         let mut fxrom = Self {
             mirroring: cart.mirroring(),
             latch: [0x00; 2],
             latch_banks: [0x00; 4],
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
         };
-        let last_bank = fxrom.prg_rom_banks.last();
-        fxrom.prg_rom_banks.set(1, last_bank);
-        fxrom.into()
+        fxrom.prg_rom_banks.set(1, fxrom.prg_rom_banks.last());
+        Ok(fxrom.into())
     }
 
     pub fn update_banks(&mut self) {

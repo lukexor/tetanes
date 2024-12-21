@@ -1,3 +1,6 @@
+// TODO: Remove. See: https://github.com/rustwasm/wasm-bindgen/issues/4283
+#![allow(unexpected_cfgs)]
+
 use crate::{
     nes::{
         event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
@@ -356,7 +359,7 @@ pub mod renderer {
             (viewport_ui_cb, raw_input.take())
         };
 
-        let mut output = ctx.run(raw_input, |ctx| match viewport_ui_cb {
+        let mut output = ctx.run(raw_input, |ctx| match &viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
             None => gui.borrow_mut().ui(ctx, None),
         });
@@ -374,8 +377,7 @@ pub mod renderer {
         let copied_text = std::mem::take(&mut output.platform_output.copied_text);
         tracing::warn!("Copied text: {copied_text}");
         if !copied_text.is_empty() {
-            if let Some(clipboard) =
-                web_sys::window().and_then(|window| window.navigator().clipboard())
+            if let Some(clipboard) = web_sys::window().map(|window| window.navigator().clipboard())
             {
                 let promise = clipboard.write_text(&copied_text);
                 let future = JsFuture::from(promise);

@@ -58,13 +58,12 @@ impl Frame {
 
     /// Allocate a new frame for video output.
     pub fn new() -> Self {
-        let mut frame = vec![0; Self::SIZE];
-        frame
-            .iter_mut()
-            .skip(3)
-            .step_by(4)
-            .for_each(|alpha| *alpha = 255);
-        Self(frame)
+        Self(
+            [(); Self::SIZE / 4]
+                .into_iter()
+                .flat_map(|_| [0, 0, 0, 255])
+                .collect(),
+        )
     }
 }
 
@@ -140,13 +139,13 @@ impl Video {
 
     /// Fills a fully rendered frame with RGB colors.
     pub fn decode_buffer(buffer: &[u16], output: &mut [u8]) {
-        for (pixel, colors) in buffer.iter().zip(output.chunks_exact_mut(4)) {
-            let index = (*pixel as usize) * 3;
+        for (color, pixels) in buffer.iter().zip(output.chunks_exact_mut(4)) {
+            let index = (*color as usize) * 3;
             assert!(Ppu::NTSC_PALETTE.len() > index + 2);
-            assert!(colors.len() > 2);
-            colors[0] = Ppu::NTSC_PALETTE[index];
-            colors[1] = Ppu::NTSC_PALETTE[index + 1];
-            colors[2] = Ppu::NTSC_PALETTE[index + 2];
+            assert!(pixels.len() > 2);
+            pixels[0] = Ppu::NTSC_PALETTE[index];
+            pixels[1] = Ppu::NTSC_PALETTE[index + 1];
+            pixels[2] = Ppu::NTSC_PALETTE[index + 2];
         }
     }
 
@@ -157,10 +156,10 @@ impl Video {
     /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
     /// See also: <http://wiki.nesdev.com/w/index.php/NTSC_video>
     pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
-        let mut prev_pixel = 0;
-        for (idx, (pixel, colors)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+        let mut prev_color = 0;
+        for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;
-            let color = if x == 0 {
+            let rgba = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
                 0
             } else {
@@ -168,13 +167,13 @@ impl Video {
                 let even_phase = if frame_number & 0x01 == 0x01 { 0 } else { 1 };
                 let phase = (2 + y * 341 + x + even_phase) % 3;
                 NTSC_PALETTE.get_or_init(generate_ntsc_palette)
-                    [phase + ((prev_pixel & 0x3F) as usize) * 3 + (*pixel as usize) * 3 * 64]
+                    [phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64]
             };
-            prev_pixel = u32::from(*pixel);
-            assert!(colors.len() > 2);
-            colors[0] = (color >> 16 & 0xFF) as u8;
-            colors[1] = (color >> 8 & 0xFF) as u8;
-            colors[2] = (color & 0xFF) as u8;
+            prev_color = u32::from(*color);
+            assert!(pixels.len() > 2);
+            pixels[0] = (rgba >> 16 & 0xFF) as u8;
+            pixels[1] = (rgba >> 8 & 0xFF) as u8;
+            pixels[2] = (rgba & 0xFF) as u8;
             // Alpha should always be 255
         }
     }

@@ -9,8 +9,6 @@
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
 [doc status]: https://img.shields.io/docsrs/tetanes?style=plastic
 [docs]: https://docs.rs/tetanes/
-[codecov]: https://codecov.io/gh/lukexor/tetanes/branch/main/graph/badge.svg?token=AMQJJ7B0LS
-[coverage]: https://codecov.io/gh/lukexor/tetanes
 [latest version]: https://img.shields.io/crates/v/tetanes?style=plastic
 [crates.io]: https://crates.io/crates/tetanes
 [downloads]: https://img.shields.io/crates/d/tetanes?style=plastic
@@ -153,7 +151,8 @@ This will install the latest released version of the `TetaNES` binary to your
 `cargo` bin directory located at either `$HOME/.cargo/bin/` on a Unix-like
 platform or `%USERPROFILE%\.cargo\bin` on Windows.
 
-Alternatively, if you have [`cargo binstall`](https://crates.io/crates/cargo-binstall/) installed:
+Alternatively, if you have [`cargo binstall`](https://crates.io/crates/cargo-binstall/)
+installed:
 
 ```sh
 cargo binstall tetanes
@@ -209,25 +208,41 @@ Support for the following mappers is currently implemented or in development:
 
 <!-- markdownlint-disable line-length -->
 
-| #   | Name                 | Example Games                             | # of Games<sup>1</sup> | % of Games<sup>1</sup> |
-| --- | -------------------- | ----------------------------------------- | ---------------------- | ---------------------- |
-| 000 | NROM                 | Bomberman, Donkey Kong, Super Mario Bros. | ~247                   | ~10%                   |
-| 001 | SxROM/MMC1B/C        | Metroid, Legend of Zelda, Tetris          | ~680                   | ~28%                   |
-| 002 | UxROM                | Castlevania, Contra, Mega Man             | ~270                   | ~11%                   |
-| 003 | CNROM                | Arkanoid, Paperboy, Pipe Dream            | ~155                   | ~6%                    |
-| 004 | TxROM/MMC3/MMC6      | Kirby's Adventure, Super Mario Bros. 2/3  | ~599                   | ~24%                   |
-| 005 | ExROM/MMC5           | Castlevania 3, Laser Invasion             | ~24                    | &lt;0.01%              |
-| 007 | AxROM                | Battletoads, Marble Madness               | ~75                    | ~3%                    |
-| 009 | PxROM/MMC2           | Punch Out!!                               | 1                      | &lt;0.01%              |
-| 010 | FxROM/MMC4           | Fire Emblem Gaiden                        | 3                      | &lt;0.01%              |
-| 011 | Color Dreams         | Crystal Mines, Metal Fighter              | 34                     | ~1%                    |
-| 024 | VRC6a                | Akumajou Densetsu                         | 1                      | &lt;0.01%              |
-| 026 | VRC6b                | Madara, Esper Dream 2                     | 2                      | &lt;0.01%              |
-| 034 | BNROM/NINA-001       | Deadly Towers, Impossible Mission II      | 3                      | &lt;0.01%              |
-| 066 | GxROM/MxROM          | Super Mario Bros. + Duck Hunt             | ~17                    | &lt;0.01%              |
-| 071 | Camerica/Codemasters | Firehawk, Bee 52, MiG 29 - Soviet Fighter | ~15                    | &lt;0.01%              |
-| 155 | SxROM/MMC1A          | Tatakae!! Ramen Man: Sakuretsu Choujin    | 2                      | &lt;0.01%              |
-|     |                      |                                           | ~2128 / 2447           | ~87.0%                 |
+| #   | Name                  | Example Games                              | # of Games<sup>1</sup> | % of Games<sup>1</sup> |
+| --- | --------------------- | ------------------------------------------ | ---------------------- | ---------------------- |
+| 000 | NROM                  | Bomberman, Donkey Kong, Super Mario Bros.  | ~247                   | ~10%                   |
+| 001 | SxROM/MMC1B/C         | Metroid, Legend of Zelda, Tetris           | ~680                   | ~28%                   |
+| 002 | UxROM                 | Castlevania, Contra, Mega Man              | ~270                   | ~11%                   |
+| 003 | CNROM                 | Arkanoid, Paperboy, Pipe Dream             | ~155                   | ~6%                    |
+| 004 | TxROM/MMC3/MMC6       | Kirby's Adventure, Super Mario Bros. 2/3   | ~599                   | ~24%                   |
+| 005 | ExROM/MMC5            | Castlevania 3, Laser Invasion              | ~24                    | &lt;0.01%              |
+| 007 | AxROM                 | Battletoads, Marble Madness                | ~75                    | ~3%                    |
+| 009 | PxROM/MMC2            | Punch Out!!                                | 1                      | &lt;0.01%              |
+| 010 | FxROM/MMC4            | Fire Emblem Gaiden                         | 3                      | &lt;0.01%              |
+| 011 | Color Dreams          | Crystal Mines, Metal Fighter               | 15                     | ~1%                    |
+| 016 | Bandai FCG            | Dragon Ball: Daimaou Fukkatsu              | 14                     | ~1%                    |
+| 018 | Jaleco SS 88006       | Magic John                                 | 15                     | ~1%                    |
+| 019 | Namco163              | Battle Fleet, Dragon Ninja                 | 20                     | ~1%                    |
+| 024 | VRC6a                 | Akumajou Densetsu                          | 1                      | &lt;0.01%              |
+| 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;0.01%              |
+| 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;0.01%              |
+| 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | &lt;0.01%              |
+| 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | &lt;0.01%              |
+| 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | &lt;0.01%              |
+| 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;0.01%              |
+| 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | &lt;0.01%              |
+| 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;0.01%              |
+| 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;0.01%              |
+| 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;0.01%              |
+| 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;0.01%              |
+| 153 | Bandai FCG            | Famicom Jump II: Saikyou no 7-nin          | 1                      | &lt;0.01%              |
+| 154 | DxROM/Namco 108       | Devil Man                                  | 1                      | &lt;0.01%              |
+| 157 | Bandai FCG/Datach     | SD Gundam Wars                             | 7                      | &lt;0.01%              |
+| 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;0.01%              |
+| 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;0.01%              |
+| 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
+| 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;0.01%              |
+|     |                       |                                            | ~2256 / 2447           | ~92.2%                 |
 
 <!-- markdownlint-enable line-length -->
 

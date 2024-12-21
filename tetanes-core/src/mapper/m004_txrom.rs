@@ -7,8 +7,8 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -59,15 +59,17 @@ pub struct Regs {
 pub struct Txrom {
     pub regs: Regs,
     pub mirroring: Mirroring,
+    pub mapper_num: u16,
+    pub submapper_num: u8,
     pub revision: Revision,
-    pub chr_banks: MemBanks,
-    pub prg_ram_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Txrom {
     const PRG_WINDOW: usize = 8 * 1024;
-    const CHR_WINDOW: usize = 1024;
+    pub(super) const CHR_WINDOW: usize = 1024;
 
     const FOUR_SCREEN_RAM_SIZE: usize = 4 * 1024;
     const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -76,7 +78,7 @@ impl Txrom {
     const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
     const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn new(cart: &mut Cart, chr_window: usize) -> Result<Self, mapper::Error> {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         if cart.mirroring() == Mirroring::FourScreen {
             cart.add_exram(Self::FOUR_SCREEN_RAM_SIZE);
@@ -92,22 +94,32 @@ impl Txrom {
         let mut txrom = Self {
             regs: Regs::default(),
             mirroring: cart.mirroring(),
+            mapper_num: cart.mapper_num(),
+            submapper_num: cart.submapper_num(),
             revision: Revision::BC, // TODO compare to known games
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW),
-            prg_ram_banks: MemBanks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, chr_window)?,
+            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
         };
         let last_bank = txrom.prg_rom_banks.last();
         txrom.prg_rom_banks.set(2, last_bank - 1);
         txrom.prg_rom_banks.set(3, last_bank);
-        txrom.into()
+        Ok(txrom)
+    }
+
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+        Ok(Self::new(cart, Self::CHR_WINDOW)?.into())
+    }
+
+    pub const fn bank_register(&self, index: usize) -> u8 {
+        self.regs.bank_values[index]
     }
 
     pub fn set_revision(&mut self, rev: Revision) {
         self.revision = rev;
     }
 
-    pub fn update_banks(&mut self) {
+    pub fn update_prg_banks(&mut self) {
         let prg_last = self.prg_rom_banks.last();
         let prg_lo = self.regs.bank_values[6] as usize;
         let prg_hi = self.regs.bank_values[7] as usize;
@@ -121,7 +133,13 @@ impl Txrom {
             self.prg_rom_banks.set(2, prg_last - 1);
         }
         self.prg_rom_banks.set(3, prg_last);
+    }
 
+    pub fn set_chr_banks(&mut self, f: impl Fn(&mut Banks, &mut [u8])) {
+        f(&mut self.chr_banks, &mut self.regs.bank_values)
+    }
+
+    pub fn update_chr_banks(&mut self) {
         // 1: two 2K banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2K banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF
         let chr = self.regs.bank_values;
@@ -140,6 +158,14 @@ impl Txrom {
             self.chr_banks.set(6, chr[4] as usize);
             self.chr_banks.set(7, chr[5] as usize);
         }
+    }
+
+    pub fn update_banks(&mut self) {
+        self.update_prg_banks();
+        // Allow mappers to override chr banks with `set_chr_banks`
+        if !matches!(self.mapper_num, 76 | 88) {
+            self.update_chr_banks();
+        };
     }
 
     pub fn clock_irq(&mut self, addr: u16) {
@@ -222,7 +248,7 @@ impl MemMap for Txrom {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
                 MappedWrite::ExRam((addr & 0x1FFF) as usize, val)
             }
@@ -249,6 +275,7 @@ impl MemMap for Txrom {
                 //                                1: two 2K banks at $1000-$1FFF,
                 //                                   four 1K banks at $0000-$0FFF)
                 //
+
                 // Match only $8000/1, $A000/1, $C000/1, and $E000/1
                 match addr & 0xE001 {
                     0x8000 => {
@@ -262,11 +289,11 @@ impl MemMap for Txrom {
                     }
                     0xA000 => {
                         if self.mirroring != Mirroring::FourScreen {
-                            self.mirroring = match val & 0x01 {
+                            self.set_mirroring(match val & 0x01 {
                                 0 => Mirroring::Vertical,
                                 1 => Mirroring::Horizontal,
                                 _ => unreachable!("impossible mirroring"),
-                            };
+                            });
                             self.update_banks();
                         }
                     }

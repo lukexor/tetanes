@@ -6,8 +6,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -16,20 +16,30 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Cnrom {
     pub mirroring: Mirroring,
-    pub chr_banks: MemBanks,
+    pub chr_banks: Banks,
     pub mirror_prg_rom: bool,
 }
 
 impl Cnrom {
     const CHR_ROM_WINDOW: usize = 8 * 1024;
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let cnrom = Self {
             mirroring: cart.mirroring(),
-            chr_banks: MemBanks::new(0x0000, 0x1FFFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW)?,
             mirror_prg_rom: cart.prg_rom.len() <= 0x4000,
         };
-        cnrom.into()
+        Ok(cnrom.into())
+    }
+}
+
+impl Mapped for Cnrom {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 }
 
@@ -58,17 +68,7 @@ impl MemMap for Cnrom {
     }
 }
 
-impl Mapped for Cnrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
+impl Reset for Cnrom {}
 impl Clock for Cnrom {}
 impl Regional for Cnrom {}
-impl Reset for Cnrom {}
 impl Sram for Cnrom {}

@@ -1,7 +1,7 @@
 use crate::{
     feature,
     nes::{
-        action::{Action, Debug, DebugStep, Debugger, Feature, Setting, Ui},
+        action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
         config::Config,
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
@@ -10,22 +10,23 @@ use crate::{
             shader::Shader,
         },
         rom::RomData,
-        Nes, Running, State,
+        Nes, RunState, Running, State,
     },
     platform::open_file_dialog,
 };
 use anyhow::anyhow;
 use egui::ViewportId;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tetanes_core::{
     action::Action as DeckAction,
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
+    debug::Debugger,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     mem::RamState,
+    ppu::Ppu,
     time::{Duration, Instant},
     video::VideoFilter,
 };
@@ -38,6 +39,13 @@ use winit::{
     keyboard::PhysicalKey,
     window::WindowId,
 };
+
+#[derive(Default, Debug, Copy, Clone)]
+#[must_use]
+pub struct Response {
+    pub consumed: bool,
+    pub repaint: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct NesEventProxy(EventLoopProxy<NesEvent>);
@@ -61,37 +69,46 @@ impl NesEventProxy {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
-pub struct Response {
-    pub consumed: bool,
-    pub repaint: bool,
+pub enum NesEvent {
+    // For some reason accesskit_winit::Event isn't Clone
+    #[cfg(not(target_arch = "wasm32"))]
+    AccessKit {
+        window_id: WindowId,
+        event: AccessKitWindowEvent,
+    },
+    Config(ConfigEvent),
+    Debug(DebugEvent),
+    Emulation(EmulationEvent),
+    Renderer(RendererEvent),
+    Ui(UiEvent),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[must_use]
-pub enum UiEvent {
-    Error(String),
-    Message((MessageType, String)),
-    UpdateAvailable(String),
-    LoadRomDialog,
-    LoadReplayDialog,
-    FileDialogCancelled,
-    Terminate,
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+pub enum AccessKitWindowEvent {
+    InitialTreeRequested,
+    ActionRequested(accesskit::ActionRequest),
+    AccessibilityDeactivated,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ReplayData(pub Vec<u8>);
-
-impl std::fmt::Debug for ReplayData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ReplayData({} bytes)", self.0.len())
-    }
-}
-
-impl AsRef<[u8]> for ReplayData {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
+#[cfg(not(target_arch = "wasm32"))]
+impl From<accesskit_winit::Event> for NesEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        use accesskit_winit::WindowEvent;
+        Self::AccessKit {
+            window_id: event.window_id,
+            event: match event.window_event {
+                WindowEvent::InitialTreeRequested => AccessKitWindowEvent::InitialTreeRequested,
+                WindowEvent::ActionRequested(request) => {
+                    AccessKitWindowEvent::ActionRequested(request)
+                }
+                WindowEvent::AccessibilityDeactivated => {
+                    AccessKitWindowEvent::AccessibilityDeactivated
+                }
+            },
+        }
     }
 }
 
@@ -141,40 +158,36 @@ pub enum ConfigEvent {
     ZapperConnected(bool),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+impl From<ConfigEvent> for NesEvent {
+    fn from(event: ConfigEvent) -> Self {
+        Self::Config(event)
+    }
+}
+
+#[derive(Debug, Clone)]
 #[must_use]
-pub enum RunState {
-    Running,
-    ManuallyPaused,
-    Paused,
+pub enum DebugEvent {
+    Ppu(Ppu),
 }
 
-impl RunState {
-    pub const fn paused(&self) -> bool {
-        matches!(self, Self::ManuallyPaused | Self::Paused)
-    }
-
-    pub const fn auto_paused(&self) -> bool {
-        matches!(self, Self::Paused)
-    }
-
-    pub const fn manually_paused(&self) -> bool {
-        matches!(self, Self::ManuallyPaused)
+impl From<DebugEvent> for NesEvent {
+    fn from(event: DebugEvent) -> Self {
+        Self::Debug(event)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub enum EmulationEvent {
+    AddDebugger(Debugger),
+    RemoveDebugger(Debugger),
     AudioRecord(bool),
     DebugStep(DebugStep),
     EmulatePpuWarmup(bool),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
-    #[serde(skip)]
     LoadReplay((String, ReplayData)),
     LoadReplayPath(PathBuf),
-    #[serde(skip)]
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
@@ -189,6 +202,12 @@ pub enum EmulationEvent {
     UnloadRom,
     ZapperAim((u32, u32)),
     ZapperTrigger,
+}
+
+impl From<EmulationEvent> for NesEvent {
+    fn from(event: EmulationEvent) -> Self {
+        Self::Emulation(event)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -211,27 +230,22 @@ pub enum RendererEvent {
     Menu(Menu),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone)]
-pub enum AccessKitWindowEvent {
-    InitialTreeRequested,
-    ActionRequested(accesskit::ActionRequest),
-    AccessibilityDeactivated,
+impl From<RendererEvent> for NesEvent {
+    fn from(event: RendererEvent) -> Self {
+        Self::Renderer(event)
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[must_use]
-pub enum NesEvent {
-    Ui(UiEvent),
-    Emulation(EmulationEvent),
-    Renderer(RendererEvent),
-    Config(ConfigEvent),
-    // For some reason accesskit_winit::Event isn't Clone
-    #[cfg(not(target_arch = "wasm32"))]
-    AccessKit {
-        window_id: WindowId,
-        event: AccessKitWindowEvent,
-    },
+pub enum UiEvent {
+    Error(String),
+    Message((MessageType, String)),
+    UpdateAvailable(String),
+    LoadRomDialog,
+    LoadReplayDialog,
+    FileDialogCancelled,
+    Terminate,
 }
 
 impl From<UiEvent> for NesEvent {
@@ -240,45 +254,27 @@ impl From<UiEvent> for NesEvent {
     }
 }
 
-impl From<EmulationEvent> for NesEvent {
-    fn from(event: EmulationEvent) -> Self {
-        Self::Emulation(event)
+#[derive(Clone, PartialEq)]
+pub struct ReplayData(pub Vec<u8>);
+
+impl std::fmt::Debug for ReplayData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReplayData({} bytes)", self.0.len())
     }
 }
 
-impl From<RendererEvent> for NesEvent {
-    fn from(event: RendererEvent) -> Self {
-        Self::Renderer(event)
-    }
-}
-
-impl From<ConfigEvent> for NesEvent {
-    fn from(event: ConfigEvent) -> Self {
-        Self::Config(event)
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl From<accesskit_winit::Event> for NesEvent {
-    fn from(event: accesskit_winit::Event) -> Self {
-        use accesskit_winit::WindowEvent;
-        Self::AccessKit {
-            window_id: event.window_id,
-            event: match event.window_event {
-                WindowEvent::InitialTreeRequested => AccessKitWindowEvent::InitialTreeRequested,
-                WindowEvent::ActionRequested(request) => {
-                    AccessKitWindowEvent::ActionRequested(request)
-                }
-                WindowEvent::AccessibilityDeactivated => {
-                    AccessKitWindowEvent::AccessibilityDeactivated
-                }
-            },
-        }
+impl AsRef<[u8]> for ReplayData {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
 impl ApplicationHandler<NesEvent> for Nes {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: NesEvent) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -327,6 +323,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -357,6 +357,10 @@ impl ApplicationHandler<NesEvent> for Nes {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -373,6 +377,10 @@ impl ApplicationHandler<NesEvent> for Nes {
         device_id: DeviceId,
         event: DeviceEvent,
     ) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -384,6 +392,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -393,6 +405,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -404,6 +420,10 @@ impl ApplicationHandler<NesEvent> for Nes {
     }
 
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_exiting() {
+            return;
+        }
+
         debug!("exiting");
 
         #[cfg(feature = "profiling")]
@@ -414,11 +434,12 @@ impl ApplicationHandler<NesEvent> for Nes {
         } else if feature!(AbortOnExit) {
             panic!("exited unexpectedly");
         }
+        self.state = State::Exiting;
     }
 }
 
 impl ApplicationHandler<NesEvent> for Running {
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: NesEvent) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: NesEvent) {
         match event {
             NesEvent::Config(ref event) => {
                 let Config {
@@ -540,7 +561,7 @@ impl ApplicationHandler<NesEvent> for Running {
         if matches!(event, NesEvent::Emulation(_) | NesEvent::Config(_)) {
             self.emulation.on_event(&event);
         }
-        self.renderer.on_event(&event, &self.cfg);
+        self.renderer.on_event(&mut event, &self.cfg);
     }
 
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
@@ -597,7 +618,7 @@ impl ApplicationHandler<NesEvent> for Running {
                             .unwrap_or(false)
                         {
                             self.repaint_times.remove(&window_id);
-                            if self.renderer.rom_loaded() {
+                            if self.renderer.rom_loaded() && !self.run_state.paused() {
                                 self.run_state = RunState::Paused;
                                 self.event(EmulationEvent::RunState(self.run_state));
                             }
@@ -608,7 +629,7 @@ impl ApplicationHandler<NesEvent> for Running {
                     // Note: Does not trigger on all platforms (e.g. linux)
                     if occluded {
                         self.repaint_times.remove(&window_id);
-                        if self.renderer.rom_loaded() {
+                        if self.renderer.rom_loaded() && !self.run_state.paused() {
                             self.run_state = RunState::Paused;
                             self.event(EmulationEvent::RunState(self.run_state));
                         }
@@ -686,6 +707,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
             }
+            // Always repaint when single threaded
+            if !self.cfg.emulation.threaded {
+                self.repaint_times.insert(window_id, Instant::now());
+            }
         }
 
         self.update_repaint_times(event_loop);
@@ -704,6 +729,7 @@ impl ApplicationHandler<NesEvent> for Running {
         if let Err(err) = self.renderer.save(&self.cfg) {
             error!("failed to save rendererer state: {err:?}");
         }
+        self.emulation.terminate();
         self.renderer.destroy();
 
         if feature!(AbortOnExit) {
@@ -805,11 +831,11 @@ impl Running {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let event = event.into();
+        let mut event = event.into();
         trace!("Nes event: {event:?}");
 
         self.emulation.on_event(&event);
-        self.renderer.on_event(&event, &self.cfg);
+        self.renderer.on_event(&mut event, &self.cfg);
         match event {
             NesEvent::Ui(event) => self.on_ui_event(&event),
             NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
@@ -1107,6 +1133,8 @@ impl Running {
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
                         self.event(EmulationEvent::Reset(kind));
+                        self.run_state = RunState::Running;
+                        self.event(EmulationEvent::RunState(self.run_state));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
                         self.event(EmulationEvent::Joypad((player, button, state)));
@@ -1188,7 +1216,7 @@ impl Running {
                 },
                 Action::Debug(action) => match action {
                     Debug::Toggle(kind) if released => {
-                        if matches!(kind, Debugger::Ppu) {
+                        if matches!(kind, DebugKind::Ppu) {
                             self.event(RendererEvent::Menu(Menu::PpuViewer));
                         } else {
                             self.renderer.add_message(

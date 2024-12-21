@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mem::Banks,
 };
 use serde::{Deserialize, Serialize};
 
@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct ColorDreams {
     pub mirroring: Mirroring,
-    pub chr_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl ColorDreams {
@@ -25,13 +25,13 @@ impl ColorDreams {
     const CHR_BANK_MASK: u8 = 0xF0; // 0b1111 0000
     const PRG_BANK_MASK: u8 = 0x03; // 0b0000 0011
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let color_dreams = Self {
             mirroring: cart.mirroring(),
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
         };
-        color_dreams.into()
+        Ok(color_dreams.into())
     }
 }
 
@@ -68,7 +68,7 @@ impl MemMap for ColorDreams {
     }
 }
 
+impl Reset for ColorDreams {}
 impl Clock for ColorDreams {}
 impl Regional for ColorDreams {}
-impl Reset for ColorDreams {}
 impl Sram for ColorDreams {}

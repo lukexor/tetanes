@@ -4,3 +4,4 @@ target/
 .DS_Store
 logs/
 dist/
+.direnv

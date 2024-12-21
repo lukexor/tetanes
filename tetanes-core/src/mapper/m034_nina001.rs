@@ -5,8 +5,8 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::MemBanks,
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Nina001 {
-    pub chr_banks: MemBanks,
-    pub prg_rom_banks: MemBanks,
+    pub chr_banks: Banks,
+    pub prg_rom_banks: Banks,
 }
 
 impl Nina001 {
@@ -23,13 +23,13 @@ impl Nina001 {
     const PRG_RAM_SIZE: usize = 8 * 1024;
     const CHR_ROM_WINDOW: usize = 4 * 1024;
 
-    pub fn load(cart: &mut Cart) -> Mapper {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         cart.add_prg_ram(Self::PRG_RAM_SIZE);
         let nina001 = Self {
-            chr_banks: MemBanks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW),
-            prg_rom_banks: MemBanks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW),
+            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_ROM_WINDOW)?,
+            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
         };
-        nina001.into()
+        Ok(nina001.into())
     }
 }
 
@@ -38,8 +38,6 @@ impl Mapped for Nina001 {
         // hardwired to horizontal
         Mirroring::Horizontal
     }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
 impl MemMap for Nina001 {
@@ -58,7 +56,7 @@ impl MemMap for Nina001 {
 
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
-            0x0000..=0x1FFF => return MappedWrite::Chr(self.chr_banks.translate(addr), val),
+            0x0000..=0x1FFF => return MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0x7FFF => {
                 match addr {
                     0x7FFD => self.prg_rom_banks.set(0, (val & 0x01).into()),
@@ -74,7 +72,7 @@ impl MemMap for Nina001 {
     }
 }
 
+impl Reset for Nina001 {}
 impl Clock for Nina001 {}
 impl Regional for Nina001 {}
-impl Reset for Nina001 {}
 impl Sram for Nina001 {}

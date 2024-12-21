@@ -1,38 +1,45 @@
 use crate::{
     feature,
     nes::{
-        action::{Debug, DebugStep, Debugger, Feature, Setting, Ui as UiAction},
+        action::{Debug, DebugKind, DebugStep, Feature, Setting, Ui as UiAction},
         config::{Config, RendererConfig},
         emulation::FrameStats,
         event::{
-            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, Response,
-            RunState, UiEvent,
+            ConfigEvent, DebugEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent,
+            Response, UiEvent,
         },
         input::Gamepads,
-        renderer::gui::{
-            keybinds::Keybinds,
-            lib::{
-                cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
-                ViewportOptions,
+        renderer::{
+            gui::{
+                keybinds::Keybinds,
+                lib::{
+                    cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
+                    ViewportOptions,
+                },
+                ppu_viewer::PpuViewer,
+                preferences::Preferences,
             },
-            ppu_viewer::PpuViewer,
-            preferences::Preferences,
+            painter::RenderState,
+            texture::Texture,
         },
         rom::{RomAsset, HOMEBREW_ROMS},
         version::Version,
+        RunState,
     },
     sys::{info::System, SystemInfo},
 };
 use egui::{
-    hex_color, include_image,
-    load::SizedTexture,
-    menu,
+    hex_color, include_image, menu,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
-    Align, Area, Button, CentralPanel, Color32, Context, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Id, Image, Layout, Order, Pos2, Rect, RichText,
-    Rounding, ScrollArea, Sense, Stroke, TopBottomPanel, Ui, Vec2, Visuals,
+    Align, Button, CentralPanel, Color32, Context, CursorIcon, Direction, FontData,
+    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, Rounding,
+    ScrollArea, Sense, Stroke, TopBottomPanel, Ui, ViewportClass, Visuals,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tetanes_core::{
     action::Action as DeckAction,
     common::{NesRegion, ResetKind},
@@ -67,20 +74,21 @@ pub enum MessageType {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
+    pub ctx: Context,
     pub initialized: bool,
     pub title: String,
     pub tx: NesEventProxy,
     pub cfg: Config,
-    pub texture: SizedTexture,
+    pub nes_texture: Texture,
     pub run_state: RunState,
     pub menu_height: f32,
     pub nes_frame: Rect,
     pub about_open: bool,
-    pub gui_settings_open: bool,
+    pub gui_settings_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_inspection_open: bool,
+    pub gui_inspection_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_memory_open: bool,
+    pub gui_memory_open: Arc<AtomicBool>,
     pub perf_stats_open: bool,
     pub update_window_open: bool,
     pub version: Version,
@@ -104,33 +112,45 @@ pub struct Gui {
 impl Gui {
     const MSG_TIMEOUT: Duration = Duration::from_secs(3);
     const MAX_MESSAGES: usize = 5;
-    const MENU_WIDTH: f32 = 250.0;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
 
     /// Create a `Gui` instance.
-    pub fn new(tx: NesEventProxy, texture: SizedTexture, cfg: Config) -> Self {
+    pub fn new(
+        ctx: Context,
+        tx: NesEventProxy,
+        render_state: &mut RenderState,
+        cfg: Config,
+    ) -> Self {
+        let nes_texture = Texture::new(
+            render_state,
+            cfg.texture_size(),
+            cfg.deck.region.aspect_ratio(),
+            Some("nes frame"),
+        );
+
         Self {
+            ctx,
             initialized: false,
             title: Config::WINDOW_TITLE.to_string(),
             tx: tx.clone(),
             cfg,
-            texture,
+            nes_texture,
             run_state: RunState::Running,
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
             about_open: false,
-            gui_settings_open: false,
+            gui_settings_open: Arc::new(AtomicBool::new(false)),
             #[cfg(debug_assertions)]
-            gui_inspection_open: false,
+            gui_inspection_open: Arc::new(AtomicBool::new(false)),
             #[cfg(debug_assertions)]
-            gui_memory_open: false,
+            gui_memory_open: Arc::new(AtomicBool::new(false)),
             perf_stats_open: false,
             update_window_open: false,
             version: Version::new(),
             keybinds: Keybinds::new(tx.clone()),
             preferences: Preferences::new(tx.clone()),
             debugger_open: false,
-            ppu_viewer: PpuViewer::new(tx),
+            ppu_viewer: PpuViewer::new(tx, render_state),
             apu_mixer_open: false,
             viewport_info_open: false,
             replay_recording: false,
@@ -164,7 +184,7 @@ impl Gui {
         }
     }
 
-    pub fn on_event(&mut self, event: &NesEvent) {
+    pub fn on_event(&mut self, queue: &wgpu::Queue, event: &mut NesEvent) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -191,7 +211,7 @@ impl Gui {
                 }
                 RendererEvent::ShowMenubar(show) => {
                     // Toggling true is handled in the menu widget
-                    if !show {
+                    if !*show {
                         self.menu_height = 0.0;
                     }
                 }
@@ -219,6 +239,10 @@ impl Gui {
                 },
                 _ => (),
             },
+            NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
+                self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
+                self.ctx.request_repaint_of(self.ppu_viewer.id());
+            }
             _ => (),
         }
     }
@@ -270,7 +294,7 @@ impl Gui {
         }
 
         if self.cfg.renderer.show_menubar {
-            TopBottomPanel::top("menu_bar").show(ctx, |ui| self.menu_bar(ui));
+            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui));
         }
 
         let viewport_opts = ViewportOptions {
@@ -294,22 +318,36 @@ impl Gui {
         self.show_performance_window(ctx, viewport_opts.enabled);
         self.show_update_window(ctx, viewport_opts.enabled);
 
-        egui::Window::new("🔧 UI Settings")
-            .open(&mut self.gui_settings_open)
-            .vscroll(true)
-            .show(ctx, |ui| ctx.settings_ui(ui));
+        Self::show_viewport(
+            "🔧 UI Settings",
+            ctx,
+            viewport_opts,
+            &self.gui_settings_open,
+            |ctx, ui| {
+                ScrollArea::both().show(ui, |ui| ctx.settings_ui(ui));
+            },
+        );
 
         #[cfg(debug_assertions)]
         {
-            egui::Window::new("🔍 UI Inspection")
-                .open(&mut self.gui_inspection_open)
-                .vscroll(true)
-                .show(ctx, |ui| ctx.inspection_ui(ui));
-
-            egui::Window::new("📝 UI Memory")
-                .open(&mut self.gui_memory_open)
-                .resizable(false)
-                .show(ctx, |ui| ctx.memory_ui(ui));
+            Self::show_viewport(
+                "🔍 UI Inspection",
+                ctx,
+                viewport_opts,
+                &self.gui_inspection_open,
+                |ctx, ui| {
+                    ScrollArea::both().show(ui, |ui| ctx.inspection_ui(ui));
+                },
+            );
+            Self::show_viewport(
+                "📝 UI Memory",
+                ctx,
+                viewport_opts,
+                &self.gui_memory_open,
+                |ctx, ui| {
+                    ScrollArea::both().show(ui, |ui| ctx.memory_ui(ui));
+                },
+            );
         }
 
         // TODO: Enable once updated to egui 0.28.0
@@ -438,8 +476,53 @@ impl Gui {
         let mut perf_stats_open = self.perf_stats_open;
         egui::Window::new("🛠 Performance Stats")
             .open(&mut perf_stats_open)
-            .show(ctx, |ui| self.performance_stats(ui, enabled));
+            .show(ctx, |ui| {
+                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui));
+            });
         self.perf_stats_open = perf_stats_open;
+    }
+
+    fn show_viewport(
+        title: impl Into<String>,
+        ctx: &Context,
+        opts: ViewportOptions,
+        open: &Arc<AtomicBool>,
+        add_contents: impl Fn(&Context, &mut Ui) + Send + Sync + 'static,
+    ) {
+        if !open.load(Ordering::Acquire) {
+            return;
+        }
+
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let title = title.into();
+        let viewport_id = egui::ViewportId::from_hash_of(&title);
+        let mut viewport_builder = egui::ViewportBuilder::default().with_title(&title);
+        if opts.always_on_top {
+            viewport_builder = viewport_builder.with_always_on_top();
+        }
+
+        let open = Arc::clone(open);
+        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
+            if class == ViewportClass::Embedded {
+                let mut window_open = open.load(Ordering::Acquire);
+                egui::Window::new(&title)
+                    .open(&mut window_open)
+                    .vscroll(true)
+                    .show(ctx, |ui| {
+                        ui.add_enabled_ui(opts.enabled, |ui| add_contents(ctx, ui));
+                    });
+                open.store(window_open, Ordering::Release);
+            } else {
+                CentralPanel::default().show(ctx, |ui| {
+                    ui.add_enabled_ui(opts.enabled, |ui| add_contents(ctx, ui));
+                });
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    open.store(false, Ordering::Release);
+                }
+            }
+        });
     }
 
     fn show_update_window(&mut self, ctx: &Context, enabled: bool) {
@@ -500,7 +583,7 @@ impl Gui {
         self.update_window_open = update_window_open;
     }
 
-    fn menu_bar(&mut self, ui: &mut Ui) {
+    fn menubar(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -556,8 +639,6 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-
         let button =
             Button::new("📂 Load ROM...").shortcut_text(self.cfg.shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
@@ -611,8 +692,6 @@ impl Gui {
                 if cfg.renderer.recent_roms.is_empty() {
                     ui.label("No recent ROMs");
                 } else {
-                    ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-
                     ScrollArea::vertical().show(ui, |ui| {
                         // TODO: add timestamp, save slots, and screenshot
                         for rom in &cfg.renderer.recent_roms {
@@ -702,8 +781,6 @@ impl Gui {
     fn controls_menu(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
-
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         let tx = &self.tx;
         let cfg = &self.cfg;
@@ -831,8 +908,6 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-
         let tx = &self.tx;
         let cfg = &self.cfg;
 
@@ -937,8 +1012,6 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-
         let tx = &self.tx;
         let cfg = &self.cfg;
         let RendererConfig {
@@ -990,8 +1063,6 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
-
         let tx = &self.tx;
         let cfg = &self.cfg;
 
@@ -1015,19 +1086,41 @@ impl Gui {
             ui.close_menu();
         }
 
-        let toggle = ToggleValue::new(&mut self.gui_settings_open, "🔧 UI Settings");
-        ui.add(toggle).on_hover_text("Toggle the UI style window");
+        let mut gui_settings_open = self.gui_settings_open.load(Ordering::Acquire);
+        let toggle = ToggleValue::new(&mut gui_settings_open, "🔧 UI Settings");
+        let res = ui.add(toggle).on_hover_text("Toggle the UI style window");
+        if res.clicked() {
+            self.gui_settings_open
+                .store(gui_settings_open, Ordering::Release);
+            ui.close_menu();
+        }
 
         #[cfg(debug_assertions)]
         {
-            let toggle = ToggleValue::new(&mut self.gui_inspection_open, "🔍 UI Inspection");
-            ui.add(toggle)
+            let mut gui_inspection_open = self.gui_inspection_open.load(Ordering::Acquire);
+            let toggle = ToggleValue::new(&mut gui_inspection_open, "🔍 UI Inspection");
+            let res = ui
+                .add(toggle)
                 .on_hover_text("Toggle the UI inspection window");
+            if res.clicked() {
+                self.gui_inspection_open
+                    .store(gui_inspection_open, Ordering::Release);
+                ui.close_menu();
+            }
 
-            let toggle = ToggleValue::new(&mut self.gui_memory_open, "📝 UI Memory");
-            ui.add(toggle).on_hover_text("Toggle the UI memory window");
+            let mut gui_memory_open = self.gui_memory_open.load(Ordering::Acquire);
+            let toggle = ToggleValue::new(&mut gui_memory_open, "📝 UI Memory");
+            let res = ui.add(toggle).on_hover_text("Toggle the UI memory window");
+            if res.clicked() {
+                self.gui_memory_open
+                    .store(gui_memory_open, Ordering::Release);
+                ui.close_menu();
+            }
 
-            ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
+            let res = ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
+            if res.clicked() {
+                ui.close_menu();
+            }
 
             #[cfg(target_arch = "wasm32")]
             if ui.button("❗Test panic!").clicked() {
@@ -1038,7 +1131,7 @@ impl Gui {
         ui.separator();
 
         ui.add_enabled_ui(false, |ui| {
-            let debugger_shortcut = cfg.shortcut(Debug::Toggle(Debugger::Cpu));
+            let debugger_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Cpu));
             let toggle = ToggleValue::new(&mut self.debugger_open, "🚧 Debugger")
                 .shortcut_text(debugger_shortcut);
             let res = ui
@@ -1048,21 +1141,20 @@ impl Gui {
             if res.clicked() {
                 ui.close_menu();
             }
+        });
 
-            let ppu_viewer_shortcut = cfg.shortcut(Debug::Toggle(Debugger::Ppu));
-            let mut open = self.ppu_viewer.open();
-            let toggle =
-                ToggleValue::new(&mut open, "🌇 PPU Viewer").shortcut_text(ppu_viewer_shortcut);
-            let res = ui
-                .add(toggle)
-                .on_hover_text("Toggle the PPU Viewer.")
-                .on_disabled_hover_text("Not yet implemented.");
-            if res.clicked() {
-                self.ppu_viewer.set_open(open);
-                ui.close_menu();
-            }
+        let ppu_viewer_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Ppu));
+        let mut open = self.ppu_viewer.open();
+        let toggle =
+            ToggleValue::new(&mut open, "🌇 PPU Viewer").shortcut_text(ppu_viewer_shortcut);
+        let res = ui.add(toggle).on_hover_text("Toggle the PPU Viewer.");
+        if res.clicked() {
+            self.ppu_viewer.set_open(open);
+            ui.close_menu();
+        }
 
-            let apu_mixer_shortcut = cfg.shortcut(Debug::Toggle(Debugger::Apu));
+        ui.add_enabled_ui(false, |ui| {
+            let apu_mixer_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Apu));
             let toggle = ToggleValue::new(&mut self.apu_mixer_open, "🎼 APU Mixer")
                 .shortcut_text(apu_mixer_shortcut);
             let res = ui
@@ -1136,69 +1228,59 @@ impl Gui {
         ui.add_enabled_ui(enabled, |ui| {
             let tx = &self.tx;
 
-            let inner_res = CentralPanel::default()
-                .frame(Frame::none())
-                .show_inside(ui, |ui| {
-                    if self.loaded_rom.is_some() {
-                        let layout = Layout {
-                            main_dir: Direction::TopDown,
-                            main_align: Align::Center,
-                            cross_align: Align::Center,
-                            ..Default::default()
+            CentralPanel::default().show_inside(ui, |ui| {
+                if self.loaded_rom.is_some() {
+                    let layout = Layout {
+                        main_dir: Direction::TopDown,
+                        main_align: Align::Center,
+                        cross_align: Align::Center,
+                        ..Default::default()
+                    };
+                    ui.with_layout(layout, |ui| {
+                        let image = Image::from_texture(self.nes_texture.sized())
+                            .shrink_to_fit()
+                            .sense(Sense::click());
+
+                        let hover_cursor = if self.cfg.deck.zapper {
+                            CursorIcon::Crosshair
+                        } else {
+                            CursorIcon::Default
                         };
-                        ui.with_layout(layout, |ui| {
-                            let image_sense = Sense::click();
-                            let image = Image::from_texture(self.texture)
-                                .maintain_aspect_ratio(true)
-                                .shrink_to_fit()
-                                .sense(image_sense);
 
-                            let hover_cursor = if self.cfg.deck.zapper {
-                                CursorIcon::Crosshair
-                            } else {
-                                CursorIcon::Default
-                            };
+                        let res = ui.add(image).on_hover_cursor(hover_cursor);
+                        self.nes_frame = res.rect;
 
-                            let res = ui.add(image).on_hover_cursor(hover_cursor);
-                            self.nes_frame = res.rect;
-
-                            if self.cfg.deck.zapper {
-                                if self
-                                    .cfg
-                                    .action_input(DeckAction::ZapperAimOffscreen)
-                                    .map_or(false, |input| {
-                                        input_down(ui, gamepads, &self.cfg, input)
-                                    })
-                                {
-                                    let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
-                                    tx.event(EmulationEvent::ZapperAim(pos));
-                                } else if let Some(Pos2 { x, y }) = res
-                                    .hover_pos()
-                                    .and_then(|Pos2 { x, y }| cursor_to_zapper(x, y, res.rect))
-                                {
-                                    let pos = (x.round() as u32, y.round() as u32);
-                                    tx.event(EmulationEvent::ZapperAim(pos));
-                                }
-                                if res.clicked() {
-                                    tx.event(EmulationEvent::ZapperTrigger);
-                                }
+                        if self.cfg.deck.zapper {
+                            if res.clicked() {
+                                tx.event(EmulationEvent::ZapperTrigger);
                             }
+                            if self
+                                .cfg
+                                .action_input(DeckAction::ZapperAimOffscreen)
+                                .is_some_and(|input| input_down(ui, gamepads, &self.cfg, input))
+                            {
+                                let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
+                                tx.event(EmulationEvent::ZapperAim(pos));
+                            } else if let Some(Pos2 { x, y }) = res
+                                .hover_pos()
+                                .and_then(|Pos2 { x, y }| cursor_to_zapper(x, y, res.rect))
+                            {
+                                let pos = (x.round() as u32, y.round() as u32);
+                                tx.event(EmulationEvent::ZapperAim(pos));
+                            }
+                        }
+                    });
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.horizontal_centered(|ui| {
+                            let image = Image::new(include_image!("../../../assets/tetanes.png"))
+                                .shrink_to_fit()
+                                .tint(Color32::GRAY);
+                            ui.add(image);
                         });
-                    } else {
-                        ui.vertical_centered(|ui| {
-                            ui.horizontal_centered(|ui| {
-                                let image =
-                                    Image::new(include_image!("../../../assets/tetanes.png"))
-                                        .shrink_to_fit()
-                                        .tint(Color32::GRAY);
-                                ui.add(image);
-                            });
-                        });
-                    }
-                });
-
-            // Start at the left-top of the NES frame.
-            let mut messages_pos = inner_res.response.rect.left_top();
+                    });
+                }
+            });
 
             let mut recording_labels = Vec::new();
             if self.replay_recording {
@@ -1208,211 +1290,192 @@ impl Gui {
                 recording_labels.push("Audio");
             }
             if !recording_labels.is_empty() {
-                let inner_res = Area::new(Id::new("status"))
-                    .order(Order::Foreground)
-                    .fixed_pos(messages_pos)
-                    .show(ui.ctx(), |ui| {
-                        Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.with_layout(
-                                Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                                |ui| {
-                                    ui.label(format!("Recording {}", recording_labels.join(" & ")))
-                                },
-                            );
-                        });
-                    });
-                // Update to the left-bottom of this area, if rendered
-                messages_pos = inner_res.response.rect.left_bottom();
+                Frame::side_top_panel(ui.style()).show(ui, |ui| {
+                    ui.with_layout(
+                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                        |ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Recording {}...",
+                                    recording_labels.join(" & ")
+                                ))
+                                .italics(),
+                            )
+                        },
+                    );
+                });
             }
 
             if self.cfg.renderer.show_messages
                 && (!self.messages.is_empty() || self.error.is_some())
             {
-                Area::new(Id::new("messages"))
-                    .order(Order::Foreground)
-                    .fixed_pos(messages_pos)
-                    .show(ui.ctx(), |ui| {
-                        Frame::popup(ui.style()).show(ui, |ui| {
-                            ui.with_layout(
-                                Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                                |ui| {
-                                    self.message_bar(ui);
-                                    self.error_bar(ui);
-                                },
-                            );
-                        });
-                    });
-            }
-
-            let mut frame = Frame::none();
-            if self.run_state.paused() {
-                frame = Frame::dark_canvas(ui.style()).multiply_with_opacity(0.7);
-            }
-
-            frame.show(ui, |ui| {
-                ui.with_layout(Layout::centered_and_justified(Direction::TopDown), |ui| {
-                    if self.run_state.paused() {
-                        ui.heading(RichText::new("⏸").size(40.0));
-                    }
+                Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.with_layout(
+                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                        |ui| {
+                            self.message_bar(ui);
+                            self.error_bar(ui);
+                        },
+                    );
                 });
-            });
+            }
+
+            if self.run_state.paused() {
+                Frame::none().inner_margin(5.0).show(ui, |ui| {
+                    ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
+                });
+            }
         });
     }
 
-    fn performance_stats(&mut self, ui: &mut Ui, enabled: bool) {
+    fn performance_stats(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        ui.allocate_space(Vec2::new(200.0, 0.0));
-
         let cfg = &self.cfg;
 
-        ui.add_enabled_ui(enabled, |ui| {
-            let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
-            grid.show(ui, |ui| {
-                ui.ctx().request_repaint_after(Duration::from_secs(1));
+        let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
+        grid.show(ui, |ui| {
+            ui.ctx().request_repaint_after(Duration::from_secs(1));
 
-                self.sys.update();
+            self.sys.update();
 
-                let good_color = if ui.style().visuals.dark_mode {
-                    hex_color!("#b8cc52")
-                } else {
-                    hex_color!("#86b300")
-                };
-                let warn_color = ui.style().visuals.warn_fg_color;
-                let bad_color = ui.style().visuals.error_fg_color;
-                let fps_color = |fps| match fps {
-                    fps if fps < 30.0 => bad_color,
-                    fps if fps < 60.0 => warn_color,
-                    _ => good_color,
-                };
-                let frame_time_color = |time| match time {
-                    time if time <= 1000.0 * 1.0 / 60.0 => good_color,
-                    time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
+            let good_color = if ui.style().visuals.dark_mode {
+                hex_color!("#b8cc52")
+            } else {
+                hex_color!("#86b300")
+            };
+            let warn_color = ui.style().visuals.warn_fg_color;
+            let bad_color = ui.style().visuals.error_fg_color;
+            let fps_color = |fps| match fps {
+                fps if fps < 30.0 => bad_color,
+                fps if fps < 60.0 => warn_color,
+                _ => good_color,
+            };
+            let frame_time_color = |time| match time {
+                time if time <= 1000.0 * 1.0 / 60.0 => good_color,
+                time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
+                _ => bad_color,
+            };
+
+            let fps = self.frame_stats.fps;
+            ui.strong("FPS:");
+            if fps.is_finite() {
+                ui.colored_label(fps_color(fps), format!("{fps:.2}"));
+            } else {
+                ui.label("N/A");
+            }
+            ui.end_row();
+
+            let fps_min = self.frame_stats.fps_min;
+            ui.strong("FPS (min):");
+            if fps_min.is_finite() {
+                ui.colored_label(fps_color(fps_min), format!("{fps_min:.2}"));
+            } else {
+                ui.label("N/A");
+            }
+            ui.end_row();
+
+            let frame_time = self.frame_stats.frame_time;
+            ui.strong("Frame Time:");
+            if frame_time.is_finite() {
+                ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
+            } else {
+                ui.label("N/A");
+            }
+            ui.end_row();
+
+            let frame_time_max = self.frame_stats.frame_time_max;
+            ui.strong("Frame Time (max):");
+            if frame_time_max.is_finite() {
+                ui.colored_label(
+                    frame_time_color(frame_time_max),
+                    format!("{frame_time_max:.2} ms"),
+                );
+            } else {
+                ui.label("N/A");
+            }
+            ui.end_row();
+
+            ui.strong("Frame Count:");
+            ui.label(format!("{}", self.frame_stats.frame_count));
+            ui.end_row();
+
+            if let Some(stats) = self.sys.stats() {
+                let cpu_color = |cpu| match cpu {
+                    cpu if cpu <= 25.0 => good_color,
+                    cpu if cpu <= 50.0 => warn_color,
                     _ => bad_color,
                 };
-
-                let fps = self.frame_stats.fps;
-                ui.strong("FPS:");
-                if fps.is_finite() {
-                    ui.colored_label(fps_color(fps), format!("{fps:.2}"));
-                } else {
-                    ui.label("N/A");
-                }
-                ui.end_row();
-
-                let fps_min = self.frame_stats.fps_min;
-                ui.strong("FPS (min):");
-                if fps_min.is_finite() {
-                    ui.colored_label(fps_color(fps_min), format!("{fps_min:.2}"));
-                } else {
-                    ui.label("N/A");
-                }
-                ui.end_row();
-
-                let frame_time = self.frame_stats.frame_time;
-                ui.strong("Frame Time:");
-                if frame_time.is_finite() {
-                    ui.colored_label(frame_time_color(frame_time), format!("{frame_time:.2} ms"));
-                } else {
-                    ui.label("N/A");
-                }
-                ui.end_row();
-
-                let frame_time_max = self.frame_stats.frame_time_max;
-                ui.strong("Frame Time (max):");
-                if frame_time_max.is_finite() {
-                    ui.colored_label(
-                        frame_time_color(frame_time_max),
-                        format!("{frame_time_max:.2} ms"),
-                    );
-                } else {
-                    ui.label("N/A");
-                }
-                ui.end_row();
-
-                ui.strong("Frame Count:");
-                ui.label(format!("{}", self.frame_stats.frame_count));
-                ui.end_row();
-
-                if let Some(stats) = self.sys.stats() {
-                    let cpu_color = |cpu| match cpu {
-                        cpu if cpu <= 25.0 => good_color,
-                        cpu if cpu <= 50.0 => warn_color,
-                        _ => bad_color,
-                    };
-                    const fn bytes_to_mb(bytes: u64) -> u64 {
-                        bytes / 0x100000
-                    }
-
-                    ui.label("");
-                    ui.end_row();
-
-                    ui.strong("CPU:");
-                    ui.colored_label(
-                        cpu_color(stats.cpu_usage),
-                        format!("{:.2}%", stats.cpu_usage),
-                    );
-                    ui.end_row();
-
-                    ui.strong("Memory:");
-                    ui.label(format!("{} MB", bytes_to_mb(stats.memory)));
-                    ui.end_row();
-
-                    let du = stats.disk_usage;
-                    ui.strong("Disk read new/total:");
-                    ui.label(format!(
-                        "{:.2}/{:.2} MB",
-                        bytes_to_mb(du.read_bytes),
-                        bytes_to_mb(du.total_read_bytes)
-                    ));
-                    ui.end_row();
-
-                    ui.strong("Disk written new/total:");
-                    ui.label(format!(
-                        "{:.2}/{:.2} MB",
-                        bytes_to_mb(du.written_bytes),
-                        bytes_to_mb(du.total_written_bytes),
-                    ));
-                    ui.end_row();
+                const fn bytes_to_mb(bytes: u64) -> u64 {
+                    bytes / 0x100000
                 }
 
                 ui.label("");
                 ui.end_row();
 
-                ui.strong("Run Time:");
-                ui.label(format!("{} s", self.start.elapsed().as_secs()));
+                ui.strong("CPU:");
+                ui.colored_label(
+                    cpu_color(stats.cpu_usage),
+                    format!("{:.2}%", stats.cpu_usage),
+                );
                 ui.end_row();
 
-                let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
-                    Some(Pos2 { x, y }) => {
-                        let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
-                            Some(Pos2 { x, y }) => format!("({x:.0}, {y:.0})"),
-                            None => "(-, -)".to_string(),
-                        };
-                        (format!("({x:.0}, {y:.0})"), zapper_pos)
-                    }
-                    None => ("(-, -)".to_string(), "(-, -)".to_string()),
-                };
-
-                ui.strong("Cursor Pos:");
-                ui.label(cursor_pos);
+                ui.strong("Memory:");
+                ui.label(format!("{} MB", bytes_to_mb(stats.memory)));
                 ui.end_row();
 
-                if cfg.deck.zapper {
-                    ui.strong("Zapper Pos:");
-                    ui.label(zapper_pos);
-                    ui.end_row();
+                let du = stats.disk_usage;
+                ui.strong("Disk read new/total:");
+                ui.label(format!(
+                    "{:.2}/{:.2} MB",
+                    bytes_to_mb(du.read_bytes),
+                    bytes_to_mb(du.total_read_bytes)
+                ));
+                ui.end_row();
+
+                ui.strong("Disk written new/total:");
+                ui.label(format!(
+                    "{:.2}/{:.2} MB",
+                    bytes_to_mb(du.written_bytes),
+                    bytes_to_mb(du.total_written_bytes),
+                ));
+                ui.end_row();
+            }
+
+            ui.label("");
+            ui.end_row();
+
+            ui.strong("Run Time:");
+            ui.label(format!("{} s", self.start.elapsed().as_secs()));
+            ui.end_row();
+
+            let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
+                Some(Pos2 { x, y }) => {
+                    let zapper_pos = match cursor_to_zapper(x, y, self.nes_frame) {
+                        Some(Pos2 { x, y }) => format!("({x:.0}, {y:.0})"),
+                        None => "(-, -)".to_string(),
+                    };
+                    (format!("({x:.0}, {y:.0})"), zapper_pos)
                 }
-            });
+                None => ("(-, -)".to_string(), "(-, -)".to_string()),
+            };
+
+            ui.strong("Cursor Pos:");
+            ui.label(cursor_pos);
+            ui.end_row();
+
+            if cfg.deck.zapper {
+                ui.strong("Zapper Pos:");
+                ui.label(zapper_pos);
+                ui.end_row();
+            }
         });
     }
 
     fn help_menu(&mut self, ui: &mut Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
-
-        ui.allocate_space(Vec2::new(Self::MENU_WIDTH, 0.0));
 
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
             let notify_latest = true;

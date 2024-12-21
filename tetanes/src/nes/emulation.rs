@@ -4,10 +4,9 @@ use crate::{
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
-        event::{
-            ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, RunState, UiEvent,
-        },
+        event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         renderer::{gui::MessageType, FrameRecycle},
+        RunState,
     },
     thread,
 };
@@ -32,7 +31,7 @@ use tetanes_core::{
     video::Frame,
 };
 use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 use winit::event::ElementState;
 
 pub mod replay;
@@ -210,7 +209,7 @@ impl Emulation {
         cfg: &Config,
     ) -> anyhow::Result<Self> {
         let threaded = cfg.emulation.threaded
-            && std::thread::available_parallelism().map_or(false, |count| count.get() > 1);
+            && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1);
         let backend = if threaded {
             Threads::Multi(Multi::spawn(tx, frame_tx, cfg)?)
         } else {
@@ -241,6 +240,19 @@ impl Emulation {
             Threads::Single(Single { state }) => state.try_clock_frame(),
             // Multi-threaded emulation handles it's own clock timing and redraw requests
             Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
+        }
+    }
+
+    pub fn terminate(&mut self) {
+        match &mut self.threads {
+            Threads::Single(_) => (),
+            Threads::Multi(Multi { tx, handle }) => {
+                handle.thread().unpark();
+                if let Err(err) = tx.try_send(NesEvent::Ui(UiEvent::Terminate)) {
+                    error!("failed to send termination event. {err:?}");
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }
@@ -311,7 +323,7 @@ impl State {
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::Paused,
             threaded: cfg.emulation.threaded
-                && std::thread::available_parallelism().map_or(false, |count| count.get() > 1),
+                && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
             rewind,
             record: Record::new(),
@@ -357,6 +369,10 @@ impl State {
         puffin::profile_function!();
 
         match event {
+            NesEvent::Ui(UiEvent::Terminate) => {
+                self.unload_rom();
+                debug!("emulation stopped");
+            }
             NesEvent::Emulation(event) => self.on_emulation_event(event),
             NesEvent::Config(event) => self.on_config_event(event),
             _ => (),
@@ -369,6 +385,12 @@ impl State {
         puffin::profile_function!();
 
         match event {
+            EmulationEvent::AddDebugger(debugger) => {
+                self.control_deck.add_debugger(debugger.clone());
+            }
+            EmulationEvent::RemoveDebugger(debugger) => {
+                self.control_deck.remove_debugger(debugger.clone());
+            }
             EmulationEvent::AudioRecord(recording) => {
                 if self.control_deck.is_running() {
                     self.audio_record(*recording);
@@ -621,7 +643,7 @@ impl State {
     fn send_frame(&mut self) {
         match self.frame_tx.try_send_ref() {
             Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
-            Err(TrySendError::Full(_)) => debug!("dropped frame"),
+            Err(TrySendError::Full(_)) => trace!("dropped frame"),
             Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
     }
