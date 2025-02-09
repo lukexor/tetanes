@@ -54,6 +54,7 @@ tracing-subscriber = "0.3.18"
 serde_json = "1.0.133"
 web-time = "1.1.0"
 web-sys = "0.3.72"
+bitflags = "2.4.1"
 
 # Playable framerates in development
 [profile.dev]
