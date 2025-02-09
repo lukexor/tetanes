@@ -1,5 +1,5 @@
 # Disabled for now since it was ICEing
-# cargo-features = ["codegen-backend"]
+cargo-features = ["codegen-backend"]
 
 [workspace]
 resolver = "2"
