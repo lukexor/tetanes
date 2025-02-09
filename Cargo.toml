@@ -30,10 +30,10 @@ rust_2021_compatibility = "warn"
 unused = "warn"
 
 [workspace.dependencies]
-anyhow = "1.0"
+anyhow = "1.0.95"
 bincode = "1.3"
 cfg-if = "1.0"
-clap = { version = "4.5", default-features = false, features = [
+clap = { version = "4.5.28", default-features = false, features = [
   "std",
   "help",
   "usage",
@@ -43,17 +43,17 @@ clap = { version = "4.5", default-features = false, features = [
 dirs = "6.0.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 puffin = "0.19"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
 tetanes-core = { version = "0.11", path = "tetanes-core" }
 thiserror = "2.0.11"
 tracing = { version = "0.1", default-features = false, features = [
   "std",
   "release_max_level_info",
 ] }
-tracing-subscriber = "0.3"
-serde_json = "1.0"
-web-time = "1.0"
-web-sys = "0.3"
+tracing-subscriber = "0.3.19"
+serde_json = "1.0.138"
+web-time = "1.1.0"
+web-sys = "0.3.77"
 
 # Playable framerates in development
 [profile.dev]
