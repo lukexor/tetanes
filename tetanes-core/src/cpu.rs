@@ -36,14 +36,13 @@ thread_local! {
     static DMA_DUMMY_READ: Cell<bool> = const { Cell::new(false) };
     static DMA_OAM_ADDR: Cell<u16> = const { Cell::new(0x0000) };
 }
-
 bitflags! {
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct Irq: u8 {
-        const MAPPER = 1 << 1;
-        const FRAME_COUNTER = 1 << 2;
-        const DMC = 1 << 3;
+        const MAPPER = 1 << 0;
+        const FRAME_COUNTER = 1 << 1;
+        const DMC = 1 << 2;
     }
 }
 
@@ -93,7 +92,7 @@ pub struct Cycle {
 }
 
 /// The Central Processing Unit status and registers
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 #[must_use]
 pub struct Cpu {
     pub cycle: usize, // total number of cycles ran
@@ -108,11 +107,11 @@ pub struct Cpu {
     pub fetched_data: u8, // Represents data fetched for the ALU
     pub status: Status,   // Status Registers
     pub acc: u8,          // accumulator
-    pub x: u8,            // x register
-    pub y: u8,            // y register
-    pub sp: u8,           // stack pointer - stack is at $0100-$01FF
-    pub abs_addr: u16,    // Used memory addresses get set here
-    pub rel_addr: u16,    // Relative address for branch instructions
+    pub x: u8,           // x register
+    pub y: u8,           // y register
+    pub sp: u8,          // stack pointer - stack is at $0100-$01FF
+    pub abs_addr: u16,   // Used memory addresses get set here
+    pub rel_addr: u16,   // Relative address for branch instructions
     pub run_irq: bool,
     pub prev_run_irq: bool,
     pub nmi: bool,
