@@ -153,7 +153,7 @@ impl Version {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn check_for_updates(
+    pub const fn check_for_updates(
         &mut self,
         _tx: &crate::nes::event::NesEventProxy,
         _notify_latest: bool,

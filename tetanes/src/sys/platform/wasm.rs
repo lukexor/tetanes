@@ -377,28 +377,25 @@ pub mod renderer {
         let commands = std::mem::take(&mut output.platform_output.commands);
         for command in commands {
             use egui::OutputCommand;
-            match command {
-                OutputCommand::CopyText(copied_text) => {
-                    tracing::warn!("Copied text: {copied_text}");
-                    if !copied_text.is_empty() {
-                        if let Some(clipboard) =
-                            web_sys::window().map(|window| window.navigator().clipboard())
-                        {
-                            let promise = clipboard.write_text(&copied_text);
-                            let future = JsFuture::from(promise);
-                            let future = async move {
-                                if let Err(err) = future.await {
-                                    tracing::error!(
-                                        "Cut/Copy failed: {}",
-                                        err.as_string().unwrap_or_else(|| format!("{err:#?}"))
-                                    );
-                                }
-                            };
-                            thread::spawn(future);
-                        }
+            if let OutputCommand::CopyText(copied_text) = command {
+                tracing::warn!("Copied text: {copied_text}");
+                if !copied_text.is_empty() {
+                    if let Some(clipboard) =
+                        web_sys::window().map(|window| window.navigator().clipboard())
+                    {
+                        let promise = clipboard.write_text(&copied_text);
+                        let future = JsFuture::from(promise);
+                        let future = async move {
+                            if let Err(err) = future.await {
+                                tracing::error!(
+                                    "Cut/Copy failed: {}",
+                                    err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                                );
+                            }
+                        };
+                        thread::spawn(future);
                     }
                 }
-                _ => (),
             }
         }
 
@@ -752,7 +749,7 @@ impl Initialize for Renderer {
             let on_keydown = Closure::<dyn FnMut(_)>::new(move |evt: web_sys::KeyboardEvent| {
                 use egui::Key;
 
-                let prevent_default = Key::from_name(&evt.key()).map_or(true, |key| {
+                let prevent_default = Key::from_name(&evt.key()).is_none_or(|key| {
                     // Allow ctrl/meta + X, C, V through
                     !matches!(key, Key::X | Key::C | Key::V) || !(evt.ctrl_key() || evt.meta_key())
                 });
