@@ -563,7 +563,7 @@ impl Ppu {
 }
 
 impl Ppu {
-    fn increment_vram_addr(&mut self) {
+    const fn increment_vram_addr(&mut self) {
         // During rendering, v increments coarse X and coarse Y simultaneously
         if self.mask.rendering_enabled
             && (self.scanline == self.prerender_scanline
@@ -593,8 +593,7 @@ impl Ppu {
     fn stop_vblank(&mut self) {
         trace!(
             "Stop VBL, Sprite0 Hit, Overflow - PPU:{:3},{:3}",
-            self.cycle,
-            self.scanline
+            self.cycle, self.scanline
         );
         self.status.set_spr_zero_hit(false);
         self.status.set_spr_overflow(false);
@@ -1087,9 +1086,7 @@ impl Registers for Ppu {
 
         trace!(
             "$2000 NMI Enabled: {} - PPU:{:3},{:3}",
-            self.ctrl.nmi_enabled,
-            self.cycle,
-            self.scanline,
+            self.ctrl.nmi_enabled, self.cycle, self.scanline,
         );
 
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
@@ -1099,8 +1096,7 @@ impl Registers for Ppu {
         } else if self.status.in_vblank {
             trace!(
                 "$2000 NMI During VBL - PPU:{:3},{:3}",
-                self.cycle,
-                self.scanline
+                self.cycle, self.scanline
             );
             Cpu::set_nmi();
         }
@@ -1141,8 +1137,7 @@ impl Registers for Ppu {
             // and never set the flag or generate an NMI for that frame
             trace!(
                 "$2002 Prevent VBL - PPU:{:3},{:3}",
-                self.cycle,
-                self.scanline
+                self.cycle, self.scanline
             );
             self.prevent_vbl = true;
         }
@@ -1179,7 +1174,6 @@ impl Registers for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-    #[must_use]
     fn read_oamdata(&mut self) -> u8 {
         let val = self.peek_oamdata();
         self.open_bus = val;
@@ -1192,7 +1186,6 @@ impl Registers for Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     // Non-mutating version of `read_oamdata`.
-    #[must_use]
     fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= Self::VISIBLE_SCANLINE_END
@@ -1268,7 +1261,6 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    #[must_use]
     fn read_data(&mut self) -> u8 {
         if self.reset_signal && self.emulate_warmup {
             self.open_bus = 0x00;
@@ -1300,8 +1292,7 @@ impl Registers for Ppu {
 
         trace!(
             "PPU $2007 read: {val:02X} - PPU:{:3},{:3}",
-            self.cycle,
-            self.scanline
+            self.cycle, self.scanline
         );
 
         val
@@ -1310,7 +1301,6 @@ impl Registers for Ppu {
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
-    #[must_use]
     fn peek_data(&self) -> u8 {
         let addr = self.scroll.addr();
         if addr < Self::PALETTE_START {
@@ -1327,8 +1317,7 @@ impl Registers for Ppu {
         let addr = self.scroll.addr();
         trace!(
             "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
-            self.cycle,
-            self.scanline
+            self.cycle, self.scanline
         );
         self.increment_vram_addr();
         self.bus.write(addr, val);

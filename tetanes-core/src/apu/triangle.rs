@@ -4,9 +4,9 @@
 
 use crate::{
     apu::{
+        Channel,
         length_counter::LengthCounter,
         timer::{Timer, TimerCycle},
-        Channel,
     },
     common::{Clock, Reset, ResetKind, Sample},
 };
@@ -52,7 +52,7 @@ impl Triangle {
         self.force_silent
     }
 
-    pub fn set_silent(&mut self, silent: bool) {
+    pub const fn set_silent(&mut self, silent: bool) {
         self.force_silent = silent;
     }
 
@@ -66,7 +66,7 @@ impl Triangle {
     }
 
     /// $4008 Linear counter control
-    pub fn write_linear_counter(&mut self, val: u8) {
+    pub const fn write_linear_counter(&mut self, val: u8) {
         self.linear.control = (val & 0x80) == 0x80; // D7
         self.linear.write(val & 0x7F); // D6..D0;
         self.length.write_ctrl(self.linear.control); // !D7
@@ -84,13 +84,12 @@ impl Triangle {
         self.linear.reload = true;
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
 }
 
 impl Sample for Triangle {
-    #[must_use]
     fn output(&self) -> f32 {
         if self.silent() {
             0.0
@@ -155,7 +154,7 @@ impl LinearCounter {
         }
     }
 
-    pub fn write(&mut self, val: u8) {
+    pub const fn write(&mut self, val: u8) {
         self.counter_reload = val;
     }
 }

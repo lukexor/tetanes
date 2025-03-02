@@ -410,7 +410,7 @@ impl BarcodeReader {
         }
     }
 
-    pub fn input(&mut self, barcode: u64, digit_count: u32) {
+    pub const fn input(&mut self, barcode: u64, digit_count: u32) {
         self.new_barcode = barcode;
         self.new_barcode_digit_count = digit_count;
     }
@@ -843,7 +843,7 @@ impl Eeprom {
         self.write(self.prev_scl, sda);
     }
 
-    pub fn write_bit(&mut self, dest: u8, val: u8) -> Option<u8> {
+    pub const fn write_bit(&mut self, dest: u8, val: u8) -> Option<u8> {
         if self.counter < 8 {
             let mask = !(1 << self.counter);
             let dest = (dest & mask) | (val << self.counter);
@@ -854,7 +854,7 @@ impl Eeprom {
         }
     }
 
-    pub fn read_bit(&mut self) {
+    pub const fn read_bit(&mut self) {
         if self.counter < 8 {
             self.output = if self.data & (1 << self.counter) > 0 {
                 1

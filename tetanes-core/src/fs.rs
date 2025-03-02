@@ -1,8 +1,8 @@
 //! Filesystem utilities for save state and compression.
 
 use crate::sys::fs;
-use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
-use serde::{de::DeserializeOwned, Serialize};
+use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
+use serde::{Serialize, de::DeserializeOwned};
 use std::{
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},

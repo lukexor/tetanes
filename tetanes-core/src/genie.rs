@@ -127,6 +127,7 @@ impl GenieCode {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn code(&self) -> &str {
         &self.code
     }
@@ -139,11 +140,7 @@ impl GenieCode {
     #[must_use]
     pub const fn read(&self, val: u8) -> u8 {
         if let Some(compare) = self.compare {
-            if val == compare {
-                self.data
-            } else {
-                val
-            }
+            if val == compare { self.data } else { val }
         } else {
             self.data
         }

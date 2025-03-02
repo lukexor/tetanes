@@ -163,7 +163,6 @@ impl Regional for SunsoftFme7 {}
 impl Sram for SunsoftFme7 {}
 
 impl Sample for SunsoftFme7 {
-    #[must_use]
     fn output(&self) -> f32 {
         self.audio.output()
     }
@@ -258,7 +257,7 @@ impl Audio {
         (self.registers[0x07] >> (channel + 3)) & 0x01 == 0x00
     }
 
-    fn write_register(&mut self, addr: u16, val: u8) {
+    const fn write_register(&mut self, addr: u16, val: u8) {
         match addr {
             0xC000..=0xDFFF => self.register = val,
             0xE000..=0xFFFF => {

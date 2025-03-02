@@ -1,10 +1,10 @@
 use crate::sys::logging;
 use std::env;
 use tracing_subscriber::{
+    Registry,
     filter::Targets,
     layer::{Layered, SubscriberExt},
     util::SubscriberInitExt,
-    Registry,
 };
 
 fn create_registry() -> Layered<Targets, Registry> {

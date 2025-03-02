@@ -1,6 +1,7 @@
 use crate::{
     feature,
     nes::{
+        Nes, RunState, Running, State,
         action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
         config::Config,
         emulation::FrameStats,
@@ -10,7 +11,6 @@ use crate::{
             shader::Shader,
         },
         rom::RomData,
-        Nes, RunState, Running, State,
     },
     platform::open_file_dialog,
 };

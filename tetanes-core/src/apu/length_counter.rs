@@ -42,7 +42,7 @@ impl LengthCounter {
     }
 
     #[inline]
-    pub fn write(&mut self, val: u8) {
+    pub const fn write(&mut self, val: u8) {
         if self.enabled {
             self.reload = Self::LENGTH_TABLE[val as usize]; // D7..D3
             self.previous_counter = self.counter;
@@ -50,7 +50,7 @@ impl LengthCounter {
     }
 
     #[inline]
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         if !enabled {
             self.counter = 0;
         }
@@ -58,7 +58,7 @@ impl LengthCounter {
     }
 
     #[inline]
-    pub fn reload(&mut self) {
+    pub const fn reload(&mut self) {
         if self.reload > 0 {
             if self.counter == self.previous_counter {
                 self.counter = self.reload;
@@ -69,7 +69,7 @@ impl LengthCounter {
     }
 
     #[inline]
-    pub fn write_ctrl(&mut self, halt: bool) {
+    pub const fn write_ctrl(&mut self, halt: bool) {
         self.new_halt = halt;
     }
 }

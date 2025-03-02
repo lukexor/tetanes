@@ -1,9 +1,9 @@
 use crate::nes::renderer::shader::{self, Shader};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use egui::{
+    NumExt, ViewportId, ViewportIdMap, ViewportIdSet,
     ahash::HashMap,
     epaint::{self, Primitive, Vertex},
-    NumExt, ViewportId, ViewportIdMap, ViewportIdSet,
 };
 use std::{
     borrow::Cow,
@@ -102,7 +102,7 @@ pub struct Painter {
 impl Default for Painter {
     fn default() -> Self {
         Self {
-            instance: wgpu::Instance::new(wgpu::InstanceDescriptor::default()),
+            instance: wgpu::Instance::new(&wgpu::InstanceDescriptor::default()),
             render_state: None,
             surfaces: Default::default(),
         }
@@ -281,7 +281,7 @@ impl Painter {
         self.render_state.as_ref()
     }
 
-    pub fn render_state_mut(&mut self) -> Option<&mut RenderState> {
+    pub const fn render_state_mut(&mut self) -> Option<&mut RenderState> {
         self.render_state.as_mut()
     }
 
@@ -669,14 +669,14 @@ impl RenderState {
 
         let queue_write_data_to_texture = |texture, origin| {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture,
                     mip_level: 0,
                     origin,
                     aspect: wgpu::TextureAspect::All,
                 },
                 data_bytes,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
@@ -793,7 +793,11 @@ impl RenderState {
             );
 
             let Some(mut index_buffer_staging) = index_buffer_staging else {
-                panic!("Failed to create staging buffer for index data. Index count: {index_count}. Required index buffer size: {required_index_buffer_size}. Actual size {} and capacity: {} (bytes)", self.index_buffer.buffer.size(), self.index_buffer.capacity);
+                panic!(
+                    "Failed to create staging buffer for index data. Index count: {index_count}. Required index buffer size: {required_index_buffer_size}. Actual size {} and capacity: {} (bytes)",
+                    self.index_buffer.buffer.size(),
+                    self.index_buffer.capacity
+                );
             };
 
             let mut index_offset = 0;
@@ -828,7 +832,11 @@ impl RenderState {
             );
 
             let Some(mut vertex_buffer_staging) = vertex_buffer_staging else {
-                panic!("Failed to create staging buffer for vertex data. Vertex count: {vertex_count}. Required vertex buffer size: {required_vertex_buffer_size}. Actual size {} and capacity: {} (bytes)", self.vertex_buffer.buffer.size(), self.vertex_buffer.capacity);
+                panic!(
+                    "Failed to create staging buffer for vertex data. Vertex count: {vertex_count}. Required vertex buffer size: {required_vertex_buffer_size}. Actual size {} and capacity: {} (bytes)",
+                    self.vertex_buffer.buffer.size(),
+                    self.vertex_buffer.capacity
+                );
             };
 
             let mut vertex_offset = 0;

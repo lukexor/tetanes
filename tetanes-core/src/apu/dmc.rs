@@ -76,7 +76,7 @@ impl Dmc {
         self.force_silent
     }
 
-    pub fn set_silent(&mut self, silent: bool) {
+    pub const fn set_silent(&mut self, silent: bool) {
         self.force_silent = silent;
     }
 
@@ -150,7 +150,7 @@ impl Dmc {
     }
 
     /// $4011 DMC output
-    pub fn write_output(&mut self, val: u8) {
+    pub const fn write_output(&mut self, val: u8) {
         self.output_level = val & 0x7F;
     }
 
@@ -189,7 +189,6 @@ impl Dmc {
 }
 
 impl Sample for Dmc {
-    #[must_use]
     fn output(&self) -> f32 {
         if self.silent() {
             0.0
@@ -265,7 +264,7 @@ impl Reset for Dmc {
         self.timer.period = Self::period(self.region, 0);
         self.timer.reload();
         self.timer.cycle += 1; // FIXME: Startup timing is slightly wrong, DMA tests fail with the
-                               // default
+        // default
         if let ResetKind::Hard = kind {
             self.sample_addr = 0xC000;
             self.sample_length = 1;

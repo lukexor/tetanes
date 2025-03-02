@@ -152,7 +152,7 @@ impl Input {
         &self.joypads[player as usize]
     }
 
-    pub fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
+    pub const fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
         &mut self.joypads[player as usize]
     }
 
@@ -166,7 +166,7 @@ impl Input {
             .for_each(|pad| pad.concurrent_dpad = enabled);
     }
 
-    pub fn connect_zapper(&mut self, connected: bool) {
+    pub const fn connect_zapper(&mut self, connected: bool) {
         self.zapper.connected = connected;
     }
 
@@ -420,7 +420,7 @@ impl Joypad {
     }
 
     #[must_use]
-    pub fn read(&mut self) -> u8 {
+    pub const fn read(&mut self) -> u8 {
         let val = self.peek();
         if !self.strobe && self.index < 8 {
             self.index += 1;
@@ -437,7 +437,7 @@ impl Joypad {
         }
     }
 
-    pub fn write(&mut self, val: u8) {
+    pub const fn write(&mut self, val: u8) {
         let prev_strobe = self.strobe;
         self.strobe = val & 0x01 == 0x01;
         if prev_strobe && !self.strobe {
@@ -450,7 +450,7 @@ impl Joypad {
         self.index
     }
 
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.buttons = JoypadBtnState::empty();
     }
 }
@@ -499,7 +499,7 @@ impl Zapper {
         self.y = y;
     }
 
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.triggered = 0.0;
     }
 }
@@ -527,11 +527,7 @@ impl Zapper {
     }
 
     fn triggered(&self) -> u8 {
-        if self.triggered > 0.0 {
-            0x10
-        } else {
-            0x00
-        }
+        if self.triggered > 0.0 { 0x10 } else { 0x00 }
     }
 
     fn light_sense(&self, ppu: &Ppu) -> u8 {

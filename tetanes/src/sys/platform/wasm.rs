@@ -3,22 +3,22 @@
 
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
-        renderer::{gui, Renderer, State},
-        rom::RomData,
         Running,
+        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
+        renderer::{Renderer, State, gui},
+        rom::RomData,
     },
     platform::{BuilderExt, Initialize},
     thread,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::{
     path::{Path, PathBuf},
     rc::Rc,
 };
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    js_sys::Uint8Array, FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement,
+    FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement, js_sys::Uint8Array,
 };
 use winit::{platform::web::WindowAttributesExtWebSys, window::WindowAttributes};
 
@@ -222,7 +222,7 @@ pub mod renderer {
     use crate::nes::{
         config::Config,
         event::Response,
-        renderer::{gui::Gui, Viewport},
+        renderer::{Viewport, gui::Gui},
     };
     use std::cell::RefCell;
     use wasm_bindgen_futures::JsFuture;
@@ -374,22 +374,31 @@ pub mod renderer {
 
         viewport.info.events.clear();
 
-        let copied_text = std::mem::take(&mut output.platform_output.copied_text);
-        tracing::warn!("Copied text: {copied_text}");
-        if !copied_text.is_empty() {
-            if let Some(clipboard) = web_sys::window().map(|window| window.navigator().clipboard())
-            {
-                let promise = clipboard.write_text(&copied_text);
-                let future = JsFuture::from(promise);
-                let future = async move {
-                    if let Err(err) = future.await {
-                        tracing::error!(
-                            "Cut/Copy failed: {}",
-                            err.as_string().unwrap_or_else(|| format!("{err:#?}"))
-                        );
+        let commands = std::mem::take(&mut output.platform_output.commands);
+        for command in commands {
+            use egui::OutputCommand;
+            match command {
+                OutputCommand::CopyText(copied_text) => {
+                    tracing::warn!("Copied text: {copied_text}");
+                    if !copied_text.is_empty() {
+                        if let Some(clipboard) =
+                            web_sys::window().map(|window| window.navigator().clipboard())
+                        {
+                            let promise = clipboard.write_text(&copied_text);
+                            let future = JsFuture::from(promise);
+                            let future = async move {
+                                if let Err(err) = future.await {
+                                    tracing::error!(
+                                        "Cut/Copy failed: {}",
+                                        err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                                    );
+                                }
+                            };
+                            thread::spawn(future);
+                        }
                     }
-                };
-                thread::spawn(future);
+                }
+                _ => (),
             }
         }
 
@@ -793,7 +802,7 @@ impl Initialize for Renderer {
 
 pub fn download_save_states() -> anyhow::Result<()> {
     use crate::nes::config::Config;
-    use anyhow::{anyhow, Context};
+    use anyhow::{Context, anyhow};
     use base64::Engine;
     use std::io::{Cursor, Write};
     use tetanes_core::{control_deck::Config as DeckConfig, sys::fs::local_storage};

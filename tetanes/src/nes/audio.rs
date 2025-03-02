@@ -1,10 +1,10 @@
 use crate::nes::config::Config;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{
+    CachingCons, CachingProd, HeapRb,
     producer::Producer,
     traits::{Consumer, Observer, Split},
-    CachingCons, CachingProd, HeapRb,
 };
 use std::{fs::File, io::BufWriter, iter, path::PathBuf, sync::Arc};
 use tetanes_core::time::Duration;

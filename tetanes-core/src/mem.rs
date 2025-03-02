@@ -40,9 +40,9 @@ impl Memory {
             RamState::AllZeros => self.0.fill(0x00),
             RamState::AllOnes => self.0.fill(0xFF),
             RamState::Random => {
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 for val in &mut self.0 {
-                    *val = rng.gen_range(0x00..=0xFF);
+                    *val = rng.random_range(0x00..=0xFF);
                 }
             }
         }
