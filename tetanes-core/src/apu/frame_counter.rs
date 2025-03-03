@@ -15,9 +15,9 @@ use tracing::trace;
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FrameCounter {
     pub region: NesRegion,
-    pub step_cycles: [[u64; 6]; 2],
+    pub step_cycles: [u64; 6],
     pub step: usize,
-    pub mode: usize,
+    pub mode: u8,
     pub write_buffer: Option<u8>,
     pub write_delay: u8,
     pub block_counter: u8,
@@ -35,14 +35,10 @@ pub enum FrameType {
 }
 
 impl FrameCounter {
-    const STEP_CYCLES_NTSC: [[u64; 6]; 2] = [
-        [7457, 14913, 22371, 29828, 29829, 29830],
-        [7457, 14913, 22371, 29829, 37281, 37282],
-    ];
-    const STEP_CYCLES_PAL: [[u64; 6]; 2] = [
-        [8313, 16627, 24939, 33252, 33253, 33254],
-        [8313, 16627, 24939, 33253, 41565, 41566],
-    ];
+    const STEP4_CYCLES_NTSC: [u64; 6] = [7457, 14913, 22371, 29828, 29829, 29830];
+    const STEP5_CYCLES_NTSC: [u64; 6] = [7457, 14913, 22371, 29829, 37281, 37282];
+    const STEP4_CYCLES_PAL: [u64; 6] = [8313, 16627, 24939, 33252, 33253, 33254];
+    const STEP5_CYCLES_PAL: [u64; 6] = [8313, 16627, 24939, 33253, 41565, 41566];
 
     const FRAME_TYPE: [FrameType; 6] = [
         FrameType::Quarter,
@@ -54,12 +50,13 @@ impl FrameCounter {
     ];
 
     pub const fn new(region: NesRegion) -> Self {
-        let step_cycles = Self::step_cycles(region);
+        let mode = 0;
+        let step_cycles = Self::step_cycles(mode, region);
         Self {
             region,
             step_cycles,
             step: 0,
-            mode: 0,
+            mode,
             write_buffer: None,
             write_delay: 0,
             block_counter: 0,
@@ -70,13 +67,15 @@ impl FrameCounter {
 
     pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
-        self.step_cycles = Self::step_cycles(region);
+        self.step_cycles = Self::step_cycles(self.mode, region);
     }
 
-    const fn step_cycles(region: NesRegion) -> [[u64; 6]; 2] {
-        match region {
-            NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => Self::STEP_CYCLES_NTSC,
-            NesRegion::Pal => Self::STEP_CYCLES_PAL,
+    const fn step_cycles(mode: u8, region: NesRegion) -> [u64; 6] {
+        match (mode, region) {
+            (0, NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy) => Self::STEP4_CYCLES_NTSC,
+            (0, NesRegion::Pal) => Self::STEP4_CYCLES_PAL,
+            (_, NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy) => Self::STEP5_CYCLES_NTSC,
+            (_, NesRegion::Pal) => Self::STEP5_CYCLES_PAL,
         }
     }
 
@@ -94,9 +93,9 @@ impl FrameCounter {
     }
 
     pub const fn should_clock(&mut self, cycles: u64) -> bool {
-        self.write_buffer.is_some()
-            || self.block_counter > 0
-            || (self.cycle + cycles) >= (self.step_cycles[self.mode][self.step] - 1)
+        self.block_counter > 0
+            || self.write_buffer.is_some()
+            || (self.cycle + cycles) >= (self.step_cycles[self.step] - 1)
     }
 
     // mode 0: 4-step  effective rate (approx)
@@ -112,7 +111,7 @@ impl FrameCounter {
     // e e e - e -     192 Hz
     pub fn clock_with(&mut self, cycles: u64, mut on_clock: impl FnMut(FrameType)) -> u64 {
         let mut cycles_ran = 0;
-        let step_cycles = self.step_cycles[self.mode][self.step];
+        let step_cycles = self.step_cycles[self.step];
         if self.cycle + cycles >= step_cycles {
             if !self.inhibit_irq && self.mode == 0 && self.step >= 3 {
                 trace!(
@@ -154,6 +153,7 @@ impl FrameCounter {
             self.write_delay -= 1;
             if self.write_delay == 0 {
                 self.mode = if val & 0x80 == 0x80 { 1 } else { 0 };
+                self.step_cycles = Self::step_cycles(self.mode, self.region);
                 self.step = 0;
                 self.cycle = 0;
                 self.write_buffer = None;
@@ -178,6 +178,7 @@ impl Reset for FrameCounter {
         self.cycle = 0;
         if kind == ResetKind::Hard {
             self.mode = 0;
+            self.step_cycles = Self::step_cycles(self.mode, self.region);
             // After reset, APU acts as if $4017 was written 9-12 clocks before first instruction,
             // Reset acts as if $00 was written to $4017
             self.write(0x00, 0);

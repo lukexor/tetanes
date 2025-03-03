@@ -73,6 +73,7 @@ impl Frame {
         self.buffer[(x + (y << 8)) as usize]
     }
 
+    #[inline]
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.buffer[(x + (y << 8)) as usize] = color;
     }
@@ -107,6 +108,6 @@ impl Frame {
 impl Reset for Frame {
     fn reset(&mut self, _kind: ResetKind) {
         self.count = 0;
-        self.buffer.fill(0);
+        self.buffer = Buffer::default();
     }
 }

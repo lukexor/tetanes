@@ -29,9 +29,8 @@ impl PpuAddr for u16 {
 #[must_use]
 pub struct Bus {
     pub mapper: Mapper,
-    pub chr_ram: DynMemory<u8>,
-    #[serde(skip)]
-    pub chr_rom: DynMemory<u8>,
+    pub chr: DynMemory<u8>,
+    pub chr_is_ram: bool,
     pub ciram: ConstMemory<u8, 0x0800>, // $2007 PPUDATA
     pub palette: ConstMemory<u8, 32>,
     pub exram: DynMemory<u8>,
@@ -51,10 +50,10 @@ impl Bus {
     pub fn new() -> Self {
         Self {
             mapper: Mapper::none(),
+            chr: DynMemory::new(),
+            chr_is_ram: false,
             ciram: ConstMemory::new(),
             palette: ConstMemory::new(),
-            chr_ram: DynMemory::new(),
-            chr_rom: DynMemory::new(),
             exram: DynMemory::new(),
             open_bus: 0x00,
         }
@@ -64,12 +63,9 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr_rom(&mut self, chr_rom: DynMemory<u8>) {
-        self.chr_rom = chr_rom;
-    }
-
-    pub fn load_chr_ram(&mut self, chr_ram: DynMemory<u8>) {
-        self.chr_ram = chr_ram;
+    pub fn load_chr(&mut self, chr: DynMemory<u8>, is_ram: bool) {
+        self.chr = chr;
+        self.chr_is_ram = is_ram;
     }
 
     pub fn load_ex_ram(&mut self, ex_ram: DynMemory<u8>) {
@@ -115,13 +111,7 @@ impl Bus {
             MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
             MappedRead::ExRam(addr) => self.exram[addr],
             MappedRead::Data(data) => data,
-            MappedRead::Chr(addr) => {
-                if self.chr_ram.is_empty() {
-                    self.chr_rom[addr]
-                } else {
-                    self.chr_ram[addr]
-                }
-            }
+            MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
                 panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
             }
@@ -139,13 +129,7 @@ impl Bus {
             MappedRead::CIRam(addr) => self.ciram[addr & 0x07FF],
             MappedRead::ExRam(addr) => self.exram[addr],
             MappedRead::Data(data) => data,
-            MappedRead::Chr(addr) => {
-                if self.chr_ram.is_empty() {
-                    self.chr_rom[addr]
-                } else {
-                    self.chr_ram[addr]
-                }
-            }
+            MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
                 panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
             }
@@ -161,11 +145,7 @@ impl Bus {
         } else {
             addr.into()
         };
-        let val = if self.chr_ram.is_empty() {
-            self.chr_rom[addr]
-        } else {
-            self.chr_ram[addr]
-        };
+        let val = self.chr[addr];
         self.open_bus = val;
         val
     }
@@ -176,13 +156,10 @@ impl Bus {
         } else {
             addr.into()
         };
-        if self.chr_ram.is_empty() {
-            self.chr_rom[addr]
-        } else {
-            self.chr_ram[addr]
-        }
+        self.chr[addr]
     }
 
+    #[inline]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn read_palette(&mut self, addr: u16) -> u8 {
         let val = self.palette[self.palette_mirror(addr)];
@@ -190,6 +167,7 @@ impl Bus {
         val
     }
 
+    #[inline]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn peek_palette(&self, addr: u16) -> u8 {
         self.palette[self.palette_mirror(addr)]
@@ -235,8 +213,8 @@ impl Mem for Bus {
                     self.exram[addr] = val;
                 }
                 MappedWrite::ChrRam(addr, val) => {
-                    if !self.chr_ram.is_empty() {
-                        self.chr_ram[addr] = val;
+                    if self.chr_is_ram {
+                        self.chr[addr] = val;
                     }
                 }
                 MappedWrite::PrgRam(mapped, val) => {

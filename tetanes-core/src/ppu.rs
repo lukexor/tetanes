@@ -134,8 +134,6 @@ pub struct Ppu {
     pub secondary_oamdata: ConstMemory<u8, 32>,
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
-    /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
-    pub spr_present: ConstMemory<bool, 256>,
 
     pub prevent_vbl: bool,
     pub frame: Frame,
@@ -280,7 +278,6 @@ impl Ppu {
             oamdata: ConstMemory::new(),
             secondary_oamdata: ConstMemory::new(),
             sprites: [Sprite::new(); 8],
-            spr_present: ConstMemory::new(),
 
             prevent_vbl: false,
             frame: Frame::new(),
@@ -667,7 +664,7 @@ impl Ppu {
             // 1..=64
             Self::OAM_CLEAR_START..=Self::OAM_CLEAR_END => {
                 self.oam_fetch = 0xFF;
-                self.secondary_oamdata.fill(0xFF);
+                self.secondary_oamdata = ConstMemory::filled(0xFF);
             }
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
@@ -838,9 +835,6 @@ impl Ppu {
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
                 sprite.flip_vertical = flip_vertical;
-                for spr in self.spr_present.iter_mut().skip(sprite.x as usize).take(8) {
-                    *spr = true;
-                }
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
@@ -869,37 +863,31 @@ impl Ppu {
 
     fn pixel_palette(&mut self) -> u8 {
         let x = self.cycle - 1;
-        let fine_x = self.scroll.fine_x;
-
-        let left_clip_bg = x < 8 && !self.mask.show_left_bg;
-        let left_clip_spr = x < 8 && !self.mask.show_left_spr;
         let show_bg = self.mask.show_bg;
         let show_spr = self.mask.show_spr;
 
-        let bg_color = if show_bg && !left_clip_bg {
-            let shift = 15 - fine_x;
-            let tile_hi_bit = ((self.tile_shift_hi >> shift) & 0x01) as u8;
-            let tile_lo_bit = ((self.tile_shift_lo >> shift) & 0x01) as u8;
-            (tile_hi_bit << 1) | tile_lo_bit
+        let bg_color = if show_bg && (self.mask.show_left_bg || x >= 8) {
+            let shift = 15 - self.scroll.fine_x;
+            ((((self.tile_shift_hi >> shift) & 0x01) << 1) | ((self.tile_shift_lo >> shift) & 0x01))
+                as u8
         } else {
             0
         };
 
-        if show_spr && !left_clip_spr && self.spr_present[x as usize] {
+        if show_spr && (self.mask.show_left_spr || x >= 8) {
             for (i, sprite) in self.sprites.iter().take(self.spr_count).enumerate() {
-                if x < sprite.x || x > sprite.x + 7 {
+                let shift = x.wrapping_sub(sprite.x);
+                if shift > 7 {
                     continue;
                 }
 
-                let shift = x - sprite.x;
                 let shift = if sprite.flip_horizontal {
                     shift
                 } else {
                     7 - shift
                 };
-                let spr_tile_hi_bit = (sprite.tile_hi >> shift) & 0x01;
-                let spr_tile_lo_bit = (sprite.tile_lo >> shift) & 0x01;
-                let spr_color = (spr_tile_hi_bit << 1) | spr_tile_lo_bit;
+                let spr_color =
+                    (((sprite.tile_hi >> shift) & 0x01) << 1) | ((sprite.tile_lo >> shift) & 0x01);
 
                 if spr_color != 0 {
                     if i == 0
@@ -920,20 +908,15 @@ impl Ppu {
             }
         }
 
-        let palette = if (fine_x + ((x & 0x07) as u16)) < 8 {
-            self.prev_palette
+        if (self.scroll.fine_x + ((x & 0x07) as u16)) < 8 {
+            self.prev_palette + bg_color
         } else {
-            self.curr_palette
-        };
-        palette + bg_color
+            self.curr_palette + bg_color
+        }
     }
 
     fn render_pixel(&mut self) {
-        // Local variables improve cache locality
-        let x = self.cycle - 1;
-        let y = self.scanline;
         let addr = self.scroll.addr();
-
         let color =
             if self.mask.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START {
                 let palette = u16::from(self.pixel_palette());
@@ -944,8 +927,8 @@ impl Ppu {
             };
 
         self.frame.set_pixel(
-            x,
-            y,
+            self.cycle - 1,
+            self.scanline,
             u16::from(color & self.mask.grayscale) | self.mask.emphasis,
         );
     }
@@ -987,7 +970,6 @@ impl Ppu {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
-                            self.spr_present.fill(false);
                         }
                         if prerender_scanline
                             // 280..=304
@@ -1425,7 +1407,7 @@ impl Reset for Ppu {
         self.scroll.reset(kind);
         self.reset_signal = self.emulate_warmup;
         if kind == ResetKind::Hard {
-            self.oamdata.fill(0x00);
+            self.oamdata = ConstMemory::new();
             self.oamaddr = 0x0000;
         }
         self.secondary_oamaddr = 0x0000;
@@ -1443,7 +1425,6 @@ impl Reset for Ppu {
         self.spr_zero_visible = false;
         self.spr_count = 0;
         self.sprites = [Sprite::new(); 8];
-        self.spr_present.fill(false);
         self.open_bus = 0x00;
         self.bus.reset(kind);
     }

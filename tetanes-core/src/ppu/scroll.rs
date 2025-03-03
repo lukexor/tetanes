@@ -77,6 +77,7 @@ impl Scroll {
         (self.v & 0x02) | ((self.v >> 4) & 0x04)
     }
 
+    #[inline]
     #[must_use]
     pub const fn addr(&self) -> u16 {
         self.v & Self::ADDR_MIRROR // Only the lower 14 bits are valid

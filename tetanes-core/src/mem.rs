@@ -33,7 +33,7 @@ where
 }
 
 impl<T, const N: usize> ConstMemory<T, N> {
-    /// Create a new, empty `StaticMemory` instance.
+    /// Create a new, `ConstMemory` instance filled with `T::default()`.
     pub fn new() -> Self
     where
         T: Default + Copy,
@@ -41,6 +41,17 @@ impl<T, const N: usize> ConstMemory<T, N> {
         Self {
             ram_state: RamState::AllZeros,
             data: [T::default(); N],
+        }
+    }
+
+    /// Create a new, empty `ConstMemory` instance filled with `val`.
+    pub const fn filled(val: T) -> Self
+    where
+        T: Copy,
+    {
+        Self {
+            ram_state: RamState::AllZeros,
+            data: [val; N],
         }
     }
 }
@@ -64,7 +75,7 @@ impl<const N: usize> Reset for ConstMemory<u8, N> {
 
 impl<T, const N: usize> fmt::Debug for ConstMemory<T, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StaticMemory")
+        f.debug_struct("ConstMemory")
             .field("len", &self.data.len())
             .field("ram_state", &self.ram_state)
             .finish()

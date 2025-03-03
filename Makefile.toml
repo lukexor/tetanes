@@ -50,6 +50,12 @@ category = "Development"
 command = "cargo"
 args = ["bench", "--bench", "clock_frame", "${@}"]
 
+[tasks.bench-flamegraph]
+description = "Benchmark TetaNES w/ Flamegraph"
+category = "Development"
+command = "cargo"
+args = ["bench", "--profile", "flamegraph", "--bench", "clock_frame", "${@}", "--", "--profile-time", "60"]
+
 [tasks.run]
 description = "Run TetaNES in release mode"
 category = "Development"
