@@ -30,6 +30,8 @@ workspace = true
 [features]
 default = ["tetanes-core/cycle-accurate"]
 profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
+# Until webgpu is stable on all platforms
+webgpu = []
 cycle-accurate = []
 
 [dependencies]
