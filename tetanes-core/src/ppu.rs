@@ -1332,7 +1332,7 @@ impl Registers for Ppu {
 }
 
 impl Clock for Ppu {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.cycle < Self::CYCLE_END {
             self.cycle += 1;
             self.tick();
@@ -1372,7 +1372,7 @@ impl Clock for Ppu {
 }
 
 impl ClockTo for Ppu {
-    fn clock_to(&mut self, clock: u64) -> usize {
+    fn clock_to(&mut self, clock: u64) -> u64 {
         let mut cycles = 0;
         while self.master_clock + self.clock_divider <= clock {
             cycles += self.clock();

@@ -335,7 +335,7 @@ impl MemMap for BandaiFCG {
 }
 
 impl Clock for BandaiFCG {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if let Some(barcode_reader) = &mut self.barcode_reader {
             barcode_reader.clock();
         }
@@ -559,7 +559,7 @@ impl BarcodeReader {
 }
 
 impl Clock for BarcodeReader {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.master_clock += 1;
         1
     }

@@ -210,7 +210,7 @@ impl Reset for JalecoSs88006 {
 }
 
 impl Clock for JalecoSs88006 {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.regs.irq_enabled {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
             let counter = self.irq_counter & irq_mask;

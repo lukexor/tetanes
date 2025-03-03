@@ -158,7 +158,7 @@ impl Bus {
 }
 
 impl Clock for Bus {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.apu.clock_lazy();
         self.ppu.bus.mapper.clock();
         let output = match self.ppu.bus.mapper {
@@ -176,7 +176,7 @@ impl Clock for Bus {
 }
 
 impl ClockTo for Bus {
-    fn clock_to(&mut self, clock: u64) -> usize {
+    fn clock_to(&mut self, clock: u64) -> u64 {
         self.ppu.clock_to(clock)
     }
 }

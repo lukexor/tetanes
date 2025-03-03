@@ -56,7 +56,7 @@ impl Envelope {
 }
 
 impl Clock for Envelope {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.start {
             self.start = false;
             self.counter = 15;

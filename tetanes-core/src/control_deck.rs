@@ -638,7 +638,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_instr(&mut self) -> Result<usize> {
+    pub fn clock_instr(&mut self) -> Result<u64> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
@@ -655,7 +655,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_seconds(&mut self, seconds: f32) -> Result<usize> {
+    pub fn clock_seconds(&mut self, seconds: f32) -> Result<u64> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
@@ -671,7 +671,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame(&mut self) -> Result<usize> {
+    pub fn clock_frame(&mut self) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -706,7 +706,7 @@ impl ControlDeck {
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_output<T>(
         &mut self,
-        handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
     ) -> Result<T> {
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
@@ -729,7 +729,7 @@ impl ControlDeck {
         &mut self,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
@@ -750,7 +750,7 @@ impl ControlDeck {
     pub fn clock_frame_ahead<T>(
         &mut self,
         run_ahead: usize,
-        handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
     ) -> Result<T> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -796,7 +796,7 @@ impl ControlDeck {
         run_ahead: usize,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -834,7 +834,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_scanline(&mut self) -> Result<usize> {
+    pub fn clock_scanline(&mut self) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1041,7 +1041,7 @@ impl ControlDeck {
 
 impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.cpu.clock()
     }
 }

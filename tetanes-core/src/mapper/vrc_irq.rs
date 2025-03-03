@@ -44,7 +44,7 @@ impl VrcIrq {
 }
 
 impl Clock for VrcIrq {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.enabled {
             self.prescalar_counter -= 3;
             if self.cycle_mode || self.prescalar_counter <= 0 {

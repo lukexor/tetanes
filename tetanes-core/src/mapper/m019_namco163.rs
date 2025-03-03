@@ -335,7 +335,7 @@ impl Reset for Namco163 {
 }
 
 impl Clock for Namco163 {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         let cycles =
             if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
                 self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
@@ -559,7 +559,7 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.disabled {
             return 0;
         }

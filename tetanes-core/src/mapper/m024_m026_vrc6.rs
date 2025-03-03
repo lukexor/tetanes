@@ -331,7 +331,7 @@ impl Reset for Vrc6 {
 }
 
 impl Clock for Vrc6 {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.irq.clock();
         self.audio.clock();
         1
@@ -405,7 +405,7 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if !self.halt {
             self.pulse1.clock();
             self.pulse2.clock();
@@ -489,7 +489,7 @@ impl Pulse {
 }
 
 impl Clock for Pulse {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {
@@ -565,7 +565,7 @@ impl Saw {
 }
 
 impl Clock for Saw {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {

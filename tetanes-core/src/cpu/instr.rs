@@ -54,7 +54,7 @@ use Operation::{
 /// (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub struct Instr(u8, AddrMode, Operation, usize);
+pub struct Instr(u8, AddrMode, Operation, u64);
 
 impl Instr {
     #[must_use]
@@ -71,7 +71,7 @@ impl Instr {
     }
 
     #[must_use]
-    pub const fn cycles(&self) -> usize {
+    pub const fn cycles(&self) -> u64 {
         self.3
     }
 }

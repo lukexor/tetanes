@@ -288,7 +288,7 @@ impl Reset for Sxrom {
 }
 
 impl Clock for Sxrom {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
         }
