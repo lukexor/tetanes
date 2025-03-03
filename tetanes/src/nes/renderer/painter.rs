@@ -101,8 +101,18 @@ pub struct Painter {
 
 impl Default for Painter {
     fn default() -> Self {
+        let descriptor = if cfg!(all(target_arch = "wasm32", not(feature = "webgpu"))) {
+            // TODO: WebGPU is still unsafe/experimental on Linux in Chrome and still nightly on
+            // Firefox
+            wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all().difference(wgpu::Backends::BROWSER_WEBGPU),
+                ..Default::default()
+            }
+        } else {
+            wgpu::InstanceDescriptor::default()
+        };
         Self {
-            instance: wgpu::Instance::new(&wgpu::InstanceDescriptor::default()),
+            instance: wgpu::Instance::new(&descriptor),
             render_state: None,
             surfaces: Default::default(),
         }
