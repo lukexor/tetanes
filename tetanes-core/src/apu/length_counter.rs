@@ -75,7 +75,7 @@ impl LengthCounter {
 }
 
 impl Clock for LengthCounter {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.counter > 0 && !self.halt {
             self.counter -= 1;
             1

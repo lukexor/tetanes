@@ -145,14 +145,14 @@ pub trait Reset {
 /// Trait for types that can clock a single cycle.
 #[enum_dispatch(Mapper)]
 pub trait Clock {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         0
     }
 }
 
 /// Trait for types that can clock to a target cycle.
 pub trait ClockTo {
-    fn clock_to(&mut self, _cycle: u64) -> usize {
+    fn clock_to(&mut self, _cycle: u64) -> u64 {
         0
     }
 }

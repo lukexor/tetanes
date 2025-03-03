@@ -74,13 +74,13 @@ impl Triangle {
 
     /// $400A Triangle timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.timer.period = (self.timer.period & 0xFF00) | usize::from(val); // D7..D0
+        self.timer.period = (self.timer.period & 0xFF00) | u64::from(val); // D7..D0
     }
 
     /// $400B Triangle timer high
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.timer.period = (self.timer.period & 0x00FF) | usize::from(val & 0x07) << 8; // D2..D0
+        self.timer.period = (self.timer.period & 0x00FF) | u64::from(val & 0x07) << 8; // D2..D0
         self.linear.reload = true;
     }
 
@@ -104,7 +104,7 @@ impl Sample for Triangle {
 }
 
 impl TimerCycle for Triangle {
-    fn cycle(&self) -> usize {
+    fn cycle(&self) -> u64 {
         self.timer.cycle
     }
 }
@@ -114,7 +114,7 @@ impl Clock for Triangle {
     //             |                |
     //             v                v
     // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.timer.clock() > 0 && self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
             1
@@ -160,7 +160,7 @@ impl LinearCounter {
 }
 
 impl Clock for LinearCounter {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         let mut clock = 0;
         if self.reload {
             self.counter = self.counter_reload;

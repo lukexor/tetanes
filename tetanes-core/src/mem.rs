@@ -1,4 +1,4 @@
-//! Memory and Bankswitching implementations.tetanes-core/src/mem.rs
+//! Memory and Bankswitching implementations.
 
 use crate::common::{Reset, ResetKind};
 use rand::Rng;
@@ -15,7 +15,7 @@ use std::{
     str::FromStr,
 };
 
-/// Represents stack ROM or RAM memory in bytes, with a custom Debug implementation that avoids
+/// Represents static ROM or RAM memory in bytes, with a custom Debug implementation that avoids
 /// printing the entire contents.
 #[derive(Clone)]
 pub struct ConstMemory<T, const N: usize> {

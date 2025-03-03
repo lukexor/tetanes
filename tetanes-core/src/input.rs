@@ -261,7 +261,7 @@ impl InputRegisters for Input {
 }
 
 impl Clock for Input {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.zapper.clock();
         if self.turbo_timer > 0 {
             self.turbo_timer -= 1;
@@ -555,7 +555,7 @@ impl Zapper {
 }
 
 impl Clock for Zapper {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;
             1

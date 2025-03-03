@@ -1006,7 +1006,7 @@ impl Reset for Exrom {
 }
 
 impl Clock for Exrom {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.ppu_status.reading {
             self.ppu_status.idle_count = 0;
         } else {

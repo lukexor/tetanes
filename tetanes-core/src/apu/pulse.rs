@@ -34,7 +34,7 @@ pub enum PulseChannel {
 #[must_use]
 pub struct Pulse {
     pub channel: PulseChannel,
-    pub real_period: usize,
+    pub real_period: u64,
     pub timer: Timer,
     pub duty: u8,       // Select row in DUTY_TABLE
     pub duty_cycle: u8, // Select column in DUTY_TABLE
@@ -106,7 +106,7 @@ impl Pulse {
         }
     }
 
-    const fn set_period(&mut self, period: usize) {
+    const fn set_period(&mut self, period: u64) {
         self.real_period = period;
         self.timer.period = (period * 2) + 1;
         self.update_target_period();
@@ -160,13 +160,13 @@ impl Pulse {
 
     /// $4002/$4006 Pulse timer lo
     pub fn write_timer_lo(&mut self, val: u8) {
-        self.set_period(self.real_period & 0x0700 | usize::from(val));
+        self.set_period(self.real_period & 0x0700 | u64::from(val));
     }
 
     /// $4003/$4007 Pulse timer hi
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.set_period(self.real_period & 0xFF | (usize::from(val & 0x07) << 8));
+        self.set_period(self.real_period & 0xFF | (u64::from(val & 0x07) << 8));
         self.duty_cycle = 0;
         self.envelope.restart();
     }
@@ -197,7 +197,7 @@ impl Sample for Pulse {
 }
 
 impl TimerCycle for Pulse {
-    fn cycle(&self) -> usize {
+    fn cycle(&self) -> u64 {
         self.timer.cycle
     }
 }
@@ -212,7 +212,7 @@ impl Clock for Pulse {
     //                    |            |             |
     //                    v            v             v
     // Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.timer.clock() > 0 {
             self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
             1
@@ -247,7 +247,7 @@ pub struct Sweep {
     pub timer: u16,
     pub divider: u8,
     pub period: u8,
-    pub target_period: usize,
+    pub target_period: u64,
 }
 
 impl Sweep {

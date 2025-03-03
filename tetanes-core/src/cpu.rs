@@ -96,8 +96,8 @@ pub struct Cycle {
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cpu {
-    pub cycle: usize, // total number of cycles ran
-    pub pc: u16,      // program counter
+    pub cycle: u64, // total number of cycles ran
+    pub pc: u16,    // program counter
     pub bus: Bus,
     // start/end cycle counts for reads
     pub read_cycles: Cycle,
@@ -824,7 +824,7 @@ impl Cpu {
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction.
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         let start_cycle = self.cycle;
 
         self.trace_instr();

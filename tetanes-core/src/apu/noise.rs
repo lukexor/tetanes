@@ -44,10 +44,10 @@ impl Default for Noise {
 }
 
 impl Noise {
-    const PERIOD_TABLE_NTSC: [usize; 16] = [
+    const PERIOD_TABLE_NTSC: [u64; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
     ];
-    const PERIOD_TABLE_PAL: [usize; 16] = [
+    const PERIOD_TABLE_PAL: [u64; 16] = [
         4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
 
@@ -77,7 +77,7 @@ impl Noise {
         self.force_silent = silent;
     }
 
-    const fn period(region: NesRegion, val: u8) -> usize {
+    const fn period(region: NesRegion, val: u8) -> u64 {
         let index = (val & 0x0F) as usize;
         match region {
             NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => {
@@ -142,7 +142,7 @@ impl Sample for Noise {
 }
 
 impl TimerCycle for Noise {
-    fn cycle(&self) -> usize {
+    fn cycle(&self) -> u64 {
         self.timer.cycle
     }
 }
@@ -152,7 +152,7 @@ impl Clock for Noise {
     //                    |                |
     //                    v                v
     // Envelope -------> Gate ----------> Gate --> (to mixer)
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.timer.clock() > 0 {
             let shift_by = if self.shift_mode == ShiftMode::One {
                 6
