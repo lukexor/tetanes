@@ -175,7 +175,7 @@ impl Apu {
             let pulse_idx = (pulse1 + pulse2) as usize;
             let tnd_idx = (3.0f32.mul_add(*triangle, 2.0 * noise) + dmc) as usize;
             let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-            let mapper_output = if self.mapper_silenced { 0.0 } else { *mapper };
+            let mapper_output = self.mapper_silenced as u8 as f32 * *mapper;
 
             self.filter_chain.consume(apu_output + mapper_output);
             self.sample_counter -= 1.0;

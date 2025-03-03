@@ -89,8 +89,11 @@ impl Bus {
     pub fn load_cart(&mut self, cart: Cart) {
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
-        self.ppu.bus.load_chr_rom(cart.chr_rom);
-        self.ppu.bus.load_chr_ram(cart.chr_ram);
+        if cart.chr_ram.is_empty() {
+            self.ppu.bus.load_chr(cart.chr_rom, false);
+        } else {
+            self.ppu.bus.load_chr(cart.chr_ram, true);
+        }
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
