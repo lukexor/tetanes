@@ -833,19 +833,19 @@ impl Clock for Cpu {
         self.instr = Cpu::INSTRUCTIONS[opcode as usize];
 
         match self.instr.addr_mode() {
-            IMM => self.imm(),
-            ZP0 => self.zp0(),
-            ZPX => self.zpx(),
-            ZPY => self.zpy(),
-            ABS => self.abs(),
-            ABX => self.abx(),
-            ABY => self.aby(),
-            IND => self.ind(),
-            IDX => self.idx(),
-            IDY => self.idy(),
-            REL => self.rel(),
-            ACC => self.acc(),
-            IMP => self.imp(),
+            IMM => self.imm(), // Immediate
+            ZP0 => self.zp0(), // Zero Page
+            ZPX => self.zpx(), // Zero Page w/ X-offset
+            ZPY => self.zpy(), // Zero Page w/ Y-offset
+            ABS => self.abs(), // Absolute
+            ABX => self.abx(), // Absolute w/ X-offset
+            ABY => self.aby(), // Absolute w/ Y-offset
+            IND => self.ind(), // Indirect
+            IDX => self.idx(), // Indirect w/ X-offset
+            IDY => self.idy(), // Indirect w/ Y-offset
+            REL => self.rel(), // Relative
+            ACC => self.acc(), // Accumulator
+            IMP => self.imp(), // Implied
         };
 
         match self.instr.op() {
