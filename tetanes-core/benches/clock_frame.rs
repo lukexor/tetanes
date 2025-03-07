@@ -1,5 +1,3 @@
-#![cfg(not(target_arch = "wasm32"))]
-
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use pprof::criterion::{Output, PProfProfiler};
 use std::{fs::File, path::Path, time::Duration};

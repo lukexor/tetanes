@@ -134,6 +134,8 @@ pub struct Ppu {
     pub secondary_oamdata: ConstMemory<u8, 32>,
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
+    /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
+    pub spr_present: ConstMemory<bool, 256>,
 
     pub prevent_vbl: bool,
     pub frame: Frame,
@@ -278,6 +280,7 @@ impl Ppu {
             oamdata: ConstMemory::new(),
             secondary_oamdata: ConstMemory::new(),
             sprites: [Sprite::new(); 8],
+            spr_present: ConstMemory::new(),
 
             prevent_vbl: false,
             frame: Frame::new(),
@@ -835,6 +838,9 @@ impl Ppu {
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
                 sprite.flip_vertical = flip_vertical;
+                for spr in self.spr_present.iter_mut().skip(sprite.x as usize).take(8) {
+                    *spr = true;
+                }
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
@@ -874,7 +880,7 @@ impl Ppu {
             0
         };
 
-        if show_spr && (self.mask.show_left_spr || x >= 8) {
+        if show_spr && (self.mask.show_left_spr || x >= 8) && self.spr_present[x as usize] {
             for (i, sprite) in self.sprites.iter().take(self.spr_count).enumerate() {
                 let shift = x.wrapping_sub(sprite.x);
                 if shift > 7 {
@@ -970,6 +976,7 @@ impl Ppu {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
+                            self.spr_present = ConstMemory::new();
                         }
                         if prerender_scanline
                             // 280..=304
@@ -1425,6 +1432,7 @@ impl Reset for Ppu {
         self.spr_zero_visible = false;
         self.spr_count = 0;
         self.sprites = [Sprite::new(); 8];
+        self.spr_present = ConstMemory::new();
         self.open_bus = 0x00;
         self.bus.reset(kind);
     }
