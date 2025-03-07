@@ -376,7 +376,7 @@ impl State {
         let debugger = PpuDebugger {
             cycle: self.refresh_cycle,
             scanline: self.refresh_scanline,
-            callback: Arc::new(move |ppu| tx.event(DebugEvent::Ppu(ppu))),
+            callback: Arc::new(move |ppu| tx.event(DebugEvent::Ppu(Box::new(ppu)))),
         };
         self.tx.event(if open {
             EmulationEvent::AddDebugger(debugger.into())

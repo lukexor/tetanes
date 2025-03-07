@@ -170,6 +170,7 @@ impl std::fmt::Debug for Resources {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
+        _event_loop: &ActiveEventLoop,
         tx: NesEventProxy,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
@@ -239,8 +240,13 @@ impl Renderer {
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        let accesskit =
-            { accesskit_winit::Adapter::with_event_loop_proxy(&window, tx.inner().clone()) };
+        let accesskit = {
+            accesskit_winit::Adapter::with_event_loop_proxy(
+                _event_loop,
+                &window,
+                tx.inner().clone(),
+            )
+        };
 
         let state = State {
             viewports,

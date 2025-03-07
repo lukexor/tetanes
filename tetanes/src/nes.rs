@@ -58,7 +58,7 @@ pub(crate) enum State {
         window: Arc<Window>,
         painter_rx: Receiver<Painter>,
     },
-    Running(Running),
+    Running(Box<Running>),
     Exiting,
 }
 
@@ -176,7 +176,7 @@ impl Nes {
     ///
     /// If GPU resources failed to be requested, the emulation or renderer fails to build, then an
     /// error is returned.
-    pub(crate) fn init_running(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn init_running(&mut self, event_loop: &ActiveEventLoop) -> anyhow::Result<()> {
         match std::mem::take(&mut self.state) {
             State::Pending {
                 ctx,
@@ -199,7 +199,7 @@ impl Nes {
                 cfg.input.update_gamepad_assignments(&gamepads);
 
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
-                let renderer = Renderer::new(tx.clone(), resources, frame_rx, &cfg)?;
+                let renderer = Renderer::new(event_loop, tx.clone(), resources, frame_rx, &cfg)?;
 
                 let mut running = Running {
                     cfg,
@@ -216,7 +216,7 @@ impl Nes {
                     repaint_times: HashMap::default(),
                 };
                 running.initialize()?;
-                self.state = State::Running(running);
+                self.state = State::Running(Box::new(running));
                 Ok(())
             }
             State::Running(running) => {

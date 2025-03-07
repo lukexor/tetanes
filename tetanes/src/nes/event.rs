@@ -167,7 +167,7 @@ impl From<ConfigEvent> for NesEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
-    Ppu(Ppu),
+    Ppu(Box<Ppu>),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -282,7 +282,7 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         match event {
             NesEvent::Renderer(RendererEvent::ResourcesReady) => {
-                if let Err(err) = self.init_running() {
+                if let Err(err) = self.init_running(event_loop) {
                     error!("failed to create window: {err:?}");
                     event_loop.exit();
                     return;

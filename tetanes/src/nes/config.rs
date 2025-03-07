@@ -360,22 +360,20 @@ impl Config {
     pub fn load(path: Option<PathBuf>) -> Self {
         let path = path.unwrap_or_else(Config::config_path);
 
-        let mut config = fs::exists(&path)
-            .then(|| {
-                info!("Loading saved configuration");
-                fs::load_raw(&path)
-                    .context("failed to load config")
-                    .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
-                    .with_context(|| format!("failed to parse {path:?}"))
-                    .unwrap_or_else(|err| {
-                        error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
-                        Self::default()
-                    })
-            })
-            .unwrap_or_else(|| {
-                info!("Loading default configuration");
-                Self::default()
-            });
+        let mut config = if fs::exists(&path) {
+            info!("Loading saved configuration");
+            fs::load_raw(&path)
+                .context("failed to load config")
+                .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
+                .with_context(|| format!("failed to parse {path:?}"))
+                .unwrap_or_else(|err| {
+                    error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
+                    Self::default()
+                })
+        } else {
+            info!("Loading default configuration");
+            Self::default()
+        };
 
         for binding in &config.input.action_bindings {
             if let Action::Deck(DeckAction::Joypad((player, _))) = binding.action {
