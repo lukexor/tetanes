@@ -139,7 +139,7 @@ fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
 #[derive(Debug)]
 #[must_use]
 enum Threads {
-    Single(Single),
+    Single(Box<Single>),
     Multi(Multi),
 }
 
@@ -213,9 +213,9 @@ impl Emulation {
         let backend = if threaded {
             Threads::Multi(Multi::spawn(tx, frame_tx, cfg)?)
         } else {
-            Threads::Single(Single {
+            Threads::Single(Box::new(Single {
                 state: State::new(tx, frame_tx, cfg),
-            })
+            }))
         };
 
         Ok(Self { threads: backend })
@@ -224,7 +224,7 @@ impl Emulation {
     /// Handle event.
     pub fn on_event(&mut self, event: &NesEvent) {
         match &mut self.threads {
-            Threads::Single(Single { state }) => state.on_event(event),
+            Threads::Single(single) => single.state.on_event(event),
             Threads::Multi(Multi { tx, handle }) => {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(event.clone()) {
@@ -237,7 +237,7 @@ impl Emulation {
 
     pub fn try_clock_frame(&mut self) {
         match &mut self.threads {
-            Threads::Single(Single { state }) => state.try_clock_frame(),
+            Threads::Single(single) => single.state.try_clock_frame(),
             // Multi-threaded emulation handles it's own clock timing and redraw requests
             Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
         }
