@@ -5,7 +5,7 @@
 use crate::{
     bus::Bus,
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
-    mem::Mem,
+    mem::{Read, Write},
 };
 use bitflags::bitflags;
 use instr::{
@@ -22,7 +22,7 @@ use instr::{
 use serde::{Deserialize, Serialize};
 use std::{
     cell::Cell,
-    fmt::{self, Write},
+    fmt::{self},
 };
 use tracing::trace;
 
@@ -648,6 +648,8 @@ impl Cpu {
 
     /// Disassemble the instruction at the given program counter.
     pub fn disassemble(&mut self, pc: &mut u16) -> &str {
+        use fmt::Write;
+
         let opcode = self.peek(*pc);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
         self.disasm.clear();
@@ -945,7 +947,7 @@ impl Clock for Cpu {
     }
 }
 
-impl Mem for Cpu {
+impl Read for Cpu {
     fn read(&mut self, addr: u16) -> u8 {
         if Self::halt_for_dma() {
             self.handle_dma(addr);
@@ -960,7 +962,9 @@ impl Mem for Cpu {
     fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
+}
 
+impl Write for Cpu {
     fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.write_cycles.start);
         self.bus.write(addr, val);

@@ -1,4 +1,4 @@
-//! `SxROM`/`MMC1` (Mapper 001)
+//! `SxROM`/`MMC1` (Mapper 001).
 //!
 //! <http://wiki.nesdev.com/w/index.php/SxROM>
 //! <http://wiki.nesdev.com/w/index.php/MMC1>
@@ -6,12 +6,15 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// MMC1 Revision.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
@@ -22,6 +25,7 @@ pub enum Revision {
     BC,
 }
 
+/// `SxROM` registers.
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -33,6 +37,7 @@ pub struct Regs {
     prg: u8,            // $E000-$FFFF
 }
 
+/// `SxROM`/`MMC1` (Mapper 001).
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sxrom {
@@ -161,7 +166,7 @@ impl Sxrom {
     }
 }
 
-impl Mapped for Sxrom {
+impl Mirrored for Sxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -171,7 +176,7 @@ impl Mapped for Sxrom {
     }
 }
 
-impl MemMap for Sxrom {
+impl MapRead for Sxrom {
     // PPU $0000..=$1FFF 4K CHR-ROM/RAM Bank Switchable
     // CPU $6000..=$7FFF 8K PRG-RAM Bank (optional)
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
@@ -187,7 +192,9 @@ impl MemMap for Sxrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Sxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -296,6 +303,8 @@ impl Clock for Sxrom {
     }
 }
 
+impl OnBusRead for Sxrom {}
+impl OnBusWrite for Sxrom {}
 impl Regional for Sxrom {}
 impl Sram for Sxrom {}
 

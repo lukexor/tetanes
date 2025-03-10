@@ -1,4 +1,4 @@
-//! `VRC6a` (Mapper 024)
+//! `VRC6` (Mapper 024).
 //!
 //! <https://www.nesdev.org/wiki/VRC6>
 
@@ -6,12 +6,16 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, vrc_irq::VrcIrq},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+        vrc_irq::VrcIrq,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `VRC6` revision.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
@@ -22,6 +26,7 @@ pub enum Revision {
     B,
 }
 
+/// `VRC6` registers.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -30,6 +35,7 @@ pub struct Regs {
     pub chr: [usize; 8],
 }
 
+/// `VRC6` (Mapper 024).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
@@ -220,7 +226,7 @@ impl Vrc6 {
     }
 }
 
-impl Mapped for Vrc6 {
+impl Mirrored for Vrc6 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -230,7 +236,7 @@ impl Mapped for Vrc6 {
     }
 }
 
-impl MemMap for Vrc6 {
+impl MapRead for Vrc6 {
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
     // PPU $0400..=$07FF 1K switchable CHR-ROM bank
     // PPU $0800..=$0BFF 1K switchable CHR-ROM bank
@@ -266,7 +272,9 @@ impl MemMap for Vrc6 {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Vrc6 {
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
         if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
@@ -338,6 +346,8 @@ impl Clock for Vrc6 {
     }
 }
 
+impl OnBusRead for Vrc6 {}
+impl OnBusWrite for Vrc6 {}
 impl Regional for Vrc6 {}
 impl Sram for Vrc6 {}
 

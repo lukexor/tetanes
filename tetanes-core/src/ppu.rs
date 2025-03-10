@@ -4,8 +4,8 @@ use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
     debug::PpuDebugger,
-    mapper::{Mapped, Mapper},
-    mem::{ConstMemory, Mem},
+    mapper::{BusKind, Mapper, OnBusRead, OnBusWrite},
+    mem::{ConstMemory, Read, Write},
     ppu::{bus::Bus, frame::Frame},
 };
 use ctrl::Ctrl;
@@ -593,7 +593,7 @@ impl Ppu {
         }
         self.prevent_vbl = false;
         let val = self.peek_status();
-        self.bus.mapper.ppu_bus_write(0x2002, val);
+        self.bus.mapper.on_bus_write(0x2002, val, BusKind::Ppu);
     }
 
     fn stop_vblank(&mut self) {
@@ -608,7 +608,7 @@ impl Ppu {
         Cpu::clear_nmi();
         self.open_bus = 0; // Clear open bus every frame
         let val = self.peek_status();
-        self.bus.mapper.ppu_bus_write(0x2002, val);
+        self.bus.mapper.on_bus_write(0x2002, val, BusKind::Ppu);
     }
 
     /// Fetch BG nametable byte.
@@ -1028,7 +1028,7 @@ impl Ppu {
         if self.scroll.delayed_update() {
             // MMC3 clocks using A12
             let addr = self.scroll.addr();
-            self.bus.mapper.ppu_bus_read(addr);
+            self.bus.mapper.on_bus_read(addr, BusKind::Ppu);
         }
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
@@ -1134,7 +1134,7 @@ impl Registers for Ppu {
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
-        self.bus.mapper.ppu_bus_write(0x2002, status);
+        self.bus.mapper.on_bus_write(0x2002, status, BusKind::Ppu);
         status
     }
 
@@ -1249,7 +1249,9 @@ impl Registers for Ppu {
         self.open_bus = val;
         self.scroll.write_addr(val);
         // MMC3 clocks using A12
-        self.bus.mapper.ppu_bus_write(self.scroll.addr(), val);
+        self.bus
+            .mapper
+            .on_bus_write(self.scroll.addr(), val, BusKind::Ppu);
     }
 
     // $2007 | RW  | PPUDATA
@@ -1280,7 +1282,9 @@ impl Registers for Ppu {
 
         self.open_bus = val;
         // MMC3 clocks using A12
-        self.bus.mapper.ppu_bus_read(self.scroll.addr());
+        self.bus
+            .mapper
+            .on_bus_read(self.scroll.addr(), BusKind::Ppu);
 
         trace!(
             "PPU $2007 read: {val:02X} - PPU:{:3},{:3}",
@@ -1316,7 +1320,7 @@ impl Registers for Ppu {
 
         // MMC3 clocks using A12
         let addr = self.scroll.addr();
-        self.bus.mapper.ppu_bus_write(addr, val);
+        self.bus.mapper.on_bus_write(addr, val, BusKind::Ppu);
     }
 }
 
@@ -1488,7 +1492,7 @@ mod tests {
     use super::*;
     use crate::{
         cart::Cart,
-        mapper::{Mmc1Revision, Sxrom},
+        mapper::{Mirrored, Mmc1Revision, Sxrom},
     };
 
     #[test]

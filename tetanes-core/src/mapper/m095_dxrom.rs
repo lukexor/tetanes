@@ -1,4 +1,4 @@
-//! `DxROM`/`NAMCOT-3425` (Mapper 095)
+//! `DxROM`/`NAMCOT-3425` (Mapper 095).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_95>
 //! <https://www.nesdev.org/wiki/DxROM>
@@ -7,12 +7,16 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
     fs,
-    mapper::{self, Dxrom206, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, BusKind, Dxrom206, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored,
+        OnBusRead, OnBusWrite,
+    },
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// `DxROM`/`NAMCOT-3425` (Mapper 095).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Dxrom {
@@ -25,7 +29,7 @@ impl Dxrom {
     }
 }
 
-impl Mapped for Dxrom {
+impl Mirrored for Dxrom {
     fn mirroring(&self) -> Mirroring {
         self.inner.mirroring()
     }
@@ -33,25 +37,21 @@ impl Mapped for Dxrom {
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.inner.set_mirroring(mirroring);
     }
+}
 
-    fn ppu_bus_read(&mut self, addr: u16) {
-        self.inner.ppu_bus_read(addr)
-    }
-
-    fn ppu_bus_write(&mut self, addr: u16, val: u8) {
-        self.inner.ppu_bus_write(addr, val)
-    }
-
-    fn cpu_bus_read(&mut self, addr: u16) {
-        self.inner.cpu_bus_read(addr)
-    }
-
-    fn cpu_bus_write(&mut self, addr: u16, val: u8) {
-        self.inner.cpu_bus_write(addr, val)
+impl OnBusRead for Dxrom {
+    fn on_bus_read(&mut self, addr: u16, kind: BusKind) {
+        self.inner.on_bus_read(addr, kind)
     }
 }
 
-impl MemMap for Dxrom {
+impl OnBusWrite for Dxrom {
+    fn on_bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
+        self.inner.on_bus_write(addr, val, kind)
+    }
+}
+
+impl MapRead for Dxrom {
     // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
@@ -71,7 +71,9 @@ impl MemMap for Dxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         self.inner.map_peek(addr)
     }
+}
 
+impl MapWrite for Dxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         let write = self.inner.map_write(addr, val);
         if addr & 0x01 == 0x01 {

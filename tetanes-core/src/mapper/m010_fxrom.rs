@@ -1,15 +1,19 @@
-//! `FxROM`/`MMC4` (Mapper 010)
+//! `FxROM`/`MMC4` (Mapper 010).
 //!
 //! <http://wiki.nesdev.com/w/index.php/MMC4>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
 
+/// `FxROM`/`MMC4` (Mapper 010).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fxrom {
@@ -58,7 +62,7 @@ impl Fxrom {
     }
 }
 
-impl Mapped for Fxrom {
+impl Mirrored for Fxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -68,7 +72,7 @@ impl Mapped for Fxrom {
     }
 }
 
-impl MemMap for Fxrom {
+impl MapRead for Fxrom {
     // PPU $0000..=$0FFF Two 4K switchable CHR-ROM banks
     // PPU $1000..=$1FFF Two 4K switchable CHR-ROM banks
     // CPU $6000..=$7FFF 8K PRG-RAM bank
@@ -97,7 +101,9 @@ impl MemMap for Fxrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Fxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
@@ -131,6 +137,8 @@ impl Reset for Fxrom {
     }
 }
 
+impl OnBusRead for Fxrom {}
+impl OnBusWrite for Fxrom {}
 impl Clock for Fxrom {}
 impl Regional for Fxrom {}
 impl Sram for Fxrom {}

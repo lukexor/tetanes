@@ -1,4 +1,4 @@
-//! `Sunsoft FME7` (Mapper 069)
+//! `Sunsoft FME7` (Mapper 069).
 //!
 //! <https://www.nesdev.org/wiki/Sunsoft_FME-7>
 
@@ -7,12 +7,15 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Sunsoft FME7` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -24,6 +27,7 @@ pub struct Regs {
     irq_counter: u16,
 }
 
+/// `Sunsoft FME7` (Mapper 069).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct SunsoftFme7 {
@@ -57,7 +61,7 @@ impl SunsoftFme7 {
     }
 }
 
-impl Mapped for SunsoftFme7 {
+impl Mirrored for SunsoftFme7 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -67,7 +71,7 @@ impl Mapped for SunsoftFme7 {
     }
 }
 
-impl MemMap for SunsoftFme7 {
+impl MapRead for SunsoftFme7 {
     // PPU $0000..=$03FF 1K CHR-ROM Bank 1 Switchable
     // PPU $0400..=$07FF 1K CHR-ROM Bank 2 Switchable
     // PPU $0800..=$0BFF 1K CHR-ROM Bank 3 Switchable
@@ -97,7 +101,9 @@ impl MemMap for SunsoftFme7 {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for SunsoftFme7 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
@@ -141,6 +147,8 @@ impl MemMap for SunsoftFme7 {
     }
 }
 
+impl OnBusRead for SunsoftFme7 {}
+impl OnBusWrite for SunsoftFme7 {}
 impl Reset for SunsoftFme7 {}
 
 impl Clock for SunsoftFme7 {

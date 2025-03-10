@@ -1,16 +1,19 @@
-//! `UNROM` (Mapper 071)
+//! `Bf909x` (Mapper 071).
 //!
 //! <https://wiki.nesdev.org/w/index.php?title=INES_Mapper_071>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Bf909x` revision.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
@@ -19,6 +22,7 @@ pub enum Revision {
     Bf9097,
 }
 
+/// `Bf909x` (Mapper 071).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bf909x {
@@ -55,7 +59,7 @@ impl Bf909x {
     }
 }
 
-impl Mapped for Bf909x {
+impl Mirrored for Bf909x {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -65,7 +69,7 @@ impl Mapped for Bf909x {
     }
 }
 
-impl MemMap for Bf909x {
+impl MapRead for Bf909x {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM Banks
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
@@ -77,7 +81,9 @@ impl MemMap for Bf909x {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Bf909x {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
@@ -102,6 +108,8 @@ impl MemMap for Bf909x {
     }
 }
 
+impl OnBusRead for Bf909x {}
+impl OnBusWrite for Bf909x {}
 impl Reset for Bf909x {}
 impl Clock for Bf909x {}
 impl Regional for Bf909x {}

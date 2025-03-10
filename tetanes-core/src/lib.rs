@@ -36,7 +36,7 @@ pub mod prelude {
         cpu::Cpu,
         genie::GenieCode,
         input::{FourPlayer, Input, Player},
-        mapper::{Mapped, MappedRead, MappedWrite, Mapper, MapperRevision},
+        mapper::{MappedRead, MappedWrite, Mapper, MapperRevision, Mirrored},
         mem::RamState,
         ppu::{Mirroring, Ppu},
         video::Frame,

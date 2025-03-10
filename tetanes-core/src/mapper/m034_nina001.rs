@@ -1,16 +1,19 @@
-//! `NINA-001` (Mapper 034)
+//! `NINA-001` (Mapper 034).
 //!
 //! <https://www.nesdev.org/wiki/NINA-001>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `NINA-001` (Mapper 034).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Nina001 {
@@ -33,14 +36,14 @@ impl Nina001 {
     }
 }
 
-impl Mapped for Nina001 {
+impl Mirrored for Nina001 {
     fn mirroring(&self) -> Mirroring {
         // hardwired to horizontal
         Mirroring::Horizontal
     }
 }
 
-impl MemMap for Nina001 {
+impl MapRead for Nina001 {
     // PPU $0000..=$0FFF 4K switchable CHR ROM bank
     // PPU $1000..=$1FFF 4K switchable CHR ROM bank
     // CPU $8000..=$FFFF 32K switchable PRG ROM bank
@@ -53,7 +56,9 @@ impl MemMap for Nina001 {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Nina001 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => return MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -72,6 +77,8 @@ impl MemMap for Nina001 {
     }
 }
 
+impl OnBusRead for Nina001 {}
+impl OnBusWrite for Nina001 {}
 impl Reset for Nina001 {}
 impl Clock for Nina001 {}
 impl Regional for Nina001 {}
