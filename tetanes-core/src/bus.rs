@@ -162,7 +162,6 @@ impl Bus {
 
 impl Clock for Bus {
     fn clock(&mut self) -> u64 {
-        self.apu.clock_lazy();
         self.ppu.bus.mapper.clock();
         let output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
@@ -172,6 +171,7 @@ impl Clock for Bus {
             _ => 0.0,
         };
         self.apu.add_mapper_output(output);
+        self.apu.clock_lazy();
         self.input.clock();
 
         1
