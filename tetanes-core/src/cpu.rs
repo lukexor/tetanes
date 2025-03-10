@@ -133,7 +133,7 @@ impl Cpu {
     const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
     const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
 
-    // Represents CPU/PPU alignment and would range from 1..=Ppu::clock_divider-1
+    // Represents CPU/PPU alignment and would range from 1..=ppu.clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
     const PPU_OFFSET: u64 = 1;

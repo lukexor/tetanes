@@ -278,16 +278,19 @@ impl Cart {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_rom(&self) -> bool {
         !self.chr_rom.is_empty()
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_ram(&self) -> bool {
         !self.chr_ram.is_empty()
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_prg_ram(&self) -> bool {
         !self.prg_ram.is_empty()
     }

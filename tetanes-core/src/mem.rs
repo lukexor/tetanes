@@ -476,7 +476,7 @@ impl Banks {
     }
 
     #[must_use]
-    pub fn banks_len(&self) -> usize {
+    pub const fn banks_len(&self) -> usize {
         self.banks.len()
     }
 
