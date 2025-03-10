@@ -106,7 +106,7 @@ pub struct Apu {
     pub sample_period: f32,
     pub sample_counter: f32,
     pub speed: f32,
-    pub mapper_silenced: bool,
+    pub mapper_enabled: bool,
     pub skip_mixing: bool,
     pub should_clock: bool,
 }
@@ -141,7 +141,7 @@ impl Apu {
             sample_period,
             sample_counter: sample_period,
             speed: 1.0,
-            mapper_silenced: true,
+            mapper_enabled: true,
             skip_mixing: false,
             should_clock: false,
         }
@@ -175,7 +175,7 @@ impl Apu {
             let pulse_idx = (pulse1 + pulse2) as usize;
             let tnd_idx = (3.0f32.mul_add(*triangle, 2.0 * noise) + dmc) as usize;
             let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-            let mapper_output = self.mapper_silenced as u8 as f32 * *mapper;
+            let mapper_output = self.mapper_enabled as u8 as f32 * *mapper;
 
             self.filter_chain.consume(apu_output + mapper_output);
             self.sample_counter -= 1.0;
@@ -214,7 +214,7 @@ impl Apu {
             Channel::Triangle => !self.triangle.silent(),
             Channel::Noise => !self.noise.silent(),
             Channel::Dmc => !self.dmc.silent(),
-            Channel::Mapper => !self.mapper_silenced,
+            Channel::Mapper => self.mapper_enabled,
         }
     }
 
@@ -226,7 +226,7 @@ impl Apu {
             Channel::Triangle => self.triangle.set_silent(!enabled),
             Channel::Noise => self.noise.set_silent(!enabled),
             Channel::Dmc => self.dmc.set_silent(!enabled),
-            Channel::Mapper => self.mapper_silenced = !enabled,
+            Channel::Mapper => self.mapper_enabled = enabled,
         }
     }
 
@@ -238,7 +238,7 @@ impl Apu {
             Channel::Triangle => self.triangle.set_silent(!self.triangle.silent()),
             Channel::Noise => self.noise.set_silent(!self.noise.silent()),
             Channel::Dmc => self.dmc.set_silent(!self.dmc.silent()),
-            Channel::Mapper => self.mapper_silenced = !self.mapper_silenced,
+            Channel::Mapper => self.mapper_enabled = !self.mapper_enabled,
         }
     }
 

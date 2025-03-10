@@ -77,12 +77,12 @@ impl Bus {
             input: Input::new(region),
             open_bus: 0x00,
             ppu: Ppu::new(region),
-            prg_ram: DynMemory::new(),
+            prg_ram: DynMemory::new().with_ram_state(ram_state),
             prg_ram_protect: false,
             prg_rom: DynMemory::new(),
             ram_state,
             region,
-            wram: ConstMemory::new(),
+            wram: ConstMemory::new().with_ram_state(ram_state),
         }
     }
 
@@ -187,12 +187,12 @@ impl ClockTo for Bus {
 impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
-            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
+            0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_read(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
-                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
+                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -215,12 +215,12 @@ impl Read for Bus {
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
+            0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_peek(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
-                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
+                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -243,16 +243,12 @@ impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x07FF => {
-                if let Some(v) = self.wram.get_mut(addr as usize) {
-                    *v = val;
-                }
+                self.wram[addr as usize] = val;
             }
             0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val) {
                 MappedWrite::PrgRam(addr, val) => {
                     if !self.prg_ram.is_empty() && !self.prg_ram_protect {
-                        if let Some(v) = self.prg_ram.get_mut(addr) {
-                            *v = val;
-                        }
+                        self.prg_ram[addr] = val;
                     }
                 }
                 MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
@@ -312,6 +308,7 @@ impl Regional for Bus {
 
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
+        self.prg_ram.reset(kind);
         self.wram.reset(kind);
         self.ppu.reset(kind);
         self.apu.reset(kind);
