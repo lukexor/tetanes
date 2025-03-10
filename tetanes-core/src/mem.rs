@@ -236,15 +236,12 @@ impl Reset for DynMemory<u8> {
     }
 }
 
-/// A trait that represents [`Memory`] operations.
-pub trait Mem {
+/// A trait that represents memory read operations. Reads typically have side-effects.
+pub trait Read {
     /// Read from the given address.
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
-
-    /// Peek from the given address.
-    fn peek(&self, addr: u16) -> u8;
 
     /// Read two bytes from the given address.
     fn read_u16(&mut self, addr: u16) -> u16 {
@@ -253,13 +250,19 @@ pub trait Mem {
         u16::from_le_bytes([lo, hi])
     }
 
+    /// Peek from the given address.
+    fn peek(&self, addr: u16) -> u8;
+
     /// Peek two bytes from the given address.
     fn peek_u16(&self, addr: u16) -> u16 {
         let lo = self.peek(addr);
         let hi = self.peek(addr.wrapping_add(1));
         u16::from_le_bytes([lo, hi])
     }
+}
 
+/// A trait that represents memory write operations.
+pub trait Write {
     /// Write value to the given address.
     fn write(&mut self, addr: u16, val: u8);
 

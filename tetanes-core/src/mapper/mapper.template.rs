@@ -5,7 +5,10 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
@@ -38,34 +41,50 @@ impl MapperName {
     // Methods to modify banks, clock mapper, etc
 }
 
-impl Mapped for MapperName {
-    // Optional, Mapped methods
+impl Mirrored for MapperName {
+    // Optional, Mirrored methods
 }
 
-impl MemMap for MapperName {
+impl MapRead for MapperName {
     // Memory and banking comment
+
+    // Optional, map_read method
 
     fn map_peek(&self, _addr: u16) -> MappedRead {
         MappedRead::Bus
     }
+}
 
+impl MapWrite for MapperName {
     fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
         MappedWrite::Bus
     }
 }
 
+impl OnBusRead for MapperName {
+    // Optional, OnBusRead methods
+}
+
+impl OnBusWrite for MapperName {
+    // Optional, OnBusRead methods
+}
+
 impl Reset for MapperName {
     // Optional, Reset methods
 }
+
 impl Clock for MapperName {
     // Optional, Clock methods
 }
+
 impl Regional for MapperName {
     // Optional, Regional methods
 }
+
 impl Sram for MapperName {
     // Optional, Sram methods if custom battery-backed RAM is supported
 }
+
 impl Sample for MapperName {
     // Optional, Sample methods if expansion audio is supported
 }

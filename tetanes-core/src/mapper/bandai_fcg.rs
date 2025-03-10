@@ -1,4 +1,4 @@
-//! `Bandai FCG` (Mappers 016, 153, 157, and 159)
+//! `Bandai FCG` (Mappers 016, 153, 157, and 159).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_016>
 
@@ -7,12 +7,16 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::{Banks, DynMemory},
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
 
+/// `Bandai FCG` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -25,6 +29,7 @@ pub struct Regs {
     pub irq_reload: u16,
 }
 
+/// Memory operation.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum MemoryOp {
@@ -35,6 +40,7 @@ pub enum MemoryOp {
     ReadWrite,
 }
 
+/// `Bandai FCG` (Mappers 016, 153, 157, and 159).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BandaiFCG {
@@ -225,7 +231,7 @@ impl BandaiFCG {
     }
 }
 
-impl Mapped for BandaiFCG {
+impl Mirrored for BandaiFCG {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -235,7 +241,7 @@ impl Mapped for BandaiFCG {
     }
 }
 
-impl MemMap for BandaiFCG {
+impl MapRead for BandaiFCG {
     // Mapper 016
     //
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
@@ -306,7 +312,9 @@ impl MemMap for BandaiFCG {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for BandaiFCG {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -376,6 +384,8 @@ impl Sram for BandaiFCG {
     }
 }
 
+impl OnBusRead for BandaiFCG {}
+impl OnBusWrite for BandaiFCG {}
 impl Regional for BandaiFCG {}
 impl Reset for BandaiFCG {}
 

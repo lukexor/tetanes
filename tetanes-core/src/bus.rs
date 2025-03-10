@@ -10,8 +10,8 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{ConstMemory, DynMemory, Mem, RamState},
+    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, OnBusRead, OnBusWrite},
+    mem::{ConstMemory, DynMemory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -184,7 +184,7 @@ impl ClockTo for Bus {
     }
 }
 
-impl Mem for Bus {
+impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
             0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
@@ -209,7 +209,7 @@ impl Mem for Bus {
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.ppu.bus.mapper.cpu_bus_read(addr);
+        self.ppu.bus.mapper.on_bus_read(addr, BusKind::Cpu);
         val
     }
 
@@ -237,7 +237,9 @@ impl Mem for Bus {
             _ => self.open_bus,
         }
     }
+}
 
+impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x07FF => {
@@ -291,7 +293,7 @@ impl Mem for Bus {
             _ => (),
         }
         self.open_bus = val;
-        self.ppu.bus.mapper.cpu_bus_write(addr, val);
+        self.ppu.bus.mapper.on_bus_write(addr, val, BusKind::Cpu);
     }
 }
 

@@ -1,4 +1,4 @@
-//! `Namco163` (Mapper 019)
+//! `Namco163` (Mapper 019).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_019>
 
@@ -7,12 +7,15 @@ use crate::{
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::{BankAccess, Banks, ConstMemory},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Namco163` board.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Board {
@@ -23,6 +26,7 @@ pub enum Board {
     Namco340,
 }
 
+/// `Namco163` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -32,6 +36,7 @@ pub struct Regs {
     prg_ram_protect: u8,
 }
 
+/// `Namco163` (Mapper 019).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Namco163 {
@@ -143,13 +148,13 @@ impl Namco163 {
     }
 }
 
-impl Mapped for Namco163 {
+impl Mirrored for Namco163 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 }
 
-impl MemMap for Namco163 {
+impl MapRead for Namco163 {
     // PPU $0000..=$03FF 1K CHR Bank 1 Switchable
     // PPU $0400..=$07FF 1K CHR Bank 2 Switchable
     // PPU $0800..=$0BFF 1K CHR Bank 3 Switchable
@@ -180,6 +185,7 @@ impl MemMap for Namco163 {
     // $2400..=$27FF bank 9 -> page N -> addr + page * $0400
     // $2800..=$2BFF bank 10 -> page N -> addr + page * $0400
     // $2C00..=$2FFF bank 11 -> page N -> addr + page * $0400
+
     fn map_read(&mut self, addr: u16) -> MappedRead {
         if matches!(addr, 0x4800..=0x4FFF) {
             MappedRead::Data(self.audio.read_register(addr))
@@ -215,7 +221,9 @@ impl MemMap for Namco163 {
             },
         }
     }
+}
 
+impl MapWrite for Namco163 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x3EFF => {
@@ -353,6 +361,8 @@ impl Clock for Namco163 {
     }
 }
 
+impl OnBusRead for Namco163 {}
+impl OnBusWrite for Namco163 {}
 impl Regional for Namco163 {}
 
 impl Sram for Namco163 {

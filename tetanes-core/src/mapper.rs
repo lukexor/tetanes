@@ -63,9 +63,11 @@ pub mod m154_dxrom;
 pub mod m206_dxrom;
 pub mod vrc_irq;
 
+/// Errors that mappers can return.
 #[derive(thiserror::Error, Debug)]
 #[must_use]
 pub enum Error {
+    /// A mapper banking error.
     #[error(transparent)]
     Bank(#[from] mem::Error),
 }
@@ -104,30 +106,55 @@ impl std::fmt::Display for MapperRevision {
 #[must_use]
 pub enum Mapper {
     None,
+    /// `NROM` (Mapper 000)
     Nrom,
+    /// `SxROM`/`MMC1` (Mapper 001)
     Sxrom,
+    /// `UxROM` (Mapper 002)
     Uxrom,
+    /// `CNROM` (Mapper 003)
     Cnrom,
+    /// `TxROM`/`MMC3` (Mapper 004)
     Txrom,
+    /// `ExROM`/`MMC5` (Mapper 5)
     Exrom,
+    /// `AxROM` (Mapper 007)
     Axrom,
+    /// `PxROM`/`MMC2` (Mapper 009)
     Pxrom,
+    /// `FxROM`/`MMC4` (Mapper 010)
     Fxrom,
+    /// `Color Dreams` (Mapper 011)
     ColorDreams,
+    /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
     BandaiFCG,
+    /// `Jaleco SS88006` (Mapper 018)
     JalecoSs88006,
+    /// `Namco163` (Mapper 019)
     Namco163,
+    /// `VRC6` (Mapper 024).
     Vrc6,
+    /// `BNROM` (Mapper 034).
     Bnrom,
+    /// `NINA-001` (Mapper 034).
     Nina001,
+    /// `GxROM` (Mapper 066).
     Gxrom,
+    /// `Sunsoft FME7` (Mapper 069).
     SunsoftFme7,
+    /// `Bf909x` (Mapper 071).
     Bf909x,
+    /// `DxROM`/`NAMCOT-3446` (Mapper 076).
     Dxrom76,
+    /// `NINA-003`/`NINA-006` (Mapper 079).
     Nina003006,
+    /// `DxROM`/`Namco 108` (Mapper 088).
     Dxrom88,
+    /// `DxROM`/`NAMCOT-3425` (Mapper 095).
     Dxrom95,
+    /// `DxROM`/`NAMCOT-3453` (Mapper 154).
     Dxrom154,
+    /// `DxROM`/`Namco 108` (Mapper 206).
     Dxrom206,
 }
 
@@ -191,7 +218,7 @@ pub enum MappedWrite {
 }
 
 #[enum_dispatch(Mapper)]
-pub trait MemMap {
+pub trait MapRead {
     fn map_read(&mut self, addr: u16) -> MappedRead {
         self.map_peek(addr)
     }
@@ -199,30 +226,49 @@ pub trait MemMap {
     fn map_peek(&self, _addr: u16) -> MappedRead {
         MappedRead::Bus
     }
+}
 
+#[enum_dispatch(Mapper)]
+pub trait MapWrite {
     fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
         MappedWrite::Bus
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum BusKind {
+    Cpu,
+    Ppu,
+}
+
 #[enum_dispatch(Mapper)]
-pub trait Mapped {
+pub trait OnBusRead {
+    fn on_bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+}
+
+#[enum_dispatch(Mapper)]
+pub trait OnBusWrite {
+    fn on_bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+}
+
+#[enum_dispatch(Mapper)]
+pub trait Mirrored {
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()
     }
     fn set_mirroring(&mut self, _mirroring: Mirroring) {}
-    fn ppu_bus_read(&mut self, _addr: u16) {}
-    fn ppu_bus_write(&mut self, _addr: u16, _val: u8) {}
-    fn cpu_bus_read(&mut self, _addr: u16) {}
-    fn cpu_bus_write(&mut self, _addr: u16, _val: u8) {}
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct None;
 
-impl MemMap for None {}
-impl Mapped for None {}
+impl MapRead for None {}
+impl MapWrite for None {}
+impl OnBusRead for None {}
+impl OnBusWrite for None {}
+impl Mirrored for None {}
 impl Clock for None {}
 impl Regional for None {}
 impl Reset for None {}

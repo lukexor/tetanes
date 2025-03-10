@@ -1,4 +1,4 @@
-//! CNROM (Mapper 003)
+//! `CNROM` (Mapper 003).
 //!
 //! <https://wiki.nesdev.com/w/index.php/CNROM>
 //! <https://wiki.nesdev.com/w/index.php/INES_Mapper_003>
@@ -6,12 +6,15 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `CNROM` (Mapper 003).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Cnrom {
@@ -33,7 +36,7 @@ impl Cnrom {
     }
 }
 
-impl Mapped for Cnrom {
+impl Mirrored for Cnrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -43,7 +46,7 @@ impl Mapped for Cnrom {
     }
 }
 
-impl MemMap for Cnrom {
+impl MapRead for Cnrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Banks Switchable
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Fixed
     // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed or Bank 1 Mirror if only 16 KB PRG-ROM
@@ -59,7 +62,9 @@ impl MemMap for Cnrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Cnrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, val.into());
@@ -68,6 +73,8 @@ impl MemMap for Cnrom {
     }
 }
 
+impl OnBusRead for Cnrom {}
+impl OnBusWrite for Cnrom {}
 impl Reset for Cnrom {}
 impl Clock for Cnrom {}
 impl Regional for Cnrom {}

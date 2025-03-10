@@ -2,8 +2,8 @@
 
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{ConstMemory, DynMemory, Mem},
+    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusWrite},
+    mem::{ConstMemory, DynMemory, Read, Write},
     ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
@@ -174,7 +174,7 @@ impl Bus {
     }
 }
 
-impl Mem for Bus {
+impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         match addr {
             0x2000..=0x3EFF => self.read_ciram(addr),
@@ -198,7 +198,9 @@ impl Mem for Bus {
             }
         }
     }
+}
 
+impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x3EFF => match self.mapper.map_write(addr, val) {
@@ -233,7 +235,7 @@ impl Mem for Bus {
             }
             _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
-        self.mapper.ppu_bus_write(addr, val);
+        self.mapper.on_bus_write(addr, val, BusKind::Ppu);
         self.open_bus = val;
     }
 }

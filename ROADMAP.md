@@ -12,7 +12,7 @@
 - Picture Processing Unit (PPU)
   - [x] Pixellate Filter
   - [x] NTSC Filter
-  - [ ] CRT Filter
+  - [x] CRT Filter
 - Audio Processing Unit (APU)
   - [x] Pulse Channels
   - [x] Triangle Channel
@@ -35,9 +35,9 @@
     - [x] Mapper 005 - ExROM/MMC5
     - [x] Mapper 007 - AxROM
     - [x] Mapper 009 - PxROM/MMC2
-    - [ ] Mapper 010 - FxROM/MMC4
-    - [ ] Mapper 011 - Color Dreams
-    - [ ] Mapper 019 - Namco 163
+    - [x] Mapper 010 - FxROM/MMC4
+    - [x] Mapper 011 - Color Dreams
+    - [x] Mapper 019 - Namco 163
     - [ ] Mapper 023 - VRC2b/VRC4e
     - [ ] Mapper 025 - VRC4b/VRC4d
     - [x] Mapper 024 - VRC6a
@@ -46,11 +46,11 @@
     - [ ] Mapper 064 - RAMBO-1
     - [x] Mapper 066 - GxROM/MxROM
     - [ ] Mapper 068 - After Burner
-    - [ ] Mapper 069 - FME-7/Sunsoft 5B
+    - [x] Mapper 069 - FME-7/Sunsoft 5B
     - [x] Mapper 071 - Camerica/Codemasters/BF909x
-    - [ ] Mapper 079 - NINA-03/NINA-06
+    - [x] Mapper 079 - NINA-03/NINA-06
     - [x] Mapper 155 - SxROM/MMC1A
-    - [ ] Mapper 206 - DxROM/Namco 118/MIMIC-1
+    - [x] Mapper 206 - DxROM/Namco 118/MIMIC-1
 - Releases
   - [x] macOS Binaries
   - [x] Linux Binaries
@@ -97,10 +97,10 @@
   - [ ] Hex Memory Editor & Debugger
   - PPU Viewer
     - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
-    - [ ] Nametable Viewer (background rendering)
-    - [ ] CHR Viewer (sprite tiles)
-    - [ ] OAM Viewer (on screen sprites)
-    - [ ] Palette Viewer
+    - [x] Nametable Viewer (background rendering)
+    - [x] CHR Viewer (sprite tiles)
+    - [x] OAM Viewer (on screen sprites)
+    - [x] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
   - [x] Automated ROM tests (including [nestest](http://www.qmtpro.com/~nes/misc/nestest.txt))
   - [ ] Detailed Documentation

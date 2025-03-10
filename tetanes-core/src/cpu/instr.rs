@@ -2,7 +2,7 @@
 
 use crate::{
     cpu::{Cpu, Status},
-    mem::Mem,
+    mem::{Read, Write},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
