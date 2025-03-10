@@ -151,7 +151,7 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let prg_ram = DynMemory::new().with_ram_state(ram_state, prg_ram_size);
+        let prg_ram = DynMemory::with_size(prg_ram_size).with_ram_state(ram_state);
 
         let mut chr_rom = DynMemory::with_size((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
         let chr_ram = if header.chr_rom_banks > 0 {
@@ -172,7 +172,7 @@ impl Cart {
             DynMemory::new()
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
-            DynMemory::new().with_ram_state(ram_state, chr_ram_size)
+            DynMemory::with_size(chr_ram_size).with_ram_state(ram_state)
         };
 
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);

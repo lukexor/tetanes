@@ -215,10 +215,10 @@ impl AsRef<str> for Action {
                 Setting::ToggleScreenReader => "Toggle Screen Reader",
                 Setting::ToggleFps => "Toggle FPS",
                 Setting::FastForward => "Fast Forward",
-                Setting::IncrementScale => "Scale Increment",
-                Setting::DecrementScale => "Scale Decrement",
-                Setting::IncrementSpeed => "Speed Increment",
-                Setting::DecrementSpeed => "Speed Increment",
+                Setting::IncrementScale => "Increment Scale",
+                Setting::DecrementScale => "Decrement Scale",
+                Setting::IncrementSpeed => "Increment Speed",
+                Setting::DecrementSpeed => "Decrement Speed",
             },
             Action::Deck(deck) => match deck {
                 DeckAction::Reset(kind) => match kind {

@@ -795,7 +795,7 @@ impl Ppu {
         let idx = (cycle - Self::SPR_FETCH_START) as usize / 8;
         let oam_idx = idx << 2;
 
-        if let [y, tile_index, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
+        if let [y, tile_index, attr, x] = (*self.secondary_oamdata)[oam_idx..=oam_idx + 3] {
             let x = u32::from(x);
             let y = u32::from(y);
             let mut tile_index = u16::from(tile_index);
@@ -927,9 +927,9 @@ impl Ppu {
             if self.mask.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START {
                 let palette = u16::from(self.pixel_palette());
                 self.bus
-                    .read_palette(Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
+                    .peek_palette(Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
             } else {
-                self.bus.read_palette(addr)
+                self.bus.peek_palette(addr)
             };
 
         self.frame.set_pixel(

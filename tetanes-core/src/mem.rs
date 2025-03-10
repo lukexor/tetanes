@@ -1,7 +1,7 @@
 //! Memory and Bankswitching implementations.
 
 use crate::common::{Reset, ResetKind};
-use rand::Rng;
+use rand::RngCore;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{SeqAccess, Visitor},
@@ -11,7 +11,7 @@ use std::{
     fmt,
     marker::PhantomData,
     num::NonZeroUsize,
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut, Index, IndexMut},
     str::FromStr,
 };
 
@@ -92,6 +92,34 @@ impl<T, const N: usize> Deref for ConstMemory<T, N> {
 impl<T, const N: usize> DerefMut for ConstMemory<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
+    }
+}
+
+impl<T, const N: usize> AsRef<[T]> for ConstMemory<T, N> {
+    fn as_ref(&self) -> &[T] {
+        self.data.as_ref()
+    }
+}
+
+impl<T, const N: usize> AsMut<[T]> for ConstMemory<T, N> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.data.as_mut()
+    }
+}
+
+impl<T, const N: usize> Index<usize> for ConstMemory<T, N> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        debug_assert!(self.data.len().is_power_of_two());
+        self.data.index(index & (self.data.len() - 1))
+    }
+}
+
+impl<T, const N: usize> IndexMut<usize> for ConstMemory<T, N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        debug_assert!(self.data.len().is_power_of_two());
+        self.data.index_mut(index & (self.data.len() - 1))
     }
 }
 
@@ -184,9 +212,9 @@ impl<T> DynMemory<T> {
 
 impl DynMemory<u8> {
     /// Fill ram based on [`RamState`].
-    pub fn with_ram_state(mut self, state: RamState, size: usize) -> Self {
+    pub fn with_ram_state(mut self, state: RamState) -> Self {
         self.ram_state = state;
-        self.resize(size);
+        self.ram_state.fill(&mut self.data);
         self
     }
 
@@ -206,6 +234,34 @@ impl<T> Deref for DynMemory<T> {
 impl<T> DerefMut for DynMemory<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
+    }
+}
+
+impl<T> AsRef<[T]> for DynMemory<T> {
+    fn as_ref(&self) -> &[T] {
+        self.data.as_ref()
+    }
+}
+
+impl<T> AsMut<[T]> for DynMemory<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.data.as_mut()
+    }
+}
+
+impl<T> Index<usize> for DynMemory<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        debug_assert!(self.data.len().is_power_of_two());
+        self.data.index(index & (self.data.len() - 1))
+    }
+}
+
+impl<T> IndexMut<usize> for DynMemory<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        debug_assert!(self.data.len().is_power_of_two());
+        self.data.index_mut(index & (self.data.len() - 1))
     }
 }
 
@@ -306,10 +362,7 @@ impl RamState {
             RamState::AllZeros => data.fill(0x00),
             RamState::AllOnes => data.fill(0xFF),
             RamState::Random => {
-                let mut rng = rand::rng();
-                for val in data {
-                    *val = rng.random_range(0x00..=0xFF);
-                }
+                rand::rng().fill_bytes(data);
             }
         }
     }
