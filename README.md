@@ -180,6 +180,9 @@ Options:
       --no-threaded                Disable multi-threaded
   -m, --ram-state <RAM_STATE>      Choose power-up RAM state. [default: "all-zeros"]
                                    [possible values: all-zeros, all-ones, random]
+  -w, --emulate-ppu-warmup         Whether to emulate PPU warmup where writes to
+                                   certain registers are ignored. Can result in
+                                   some games not working correctly
   -r, --region <REGION>            Choose default NES region. [default: "ntsc"]
                                    [possible values: ntsc, pal, dendy]
   -i, --save-slot <SAVE_SLOT>      Save slot. [default: 1]
@@ -254,15 +257,15 @@ Keybindings can be customized in the keybindings menu. Below are the defaults.
 
 NES joypad:
 
-| Button    | Keyboard (P1) | Keyboard (P2) | Controller       |
-| --------- | ------------- | ------------- | ---------------- |
-| A         | Z             | N             | East             |
-| B         | X             | M             | South            |
-| A (Turbo) | A             |               | North            |
-| B (Turbo) | S             |               | West             |
-| Start     | Q             | 8             | Start            |
-| Select    | W             | 9             | Select           |
-| D-Pad     | Arrow Keys    | IJKL          | D-Pad            |
+| Button    | Keyboard (Player 1) | Controller       |
+| --------- | ------------------- | ---------------- |
+| A         | Z                   | East             |
+| B         | X                   | South            |
+| A (Turbo) | A                   | North            |
+| B (Turbo) | S                   | West             |
+| Select    | Q                   | Select           |
+| Start     | W                   | Start            |
+| D-Pad     | Arrow Keys          | D-Pad            |
 
 Controller Layout:
 
@@ -296,15 +299,15 @@ Emulator shortcuts:
 | ----------------------------- | ------------ | -------------- |
 | Pause                         | Escape       | Guide Button   |
 | About TetaNES                 | F1           |                |
-| Configuration Menu            | Ctrl-P or F2 |                |
+| Preferences Menu              | Ctrl-P or F2 |                |
 | Load/Open ROM                 | Ctrl-O or F3 |                |
 | Quit                          | Ctrl-Q       |                |
 | Reset                         | Ctrl-R       |                |
 | Power Cycle                   | Ctrl-H       |                |
 | Increase Speed by 25%         | =            | Right Shoulder |
 | Decrease Speed by 25%         | -            | Left Shoulder  |
-| Increase Scale                | Shift-=      |                |
-| Decrease Scale                | Shift--      |                |
+| Increase Emulation Scale      | Shift-=      |                |
+| Decrease Emulation Scale      | Shift--      |                |
 | Increase UI Scale             | Ctrl-=       |                |
 | Decrease UI Scale             | Ctrl--       |                |
 | Fast-Forward 2x               | Space (Hold) |                |
@@ -322,8 +325,10 @@ Emulator shortcuts:
 | Toggle Triangle Channel       | Shift-3      |                |
 | Toggle Noise Channel          | Shift-4      |                |
 | Toggle DMC Channel            | Shift-5      |                |
+| Toggle Mapper Channel         | Shift-6      |                |
 | Toggle Fullscreen             | Ctrl-Enter   |                |
 | Toggle NTSC Filter            | Ctrl-N       |                |
+| Toggle CRT Shader             | Ctrl-T       |                |
 | Toggle CPU Debugger           | Shift-D      |                |
 | Toggle PPU Debugger           | Shift-P      |                |
 | Toggle APU Debugger           | Shift-A      |                |

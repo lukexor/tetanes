@@ -965,10 +965,10 @@ impl Gui {
         ui.separator();
 
         ui.menu_button("🌉 Video Filter...", |ui| {
-            Preferences::video_filter_radio(tx, ui, cfg.deck.filter);
+            Preferences::video_filter_radio(tx, ui, cfg.deck.filter, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🕶 Shader...", |ui| {
-            Preferences::shader_radio(tx, ui, cfg.renderer.shader);
+            Preferences::shader_radio(tx, ui, cfg.renderer.shader, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🌎 Nes Region...", |ui| {
             Preferences::nes_region_radio(tx, ui, cfg.deck.region);

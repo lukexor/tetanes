@@ -70,17 +70,13 @@ impl Surface {
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         shader: Shader,
     ) {
-        if matches!(shader, Shader::None) {
-            self.shader_resources = None;
-        } else {
-            self.shader_resources = Some(shader::Resources::new(
-                device,
-                format,
-                self.create_texture_view(device, format),
-                uniform_bind_group_layout,
-                shader,
-            ));
-        }
+        self.shader_resources = shader::Resources::new(
+            device,
+            format,
+            self.create_texture_view(device, format),
+            uniform_bind_group_layout,
+            shader,
+        );
     }
 }
 

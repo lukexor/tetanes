@@ -27,7 +27,10 @@ env:
 jobs:
   build-and-upload-artifacts:
     name: Build & Upload Artifacts (${{ matrix.target }})
-    if: startsWith(github.event.release.name, 'tetanes') || inputs.build
+    if: >
+      (startsWith(github.event.release.name, 'tetanes')
+        && !startsWith(github.event.release.name, 'tetanes-core'))
+      || inputs.build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

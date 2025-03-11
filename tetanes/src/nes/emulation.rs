@@ -426,9 +426,6 @@ impl State {
                     }
                 }
             }
-            EmulationEvent::EmulatePpuWarmup(enabled) => {
-                self.control_deck.set_emulate_ppu_warmup(*enabled);
-            }
             EmulationEvent::InstantRewind => {
                 if self.control_deck.is_running() {
                     self.instant_rewind();
@@ -566,6 +563,9 @@ impl State {
             }
             ConfigEvent::CycleAccurate(enabled) => {
                 self.control_deck.set_cycle_accurate(*enabled);
+            }
+            ConfigEvent::EmulatePpuWarmup(enabled) => {
+                self.control_deck.set_emulate_ppu_warmup(*enabled);
             }
             ConfigEvent::FourPlayer(four_player) => {
                 self.control_deck.set_four_player(*four_player);
