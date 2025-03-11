@@ -131,6 +131,7 @@ pub enum ConfigEvent {
     CycleAccurate(bool),
     DarkTheme(bool),
     EmbedViewports(bool),
+    EmulatePpuWarmup(bool),
     FourPlayer(FourPlayer),
     Fullscreen(bool),
     GamepadAssign((Player, Uuid)),
@@ -183,7 +184,6 @@ pub enum EmulationEvent {
     RemoveDebugger(Debugger),
     AudioRecord(bool),
     DebugStep(DebugStep),
-    EmulatePpuWarmup(bool),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
     LoadReplay((String, ReplayData)),
@@ -487,6 +487,7 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
+                    ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,
                     ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
                     ConfigEvent::Fullscreen(fullscreen) => renderer.fullscreen = *fullscreen,
                     ConfigEvent::GamepadAssign((player, uuid)) => {
@@ -1127,6 +1128,15 @@ impl Running {
                                     .add_message(MessageType::Info, "Fast forwarding");
                             }
                         }
+                    }
+                    Setting::SetShader(shader) if released => {
+                        let shader = if self.cfg.renderer.shader == shader {
+                            Shader::Default
+                        } else {
+                            shader
+                        };
+                        self.cfg.renderer.shader = shader;
+                        self.event(ConfigEvent::Shader(shader));
                     }
                     _ => (),
                 },

@@ -1069,10 +1069,10 @@ impl Registers for Ppu {
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
     fn write_ctrl(&mut self, val: u8) {
+        self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
         }
-        self.open_bus = val;
         self.ctrl.write(val);
         self.scroll.write_nametable_select(val);
 
@@ -1102,10 +1102,10 @@ impl Registers for Ppu {
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
     fn write_mask(&mut self, val: u8) {
+        self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
         }
-        self.open_bus = val;
         self.mask.write(val);
     }
 
@@ -1234,19 +1234,19 @@ impl Registers for Ppu {
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
     fn write_scroll(&mut self, val: u8) {
+        self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
         }
-        self.open_bus = val;
         self.scroll.write(val);
     }
 
     // $2006 | W   | PPUADDR
     fn write_addr(&mut self, val: u8) {
+        self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
         }
-        self.open_bus = val;
         self.scroll.write_addr(val);
         // MMC3 clocks using A12
         self.bus
@@ -1256,11 +1256,6 @@ impl Registers for Ppu {
 
     // $2007 | RW  | PPUDATA
     fn read_data(&mut self) -> u8 {
-        if self.reset_signal && self.emulate_warmup {
-            self.open_bus = 0x00;
-            return 0x00;
-        }
-
         let addr = self.scroll.addr();
         self.increment_vram_addr();
 
@@ -1416,7 +1411,9 @@ impl Reset for Ppu {
         self.mask.reset(kind);
         self.status.reset(kind);
         self.scroll.reset(kind);
-        self.reset_signal = self.emulate_warmup;
+        if kind == ResetKind::Soft {
+            self.reset_signal = self.emulate_warmup;
+        }
         if kind == ResetKind::Hard {
             self.oamdata = ConstMemory::new();
             self.oamaddr = 0x0000;

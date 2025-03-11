@@ -237,8 +237,8 @@ impl Cart {
             88 => Dxrom88::load(&mut cart)?,
             95 => Dxrom95::load(&mut cart)?,
             154 => Dxrom154::load(&mut cart)?,
-            206 => Dxrom206::load(&mut cart)?,
             155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
+            206 => Dxrom206::load(&mut cart)?,
             _ => Mapper::none(),
         };
 

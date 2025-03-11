@@ -79,14 +79,14 @@ impl Build {
     /// Create a new build context by cleaning up any previous artifacts and ensuring the
     /// dist directory is created.
     fn new(args: Args) -> anyhow::Result<Self> {
-        let dist_dir = PathBuf::from("dist");
+        let bin_name = env!("CARGO_PKG_NAME");
+        let dist_dir = PathBuf::from(bin_name).join("dist");
 
         if args.clean {
             let _ = remove_dir_all(&dist_dir); // ignore if not found
         }
         create_dir_all(&dist_dir)?;
 
-        let bin_name = env!("CARGO_PKG_NAME");
         let cargo_target_dir =
             PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
         let target_arch = args.target;
@@ -112,7 +112,7 @@ impl Build {
             #[cfg(target_os = "linux")]
             cross: args.cross,
             cargo_target_dir,
-            dist_dir: PathBuf::from("dist"),
+            dist_dir,
         })
     }
 

@@ -113,10 +113,12 @@ impl Bus {
             MappedRead::Data(data) => data,
             MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
-                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}");
+                0
             }
             MappedRead::PrgRam(mapped) => {
-                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}");
+                0
             }
         }
     }
@@ -129,10 +131,12 @@ impl Bus {
             MappedRead::Data(data) => data,
             MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
-                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}");
+                0
             }
             MappedRead::PrgRam(mapped) => {
-                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}");
+                0
             }
         }
     }
@@ -206,12 +210,14 @@ impl Write for Bus {
                     }
                 }
                 MappedWrite::PrgRam(mapped, val) => {
-                    panic!(
+                    tracing::warn!(
                         "unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}"
                     );
                 }
                 MappedWrite::PrgRamProtect(val) => {
-                    panic!("unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}");
+                    tracing::warn!(
+                        "unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}"
+                    );
                 }
                 MappedWrite::None => (),
             },
