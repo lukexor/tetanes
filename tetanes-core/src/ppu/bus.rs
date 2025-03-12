@@ -263,7 +263,9 @@ impl Mem for Bus {
                     }
                 }
                 MappedWrite::PrgRam(mapped, val) => {
-                    panic!("unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}");
+                    panic!(
+                        "unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}"
+                    );
                 }
                 MappedWrite::PrgRamProtect(val) => {
                     panic!("unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}");

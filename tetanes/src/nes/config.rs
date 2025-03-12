@@ -253,7 +253,7 @@ impl InputConfig {
             .map(|(player, _)| *player)
     }
 
-    pub fn assign_gamepad(&mut self, player: Player, uuid: Uuid) {
+    pub const fn assign_gamepad(&mut self, player: Player, uuid: Uuid) {
         self.gamepad_assignments[player as usize].1 = Some(uuid);
     }
 

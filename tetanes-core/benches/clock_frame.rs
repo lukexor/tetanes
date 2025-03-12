@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::{fs::File, io::BufReader, path::Path, time::Duration};
 use tetanes_core::{
     control_deck::{Config, ControlDeck},

@@ -4,10 +4,10 @@
 
 use crate::{
     apu::{
+        Channel,
         envelope::Envelope,
         length_counter::LengthCounter,
         timer::{Timer, TimerCycle},
-        Channel,
     },
     common::{Clock, Reset, ResetKind, Sample},
 };
@@ -90,11 +90,11 @@ impl Pulse {
         self.force_silent
     }
 
-    pub fn set_silent(&mut self, silent: bool) {
+    pub const fn set_silent(&mut self, silent: bool) {
         self.force_silent = silent;
     }
 
-    fn update_target_period(&mut self) {
+    const fn update_target_period(&mut self) {
         let delta = self.real_period >> self.sweep.shift;
         if self.sweep.negate {
             self.sweep.target_period = self.real_period - delta;
@@ -106,13 +106,13 @@ impl Pulse {
         }
     }
 
-    fn set_period(&mut self, period: usize) {
+    const fn set_period(&mut self, period: usize) {
         self.real_period = period;
         self.timer.period = (period * 2) + 1;
         self.update_target_period();
     }
 
-    fn clock_sweep(&mut self) {
+    const fn clock_sweep(&mut self) {
         self.sweep.divider = self.sweep.divider.wrapping_sub(1);
         if self.sweep.divider == 0 {
             if self.sweep.shift > 0
@@ -142,14 +142,14 @@ impl Pulse {
     }
 
     /// $4000/$4004 Pulse control
-    pub fn write_ctrl(&mut self, val: u8) {
+    pub const fn write_ctrl(&mut self, val: u8) {
         self.length.write_ctrl((val & 0x20) == 0x20); // !D5
         self.envelope.write_ctrl(val);
         self.duty = (val & 0xC0) >> 6;
     }
 
     /// $4001/$4005 Pulse sweep
-    pub fn write_sweep(&mut self, val: u8) {
+    pub const fn write_sweep(&mut self, val: u8) {
         self.sweep.enabled = (val & 0x80) == 0x80;
         self.sweep.negate = (val & 0x08) == 0x08;
         self.sweep.period = ((val & 0x70) >> 4) + 1;
@@ -171,7 +171,7 @@ impl Pulse {
         self.envelope.restart();
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
 
@@ -185,7 +185,6 @@ impl Pulse {
 }
 
 impl Sample for Pulse {
-    #[must_use]
     fn output(&self) -> f32 {
         if self.is_muted() {
             0.0

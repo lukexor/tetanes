@@ -33,7 +33,7 @@ impl Timer {
         timer
     }
 
-    pub fn reload(&mut self) {
+    pub const fn reload(&mut self) {
         self.counter = self.period;
     }
 }

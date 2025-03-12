@@ -12,16 +12,16 @@ impl Default for System {
     fn default() -> Self {
         let sys = if sysinfo::IS_SUPPORTED_SYSTEM {
             let mut sys = sysinfo::System::new_with_specifics(
-                RefreshKind::new().with_processes(
-                    ProcessRefreshKind::new()
+                RefreshKind::nothing().with_processes(
+                    ProcessRefreshKind::nothing()
                         .with_cpu()
                         .with_memory()
                         .with_disk_usage(),
                 ),
             );
             sys.refresh_specifics(
-                RefreshKind::new().with_processes(
-                    ProcessRefreshKind::new()
+                RefreshKind::nothing().with_processes(
+                    ProcessRefreshKind::nothing()
                         .with_cpu()
                         .with_memory()
                         .with_disk_usage(),
@@ -48,8 +48,8 @@ impl SystemInfo for System {
             assert!(update_interval > sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
             if self.updated.elapsed() >= update_interval {
                 sys.refresh_specifics(
-                    sysinfo::RefreshKind::new().with_processes(
-                        sysinfo::ProcessRefreshKind::new()
+                    sysinfo::RefreshKind::nothing().with_processes(
+                        sysinfo::ProcessRefreshKind::nothing()
                             .with_cpu()
                             .with_memory()
                             .with_disk_usage(),

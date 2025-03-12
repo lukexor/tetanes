@@ -68,7 +68,7 @@ impl FrameCounter {
         }
     }
 
-    pub fn set_region(&mut self, region: NesRegion) {
+    pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.step_cycles = Self::step_cycles(region);
     }
@@ -93,7 +93,7 @@ impl FrameCounter {
         }
     }
 
-    pub fn should_clock(&mut self, cycles: usize) -> bool {
+    pub const fn should_clock(&mut self, cycles: usize) -> bool {
         self.write_buffer.is_some()
             || self.block_counter > 0
             || (self.cycle + cycles) >= (self.step_cycles[self.mode][self.step] - 1) as usize
@@ -182,7 +182,7 @@ impl Reset for FrameCounter {
             // Reset acts as if $00 was written to $4017
             self.write(0x00, 0);
             self.write_delay -= 1; // FIXME: Startup timing is slightly wrong, reset_timing fails
-                                   // with the default
+            // with the default
         }
         self.step = 0;
         self.block_counter = 0;

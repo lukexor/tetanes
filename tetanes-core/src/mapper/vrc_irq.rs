@@ -20,7 +20,7 @@ pub struct VrcIrq {
 }
 
 impl VrcIrq {
-    pub fn write_reload(&mut self, val: u8) {
+    pub const fn write_reload(&mut self, val: u8) {
         self.reload = val;
     }
 

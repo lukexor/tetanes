@@ -61,7 +61,7 @@ impl Frame {
         }
     }
 
-    pub fn increment(&mut self) {
+    pub const fn increment(&mut self) {
         self.count = self.count.wrapping_add(1);
     }
 
@@ -90,6 +90,7 @@ impl Frame {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn buffer(&self) -> &[u16] {
         &self.buffer
     }

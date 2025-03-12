@@ -156,7 +156,7 @@ impl Sxrom {
         self.revision == Revision::A || self.regs.prg & Self::PRG_RAM_DISABLED == 0
     }
 
-    pub fn set_revision(&mut self, revision: Revision) {
+    pub const fn set_revision(&mut self, revision: Revision) {
         self.revision = revision;
     }
 }

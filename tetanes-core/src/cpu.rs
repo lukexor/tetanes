@@ -338,9 +338,7 @@ impl Cpu {
             self.pc = self.read_u16(Self::NMI_VECTOR);
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         } else {
             self.push(status);
@@ -349,9 +347,7 @@ impl Cpu {
             self.pc = self.read_u16(Self::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         }
     }
@@ -719,7 +715,10 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
-                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}");
+                let _ = write!(
+                    self.disasm,
+                    "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}"
+                );
             }
             ABY => {
                 let byte1 = self.peek(addr);
@@ -728,7 +727,10 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}");
+                let _ = write!(
+                    self.disasm,
+                    "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}"
+                );
             }
             IND => {
                 let byte1 = self.peek(addr);

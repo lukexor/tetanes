@@ -6,7 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{self, vrc_irq::VrcIrq, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, vrc_irq::VrcIrq},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -90,7 +90,7 @@ impl Vrc6 {
         }
     }
 
-    pub fn set_nametable_page(&mut self, bank: usize, page: usize) {
+    pub const fn set_nametable_page(&mut self, bank: usize, page: usize) {
         self.nt_banks[bank] = page;
     }
 
@@ -342,7 +342,6 @@ impl Regional for Vrc6 {}
 impl Sram for Vrc6 {}
 
 impl Sample for Vrc6 {
-    #[must_use]
     fn output(&self) -> f32 {
         self.audio.output()
     }
@@ -476,7 +475,7 @@ impl Pulse {
         }
     }
 
-    fn set_freq_shift(&mut self, val: u8) {
+    const fn set_freq_shift(&mut self, val: u8) {
         self.freq_shift = val;
     }
 
@@ -552,7 +551,7 @@ impl Saw {
         }
     }
 
-    fn set_freq_shift(&mut self, val: u8) {
+    const fn set_freq_shift(&mut self, val: u8) {
         self.freq_shift = val;
     }
 

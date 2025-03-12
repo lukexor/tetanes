@@ -115,7 +115,7 @@ impl Txrom {
         self.regs.bank_values[index]
     }
 
-    pub fn set_revision(&mut self, rev: Revision) {
+    pub const fn set_revision(&mut self, rev: Revision) {
         self.revision = rev;
     }
 

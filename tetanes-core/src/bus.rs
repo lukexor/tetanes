@@ -103,6 +103,7 @@ impl Bus {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn sram(&self) -> &[u8] {
         &self.prg_ram
     }
@@ -114,6 +115,7 @@ impl Bus {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn wram(&self) -> &[u8] {
         &self.wram
     }
@@ -145,10 +147,13 @@ impl Bus {
     }
 
     #[must_use]
+    #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn audio_samples(&self) -> &[f32] {
         &self.apu.audio_samples
     }
 
+    #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.apu.audio_samples.clear();
     }

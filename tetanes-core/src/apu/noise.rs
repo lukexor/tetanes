@@ -4,10 +4,10 @@
 
 use crate::{
     apu::{
+        Channel,
         envelope::Envelope,
         length_counter::LengthCounter,
         timer::{Timer, TimerCycle},
-        Channel,
     },
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
@@ -73,7 +73,7 @@ impl Noise {
         self.force_silent
     }
 
-    pub fn set_silent(&mut self, silent: bool) {
+    pub const fn set_silent(&mut self, silent: bool) {
         self.force_silent = silent;
     }
 
@@ -97,13 +97,13 @@ impl Noise {
     }
 
     /// $400C Noise control
-    pub fn write_ctrl(&mut self, val: u8) {
+    pub const fn write_ctrl(&mut self, val: u8) {
         self.length.write_ctrl((val & 0x20) == 0x20); // !D5
         self.envelope.write_ctrl(val);
     }
 
     /// $400E Noise timer
-    pub fn write_timer(&mut self, val: u8) {
+    pub const fn write_timer(&mut self, val: u8) {
         self.timer.period = Self::period(self.region, val);
         self.shift_mode = if (val & 0x80) == 0x80 {
             ShiftMode::One
@@ -113,12 +113,12 @@ impl Noise {
     }
 
     /// $400F Length counter
-    pub fn write_length(&mut self, val: u8) {
+    pub const fn write_length(&mut self, val: u8) {
         self.length.write(val >> 3);
         self.envelope.restart();
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
 
@@ -132,7 +132,6 @@ impl Noise {
 }
 
 impl Sample for Noise {
-    #[must_use]
     fn output(&self) -> f32 {
         if self.is_muted() {
             0f32

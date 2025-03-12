@@ -1,5 +1,5 @@
 use crate::{
-    nes::{event::EmulationEvent, renderer::Renderer, Running},
+    nes::{Running, event::EmulationEvent, renderer::Renderer},
     platform::{BuilderExt, Initialize},
 };
 use std::path::{Path, PathBuf};

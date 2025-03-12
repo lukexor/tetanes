@@ -4,10 +4,10 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        self, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG,
-        Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom154, Dxrom206, Dxrom76, Dxrom88, Dxrom95, Exrom,
-        Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom,
-        SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
+        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom76, Dxrom88, Dxrom95,
+        Dxrom154, Dxrom206, Exrom, Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163,
+        Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
+        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
     },
     mem::{Memory, RamState},
     ppu::Mirroring,
@@ -251,26 +251,31 @@ impl Cart {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_rom(&self) -> &[u8] {
         &self.chr_rom
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_ram(&self) -> &[u8] {
         &self.chr_ram
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_rom(&self) -> &[u8] {
         &self.prg_rom
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_ram(&self) -> &[u8] {
         &self.prg_ram
     }

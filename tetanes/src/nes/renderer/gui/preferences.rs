@@ -5,8 +5,8 @@ use crate::{
         event::{ConfigEvent, EmulationEvent, NesEventProxy, UiEvent},
         renderer::{
             gui::{
-                lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
                 MessageType,
+                lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
             },
             shader::Shader,
         },
@@ -18,8 +18,8 @@ use egui::{
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     action::Action as DeckAction, apu::Channel, common::NesRegion,

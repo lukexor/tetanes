@@ -4,7 +4,7 @@ use crate::{
     nes::{
         event::NesEventProxy,
         input::{Gamepads, InputBindings},
-        renderer::{painter::Painter, FrameRecycle, Resources},
+        renderer::{FrameRecycle, Resources, painter::Painter},
     },
     platform::Initialize,
 };

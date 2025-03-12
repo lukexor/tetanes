@@ -218,7 +218,7 @@ impl Apu {
     }
 
     /// Enable or disable a given channel.
-    pub fn set_channel_enabled(&mut self, channel: Channel, enabled: bool) {
+    pub const fn set_channel_enabled(&mut self, channel: Channel, enabled: bool) {
         match channel {
             Channel::Pulse1 => self.pulse1.set_silent(!enabled),
             Channel::Pulse2 => self.pulse2.set_silent(!enabled),
@@ -230,7 +230,7 @@ impl Apu {
     }
 
     /// Toggle a given channel.
-    pub fn toggle_channel(&mut self, channel: Channel) {
+    pub const fn toggle_channel(&mut self, channel: Channel) {
         match channel {
             Channel::Pulse1 => self.pulse1.set_silent(!self.pulse1.silent()),
             Channel::Pulse2 => self.pulse2.set_silent(!self.pulse2.silent()),
@@ -313,10 +313,7 @@ impl ClockTo for Apu {
         let cycles = self.master_cycle - self.cycle;
         trace!(
             "APU cycles to run: {} ({} - {}) - CYC:{}",
-            cycles,
-            self.master_cycle,
-            self.cycle,
-            self.cpu_cycle,
+            cycles, self.master_cycle, self.cycle, self.cpu_cycle,
         );
         while self.master_cycle - self.cycle > 0 {
             self.cycle += self

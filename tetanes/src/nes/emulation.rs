@@ -1,16 +1,16 @@
 use crate::{
     nes::{
+        RunState,
         action::DebugStep,
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
         event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
-        renderer::{gui::MessageType, FrameRecycle},
-        RunState,
+        renderer::{FrameRecycle, gui::MessageType},
     },
     thread,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use chrono::Local;
 use crossbeam::channel;
 use egui::ViewportId;

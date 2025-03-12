@@ -5,16 +5,16 @@
 
 use crate::{
     apu::{
+        PULSE_TABLE, TND_TABLE,
         dmc::Dmc,
         pulse::{OutputFreq, Pulse, PulseChannel},
-        PULSE_TABLE, TND_TABLE,
     },
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
     mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
     mem::Banks,
-    ppu::{bus::PpuAddr, Mirroring, Ppu},
+    ppu::{Mirroring, Ppu, bus::PpuAddr},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -433,7 +433,7 @@ impl Exrom {
         } else if matches!(addr, 0xE000..=0xFFFF) || mode == PrgMode::Bank32k {
             true
         } else {
-            use PrgMode::{Bank16_8k, Bank16k, Bank8k};
+            use PrgMode::{Bank8k, Bank16_8k, Bank16k};
             let banks = self.regs.prg_banks;
             let bank = match (addr, mode) {
                 (0x8000..=0x9FFF, Bank8k) => banks[1],
@@ -509,7 +509,7 @@ impl Exrom {
         self.ex_ram[(addr & 0x03FF) as usize] = val;
     }
 
-    pub fn inc_fetch_count(&mut self) {
+    pub const fn inc_fetch_count(&mut self) {
         self.ppu_status.fetch_count += 1;
     }
 
@@ -800,7 +800,7 @@ impl MemMap for Exrom {
             0x2000..=0x3EFF => match self.nametable_select(addr) {
                 Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
                 Nametable::ScreenB => {
-                    return MappedWrite::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into(), val)
+                    return MappedWrite::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into(), val);
                 }
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
                     self.write_ex_ram(addr, val);
@@ -1051,7 +1051,6 @@ impl Regional for Exrom {
 impl Sram for Exrom {}
 
 impl Sample for Exrom {
-    #[must_use]
     fn output(&self) -> f32 {
         let pulse1 = self.pulse1.output();
         let pulse2 = self.pulse2.output();

@@ -42,13 +42,13 @@ impl Envelope {
     }
 
     #[inline]
-    pub fn restart(&mut self) {
+    pub const fn restart(&mut self) {
         self.start = true;
     }
 
     /// $4000/$4004/$400C Envelope control
     #[inline]
-    pub fn write_ctrl(&mut self, val: u8) {
+    pub const fn write_ctrl(&mut self, val: u8) {
         self.loops = (val & 0x20) == 0x20; // D5
         self.constant_volume = (val & 0x10) == 0x10; // D4
         self.volume = val & 0x0F; // D3..D0

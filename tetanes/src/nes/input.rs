@@ -362,8 +362,8 @@ impl ActionBindings {
     }
 
     pub fn default_player_bindings(player: Player) -> BTreeMap<Action, ActionBindings> {
-        use gilrs::{Axis, Button};
         use KeyCode::*;
+        use gilrs::{Axis, Button};
 
         let mut bindings = Action::BINDABLE
             .into_iter()

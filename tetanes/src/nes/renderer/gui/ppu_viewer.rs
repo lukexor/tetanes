@@ -2,24 +2,24 @@ use crate::nes::{
     config::Config,
     event::{DebugEvent, EmulationEvent, NesEventProxy},
     renderer::{
-        gui::lib::{animated_dashed_rect, ViewportOptions},
+        gui::lib::{ViewportOptions, animated_dashed_rect},
         painter::RenderState,
         texture::Texture,
     },
 };
 use egui::{
-    show_tooltip_at_pointer, CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image,
-    Label, Pos2, Rect, ScrollArea, Sense, SidePanel, Slider, TopBottomPanel, Ui, Vec2,
-    ViewportClass, ViewportId,
+    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Pos2, Rect,
+    ScrollArea, Sense, SidePanel, Slider, StrokeKind, TopBottomPanel, Ui, Vec2, ViewportClass,
+    ViewportId, show_tooltip_at_pointer,
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     debug::PpuDebugger,
-    ppu::{scroll::Scroll, sprite::Sprite, Ppu},
+    ppu::{Ppu, scroll::Scroll, sprite::Sprite},
 };
 
 #[derive(Debug)]
@@ -846,6 +846,7 @@ impl State {
             0.0,
             Color32::from_black_alpha(75),
             (1.0, Color32::WHITE),
+            egui::StrokeKind::Inside,
         );
 
         // Wrap overlay around the right/bottom edge
@@ -860,6 +861,7 @@ impl State {
                 0.0,
                 Color32::from_black_alpha(75),
                 (1.0, Color32::WHITE),
+                egui::StrokeKind::Inside,
             );
         }
     }
@@ -1388,7 +1390,8 @@ impl State {
             });
 
             let (rect, res) = ui.allocate_exact_size(size, Sense::click());
-            ui.painter().rect_stroke(rect, 0.0, (1.0, Color32::BLACK));
+            ui.painter()
+                .rect_stroke(rect, 0.0, (1.0, Color32::BLACK), StrokeKind::Inside);
 
             let size = Vec2::new(size.x / 8.0, size.y / 4.0);
             for offset in [0, 4] {

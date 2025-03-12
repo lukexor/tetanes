@@ -2,7 +2,7 @@
 
 use crate::fs::{Error, Result};
 use std::{
-    fs::{create_dir_all, remove_dir_all, File},
+    fs::{File, create_dir_all, remove_dir_all},
     io::{Read, Write},
     path::Path,
 };
