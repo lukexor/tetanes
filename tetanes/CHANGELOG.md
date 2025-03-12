@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1](https://github.com/lukexor/tetanes/compare/0.11.0..0.12.1) - 2025-03-12
+
+### ⛰️  Features
+
+
+- Added shortcuts for shaders and ppu warmup flag - ([f7f4cb2](https://github.com/lukexor/tetanes/commit/f7f4cb24c315b44e479a0cfa14307bc04818bc29))
+
+
 ## [0.11.0](https://github.com/lukexor/tetanes/compare/0.10.0..0.11.0) - 2024-06-12
 
 ### ⛰️  Features
