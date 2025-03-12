@@ -10,8 +10,8 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{Mem, Memory, RamState},
+    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, OnBusRead, OnBusWrite},
+    mem::{ConstMemory, DynMemory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -55,12 +55,12 @@ pub struct Bus {
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
-    pub prg_ram: Memory,
+    pub prg_ram: DynMemory<u8>,
     #[serde(skip)]
-    pub prg_rom: Memory,
+    pub prg_rom: DynMemory<u8>,
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: Memory,
+    pub wram: ConstMemory<u8, 0x0800>, // 2K NES Work Ram available to the CPU
 }
 
 impl Default for Bus {
@@ -70,8 +70,6 @@ impl Default for Bus {
 }
 
 impl Bus {
-    const WRAM_SIZE: usize = 0x0800; // 2K NES Work Ram available to the CPU
-
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
             apu: Apu::new(region),
@@ -79,20 +77,23 @@ impl Bus {
             input: Input::new(region),
             open_bus: 0x00,
             ppu: Ppu::new(region),
-            prg_ram: Memory::new(),
+            prg_ram: DynMemory::new().with_ram_state(ram_state),
             prg_ram_protect: false,
-            prg_rom: Memory::new(),
+            prg_rom: DynMemory::new(),
             ram_state,
             region,
-            wram: Memory::ram(ram_state, Self::WRAM_SIZE),
+            wram: ConstMemory::new().with_ram_state(ram_state),
         }
     }
 
     pub fn load_cart(&mut self, cart: Cart) {
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
-        self.ppu.bus.load_chr_rom(cart.chr_rom);
-        self.ppu.bus.load_chr_ram(cart.chr_ram);
+        if cart.chr_ram.is_empty() {
+            self.ppu.bus.load_chr(cart.chr_rom, false);
+        } else {
+            self.ppu.bus.load_chr(cart.chr_ram, true);
+        }
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
@@ -103,19 +104,21 @@ impl Bus {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn sram(&self) -> &[u8] {
         &self.prg_ram
     }
 
     #[inline]
-    pub fn load_sram(&mut self, sram: Memory) {
+    pub fn load_sram(&mut self, sram: DynMemory<u8>) {
         self.prg_ram = sram;
     }
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn wram(&self) -> &[u8] {
-        &self.wram
+        self.wram.as_ref()
     }
 
     /// Add a Game Genie code to override memory reads/writes.
@@ -145,18 +148,20 @@ impl Bus {
     }
 
     #[must_use]
+    #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn audio_samples(&self) -> &[f32] {
         &self.apu.audio_samples
     }
 
+    #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.apu.audio_samples.clear();
     }
 }
 
 impl Clock for Bus {
-    fn clock(&mut self) -> usize {
-        self.apu.clock_lazy();
+    fn clock(&mut self) -> u64 {
         self.ppu.bus.mapper.clock();
         let output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
@@ -166,6 +171,7 @@ impl Clock for Bus {
             _ => 0.0,
         };
         self.apu.add_mapper_output(output);
+        self.apu.clock_lazy();
         self.input.clock();
 
         1
@@ -173,20 +179,20 @@ impl Clock for Bus {
 }
 
 impl ClockTo for Bus {
-    fn clock_to(&mut self, clock: usize) -> usize {
+    fn clock_to(&mut self, clock: u64) -> u64 {
         self.ppu.clock_to(clock)
     }
 }
 
-impl Mem for Bus {
+impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         let val = match addr {
-            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
+            0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_read(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
-                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
+                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -203,18 +209,18 @@ impl Mem for Bus {
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.ppu.bus.mapper.cpu_bus_read(addr);
+        self.ppu.bus.mapper.on_bus_read(addr, BusKind::Cpu);
         val
     }
 
     fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x07FF => self.wram.get(addr as usize).copied().unwrap_or(0),
+            0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
                 let val = match self.ppu.bus.mapper.map_peek(addr) {
                     MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram.get(addr).copied().unwrap_or(0),
-                    MappedRead::PrgRom(addr) => self.prg_rom.get(addr).copied().unwrap_or(0),
+                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
+                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
                     _ => self.open_bus,
                 };
                 self.genie_read(addr, val)
@@ -231,20 +237,18 @@ impl Mem for Bus {
             _ => self.open_bus,
         }
     }
+}
 
+impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x07FF => {
-                if let Some(v) = self.wram.get_mut(addr as usize) {
-                    *v = val;
-                }
+                self.wram[addr as usize] = val;
             }
             0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val) {
                 MappedWrite::PrgRam(addr, val) => {
                     if !self.prg_ram.is_empty() && !self.prg_ram_protect {
-                        if let Some(v) = self.prg_ram.get_mut(addr) {
-                            *v = val;
-                        }
+                        self.prg_ram[addr] = val;
                     }
                 }
                 MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
@@ -285,7 +289,7 @@ impl Mem for Bus {
             _ => (),
         }
         self.open_bus = val;
-        self.ppu.bus.mapper.cpu_bus_write(addr, val);
+        self.ppu.bus.mapper.on_bus_write(addr, val, BusKind::Cpu);
     }
 }
 
@@ -304,6 +308,7 @@ impl Regional for Bus {
 
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
+        self.prg_ram.reset(kind);
         self.wram.reset(kind);
         self.ppu.reset(kind);
         self.apu.reset(kind);
@@ -358,7 +363,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = Memory::with_size(0x2000);
+        cart.chr_rom = DynMemory::with_size(0x2000);
         cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
@@ -388,7 +393,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = Memory::with_size(0x2000);
+        cart.chr_ram = DynMemory::with_size(0x2000);
         cart.chr_ram.fill(0x66);
         bus.load_cart(cart);
 

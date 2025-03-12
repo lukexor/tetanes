@@ -3,7 +3,7 @@
 //! It allows for event handling and test abstractions such as being able to map a custom keybind
 //! to a given state change.
 
-use crate::nes::renderer::gui::Menu;
+use crate::nes::renderer::{gui::Menu, shader::Shader};
 use serde::{Deserialize, Serialize};
 use tetanes_core::{
     action::Action as DeckAction,
@@ -37,7 +37,7 @@ impl Ord for Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 111] = [
+    pub const BINDABLE: [Self; 113] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -67,6 +67,8 @@ impl Action {
         Self::Setting(Setting::DecrementScale),
         Self::Setting(Setting::IncrementSpeed),
         Self::Setting(Setting::DecrementSpeed),
+        Self::Setting(Setting::SetShader(Shader::Default)),
+        Self::Setting(Setting::SetShader(Shader::CrtEasymode)),
         Self::Deck(DeckAction::Reset(ResetKind::Soft)),
         Self::Deck(DeckAction::Reset(ResetKind::Hard)),
         Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Left))),
@@ -215,10 +217,14 @@ impl AsRef<str> for Action {
                 Setting::ToggleScreenReader => "Toggle Screen Reader",
                 Setting::ToggleFps => "Toggle FPS",
                 Setting::FastForward => "Fast Forward",
-                Setting::IncrementScale => "Scale Increment",
-                Setting::DecrementScale => "Scale Decrement",
-                Setting::IncrementSpeed => "Speed Increment",
-                Setting::DecrementSpeed => "Speed Increment",
+                Setting::IncrementScale => "Increment Scale",
+                Setting::DecrementScale => "Decrement Scale",
+                Setting::IncrementSpeed => "Increment Speed",
+                Setting::DecrementSpeed => "Decrement Speed",
+                Setting::SetShader(shader) => match shader {
+                    Shader::Default => "Set Default Shader",
+                    Shader::CrtEasymode => "Set Shader to CRT Easymode",
+                },
             },
             Action::Deck(deck) => match deck {
                 DeckAction::Reset(kind) => match kind {
@@ -338,6 +344,8 @@ impl TryFrom<&str> for Action {
             "Decrement Scale" => Self::Setting(Setting::DecrementScale),
             "Increment Speed" => Self::Setting(Setting::IncrementSpeed),
             "Decrement Speed" => Self::Setting(Setting::DecrementSpeed),
+            "Set Default Shader" => Self::Setting(Setting::SetShader(Shader::Default)),
+            "Set Shader to CRT Easymode" => Self::Setting(Setting::SetShader(Shader::CrtEasymode)),
             "Reset" => Self::Deck(DeckAction::Reset(ResetKind::Soft)),
             "Power Cycle" => Self::Deck(DeckAction::Reset(ResetKind::Hard)),
             "Joypad Left (P1)" => Self::Deck(DeckAction::Joypad((Player::One, JoypadBtn::Left))),
@@ -499,6 +507,7 @@ pub enum Setting {
     DecrementScale,
     IncrementSpeed,
     DecrementSpeed,
+    SetShader(Shader),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

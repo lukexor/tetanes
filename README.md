@@ -44,7 +44,7 @@ include complex enums, traits, generics, matching, iterators, channels, and
 threads.
 
 `TetaNES` also compiles for the web! Try it out in your
-[browser](http://lukeworks.tech/tetanes-web)!
+[browser](https://lukeworks.tech/tetanes-web)!
 
 ## Features
 
@@ -53,12 +53,15 @@ threads.
 - NTSC, PAL and Dendy emulation.
 - Headless Mode when using `tetanes-core`.
 - Pixellate and NTSC filters.
+- CRT shader for that retro feel.
 - Up to 4 players with gamepad support.
 - Zapper (Light Gun) support using the mouse.
 - iNES and NES 2.0 ROM header formats supported.
-- 14 supported mappers covering ~85% of licensed games.
+- Over 30 supported mappers covering >90% of licensed games.
 - Game Genie Codes.
-- Configurable while running using [egui](https://egui.rs).
+- PPU Debugger
+- Runtime performance stats
+- Preference snd keybonding menus using [egui](https://egui.rs).
   - Increase/Decrease speed & Fast Forward
   - Visual & Instant Rewind
   - Save & Load States
@@ -81,8 +84,7 @@ threads.
 ## Getting Started
 
 `TetaNES` runs on all major operating systems (Linux, macOS, Windows, and the
-web). Installable binaries will be available when `1.0.0` is released, but for the
-time being you can install with `cargo` which comes installed with [Rust][].
+web).
 
 ### Install
 
@@ -116,7 +118,9 @@ The following dependencies are required to be installed:
 e.g.
 
 `apt install libasound2 libgtk-3-0`
+
 `dnf install alsa-lib gtk3`
+
 `pacman -Sy alsa-lib gtk3`
 
 #### MacOS
@@ -161,6 +165,10 @@ cargo binstall tetanes
 This will try to find the target binary for your platform from the latest
 [Release][] or install from source, similar to above.
 
+#### Web
+
+You can also play directly in your web browser without installing by visiting  https://lukeworks.tech/tetanes-web.
+
 ### Usage
 
 ```text
@@ -180,6 +188,9 @@ Options:
       --no-threaded                Disable multi-threaded
   -m, --ram-state <RAM_STATE>      Choose power-up RAM state. [default: "all-zeros"]
                                    [possible values: all-zeros, all-ones, random]
+  -w, --emulate-ppu-warmup         Whether to emulate PPU warmup where writes to
+                                   certain registers are ignored. Can result in
+                                   some games not working correctly
   -r, --region <REGION>            Choose default NES region. [default: "ntsc"]
                                    [possible values: ntsc, pal, dendy]
   -i, --save-slot <SAVE_SLOT>      Save slot. [default: 1]
@@ -254,15 +265,15 @@ Keybindings can be customized in the keybindings menu. Below are the defaults.
 
 NES joypad:
 
-| Button    | Keyboard (P1) | Keyboard (P2) | Controller       |
-| --------- | ------------- | ------------- | ---------------- |
-| A         | Z             | N             | East             |
-| B         | X             | M             | South            |
-| A (Turbo) | A             |               | North            |
-| B (Turbo) | S             |               | West             |
-| Start     | Q             | 8             | Start            |
-| Select    | W             | 9             | Select           |
-| D-Pad     | Arrow Keys    | IJKL          | D-Pad            |
+| Button    | Keyboard (Player 1) | Controller       |
+| --------- | ------------------- | ---------------- |
+| A         | Z                   | East             |
+| B         | X                   | South            |
+| A (Turbo) | A                   | North            |
+| B (Turbo) | S                   | West             |
+| Select    | Q                   | Select           |
+| Start     | W                   | Start            |
+| D-Pad     | Arrow Keys          | D-Pad            |
 
 Controller Layout:
 
@@ -296,15 +307,15 @@ Emulator shortcuts:
 | ----------------------------- | ------------ | -------------- |
 | Pause                         | Escape       | Guide Button   |
 | About TetaNES                 | F1           |                |
-| Configuration Menu            | Ctrl-P or F2 |                |
+| Preferences Menu              | Ctrl-P or F2 |                |
 | Load/Open ROM                 | Ctrl-O or F3 |                |
 | Quit                          | Ctrl-Q       |                |
 | Reset                         | Ctrl-R       |                |
 | Power Cycle                   | Ctrl-H       |                |
 | Increase Speed by 25%         | =            | Right Shoulder |
 | Decrease Speed by 25%         | -            | Left Shoulder  |
-| Increase Scale                | Shift-=      |                |
-| Decrease Scale                | Shift--      |                |
+| Increase Emulation Scale      | Shift-=      |                |
+| Decrease Emulation Scale      | Shift--      |                |
 | Increase UI Scale             | Ctrl-=       |                |
 | Decrease UI Scale             | Ctrl--       |                |
 | Fast-Forward 2x               | Space (Hold) |                |
@@ -322,8 +333,10 @@ Emulator shortcuts:
 | Toggle Triangle Channel       | Shift-3      |                |
 | Toggle Noise Channel          | Shift-4      |                |
 | Toggle DMC Channel            | Shift-5      |                |
+| Toggle Mapper Channel         | Shift-6      |                |
 | Toggle Fullscreen             | Ctrl-Enter   |                |
 | Toggle NTSC Filter            | Ctrl-N       |                |
+| Toggle CRT Shader             | Ctrl-T       |                |
 | Toggle CPU Debugger           | Shift-D      |                |
 | Toggle PPU Debugger           | Shift-P      |                |
 | Toggle APU Debugger           | Shift-A      |                |
@@ -351,15 +364,15 @@ Other mappings can be found and modified in the `Config -> Keybinds` menu.
 
 ### Directories
 
-`TetaNES` stores to files to support a number of features, and depending on the
-file type and varies based on operating system.
+`TetaNES` saves files to disk to support a number of features and, depending on the
+file type, varies based on operating system.
 
-#### Configuration Preferences
+#### Preferences
 
 - Linux: `$HOME/.config`
 - macOS: `$HOME/Library/Application Support`
 - Windows: `%LOCALAPPDATA%\tetanes`
-- Web: Does not currently support persisting configuration preferences.
+- Web: localStorage
 
 #### Screenshots
 
@@ -381,7 +394,7 @@ file type and varies based on operating system.
 - Linux: `$HOME/.local/share/tetanes`
 - macOS: `$HOME/Library/Application Support/tetanes`
 - Windows: `%LOCALAPPDATA%\tetanes`
-- Web: Does not currently support save states.
+- Web: localStorage
 
 ### Powerup State
 
@@ -389,12 +402,11 @@ The original NES hardware had semi-random contents located in RAM upon power-up
 and several games made use of this to seed their Random Number Generators
 (RNGs). By default, `TetaNES` honors the original hardware and emulates
 randomized powerup RAM state. This shows up in several games such as `Final
-Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not
-emulating this would make these games seem deterministic when they weren't
+Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not emulating this would make these games seem deterministic when they weren't
 intended to be.
 
 If you would like `TetaNES` to provide fully deterministic emulated power-up
-state, you'll need to change the `ram_state` setting in the configuration menu
+state, you'll need to change the `RAM State` setting in the configuration menu
 and trigger a power-cycle or use the `-m`/`--ram_state` flag from the command
 line.
 
@@ -448,16 +460,13 @@ If an an issue is not already created, please use the [github issue tracker][]
 to create it. A good guideline for what to include is:
 
 - The game experiencing the issue (e.g. `Super Mario Bros 3`). Please don't
-  include any download links or ROM attachments.
-- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc)
-- What you were doing when the error happened
-- A description of the error and what happeneed
-- Any screenshots or console output
-- Any related errors or logs
-
-When using the web version in the browser, also include:
-
-- Web browser and version (e.g. Chrome 77.0.3865)
+  include any download links or ROM attachments due to copyright laws.
+- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc) or browser version if running on the web (e.g. Chrome 77.0.3865).
+- TetaNES version (can be found in the  `About` menu)
+- What you were doing when the error happened.
+- A description of the error and what happeneed.
+- Any screenshots or console output.
+- Any related errors or logs.
 
 ## Roadmap
 

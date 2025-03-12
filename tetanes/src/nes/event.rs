@@ -1,6 +1,7 @@
 use crate::{
     feature,
     nes::{
+        Nes, RunState, Running, State,
         action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
         config::Config,
         emulation::FrameStats,
@@ -10,7 +11,6 @@ use crate::{
             shader::Shader,
         },
         rom::RomData,
-        Nes, RunState, Running, State,
     },
     platform::open_file_dialog,
 };
@@ -131,6 +131,7 @@ pub enum ConfigEvent {
     CycleAccurate(bool),
     DarkTheme(bool),
     EmbedViewports(bool),
+    EmulatePpuWarmup(bool),
     FourPlayer(FourPlayer),
     Fullscreen(bool),
     GamepadAssign((Player, Uuid)),
@@ -167,7 +168,7 @@ impl From<ConfigEvent> for NesEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
-    Ppu(Ppu),
+    Ppu(Box<Ppu>),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -183,7 +184,6 @@ pub enum EmulationEvent {
     RemoveDebugger(Debugger),
     AudioRecord(bool),
     DebugStep(DebugStep),
-    EmulatePpuWarmup(bool),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
     LoadReplay((String, ReplayData)),
@@ -282,7 +282,7 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         match event {
             NesEvent::Renderer(RendererEvent::ResourcesReady) => {
-                if let Err(err) = self.init_running() {
+                if let Err(err) = self.init_running(event_loop) {
                     error!("failed to create window: {err:?}");
                     event_loop.exit();
                     return;
@@ -487,6 +487,7 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
+                    ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,
                     ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
                     ConfigEvent::Fullscreen(fullscreen) => renderer.fullscreen = *fullscreen,
                     ConfigEvent::GamepadAssign((player, uuid)) => {
@@ -1127,6 +1128,15 @@ impl Running {
                                     .add_message(MessageType::Info, "Fast forwarding");
                             }
                         }
+                    }
+                    Setting::SetShader(shader) if released => {
+                        let shader = if self.cfg.renderer.shader == shader {
+                            Shader::Default
+                        } else {
+                            shader
+                        };
+                        self.cfg.renderer.shader = shader;
+                        self.event(ConfigEvent::Shader(shader));
                     }
                     _ => (),
                 },

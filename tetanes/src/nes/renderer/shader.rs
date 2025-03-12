@@ -9,21 +9,21 @@ pub struct ParseShaderError;
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Shader {
-    None,
+    Default,
     #[default]
     CrtEasymode,
 }
 
 impl Shader {
     pub const fn as_slice() -> &'static [Self] {
-        &[Self::None, Self::CrtEasymode]
+        &[Self::Default, Self::CrtEasymode]
     }
 }
 
 impl AsRef<str> for Shader {
     fn as_ref(&self) -> &str {
         match self {
-            Self::None => "None",
+            Self::Default => "Default",
             Self::CrtEasymode => "CRT Easymode",
         }
     }
@@ -34,7 +34,7 @@ impl TryFrom<usize> for Shader {
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Ok(match value {
-            0 => Self::None,
+            0 => Self::Default,
             1 => Self::CrtEasymode,
             _ => return Err(ParseShaderError),
         })
@@ -56,9 +56,9 @@ impl Resources {
         view: wgpu::TextureView,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         shader: Shader,
-    ) -> Self {
+    ) -> Option<Self> {
         let shader_module_desc = match shader {
-            Shader::None => panic!("No shader selected"),
+            Shader::Default => return None,
             Shader::CrtEasymode => wgpu::include_wgsl!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/shaders/crt-easymode.wgsl"
@@ -144,10 +144,10 @@ impl Resources {
             cache: None,
         });
 
-        Self {
+        Some(Self {
             view,
             texture_bind_group,
             render_pipeline,
-        }
+        })
     }
 }

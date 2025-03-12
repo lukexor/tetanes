@@ -1,7 +1,7 @@
 use crate::nes::{
     action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
     config::{Config, InputConfig},
-    renderer::gui::Menu,
+    renderer::{gui::Menu, shader::Shader},
 };
 use egui::ahash::HashMap;
 use serde::{Deserialize, Serialize};
@@ -349,6 +349,7 @@ impl ActionBindings {
             { Setting::ToggleAudio => :CONTROL, KeyM },
             { Setting::ToggleFullscreen => :CONTROL, Enter },
             { Setting::ToggleMenubar => :CONTROL, KeyE },
+            { Setting::SetShader(Shader::CrtEasymode) => :CONTROL, KeyT },
             { Ui::LoadRom => :CONTROL, KeyO; F3 },
             { Ui::Quit => :CONTROL, KeyQ },
             { Ui::TogglePause => Escape },
@@ -362,8 +363,8 @@ impl ActionBindings {
     }
 
     pub fn default_player_bindings(player: Player) -> BTreeMap<Action, ActionBindings> {
-        use gilrs::{Axis, Button};
         use KeyCode::*;
+        use gilrs::{Axis, Button};
 
         let mut bindings = Action::BINDABLE
             .into_iter()
@@ -396,8 +397,8 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::Down) => ArrowDown },
                 { (Player::One, JoypadBtn::Left) => ArrowLeft },
                 { (Player::One, JoypadBtn::Right) => ArrowRight },
-                { (Player::One, JoypadBtn::Select) => KeyW },
-                { (Player::One, JoypadBtn::Start) => KeyQ },
+                { (Player::One, JoypadBtn::Select) => KeyQ },
+                { (Player::One, JoypadBtn::Start) => KeyW },
             ),
             _ => Vec::new(),
         };

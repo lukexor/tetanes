@@ -1,6 +1,7 @@
 use crate::{
     feature,
     nes::{
+        RunState,
         config::Config,
         event::{EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         input::Gamepads,
@@ -10,7 +11,6 @@ use crate::{
             gui::{Gui, MessageType},
             painter::Painter,
         },
-        RunState,
     },
     platform::{self, BuilderExt, Initialize},
     thread,
@@ -18,9 +18,9 @@ use crate::{
 use anyhow::Context;
 use crossbeam::channel::{self, Receiver};
 use egui::{
-    ahash::HashMap, DeferredViewportUiCallback, Vec2, ViewportBuilder, ViewportClass,
+    DeferredViewportUiCallback, OutputCommand, Vec2, ViewportBuilder, ViewportClass,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair, ViewportIdSet, ViewportInfo,
-    ViewportOutput, WindowLevel,
+    ViewportOutput, WindowLevel, ahash::HashMap,
 };
 use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
@@ -31,8 +31,8 @@ use tetanes_core::{
     video::Frame,
 };
 use thingbuf::{
-    mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
+    mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
 };
 use tracing::{debug, error, info, trace};
 use winit::{
@@ -170,6 +170,7 @@ impl std::fmt::Debug for Resources {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
+        _event_loop: &ActiveEventLoop,
         tx: NesEventProxy,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
@@ -239,8 +240,13 @@ impl Renderer {
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        let accesskit =
-            { accesskit_winit::Adapter::with_event_loop_proxy(&window, tx.inner().clone()) };
+        let accesskit = {
+            accesskit_winit::Adapter::with_event_loop_proxy(
+                _event_loop,
+                &window,
+                tx.inner().clone(),
+            )
+        };
 
         let state = State {
             viewports,
@@ -770,19 +776,22 @@ impl Renderer {
     pub fn handle_platform_output(viewport: &mut Viewport, platform_output: egui::PlatformOutput) {
         let egui::PlatformOutput {
             cursor_icon,
-            open_url,
-            copied_text,
+            commands,
             ..
         } = platform_output;
 
         viewport.set_cursor(cursor_icon);
 
-        if let Some(open_url) = open_url {
-            Self::open_url_in_browser(&open_url.url);
-        }
-
-        if !copied_text.is_empty() {
-            viewport.clipboard.set(copied_text);
+        for command in commands {
+            match command {
+                OutputCommand::OpenUrl(open_url) => Self::open_url_in_browser(&open_url.url),
+                OutputCommand::CopyText(copied_text) => {
+                    if !copied_text.is_empty() {
+                        viewport.clipboard.set(copied_text);
+                    }
+                }
+                OutputCommand::CopyImage(_) => (),
+            }
         }
     }
 
@@ -1320,7 +1329,7 @@ impl Viewport {
 
     pub fn update_info(info: &mut ViewportInfo, ctx: &egui::Context, window: &Window) {
         let pixels_per_point = gui::lib::pixels_per_point(ctx, window);
-        let has_position = window.is_minimized().map_or(true, |minimized| !minimized);
+        let has_position = window.is_minimized().is_none_or(|minimized| !minimized);
 
         let inner_rect = has_position
             .then(|| gui::lib::inner_rect_in_points(window, pixels_per_point))

@@ -1,4 +1,4 @@
-//! `TxROM`/`MMC3` (Mapper 004)
+//! `TxROM`/`MMC3` (Mapper 004).
 //!
 //! <https://wiki.nesdev.com/w/index.php/TxROM>
 //! <https://wiki.nesdev.com/w/index.php/MMC3>
@@ -7,29 +7,33 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead,
+        OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
-// MMC3 Revision
-// See:<http://forums.nesdev.com/viewtopic.php?p=62546#p62546>
-//
-// Known Revisions:
-//
-// Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
-// Kickle Cubicle (MMC3B S 9031 3 DA)
-// M.C. Kids (MMC3B S 9152 3 AB)
-// Mega Man 3 (MMC3B S 9046 1 DB)
-// Super Mario Bros. 3 (MMC3B S 9027 5 A)
-// Startropics (MMC6B P 03'5)
-// Batman (MMC3B 9006KP006)
-// Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
-// Crystalis (MMC3B 9024KPO53)
-// Legacy of the Wizard (MMC3A 8940EP)
-//
-// Only major difference is the IRQ counter
+/// MMC3 Revision.
+///
+/// See:<http://forums.nesdev.com/viewtopic.php?p=62546#p62546>
+///
+/// Known Revisions:
+///
+/// Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
+/// Kickle Cubicle (MMC3B S 9031 3 DA)
+/// M.C. Kids (MMC3B S 9152 3 AB)
+/// Mega Man 3 (MMC3B S 9046 1 DB)
+/// Super Mario Bros. 3 (MMC3B S 9027 5 A)
+/// Startropics (MMC6B P 03'5)
+/// Batman (MMC3B 9006KP006)
+/// Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
+/// Crystalis (MMC3B 9024KPO53)
+/// Legacy of the Wizard (MMC3A 8940EP)
+///
+/// Only major difference is the IRQ counter
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Revision {
@@ -42,6 +46,7 @@ pub enum Revision {
     Acc,
 }
 
+/// `TxROM` Registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -54,6 +59,7 @@ pub struct Regs {
     pub last_clock: u16,
 }
 
+/// `TxROM`/`MMC3` (Mapper 004).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Txrom {
@@ -115,7 +121,7 @@ impl Txrom {
         self.regs.bank_values[index]
     }
 
-    pub fn set_revision(&mut self, rev: Revision) {
+    pub const fn set_revision(&mut self, rev: Revision) {
         self.revision = rev;
     }
 
@@ -196,7 +202,7 @@ impl Txrom {
     }
 }
 
-impl Mapped for Txrom {
+impl Mirrored for Txrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -204,17 +210,27 @@ impl Mapped for Txrom {
     fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
     }
+}
 
-    fn ppu_bus_read(&mut self, addr: u16) {
-        self.clock_irq(addr);
-    }
-
-    fn ppu_bus_write(&mut self, addr: u16, _val: u8) {
-        self.clock_irq(addr);
+impl OnBusRead for Txrom {
+    fn on_bus_read(&mut self, addr: u16, kind: BusKind) {
+        // Clock on PPU A12
+        if kind == BusKind::Ppu {
+            self.clock_irq(addr);
+        }
     }
 }
 
-impl MemMap for Txrom {
+impl OnBusWrite for Txrom {
+    fn on_bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
+        // Clock on PPU A12
+        if kind == BusKind::Ppu {
+            self.clock_irq(addr);
+        }
+    }
+}
+
+impl MapRead for Txrom {
     // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
@@ -245,7 +261,9 @@ impl MemMap for Txrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Txrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),

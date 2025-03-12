@@ -4,10 +4,10 @@
 
 use crate::{
     apu::{
+        Channel,
         envelope::Envelope,
         length_counter::LengthCounter,
         timer::{Timer, TimerCycle},
-        Channel,
     },
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
@@ -44,10 +44,10 @@ impl Default for Noise {
 }
 
 impl Noise {
-    const PERIOD_TABLE_NTSC: [usize; 16] = [
+    const PERIOD_TABLE_NTSC: [u64; 16] = [
         4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
     ];
-    const PERIOD_TABLE_PAL: [usize; 16] = [
+    const PERIOD_TABLE_PAL: [u64; 16] = [
         4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778,
     ];
 
@@ -73,11 +73,11 @@ impl Noise {
         self.force_silent
     }
 
-    pub fn set_silent(&mut self, silent: bool) {
+    pub const fn set_silent(&mut self, silent: bool) {
         self.force_silent = silent;
     }
 
-    const fn period(region: NesRegion, val: u8) -> usize {
+    const fn period(region: NesRegion, val: u8) -> u64 {
         let index = (val & 0x0F) as usize;
         match region {
             NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => {
@@ -97,13 +97,13 @@ impl Noise {
     }
 
     /// $400C Noise control
-    pub fn write_ctrl(&mut self, val: u8) {
+    pub const fn write_ctrl(&mut self, val: u8) {
         self.length.write_ctrl((val & 0x20) == 0x20); // !D5
         self.envelope.write_ctrl(val);
     }
 
     /// $400E Noise timer
-    pub fn write_timer(&mut self, val: u8) {
+    pub const fn write_timer(&mut self, val: u8) {
         self.timer.period = Self::period(self.region, val);
         self.shift_mode = if (val & 0x80) == 0x80 {
             ShiftMode::One
@@ -113,12 +113,12 @@ impl Noise {
     }
 
     /// $400F Length counter
-    pub fn write_length(&mut self, val: u8) {
+    pub const fn write_length(&mut self, val: u8) {
         self.length.write(val >> 3);
         self.envelope.restart();
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub const fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
 
@@ -132,7 +132,6 @@ impl Noise {
 }
 
 impl Sample for Noise {
-    #[must_use]
     fn output(&self) -> f32 {
         if self.is_muted() {
             0f32
@@ -143,7 +142,7 @@ impl Sample for Noise {
 }
 
 impl TimerCycle for Noise {
-    fn cycle(&self) -> usize {
+    fn cycle(&self) -> u64 {
         self.timer.cycle
     }
 }
@@ -153,7 +152,7 @@ impl Clock for Noise {
     //                    |                |
     //                    v                v
     // Envelope -------> Gate ----------> Gate --> (to mixer)
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.timer.clock() > 0 {
             let shift_by = if self.shift_mode == ShiftMode::One {
                 6

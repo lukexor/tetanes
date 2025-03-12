@@ -1,4 +1,4 @@
-//! `Jaleco SS88006` (Mapper 018)
+//! `Jaleco SS88006` (Mapper 018).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_018>
 
@@ -6,30 +6,33 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::{BankAccess, Banks},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Jaleco SS88006` page bit.
 #[derive(Debug)]
 #[must_use]
-enum PageBits {
+enum PageBit {
     Low,
     High,
 }
 
-impl PageBits {
+impl PageBit {
     const fn page(&self, page: usize, val: u8) -> usize {
         let val = (val as usize) & 0x0F;
         match self {
-            PageBits::Low => (page & 0xF0) | val,
-            PageBits::High => (val << 4) | (page & 0x0F),
+            PageBit::Low => (page & 0xF0) | val,
+            PageBit::High => (val << 4) | (page & 0x0F),
         }
     }
 }
 
-impl From<u16> for PageBits {
+impl From<u16> for PageBit {
     fn from(addr: u16) -> Self {
         if addr & 0x01 == 0x01 {
             Self::High
@@ -39,6 +42,7 @@ impl From<u16> for PageBits {
     }
 }
 
+/// `Jaleco SS88006` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -47,6 +51,7 @@ pub struct Regs {
     pub irq_counter_size: u8,
 }
 
+/// `Jaleco SS88006` (Mapper 018).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct JalecoSs88006 {
@@ -83,18 +88,18 @@ impl JalecoSs88006 {
         Ok(jalecoss88006.into())
     }
 
-    fn update_prg_bank(&mut self, bank: usize, val: u8, bits: PageBits) {
+    fn update_prg_bank(&mut self, bank: usize, val: u8, bits: PageBit) {
         self.prg_rom_banks
             .set(bank, bits.page(self.prg_rom_banks.page(bank), val));
     }
 
-    fn update_chr_bank(&mut self, bank: usize, val: u8, bits: PageBits) {
+    fn update_chr_bank(&mut self, bank: usize, val: u8, bits: PageBit) {
         self.chr_banks
             .set(bank, bits.page(self.chr_banks.page(bank), val));
     }
 }
 
-impl Mapped for JalecoSs88006 {
+impl Mirrored for JalecoSs88006 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -104,7 +109,7 @@ impl Mapped for JalecoSs88006 {
     }
 }
 
-impl MemMap for JalecoSs88006 {
+impl MapRead for JalecoSs88006 {
     // PPU $0000..=$03FF: 1K CHR Bank 1 Switchable
     // PPU $0400..=$07FF: 1K CHR Bank 2 Switchable
     // PPU $0800..=$0BFF: 1K CHR Bank 3 Switchable
@@ -130,7 +135,9 @@ impl MemMap for JalecoSs88006 {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for JalecoSs88006 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
@@ -139,9 +146,9 @@ impl MemMap for JalecoSs88006 {
                 }
             }
             _ => match addr & 0xF003 {
-                0x8000 | 0x8001 => self.update_prg_bank(0, val, PageBits::from(addr)),
-                0x8002 | 0x8003 => self.update_prg_bank(1, val, PageBits::from(addr)),
-                0x9000 | 0x9001 => self.update_prg_bank(2, val, PageBits::from(addr)),
+                0x8000 | 0x8001 => self.update_prg_bank(0, val, PageBit::from(addr)),
+                0x8002 | 0x8003 => self.update_prg_bank(1, val, PageBit::from(addr)),
+                0x9000 | 0x9001 => self.update_prg_bank(2, val, PageBit::from(addr)),
                 0x9002 => {
                     let prg_ram_access = if val & 0x01 == 0x01 {
                         if val & 0x02 == 0x02 {
@@ -154,14 +161,14 @@ impl MemMap for JalecoSs88006 {
                     };
                     self.prg_ram_banks.set_access(0, prg_ram_access);
                 }
-                0xA000 | 0xA001 => self.update_chr_bank(0, val, PageBits::from(addr)),
-                0xA002 | 0xA003 => self.update_chr_bank(1, val, PageBits::from(addr)),
-                0xB000 | 0xB001 => self.update_chr_bank(2, val, PageBits::from(addr)),
-                0xB002 | 0xB003 => self.update_chr_bank(3, val, PageBits::from(addr)),
-                0xC000 | 0xC001 => self.update_chr_bank(4, val, PageBits::from(addr)),
-                0xC002 | 0xC003 => self.update_chr_bank(5, val, PageBits::from(addr)),
-                0xD000 | 0xD001 => self.update_chr_bank(6, val, PageBits::from(addr)),
-                0xD002 | 0xD003 => self.update_chr_bank(7, val, PageBits::from(addr)),
+                0xA000 | 0xA001 => self.update_chr_bank(0, val, PageBit::from(addr)),
+                0xA002 | 0xA003 => self.update_chr_bank(1, val, PageBit::from(addr)),
+                0xB000 | 0xB001 => self.update_chr_bank(2, val, PageBit::from(addr)),
+                0xB002 | 0xB003 => self.update_chr_bank(3, val, PageBit::from(addr)),
+                0xC000 | 0xC001 => self.update_chr_bank(4, val, PageBit::from(addr)),
+                0xC002 | 0xC003 => self.update_chr_bank(5, val, PageBit::from(addr)),
+                0xD000 | 0xD001 => self.update_chr_bank(6, val, PageBit::from(addr)),
+                0xD002 | 0xD003 => self.update_chr_bank(7, val, PageBit::from(addr)),
                 0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
                 0xF000 => {
                     Cpu::clear_irq(Irq::MAPPER);
@@ -210,7 +217,7 @@ impl Reset for JalecoSs88006 {
 }
 
 impl Clock for JalecoSs88006 {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.regs.irq_enabled {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
             let counter = self.irq_counter & irq_mask;
@@ -226,5 +233,7 @@ impl Clock for JalecoSs88006 {
     }
 }
 
+impl OnBusRead for JalecoSs88006 {}
+impl OnBusWrite for JalecoSs88006 {}
 impl Regional for JalecoSs88006 {}
 impl Sram for JalecoSs88006 {}

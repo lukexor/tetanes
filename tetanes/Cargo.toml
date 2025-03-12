@@ -1,7 +1,6 @@
 [package]
 name = "tetanes"
 version.workspace = true
-rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "A cross-platform NES Emulator written in Rust using wgpu"
@@ -30,12 +29,9 @@ workspace = true
 
 [features]
 default = ["tetanes-core/cycle-accurate"]
-profiling = [
-  "tetanes-core/profiling",
-  "dep:puffin",
-  "dep:puffin_egui",
-  "egui/puffin",
-]
+profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
+# Until webgpu is stable on all platforms
+webgpu = []
 cycle-accurate = []
 
 [dependencies]
@@ -47,15 +43,14 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.29", features = [
+egui = { version = "0.31", features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
-  "log",
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.29", default-features = false, features = [
+egui_extras = { version = "0.31", default-features = false, features = [
   "image",
   "serde",
 ] }
@@ -64,6 +59,9 @@ hound = "3.5"
 image.workspace = true
 nohash-hasher = "0.2"
 parking_lot = "0.12"
+profiling = { version = "1.0.16", default-features = false, features = [
+  "profile-with-puffin",
+] }
 puffin = { workspace = true, optional = true, features = ["web"] }
 puffin_egui = { version = "0.29", optional = true }
 ringbuf = "0.4"
@@ -76,7 +74,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid = { version = "1.10", features = ["v4", "fast-rng", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = { version = "23.0", features = [
+wgpu = { version = "24.0", features = [
   "webgl",
   "webgpu",
   "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
@@ -84,18 +82,18 @@ wgpu = { version = "23.0", features = [
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-accesskit = "0.17"
-accesskit_winit = "0.23"
+accesskit = "0.18"
+accesskit_winit = "0.25"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
 ] }
 clap.workspace = true
-egui = { version = "0.29", default-features = false, features = ["accesskit"] }
+egui = { version = "0.31", default-features = false, features = ["accesskit"] }
 pollster = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }
 rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -103,8 +101,14 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["wasmbind"] }
 console_error_panic_hook = "0.1"
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-web = "0.1"
+uuid = { version = "1.10", features = [
+  "v4",
+  "fast-rng",
+  "serde",
+  "rng-getrandom",
+] }
 web-sys = { workspace = true, features = [
   "Clipboard",
   "ClipboardEvent",

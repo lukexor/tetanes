@@ -87,9 +87,9 @@ pub trait ApuRegisters {
 #[must_use]
 pub struct Apu {
     pub frame_counter: FrameCounter,
-    pub master_cycle: usize,
-    pub cpu_cycle: usize,
-    pub cycle: usize,
+    pub master_cycle: u64,
+    pub cpu_cycle: u64,
+    pub cycle: u64,
     pub clock_rate: f32,
     pub region: NesRegion,
     pub pulse1: Pulse,
@@ -106,7 +106,7 @@ pub struct Apu {
     pub sample_period: f32,
     pub sample_counter: f32,
     pub speed: f32,
-    pub mapper_silenced: bool,
+    pub mapper_enabled: bool,
     pub skip_mixing: bool,
     pub should_clock: bool,
 }
@@ -115,7 +115,7 @@ impl Apu {
     pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
     // 5 APU channels + 1 Mapper channel
     pub const MAX_CHANNEL_COUNT: usize = 6;
-    pub const CYCLE_SIZE: usize = 10_000;
+    pub const CYCLE_SIZE: u64 = 10_000;
 
     /// Create a new APU instance.
     pub fn new(region: NesRegion) -> Self {
@@ -141,19 +141,20 @@ impl Apu {
             sample_period,
             sample_counter: sample_period,
             speed: 1.0,
-            mapper_silenced: true,
+            mapper_enabled: true,
             skip_mixing: false,
             should_clock: false,
         }
     }
 
     pub fn default_channel_outputs() -> Vec<f32> {
-        vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE]
+        vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE as usize]
     }
 
     pub fn add_mapper_output(&mut self, output: f32) {
         self.channel_outputs
-            [(self.master_cycle * Self::MAX_CHANNEL_COUNT) + Channel::Mapper as usize] = output;
+            [(self.master_cycle as usize * Self::MAX_CHANNEL_COUNT) + Channel::Mapper as usize] =
+            output;
     }
 
     /// Filter and mix audio sample based on region sampling rate.
@@ -165,7 +166,7 @@ impl Apu {
         for outputs in self
             .channel_outputs
             .chunks_exact(Self::MAX_CHANNEL_COUNT)
-            .take(self.master_cycle)
+            .take(self.master_cycle as usize)
         {
             let [pulse1, pulse2, triangle, noise, dmc, mapper] = outputs else {
                 warn!("invalid channel outputs");
@@ -174,7 +175,7 @@ impl Apu {
             let pulse_idx = (pulse1 + pulse2) as usize;
             let tnd_idx = (3.0f32.mul_add(*triangle, 2.0 * noise) + dmc) as usize;
             let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-            let mapper_output = if self.mapper_silenced { 0.0 } else { *mapper };
+            let mapper_output = self.mapper_enabled as u8 as f32 * *mapper;
 
             self.filter_chain.consume(apu_output + mapper_output);
             self.sample_counter -= 1.0;
@@ -213,35 +214,35 @@ impl Apu {
             Channel::Triangle => !self.triangle.silent(),
             Channel::Noise => !self.noise.silent(),
             Channel::Dmc => !self.dmc.silent(),
-            Channel::Mapper => !self.mapper_silenced,
+            Channel::Mapper => self.mapper_enabled,
         }
     }
 
     /// Enable or disable a given channel.
-    pub fn set_channel_enabled(&mut self, channel: Channel, enabled: bool) {
+    pub const fn set_channel_enabled(&mut self, channel: Channel, enabled: bool) {
         match channel {
             Channel::Pulse1 => self.pulse1.set_silent(!enabled),
             Channel::Pulse2 => self.pulse2.set_silent(!enabled),
             Channel::Triangle => self.triangle.set_silent(!enabled),
             Channel::Noise => self.noise.set_silent(!enabled),
             Channel::Dmc => self.dmc.set_silent(!enabled),
-            Channel::Mapper => self.mapper_silenced = !enabled,
+            Channel::Mapper => self.mapper_enabled = enabled,
         }
     }
 
     /// Toggle a given channel.
-    pub fn toggle_channel(&mut self, channel: Channel) {
+    pub const fn toggle_channel(&mut self, channel: Channel) {
         match channel {
             Channel::Pulse1 => self.pulse1.set_silent(!self.pulse1.silent()),
             Channel::Pulse2 => self.pulse2.set_silent(!self.pulse2.silent()),
             Channel::Triangle => self.triangle.set_silent(!self.triangle.silent()),
             Channel::Noise => self.noise.set_silent(!self.noise.silent()),
             Channel::Dmc => self.dmc.set_silent(!self.dmc.silent()),
-            Channel::Mapper => self.mapper_silenced = !self.mapper_silenced,
+            Channel::Mapper => self.mapper_enabled = !self.mapper_enabled,
         }
     }
 
-    pub fn clock_lazy(&mut self) -> usize {
+    pub fn clock_lazy(&mut self) -> u64 {
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
         self.master_cycle += 1;
         if self.master_cycle == Self::CYCLE_SIZE - 1 {
@@ -253,7 +254,7 @@ impl Apu {
         }
     }
 
-    pub fn clock_flush(&mut self) -> usize {
+    pub fn clock_flush(&mut self) -> u64 {
         let cycles = self.clock_to(self.master_cycle);
 
         self.process_outputs();
@@ -281,14 +282,14 @@ impl Apu {
         self.frame_counter.should_clock(cycles) || self.dmc.irq_pending_in(cycles)
     }
 
-    fn channel_clock_to(&mut self, channel: Channel, cycle: usize) {
-        fn clock_to<T>(instance: &mut T, cycle: usize, offset: usize, outputs: &mut [f32])
+    fn channel_clock_to(&mut self, channel: Channel, cycle: u64) {
+        fn clock_to<T>(instance: &mut T, cycle: u64, offset: usize, outputs: &mut [f32])
         where
             T: Clock + TimerCycle + Sample,
         {
             while instance.cycle() < cycle {
                 instance.clock();
-                outputs[((instance.cycle() - 1) * Apu::MAX_CHANNEL_COUNT) + offset] =
+                outputs[((instance.cycle() - 1) as usize * Apu::MAX_CHANNEL_COUNT) + offset] =
                     instance.output();
             }
         }
@@ -307,16 +308,13 @@ impl Apu {
 }
 
 impl ClockTo for Apu {
-    fn clock_to(&mut self, cycle: usize) -> usize {
+    fn clock_to(&mut self, cycle: u64) -> u64 {
         self.master_cycle = cycle;
 
         let cycles = self.master_cycle - self.cycle;
         trace!(
             "APU cycles to run: {} ({} - {}) - CYC:{}",
-            cycles,
-            self.master_cycle,
-            self.cycle,
-            self.cpu_cycle,
+            cycles, self.master_cycle, self.cycle, self.cpu_cycle,
         );
         while self.master_cycle - self.cycle > 0 {
             self.cycle += self
@@ -480,7 +478,7 @@ impl ApuRegisters for Apu {
         self.dmc.write_output(val & 0x7F);
         // $4011 applies new output right away, not on timer reload.
         let offset = Channel::Dmc as usize;
-        self.channel_outputs[(self.dmc.timer.cycle * Apu::MAX_CHANNEL_COUNT) + offset] =
+        self.channel_outputs[(self.dmc.timer.cycle as usize * Apu::MAX_CHANNEL_COUNT) + offset] =
             self.dmc.output();
     }
 

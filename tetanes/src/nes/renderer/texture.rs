@@ -1,5 +1,5 @@
 use crate::nes::renderer::painter::RenderState;
-use egui::{load::SizedTexture, TextureId, Vec2};
+use egui::{TextureId, Vec2, load::SizedTexture};
 
 #[derive(Debug)]
 #[must_use]
@@ -88,7 +88,7 @@ impl Texture {
             depth_or_array_layers: 1,
         };
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
                 texture: &self.texture,
                 mip_level: 0,
@@ -99,7 +99,7 @@ impl Texture {
                 },
             },
             bytes,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * size.width),
                 rows_per_image: Some(size.height),

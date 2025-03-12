@@ -1,6 +1,7 @@
 use crate::{
     feature,
     nes::{
+        RunState,
         action::{Debug, DebugKind, DebugStep, Feature, Setting, Ui as UiAction},
         config::{Config, RendererConfig},
         emulation::FrameStats,
@@ -13,8 +14,8 @@ use crate::{
             gui::{
                 keybinds::Keybinds,
                 lib::{
-                    cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
-                    ViewportOptions,
+                    ShortcutText, ShowShortcut, ToggleValue, ViewportOptions, cursor_to_zapper,
+                    input_down,
                 },
                 ppu_viewer::PpuViewer,
                 preferences::Preferences,
@@ -22,23 +23,21 @@ use crate::{
             painter::RenderState,
             texture::Texture,
         },
-        rom::{RomAsset, HOMEBREW_ROMS},
+        rom::{HOMEBREW_ROMS, RomAsset},
         version::Version,
-        RunState,
     },
-    sys::{info::System, SystemInfo},
+    sys::{SystemInfo, info::System},
 };
 use egui::{
-    hex_color, include_image, menu,
+    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
+    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
+    Sense, Stroke, TopBottomPanel, Ui, ViewportClass, Visuals, hex_color, include_image, menu,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
-    Align, Button, CentralPanel, Color32, Context, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, Rounding,
-    ScrollArea, Sense, Stroke, TopBottomPanel, Ui, ViewportClass, Visuals,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     action::Action as DeckAction,
@@ -393,7 +392,7 @@ impl Gui {
         let mut fonts = FontDefinitions::default();
         for (name, data) in [FONT, BOLD_FONT, MONO_FONT] {
             let font_data = FontData::from_static(data);
-            fonts.font_data.insert(name.to_string(), font_data);
+            fonts.font_data.insert(name.to_string(), font_data.into());
         }
 
         match fonts.families.get_mut(&FontFamily::Proportional) {
@@ -966,10 +965,10 @@ impl Gui {
         ui.separator();
 
         ui.menu_button("🌉 Video Filter...", |ui| {
-            Preferences::video_filter_radio(tx, ui, cfg.deck.filter);
+            Preferences::video_filter_radio(tx, ui, cfg.deck.filter, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🕶 Shader...", |ui| {
-            Preferences::shader_radio(tx, ui, cfg.renderer.shader);
+            Preferences::shader_radio(tx, ui, cfg.renderer.shader, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🌎 Nes Region...", |ui| {
             Preferences::nes_region_radio(tx, ui, cfg.deck.region);
@@ -1321,7 +1320,7 @@ impl Gui {
             }
 
             if self.run_state.paused() {
-                Frame::none().inner_margin(5.0).show(ui, |ui| {
+                Frame::new().inner_margin(5.0).show(ui, |ui| {
                     ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
                 });
             }
@@ -1590,7 +1589,7 @@ impl Gui {
                     bg_fill: hex_color!("#14191f"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#253340")), // separators, indentation lines
                     fg_stroke: Stroke::new(1.0, hex_color!("#e6b673")), // normal text color
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 inactive: WidgetVisuals {
@@ -1598,7 +1597,7 @@ impl Gui {
                     bg_fill: hex_color!("#253340"),      // checkbox background
                     bg_stroke: Stroke::default(),
                     fg_stroke: Stroke::new(1.0, hex_color!("#a9491f")), // button text
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
@@ -1606,7 +1605,7 @@ impl Gui {
                     bg_fill: hex_color!("#212733"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#f29718")), // e.g. hover over window edge or button
                     fg_stroke: Stroke::new(1.5, hex_color!("#ffb454")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
@@ -1614,7 +1613,7 @@ impl Gui {
                     bg_fill: hex_color!("#253340"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#fed7aa")),
                     fg_stroke: Stroke::new(2.0, hex_color!("#fed7aa")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
@@ -1622,7 +1621,7 @@ impl Gui {
                     bg_fill: hex_color!("#14191f"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#253340")),
                     fg_stroke: Stroke::new(1.0, hex_color!("#ffb454")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },
@@ -1636,11 +1635,11 @@ impl Gui {
             code_bg_color: hex_color!("#253340"),
             warn_fg_color: hex_color!("#e7c547"),
             error_fg_color: hex_color!("#ff3333"),
-            window_rounding: Rounding::ZERO,
+            window_corner_radius: CornerRadius::ZERO,
             window_fill: hex_color!("#14191f"),
             window_stroke: Stroke::new(1.0, hex_color!("#253340")),
             window_highlight_topmost: true,
-            menu_rounding: Rounding::ZERO,
+            menu_corner_radius: CornerRadius::ZERO,
             panel_fill: hex_color!("#14191f"),
             text_cursor: TextCursorStyle {
                 stroke: Stroke::new(2.0, hex_color!("#95e6cb")),
@@ -1661,7 +1660,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffffff"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")), // separators, indentation lines
                     fg_stroke: Stroke::new(1.0, hex_color!("#253340")), // normal text color
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 inactive: WidgetVisuals {
@@ -1669,7 +1668,7 @@ impl Gui {
                     bg_fill: hex_color!("#d9d8d7"),      // checkbox background
                     bg_stroke: Stroke::default(),
                     fg_stroke: Stroke::new(1.0, hex_color!("#a2441b")), // button text
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
@@ -1677,7 +1676,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffd9b3"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")), // e.g. hover over window edge or button
                     fg_stroke: Stroke::new(1.5, hex_color!("#ff6a00")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
@@ -1685,7 +1684,7 @@ impl Gui {
                     bg_fill: hex_color!("#d9d7ce"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#3e4b59")),
                     fg_stroke: Stroke::new(2.0, hex_color!("#3e4b59")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
@@ -1693,7 +1692,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffffff"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")),
                     fg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },

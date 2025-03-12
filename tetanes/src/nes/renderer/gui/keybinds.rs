@@ -10,8 +10,8 @@ use egui::{
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::input::Player;
 use tracing::warn;

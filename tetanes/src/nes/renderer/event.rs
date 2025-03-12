@@ -5,8 +5,8 @@ use crate::{
         event::{ConfigEvent, NesEvent, RendererEvent, Response, UiEvent},
         input::{Gamepads, Input},
         renderer::{
-            gui::{lib::pixels_per_point, Gui},
             Renderer, State, Viewport,
+            gui::{Gui, lib::pixels_per_point},
         },
     },
 };

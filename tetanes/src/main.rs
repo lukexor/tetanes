@@ -18,10 +18,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use cfg_if::cfg_if;
-use tetanes::{logging, nes::Nes};
+use tetanes::{
+    logging,
+    nes::{Nes, config::Config},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod opts;
+
+cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        fn load_config() -> anyhow::Result<Config> {
+            Ok(Config::load(None))
+        }
+    } else {
+        fn load_config() -> anyhow::Result<Config> {
+            use clap::Parser;
+
+            let opts = opts::Opts::parse();
+            tracing::debug!("CLI Options: {opts:?}");
+
+            opts.load()
+        }
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     let log = logging::init();
@@ -32,18 +52,5 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
 
-    Nes::run({
-        cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                tetanes::nes::config::Config::load(None)
-            } else {
-                use clap::Parser;
-
-                let opts = opts::Opts::parse();
-                tracing::debug!("CLI Options: {opts:?}");
-
-                opts.load()?
-            }
-        }
-    })
+    Nes::run(load_config()?)
 }

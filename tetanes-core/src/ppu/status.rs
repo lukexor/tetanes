@@ -59,7 +59,7 @@ impl Status {
         status
     }
 
-    pub fn write(&mut self, val: u8) {
+    pub const fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
         self.spr_overflow = self.bits.contains(Bits::SPR_ZERO_HIT);
         self.spr_zero_hit = self.bits.contains(Bits::SPR_ZERO_HIT);

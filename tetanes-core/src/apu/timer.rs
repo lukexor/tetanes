@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Trait for types that have timers.
 pub trait TimerCycle {
-    fn cycle(&self) -> usize;
+    fn cycle(&self) -> u64;
 }
 
 /// A timer that generates a clock signal based on a divider and a period. The timer is clocked
@@ -13,13 +13,13 @@ pub trait TimerCycle {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Timer {
-    pub cycle: usize,
-    pub counter: usize,
-    pub period: usize,
+    pub cycle: u64,
+    pub counter: u64,
+    pub period: u64,
 }
 
 impl Timer {
-    pub const fn new(period: usize) -> Self {
+    pub const fn new(period: u64) -> Self {
         Self {
             cycle: 0,
             counter: 0,
@@ -27,25 +27,25 @@ impl Timer {
         }
     }
 
-    pub const fn preload(period: usize) -> Self {
+    pub const fn preload(period: u64) -> Self {
         let mut timer = Self::new(period);
         timer.counter = timer.period;
         timer
     }
 
-    pub fn reload(&mut self) {
+    pub const fn reload(&mut self) {
         self.counter = self.period;
     }
 }
 
 impl Clock for Timer {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.clock_to(self.cycle + 1)
     }
 }
 
 impl ClockTo for Timer {
-    fn clock_to(&mut self, cycle: usize) -> usize {
+    fn clock_to(&mut self, cycle: u64) -> u64 {
         let cycles = cycle - self.cycle;
         if cycles > self.counter {
             self.cycle += self.counter + 1;

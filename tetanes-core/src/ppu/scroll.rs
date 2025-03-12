@@ -77,6 +77,7 @@ impl Scroll {
         (self.v & 0x02) | ((self.v >> 4) & 0x04)
     }
 
+    #[inline]
     #[must_use]
     pub const fn addr(&self) -> u16 {
         self.v & Self::ADDR_MIRROR // Only the lower 14 bits are valid
@@ -141,7 +142,7 @@ impl Scroll {
         self.write_latch = !self.write_latch;
     }
 
-    pub fn set_v(&mut self, val: u16) {
+    pub const fn set_v(&mut self, val: u16) {
         self.v = val;
         self.coarse_x = self.v & Self::COARSE_X_MASK;
         self.fine_y = self.v >> 12;
@@ -151,7 +152,7 @@ impl Scroll {
     // Delayed update for PPUADDR after 2 PPU cycles (based on Visual NES findings)
     // Returns true when it was updated so the PPU can inform mappers monitoring $2006 reads and
     // writes. e.g. MMC3 clocks using A12
-    pub fn delayed_update(&mut self) -> bool {
+    pub const fn delayed_update(&mut self) -> bool {
         if self.delay_v_cycles > 0 {
             self.delay_v_cycles -= 1;
             if self.delay_v_cycles == 0 {
@@ -164,12 +165,12 @@ impl Scroll {
 
     // Increment PPUADDR v by either 1 (going across) or 32 (going down)
     // Address wraps around
-    pub fn increment(&mut self, val: u16) {
+    pub const fn increment(&mut self, val: u16) {
         self.set_v(self.v.wrapping_add(val));
     }
 
     // Copy Coarse X from register t and add it to PPUADDR v
-    pub fn copy_x(&mut self) {
+    pub const fn copy_x(&mut self) {
         //    .....N.. ...XXXXX
         // t: .....F.. ...EDCBA
         // v: .....F.. ...EDCBA
@@ -178,7 +179,7 @@ impl Scroll {
     }
 
     // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
-    pub fn copy_y(&mut self) {
+    pub const fn copy_y(&mut self) {
         //    .yyyN.YY YYY.....
         // t: .IHGF.ED CBA.....
         // v: .IHGF.ED CBA.....
@@ -190,7 +191,7 @@ impl Scroll {
     // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
     // nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    pub fn increment_x(&mut self) {
+    pub const fn increment_x(&mut self) {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
         if (self.v & Self::COARSE_X_MASK) == Self::X_MAX_COL {
@@ -204,7 +205,7 @@ impl Scroll {
     // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
     // overflow toggling bit 11 which switches the vertical nametable
     // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
-    pub fn increment_y(&mut self) {
+    pub const fn increment_y(&mut self) {
         if (self.v & Self::FINE_Y_MASK) == Self::FINE_Y_MASK {
             self.set_v(self.v & !Self::FINE_Y_MASK); // set fine y = 0 and overflow into coarse y
             let mut y = (self.v & Self::COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
@@ -226,7 +227,7 @@ impl Scroll {
         }
     }
 
-    pub fn reset_latch(&mut self) {
+    pub const fn reset_latch(&mut self) {
         self.write_latch = false;
     }
 
