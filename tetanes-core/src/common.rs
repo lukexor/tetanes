@@ -440,38 +440,36 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn test_rom(directory: &str, test_name: &str) -> anyhow::Result<()> {
-        static INIT_TESTS: OnceLock<bool> = OnceLock::new();
+        thread_local! {
+            static INIT_TESTS: OnceLock<bool> = const { OnceLock::new() };
+        }
 
         let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let initialized = INIT_TESTS.get_or_init(|| {
-            use tracing_subscriber::{
-                filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
-            };
-            registry()
-                .with(
-                    env::var("RUST_LOG")
-                        .ok()
-                        .and_then(|filter| filter.parse::<Targets>().ok())
-                        .unwrap_or_default(),
-                )
-                .with(
-                    fmt::layer()
-                        .compact()
-                        .with_line_number(true)
-                        .with_thread_ids(true)
-                        .with_thread_names(true)
-                        .with_writer(std::io::stderr),
-                )
-                .init();
-            let result_dir = base_dir.join(PathBuf::from(RESULT_DIR));
-            if result_dir.exists() {
-                if let Err(err) = fs::remove_dir_all(&result_dir) {
-                    panic!("failed to clear test results dir: {result_dir:?}. {err}",);
-                }
-            }
-            true
+        let initialized = INIT_TESTS.with(|init| {
+            *init.get_or_init(|| {
+                use tracing_subscriber::{
+                    filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
+                };
+                registry()
+                    .with(
+                        env::var("RUST_LOG")
+                            .ok()
+                            .and_then(|filter| filter.parse::<Targets>().ok())
+                            .unwrap_or_default(),
+                    )
+                    .with(
+                        fmt::layer()
+                            .compact()
+                            .with_line_number(true)
+                            .with_thread_ids(true)
+                            .with_thread_names(true)
+                            .with_writer(std::io::stderr),
+                    )
+                    .init();
+                true
+            })
         });
-        if *initialized {
+        if initialized {
             debug!("Initialized tests");
         }
 
