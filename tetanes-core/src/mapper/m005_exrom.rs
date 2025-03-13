@@ -493,16 +493,16 @@ impl Exrom {
         };
         // CHR banks are in actual page sizes which means they need to be shifted appropriately
         match self.regs.chr_mode {
-            ChrMode::Bank8k => self.chr_banks.set_range(0, 7, hi | banks[7] << 3),
+            ChrMode::Bank8k => self.chr_banks.set_range(0, 7, hi | (banks[7] << 3)),
             ChrMode::Bank4k => {
-                self.chr_banks.set_range(0, 3, hi | banks[3] << 2);
-                self.chr_banks.set_range(4, 7, hi | banks[7] << 2);
+                self.chr_banks.set_range(0, 3, hi | (banks[3] << 2));
+                self.chr_banks.set_range(4, 7, hi | (banks[7] << 2));
             }
             ChrMode::Bank2k => {
-                self.chr_banks.set_range(0, 1, hi | banks[1] << 1);
-                self.chr_banks.set_range(2, 3, hi | banks[3] << 1);
-                self.chr_banks.set_range(4, 5, hi | banks[5] << 1);
-                self.chr_banks.set_range(6, 7, hi | banks[7] << 1);
+                self.chr_banks.set_range(0, 1, hi | (banks[1] << 1));
+                self.chr_banks.set_range(2, 3, hi | (banks[3] << 1));
+                self.chr_banks.set_range(4, 5, hi | (banks[5] << 1));
+                self.chr_banks.set_range(6, 7, hi | (banks[7] << 1));
             }
             ChrMode::Bank1k => {
                 self.chr_banks.set(0, hi | banks[0]);
@@ -754,7 +754,7 @@ impl MapRead for Exrom {
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
                 let irq = Cpu::has_irq(Irq::DMC);
-                MappedRead::Data(u8::from(irq) << 7 | self.dmc_mode)
+                MappedRead::Data((u8::from(irq) << 7) | self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
             0x5101 => MappedRead::Data(self.regs.chr_mode as u8),
@@ -793,7 +793,7 @@ impl MapRead for Exrom {
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
                 MappedRead::Data(
-                    u8::from(irq_pending) << 7 | u8::from(self.irq_state.in_frame) << 6,
+                    (u8::from(irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6),
                 )
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),

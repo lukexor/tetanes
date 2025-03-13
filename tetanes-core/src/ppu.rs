@@ -399,7 +399,7 @@ impl Ppu {
                     let tile_lo = self.bus.peek_chr(tile_addr);
                     let tile_hi = self.bus.peek_chr(tile_addr + 8);
                     for x in 0..8 {
-                        let tile_palette = ((tile_hi >> x) & 1) << 1 | (tile_lo >> x) & 1;
+                        let tile_palette = (((tile_hi >> x) & 1) << 1) | (tile_lo >> x) & 1;
                         let palette = palette_addr | u16::from(tile_palette);
                         let color = self.bus.peek_palette(
                             Ppu::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette),
@@ -499,7 +499,7 @@ impl Ppu {
                         let spr_color = if flip_horizontal {
                             (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01)
                         } else {
-                            (((tile_hi << x) & 0x80) >> 6) | ((tile_lo << x) & 0x80) >> 7
+                            (((tile_hi << x) & 0x80) >> 6) | (((tile_lo << x) & 0x80) >> 7)
                         };
                         let palette = palette + spr_color;
                         let color = self.bus.peek_palette(
