@@ -215,7 +215,10 @@ impl Build {
         copy(&self.bin_path, &build_bin_path)?;
 
         self.tar_gz(
-            format!("{}-{}-unknown-linux-gnu.tar.gz", self.bin_name, self.arch),
+            format!(
+                "{}-{}-{}-unknown-linux-gnu.tar.gz",
+                self.bin_name, self.version, self.arch
+            ),
             &build_dir,
             ["."],
         )?;
@@ -224,7 +227,7 @@ impl Build {
         if !self.cross {
             // Debian .deb
             // NOTE: 1- is the deb revision number
-            let deb_name = format!("{}-1-amd64.deb", self.bin_name);
+            let deb_name = format!("{}-{}-1-amd64.deb", self.bin_name, self.version);
             let deb_path_dist = self.dist_dir.join(&deb_name);
             cmd_spawn_wait(
                 Command::new("cargo")
@@ -270,7 +273,8 @@ impl Build {
 
             // NOTE: AppImage name is derived from tetanes.desktop
             // Rename to lowercase
-            let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.arch);
+            let app_image_name =
+                format!("{}-{}-{}.AppImage", self.bin_name, self.version, self.arch);
             let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
             let app_image_path_dist = self.dist_dir.join(&app_image_name);
             rename(&app_image_path, &app_image_path_dist)?;
@@ -290,7 +294,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("macos")?;
 
-        let artifact_name = format!("{}-{}", self.bin_name, self.arch);
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let app_name = format!("{}.app", self.app_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
@@ -392,7 +396,10 @@ impl Build {
         )?;
 
         self.tar_gz(
-            format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.arch),
+            format!(
+                "{}-{}-{}-apple-darwin.tar.gz",
+                self.bin_name, self.version, self.arch
+            ),
             &volume,
             [&app_name],
         )?;
@@ -418,7 +425,7 @@ impl Build {
     fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
-        let installer_name = format!("{}-{}.msi", self.bin_name, self.arch);
+        let installer_name = format!("{}-{}-{}.msi", self.bin_name, self.version, self.arch);
         let installer_path_dist = self.dist_dir.join(&installer_name);
 
         cmd_spawn_wait(
@@ -451,7 +458,10 @@ impl Build {
 
         let build_dir = self.dist_dir.join("web");
         self.tar_gz(
-            format!("{}-{}.tar.gz", self.bin_name, self.target_arch),
+            format!(
+                "{}-{}-{}.tar.gz",
+                self.bin_name, self.version, self.target_arch
+            ),
             &build_dir,
             ["."],
         )?;
