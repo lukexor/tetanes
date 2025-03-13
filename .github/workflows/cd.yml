@@ -103,12 +103,12 @@ jobs:
       # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
       - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
         run: |
-          cargo make build-artifacts -- --target ${{ matrix.target }}
+          time cargo make build-artifacts -- --target ${{ matrix.target }}
       # ubuntu aarch64 requires cross building
       - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64')
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
-          cargo make build-artifacts -- --target ${{ matrix.target }} --cross
+          time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
       - uses: actions/upload-artifact@v4
         name: "Upload artifacts"
         with:
@@ -122,7 +122,10 @@ jobs:
           echo "release_tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
   update-homebrew-formula:
     name: Update Homebrew Formula
-    if: startsWith(github.event.release.name, 'tetanes') || inputs.build
+    if: >
+      (startsWith(github.event.release.name, 'tetanes')
+        && !startsWith(github.event.release.name, 'tetanes-core'))
+      || inputs.build
     needs: build-and-upload-artifacts
     runs-on: ubuntu-latest
     env:

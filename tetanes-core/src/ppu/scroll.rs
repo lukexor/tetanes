@@ -235,7 +235,7 @@ impl Scroll {
         let nt_mask = Self::NT_Y_MASK | Self::NT_X_MASK;
         // val: ......BA
         // t: ....BA.. ........
-        self.t = (self.t & !nt_mask) | (u16::from(val) & 0x03) << 10; // take lo 2 bits and set NN
+        self.t = (self.t & !nt_mask) | ((u16::from(val) & 0x03) << 10); // take lo 2 bits and set NN
     }
 }
 
