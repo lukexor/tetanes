@@ -1,4 +1,4 @@
-<!-- markdownlint-disable no-inline-html -->
+<!-- markdownlint-disable no-inline-html no-duplicate-heading -->
 
 # TetaNES
 
@@ -167,7 +167,8 @@ This will try to find the target binary for your platform from the latest
 
 #### Web
 
-You can also play directly in your web browser without installing by visiting  https://lukeworks.tech/tetanes-web.
+You can also play directly in your web browser without installing by visiting
+<https://lukeworks.tech/tetanes-web>.
 
 ### Usage
 
@@ -402,7 +403,8 @@ The original NES hardware had semi-random contents located in RAM upon power-up
 and several games made use of this to seed their Random Number Generators
 (RNGs). By default, `TetaNES` honors the original hardware and emulates
 randomized powerup RAM state. This shows up in several games such as `Final
-Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not emulating this would make these games seem deterministic when they weren't
+Fantasy`, `River City Ransom`, and `Impossible Mission II`, amongst others. Not
+emulating this would make these games seem deterministic when they weren't
 intended to be.
 
 If you would like `TetaNES` to provide fully deterministic emulated power-up
@@ -435,9 +437,6 @@ cargo run --release tetanes-core/test_roms/cpu/nestest.nes
 
 #### Feature Flags
 
-- **cycle-accurate** - Enables cycle-accurate emulation. More CPU intensive, but
-  supports a wider range of games requiring precise timing. Disabling may
-  improve performance on lower-end machines. Enabled by default.
 - **profiling** - Enables [puffin](https://github.com/EmbarkStudios/puffin)
   profiling.
 
@@ -461,7 +460,8 @@ to create it. A good guideline for what to include is:
 
 - The game experiencing the issue (e.g. `Super Mario Bros 3`). Please don't
   include any download links or ROM attachments due to copyright laws.
-- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc) or browser version if running on the web (e.g. Chrome 77.0.3865).
+- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc) or
+  browser version if running on the web (e.g. Chrome 77.0.3865).
 - TetaNES version (can be found in the  `About` menu)
 - What you were doing when the error happened.
 - A description of the error and what happeneed.

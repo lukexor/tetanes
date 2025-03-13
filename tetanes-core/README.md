@@ -1,4 +1,4 @@
-<!-- markdownlint-disable no-inline-html -->
+<!-- markdownlint-disable no-inline-html no-duplicate-heading -->
 
 # TetaNES Core
 
@@ -9,8 +9,6 @@
 [build]: https://github.com/lukexor/tetanes/actions/workflows/ci.yml
 [doc status]: https://img.shields.io/docsrs/tetanes-core?style=plastic
 [docs]: https://docs.rs/tetanes-core/
-[codecov]: https://codecov.io/gh/lukexor/tetanes/branch/main/graph/badge.svg?token=AMQJJ7B0LS
-[coverage]: https://codecov.io/gh/lukexor/tetanes
 [latest version]: https://img.shields.io/crates/v/tetanes-core?style=plastic
 [crates.io]: https://crates.io/crates/tetanes-core
 [downloads]: https://img.shields.io/crates/d/tetanes-core?style=plastic
@@ -54,11 +52,10 @@ The current minimum Rust version is `1.78.0`.
 - Pixellate and NTSC filters.
 - Zapper (Light Gun) support.
 - iNES and NES 2.0 ROM header formats supported.
-- 14 supported mappers covering ~85% of licensed games.
+- Over 30 supported mappers covering >90% of licensed games.
 - Game Genie Codes.
-- Configurable while running.
+- Preference snd keybonding menus using [egui](https://egui.rs).
   - Increase/Decrease speed & Fast Forward
-  - Visual & Instant Rewind
   - Save & Load States
   - Battery-backed RAM saves
 
@@ -69,9 +66,6 @@ To build the project, you'll need a nightly version of the compiler and run
 
 #### Feature Flags
 
-- **cycle-accurate** - Enables cycle-accurate emulation. More CPU intensive, but
-  supports a wider range of games requiring precise timing. Disabling may
-  improve performance on lower-end machines. Enabled by default.
 - **profiling** - Enables [puffin](https://github.com/EmbarkStudios/puffin)
   profiling.
 

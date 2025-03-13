@@ -23,9 +23,8 @@ harness = false
 workspace = true
 
 [features]
-default = ["cycle-accurate"]
+default = []
 profiling = ["dep:puffin"]
-cycle-accurate = []
 
 [dependencies]
 bincode.workspace = true
