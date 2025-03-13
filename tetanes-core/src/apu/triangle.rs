@@ -80,7 +80,7 @@ impl Triangle {
     /// $400B Triangle timer high
     pub fn write_timer_hi(&mut self, val: u8) {
         self.length.write(val >> 3);
-        self.timer.period = (self.timer.period & 0x00FF) | u64::from(val & 0x07) << 8; // D2..D0
+        self.timer.period = (self.timer.period & 0x00FF) | (u64::from(val & 0x07) << 8); // D2..D0
         self.linear.reload = true;
     }
 

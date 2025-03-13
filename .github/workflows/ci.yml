@@ -30,7 +30,8 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
+      - run: |
+          time cargo fmt --all --check
 
   lint-web:
     name: Lint Web
@@ -46,7 +47,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo clippy --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+          time cargo clippy --locked --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
 
   lint-tetanes:
     name: Lint TetaNES (${{ matrix.os }})
@@ -69,7 +70,7 @@ jobs:
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
       - run: |
-          cargo clippy -p tetanes --all-features --keep-going -- -D warnings
+          time cargo clippy --locked -p tetanes --all-features --keep-going -- -D warnings
 
   lint-tetanes-core:
     name: Lint TetaNES Core (${{ matrix.os }})
@@ -78,7 +79,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-        toolchain: [nightly, stable, 1.78]
+        toolchain: [nightly, stable, 1.85]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,9 +88,13 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo clippy -p tetanes-core --all-features --keep-going -- -D warnings
+          # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
+          time CARGO_ENCODED_RUSTFLAGS= cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --keep-going -- -D warnings
 
   test-tetanes:
     name: Test TetaNES
@@ -101,12 +106,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
       - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
       - run: |
-          cargo test -p tetanes --all-features --no-fail-fast
+          cargo nextest run --locked -p tetanes --all-features --no-fail-fast --no-tests warn
 
   test-tetanes-core:
     name: Test TetaNES Core
@@ -120,7 +128,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo test -p tetanes-core --all-features --no-fail-fast
+          cargo nextest run --locked -p tetanes-core --all-features --no-fail-fast
 
   docs:
     name: Docs
@@ -134,4 +142,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --document-private-items --all-features --workspace --examples --keep-going
+        run: |
+          time cargo doc --locked --no-deps --document-private-items --all-features --workspace --examples --keep-going
