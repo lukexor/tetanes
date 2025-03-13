@@ -171,8 +171,8 @@ impl Video {
             };
             prev_color = u32::from(*color);
             assert!(pixels.len() > 2);
-            pixels[0] = (rgba >> 16 & 0xFF) as u8;
-            pixels[1] = (rgba >> 8 & 0xFF) as u8;
+            pixels[0] = ((rgba >> 16) & 0xFF) as u8;
+            pixels[1] = ((rgba >> 8) & 0xFF) as u8;
             pixels[2] = (rgba & 0xFF) as u8;
             // Alpha should always be 255
         }

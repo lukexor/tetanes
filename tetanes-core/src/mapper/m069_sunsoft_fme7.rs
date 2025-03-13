@@ -226,13 +226,13 @@ impl Audio {
     #[inline]
     pub fn period(&self, channel: usize) -> u16 {
         let register = channel * 2;
-        u16::from(self.registers[register]) | u16::from(self.registers[register + 1]) << 8
+        u16::from(self.registers[register]) | (u16::from(self.registers[register + 1]) << 8)
     }
 
     #[must_use]
     #[inline]
     pub fn envelope_period(&self) -> u16 {
-        u16::from(self.registers[0x0B]) | u16::from(self.registers[0x0C]) << 8
+        u16::from(self.registers[0x0B]) | (u16::from(self.registers[0x0C]) << 8)
     }
 
     #[must_use]

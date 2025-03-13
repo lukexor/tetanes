@@ -330,7 +330,7 @@ pub trait Write {
     }
 }
 
-/// RAM [`Memory`] in a given state on startup.
+/// RAM in a given state on startup.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum RamState {
@@ -407,7 +407,7 @@ impl FromStr for RamState {
     }
 }
 
-/// Represents allowed [`Memory`] bank access.
+/// Represents allowed memory bank access.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum BankAccess {
@@ -416,7 +416,7 @@ pub enum BankAccess {
     ReadWrite,
 }
 
-/// Represents a set of [`Memory`] banks.
+/// Represents a set of memory banks.
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Banks {
@@ -529,7 +529,7 @@ impl Banks {
     }
 
     #[must_use]
-    pub const fn banks_len(&self) -> usize {
+    pub fn banks_len(&self) -> usize {
         self.banks.len()
     }
 
