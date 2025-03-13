@@ -131,19 +131,6 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 zip = { version = "2.1", default-features = false, features = ["deflate"] }
 
-[package.metadata.docs.rs]
-rustc-args = [
-  "--cfg=web_sys_unstable_apis",
-  "--cfg=getrandom_backend=\"wasm_js\"",
-]
-targets = [
-  "x86_64-pc-windows-msvc",
-  "x86_64-unknown-linux-gnu",
-  "x86_64-apple-darwin",
-  "aarch64-apple-darwin",
-  "wasm32-unknown-unknown",
-]
-
 [package.metadata.deb]
 extended-description = """
 `TetaNES` is a cross-platform emulator for the Nintendo Entertainment System
