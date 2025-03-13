@@ -6,7 +6,7 @@ resolver = "2"
 members = ["tetanes", "tetanes-core", "tetanes-utils"]
 
 [workspace.package]
-version = "0.12.0"
+version = "0.12.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]

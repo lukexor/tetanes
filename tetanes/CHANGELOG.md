@@ -1,3 +1,31 @@
+<!-- markdownlint-disable-file no-duplicate-heading -->
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.12.1](https://github.com/lukexor/tetanes/compare/0.12.0..0.12.1) - 2025-03-13
+
+### ⛰️  Features
+
+
+- Added shortcuts for shaders and ppu warmup flag - ([408b122](https://github.com/lukexor/tetanes/commit/408b122ed98f7edb7a26085fb921aa006bde7091))
+
+### 📚 Documentation
+
+
+- Fixed cargo doc url - ([782f7c5](https://github.com/lukexor/tetanes/commit/782f7c51b68c5fb52b483a3f151bd3db227286a9))
+- Updated changelog and readmes - ([a4a3e8c](https://github.com/lukexor/tetanes/commit/a4a3e8c0775a7261b91f4238756ac5a20d2c4b48))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Fix/update ci, docs, and fixed nightly issue with tetanes-core - ([a6150ba](https://github.com/lukexor/tetanes/commit/a6150bad6703bbc661d7d5c8b63f5a6d47991868))
+
+
 <!-- markdownlint-disable-file no-duplicate-heading no-multiple-blanks line-length -->
 
 # Changelog
