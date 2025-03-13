@@ -11,7 +11,6 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Luke Petherbridge <me@lukeworks.tech>"]
 readme = "README.md"
-documentation = "https://docs.rs/tetanes/0.12.0"
 repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://lukeworks.tech/tetanes"
 
