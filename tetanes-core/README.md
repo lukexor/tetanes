@@ -103,6 +103,16 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
+## Stability
+
+The aim is for general stability, but the version isn't `1.0` yet and there are
+several large features on the roadmap that may result in breaking changes. This
+applies to both APIs and save file formats.
+
+Once some of these larger features are completed, and `1.0` is released, more
+effort will be dedicatged to versioning these files for backward compatibility
+in the event of future breaking changes.
+
 ## Known Issues
 
 See the [github issue tracker][].
