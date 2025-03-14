@@ -460,6 +460,11 @@ cargo run --release tetanes-core/test_roms/cpu/nestest.nes
 
 - **profiling** - Enables [puffin](https://github.com/EmbarkStudios/puffin)
   profiling.
+- **webgpu** - Enables the
+  [`BrowserWebGpu`](https://docs.rs/wgpu/latest/wgpu/enum.Backend.html) backend
+  for TetaNES Web. The default is to use `WebGl2` until WebGPU is stable across
+  all platforms and browsers. Currently pending Firefox and Chrome on Linux
+  (See: <https://caniuse.com/webgpu>).
 
 ### Troubleshooting
 

@@ -349,12 +349,11 @@ impl Gui {
             );
         }
 
-        // TODO: Enable once updated to egui 0.28.0
-        // #[cfg(feature = "profiling")]
-        // if viewport_opts.enabled {
-        //     puffin::profile_scope!("puffin");
-        //     puffin_egui::show_viewport_if_enabled(ctx);
-        // }
+        #[cfg(feature = "profiling")]
+        if viewport_opts.enabled {
+            puffin::profile_scope!("puffin");
+            puffin_egui::show_viewport_if_enabled(ctx);
+        }
     }
 
     fn initialize(&mut self, ctx: &Context) {

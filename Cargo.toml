@@ -27,6 +27,11 @@ rust_2018_idioms = "warn"
 rust_2021_compatibility = "warn"
 unused = "warn"
 
+# TODO: Use stable version of puffin and puffin_egui when https://github.com/EmbarkStudios/puffin/pull/234 is merged
+[patch.crates-io]
+puffin = { git = "https://github.com/tedsteen/puffin.git", branch = "upgrade-egui", optional = true }
+puffin_egui = { git = "https://github.com/tedsteen/puffin.git", branch = "upgrade-egui", optional = true }
+
 [workspace.dependencies]
 anyhow = "1.0"
 bincode = "1.3"
