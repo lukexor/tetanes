@@ -7,6 +7,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-03-14
+
+### 📚 Documentation
+
+
+- Ensure features display in docs.rs - ([f58b31c](https://github.com/lukexor/tetanes/commit/f58b31cc9d27f0187d759796c64e34ccea3f784a))
+- Remove custom docs.rs metadata - ([201b3bc](https://github.com/lukexor/tetanes/commit/201b3bc4f2ccddbb7b737fced5fa8ed67fac5d25))
+
+### ⚡ Performance
+
+
+- Re-enable puffin_egui with patched versions - ([24ee0cc](https://github.com/lukexor/tetanes/commit/24ee0cc6717442fdebead0f075994ab35cb382da))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Add versions to artifacts - ([a29241f](https://github.com/lukexor/tetanes/commit/a29241f2508972bc998519ec0bdf11041e5c22ba))
+
+
 ## [0.12.1](https://github.com/lukexor/tetanes/compare/0.12.0..0.12.1) - 2025-03-13
 
 ### ⛰️  Features

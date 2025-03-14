@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-03-14
+
+### 📚 Documentation
+
+
+- Add notes about stability - ([af0ce20](https://github.com/lukexor/tetanes/commit/af0ce20410f4088453788a264f8102823c7cf7da))
+- Ensure features display in docs.rs - ([f58b31c](https://github.com/lukexor/tetanes/commit/f58b31cc9d27f0187d759796c64e34ccea3f784a))
+
+
 ## [0.12.1](https://github.com/lukexor/tetanes/compare/0.12.0..0.12.1) - 2025-03-13
 
 ### ⛰️  Features
