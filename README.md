@@ -81,6 +81,16 @@ threads.
   width="48%" alt="Metroid"
   src="https://raw.githubusercontent.com/lukexor/tetanes/main/static/metroid.png">
 
+## TetaNES Core
+
+TetaNES is split into two crates. This is the primary crate, which provides the
+cross-platform emulator UI
+binary. [tetanes-core](https://crates.io/crates/tetanes_core) is the emulation
+library that emulator developers can use to develop custom emulator applications
+with. `tetanes-core` is aimed to have stronger stability guarantees, but it's
+still not `1.0` yet and there are several large features on the roadmap that may
+result in breaking changes.
+
 ## Getting Started
 
 `TetaNES` runs on all major operating systems (Linux, macOS, Windows, and the
