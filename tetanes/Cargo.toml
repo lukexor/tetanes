@@ -86,6 +86,7 @@ arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
 ] }
 clap.workspace = true
+ctrlc = "3.4"
 egui = { version = "0.31", default-features = false, features = ["accesskit"] }
 pollster = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }

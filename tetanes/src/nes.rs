@@ -2,9 +2,10 @@
 
 use crate::{
     nes::{
-        event::NesEventProxy,
+        emulation::Emulation,
+        event::{NesEvent, NesEventProxy},
         input::{Gamepads, InputBindings},
-        renderer::{FrameRecycle, Resources, painter::Painter},
+        renderer::{FrameRecycle, Renderer, Resources, painter::Painter},
     },
     platform::Initialize,
 };
@@ -13,9 +14,6 @@ use cfg_if::cfg_if;
 use config::Config;
 use crossbeam::channel::Receiver;
 use egui::ahash::HashMap;
-use emulation::Emulation;
-use event::NesEvent;
-use renderer::Renderer;
 use std::sync::Arc;
 use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
@@ -200,6 +198,16 @@ impl Nes {
 
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
                 let renderer = Renderer::new(event_loop, tx.clone(), resources, frame_rx, &cfg)?;
+
+                // Minor issue if this fails, but not enough to terminate the program
+                #[cfg(not(target_arch = "wasm32"))]
+                let _ = ctrlc::set_handler({
+                    let tx = tx.clone();
+                    move || {
+                        tracing::info!("received ctrl-c. terminating...");
+                        tx.event(event::UiEvent::Terminate);
+                    }
+                });
 
                 let mut running = Running {
                     cfg,
