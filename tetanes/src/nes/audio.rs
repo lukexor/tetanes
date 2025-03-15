@@ -98,6 +98,11 @@ impl Audio {
                 .is_some_and(|mixer| !mixer.paused)
     }
 
+    /// Returns the current audio device, if any.
+    pub fn device(&self) -> Option<&cpal::Device> {
+        self.output.as_ref().map(|output| &output.device)
+    }
+
     /// Set whether the audio mixer is enabled. Returns [`State`] representing the state of
     /// the audio stream as a result of being enabled/disabled.
     pub fn set_enabled(&mut self, enabled: bool) -> anyhow::Result<State> {

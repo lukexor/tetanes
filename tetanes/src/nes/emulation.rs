@@ -301,6 +301,13 @@ impl State {
             cfg.audio.latency,
             cfg.audio.buffer_size,
         );
+        if cfg.audio.enabled && audio.device().is_none() {
+            tx.event(ConfigEvent::AudioEnabled(false));
+            tx.event(UiEvent::Message((
+                MessageType::Warn,
+                "No audio device found.".into(),
+            )));
+        }
         if Apu::DEFAULT_SAMPLE_RATE != audio.sample_rate {
             control_deck.set_sample_rate(audio.sample_rate);
         }
@@ -728,6 +735,7 @@ impl State {
             }
         }
         if let Err(err) = self.audio.start() {
+            self.tx.event(ConfigEvent::AudioEnabled(false));
             self.on_error(err);
         }
         self.set_run_state(RunState::Running);
