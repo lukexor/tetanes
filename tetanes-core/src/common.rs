@@ -450,7 +450,7 @@ pub(crate) mod tests {
                 use tracing_subscriber::{
                     filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
                 };
-                registry()
+                let _ = registry()
                     .with(
                         env::var("RUST_LOG")
                             .ok()
@@ -465,7 +465,7 @@ pub(crate) mod tests {
                             .with_thread_names(true)
                             .with_writer(std::io::stderr),
                     )
-                    .init();
+                    .try_init();
                 true
             })
         });
