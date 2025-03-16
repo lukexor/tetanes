@@ -204,8 +204,16 @@ impl Nes {
                 let _ = ctrlc::set_handler({
                     let tx = tx.clone();
                     move || {
+                        use std::{process, thread, time::Duration};
+
                         tracing::info!("received ctrl-c. terminating...");
+
+                        // Give application time to clean up
                         tx.event(event::UiEvent::Terminate);
+                        thread::sleep(Duration::from_millis(200));
+
+                        tracing::debug!("forcing termination...");
+                        process::exit(0);
                     }
                 });
 
