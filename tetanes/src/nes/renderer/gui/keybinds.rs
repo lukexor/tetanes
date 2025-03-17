@@ -67,7 +67,7 @@ pub struct ConnectedGamepad {
 }
 
 impl Keybinds {
-    const TITLE: &'static str = "🖮 Keybinds";
+    const TITLE: &'static str = "Keybinds";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {

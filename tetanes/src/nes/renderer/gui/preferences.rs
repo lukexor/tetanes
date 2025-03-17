@@ -62,7 +62,7 @@ pub struct GenieEntry {
 }
 
 impl Preferences {
-    const TITLE: &'static str = "🔧 Preferences";
+    const TITLE: &'static str = "Preferences";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {

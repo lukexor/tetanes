@@ -176,7 +176,7 @@ pub enum Tab {
 }
 
 impl PpuViewer {
-    const TITLE: &'static str = "🎞 PPU Viewer";
+    const TITLE: &'static str = "PPU Viewer";
 
     pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
         Self {
