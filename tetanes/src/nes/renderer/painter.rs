@@ -387,6 +387,9 @@ impl RenderState {
                     &wgpu::DeviceDescriptor {
                         required_limits: wgpu::Limits {
                             max_texture_dimension_2d: 4096,
+                            // Default Edge installed on Windows 10 is limited to 6 attachments,
+                            // and we never need more than 1.
+                            max_color_attachments: 6,
                             ..base_limits
                         },
                         ..device_descriptor
