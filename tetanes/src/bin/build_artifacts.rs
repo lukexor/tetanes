@@ -211,8 +211,8 @@ impl Build {
         copy("LICENSE-MIT", build_dir.join("LICENSE-MIT"))?;
         copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
 
-        let build_bin_path = build_dir.join(self.bin_name);
-        copy(&self.bin_path, &build_bin_path)?;
+        let bin_path_build = build_dir.join(self.bin_name);
+        copy(&self.bin_path, &bin_path_build)?;
 
         self.tar_gz(
             format!(
@@ -425,8 +425,13 @@ impl Build {
     fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
-        let installer_name = format!("{}-{}-{}.msi", self.bin_name, self.version, self.arch);
-        let installer_path_dist = self.dist_dir.join(&installer_name);
+        let build_dir = self.create_build_dir("windows")?;
+
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
+        let installer_name = format!("{artifact_name}.msi");
+        let installer_path_build = build_dir.join(&installer_name);
+        let zip_name = format!("{artifact_name}.zip");
+        let zip_path_dist = self.dist_dir.join(&zip_name);
 
         cmd_spawn_wait(
             Command::new("cargo")
@@ -442,13 +447,22 @@ impl Build {
                     "--nocapture",
                     "-o",
                 ])
-                .arg(&installer_path_dist),
+                .arg(&installer_path_build),
         )?;
 
-        // TODO: maybe zip installer?
+        cmd_spawn_wait(Command::new("powershell").args([
+            "-Command",
+            "Compress-Archive",
+            "-Force",
+            "-Path",
+            &installer_path_build.to_string_lossy(),
+            "-DestinationPath",
+            &zip_path_dist.to_string_lossy(),
+        ]))?;
+
         self.write_sha256(
-            &installer_path_dist,
-            self.dist_dir.join(format!("{installer_name}-sha256.txt")),
+            &zip_path_dist,
+            self.dist_dir.join(format!("{zip_name}-sha256.txt")),
         )
     }
 
