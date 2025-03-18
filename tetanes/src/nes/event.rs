@@ -22,6 +22,7 @@ use tetanes_core::{
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
+    cpu::instr::Instr,
     debug::Debugger,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
@@ -183,6 +184,7 @@ pub enum EmulationEvent {
     AddDebugger(Debugger),
     RemoveDebugger(Debugger),
     AudioRecord(bool),
+    CpuCorrupted { instr: Instr },
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
@@ -794,7 +796,7 @@ impl Running {
                         }
                     }
                     Err(err) => {
-                        error!("failed top open rom dialog: {err:?}");
+                        error!("failed to open rom dialog: {err:?}");
                         self.event(UiEvent::Error("failed to open rom dialog".to_string()));
                     }
                 }
@@ -812,7 +814,7 @@ impl Running {
                         }
                     }
                     Err(err) => {
-                        error!("failed top open replay dialog: {err:?}");
+                        error!("failed to open replay dialog: {err:?}");
                         self.event(UiEvent::Error("failed to open replay dialog".to_string()));
                     }
                 }

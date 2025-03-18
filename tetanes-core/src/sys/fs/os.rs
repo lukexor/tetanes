@@ -27,6 +27,9 @@ pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
 
 pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
+    if !path.exists() {
+        return Ok(());
+    }
     remove_dir_all(path)
         .map_err(|source| Error::io(source, format!("failed to remove directory {path:?}")))
 }
