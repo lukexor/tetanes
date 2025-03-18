@@ -82,34 +82,31 @@ impl Renderer {
                 }
                 _ => (),
             },
-            // TODO: Update accesskit when egui supports an updated version
-            // #[cfg(not(target_arch = "wasm32"))]
-            // NesEvent::AccessKit { window_id, event } => {
-            //     use crate::nes::event::AccessKitWindowEvent;
-            //     if let Some(viewport_id) = self.viewport_id_for_window(*window_id) {
-            //         let mut state = self.state.borrow_mut();
-            //         if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
-            //             match event {
-            //                 AccessKitWindowEvent::InitialTreeRequested => {
-            //                     self.ctx.enable_accesskit();
-            //                     let update = self.ctx.accesskit_placeholder_tree_update();
-            //                     self.accesskit.update_if_active(|| update);
-            //                 }
-            //                 AccessKitWindowEvent::ActionRequested(request) => {
-            //                     viewport
-            //                         .raw_input
-            //                         .events
-            //                         .push(egui::Event::AccessKitActionRequest(request.clone()));
-            //                 }
-            //                 AccessKitWindowEvent::AccessibilityDeactivated => {
-            //                     self.ctx.disable_accesskit();
-            //                 }
-            //             }
-
-            //             self.ctx.request_repaint_of(viewport_id);
-            //         };
-            //     }
-            // }
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { window_id, event } => {
+                use crate::nes::event::AccessKitWindowEvent;
+                if let Some(viewport_id) = self.viewport_id_for_window(*window_id) {
+                    let mut state = self.state.borrow_mut();
+                    if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
+                        match event {
+                            AccessKitWindowEvent::InitialTreeRequested => {
+                                self.ctx.enable_accesskit();
+                                self.ctx.request_repaint_of(viewport_id);
+                            }
+                            AccessKitWindowEvent::ActionRequested(request) => {
+                                viewport
+                                    .raw_input
+                                    .events
+                                    .push(egui::Event::AccessKitActionRequest(request.clone()));
+                                self.ctx.request_repaint_of(viewport_id);
+                            }
+                            AccessKitWindowEvent::AccessibilityDeactivated => {
+                                self.ctx.disable_accesskit();
+                            }
+                        }
+                    };
+                }
+            }
             _ => (),
         }
     }

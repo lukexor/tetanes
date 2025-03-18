@@ -162,7 +162,10 @@ brew install lukexor/formulae/tetanes
 
 #### Windows
 
-A windows installer is provided under `Assets` on the latest [Release][].
+A windows installer is provided under `Assets` on the latest [Release][]. Note:
+You will need the latest ["Microsoft Visual C++ 2015 - 2022
+Redistributable"](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-microsoft-visual-c-redistributable-version)
+installed, otherwise you'll get an error about `vcruntime140.dll` not being found.
 
 #### Cargo Install
 
