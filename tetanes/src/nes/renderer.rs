@@ -239,14 +239,11 @@ impl Renderer {
             tracing::error!("{err:?}");
         }
 
+        // Must be done before the window is shown for the first time, which is true here, because
+        // first_frame is set to true below
         #[cfg(not(target_arch = "wasm32"))]
-        let accesskit = {
-            accesskit_winit::Adapter::with_event_loop_proxy(
-                _event_loop,
-                &window,
-                tx.inner().clone(),
-            )
-        };
+        let accesskit =
+            { accesskit_winit::Adapter::with_event_loop_proxy(&window, tx.inner().clone()) };
 
         let state = State {
             viewports,
@@ -1204,12 +1201,11 @@ impl Renderer {
             if feature!(ScreenReader) && self.ctx.options(|o| o.screen_reader) {
                 platform::speak_text(&output.platform_output.events_description());
             }
-            // TODO: Update accesskit when egui supports an updated version
-            // #[cfg(not(target_arch = "wasm32"))]
-            // if let Some(update) = output.platform_output.accesskit_update.take() {
-            //     tracing::trace!("update accesskit: {update:?}");
-            //     self.accesskit.update_if_active(|| update);
-            // }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(update) = output.platform_output.accesskit_update.take() {
+                tracing::trace!("update accesskit: {update:?}");
+                self.accesskit.update_if_active(|| update);
+            }
 
             Self::handle_platform_output(viewport, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output);
