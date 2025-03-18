@@ -1092,7 +1092,7 @@ impl State {
         }
     }
 
-    fn clear_save_states(tx: &NesEventProxy) {
+    pub(crate) fn clear_save_states(tx: &NesEventProxy) {
         let data_dir = Config::default_data_dir();
         match fs::clear_dir(data_dir) {
             Ok(_) => tx.event(UiEvent::Message((

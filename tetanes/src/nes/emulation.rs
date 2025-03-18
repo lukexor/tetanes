@@ -357,17 +357,20 @@ impl State {
         writer: impl FnOnce(&mut ControlDeck) -> control_deck::Result<T>,
     ) -> Option<T> {
         writer(&mut self.control_deck)
-            .map_err(|err| {
-                self.set_run_state(RunState::Paused);
-                self.on_error(err);
-            })
+            .map_err(|err| self.on_error(err))
             .ok()
     }
 
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
         let err = err.into();
         error!("Emulation error: {err:?}");
-        self.add_message(MessageType::Error, err);
+        if self.control_deck.cpu_corrupted() {
+            self.tx.event(EmulationEvent::CpuCorrupted {
+                instr: self.control_deck.cpu().instr,
+            });
+        } else {
+            self.add_message(MessageType::Error, err);
+        }
     }
 
     /// Handle event.
@@ -403,6 +406,8 @@ impl State {
                     self.audio_record(*recording);
                 }
             }
+            EmulationEvent::CpuCorrupted { .. } => (), // Ignore, as only this module emits this
+            // event
             EmulationEvent::DebugStep(step) => {
                 if self.control_deck.is_running() {
                     match step {
@@ -470,9 +475,8 @@ impl State {
             }
             EmulationEvent::Reset(kind) => {
                 self.frame_time_diag.reset();
-                if self.control_deck.is_running() {
+                if self.control_deck.is_running() || self.control_deck.cpu_corrupted() {
                     self.control_deck.reset(*kind);
-                    self.set_run_state(RunState::Running);
                     match kind {
                         ResetKind::Soft => self.add_message(MessageType::Info, "Reset"),
                         ResetKind::Hard => self.add_message(MessageType::Info, "Power Cycled"),
@@ -738,7 +742,6 @@ impl State {
             self.tx.event(ConfigEvent::AudioEnabled(false));
             self.on_error(err);
         }
-        self.set_run_state(RunState::Running);
         self.tx.event(RendererEvent::RomLoaded(rom));
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -773,7 +776,6 @@ impl State {
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
         self.control_deck.load_cpu(start);
-        self.set_run_state(RunState::Running);
         self.tx.event(RendererEvent::ReplayLoaded);
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -967,10 +969,7 @@ impl State {
                         self.save_state(self.save_slot, true);
                     }
                 }
-                Err(err) => {
-                    self.set_run_state(RunState::Paused);
-                    self.on_error(err);
-                }
+                Err(err) => self.on_error(err),
             }
         }
 

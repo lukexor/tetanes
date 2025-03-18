@@ -43,6 +43,7 @@ use tetanes_core::{
     action::Action as DeckAction,
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
+    cpu::instr::Instr,
     ppu::Ppu,
     time::{Duration, Instant},
 };
@@ -79,6 +80,7 @@ pub struct Gui {
     pub tx: NesEventProxy,
     pub cfg: Config,
     pub nes_texture: Texture,
+    pub corrupted_cpu_instr: Option<Instr>,
     pub run_state: RunState,
     pub menu_height: f32,
     pub nes_frame: Rect,
@@ -134,6 +136,7 @@ impl Gui {
             tx: tx.clone(),
             cfg,
             nes_texture,
+            corrupted_cpu_instr: None,
             run_state: RunState::Running,
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
@@ -199,6 +202,9 @@ impl Gui {
                 EmulationEvent::AudioRecord(recording) => {
                     self.audio_recording = *recording;
                 }
+                EmulationEvent::CpuCorrupted { instr } => {
+                    self.corrupted_cpu_instr = Some(*instr);
+                }
                 EmulationEvent::RunState(mode) => {
                     self.run_state = *mode;
                 }
@@ -214,14 +220,19 @@ impl Gui {
                         self.menu_height = 0.0;
                     }
                 }
-                RendererEvent::ReplayLoaded => self.run_state = RunState::Running,
+                RendererEvent::ReplayLoaded => {
+                    self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
+                }
                 RendererEvent::RomUnloaded => {
                     self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.loaded_rom = None;
                     self.title = Config::WINDOW_TITLE.to_string();
                 }
                 RendererEvent::RomLoaded(rom) => {
                     self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.loaded_rom = Some(rom.clone());
                 }
@@ -642,7 +653,7 @@ impl Gui {
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
                 self.run_state = RunState::Paused;
-                self.tx.event(EmulationEvent::RunState(RunState::Paused));
+                self.tx.event(EmulationEvent::RunState(self.run_state));
             }
             // NOTE: Due to some platforms file dialogs blocking the event loop,
             // loading requires a round-trip in order for the above pause to
@@ -673,7 +684,7 @@ impl Gui {
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 self.run_state = RunState::Paused;
-                tx.event(EmulationEvent::RunState(RunState::Paused));
+                tx.event(EmulationEvent::RunState(self.run_state));
                 // NOTE: Due to some platforms file dialogs blocking the event loop,
                 // loading requires a round-trip in order for the above pause to
                 // get processed.
@@ -1304,24 +1315,76 @@ impl Gui {
                 });
             }
 
-            if self.cfg.renderer.show_messages
-                && (!self.messages.is_empty() || self.error.is_some())
-            {
-                Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.with_layout(
-                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                        |ui| {
-                            self.message_bar(ui);
-                            self.error_bar(ui);
-                        },
-                    );
-                });
-            }
+            if self.cfg.renderer.show_messages {
+                if let Some(instr) = self.corrupted_cpu_instr {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                ui.colored_label(
+                                    Color32::RED,
+                                    format!(
+                                        "Invalid CPU opcode: ${:02X} {:?} #{:?} encountered. Title: {}",
+                                        instr.opcode(),
+                                        instr.op(),
+                                        instr.addr_mode(),
+                                        self.loaded_rom.as_ref().map(|rom| rom.name.as_str()).unwrap_or_default()
+                                    ),
+                                );
 
-            if self.run_state.paused() {
-                Frame::new().inner_margin(5.0).show(ui, |ui| {
-                    ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
-                });
+                                ui.vertical(|ui| {
+                                    ui.label("Recovery options:");
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Reset").clicked() {
+                                            self.tx.event(EmulationEvent::Reset(ResetKind::Soft));
+                                            self.corrupted_cpu_instr = None;
+                                        }
+                                        if ui.button("Power Cycle").clicked() {
+                                            self.tx.event(EmulationEvent::Reset(ResetKind::Hard));
+                                            self.corrupted_cpu_instr = None;
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Clear Save States").clicked() {
+                                            preferences::State::clear_save_states(&self.tx);
+                                        }
+                                        if ui.button("Load ROM").clicked() {
+                                            self.tx.event(UiEvent::LoadRomDialog);
+                                        }
+                                    });
+                                });
+                            },
+                        );
+                    });
+                }
+
+                if self.error.is_some() {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                self.error_bar(ui);
+                            },
+                        );
+                    });
+                }
+
+                if !self.messages.is_empty() {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                self.message_bar(ui);
+                            },
+                        );
+                    });
+                }
+
+                if self.run_state.paused() {
+                    Frame::new().inner_margin(5.0).show(ui, |ui| {
+                        ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
+                    });
+                }
             }
         });
     }
@@ -1570,9 +1633,12 @@ impl Gui {
 
     fn error_bar(&mut self, ui: &mut Ui) {
         if let Some(error) = self.error.clone() {
+            let available_width = ui.available_width();
+            ui.set_min_width(available_width);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(error).color(Color32::RED));
-                if ui.button("").clicked() {
+                let res = ui.colored_label(Color32::RED, error);
+                ui.add_space(available_width - res.rect.width() - 30.0);
+                if ui.button("❌").clicked() {
                     self.error = None;
                 }
             });

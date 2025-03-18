@@ -191,7 +191,7 @@ impl Default for Config {
 }
 
 /// Represents a loaded ROM [`Cart`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedRom {
     /// Name of ROM.
     pub name: String,
