@@ -397,7 +397,8 @@ file type, varies based on operating system.
 - Linux: `$HOME/.config`
 - macOS: `$HOME/Library/Application Support`
 - Windows: `%LOCALAPPDATA%\tetanes`
-- Web: localStorage
+- Web: localStorage (e.g. `config/config.json`)
+
 
 #### Screenshots
 
@@ -419,7 +420,7 @@ file type, varies based on operating system.
 - Linux: `$HOME/.local/share/tetanes`
 - macOS: `$HOME/Library/Application Support/tetanes`
 - Windows: `%LOCALAPPDATA%\tetanes`
-- Web: localStorage
+- Web: localStorage (e.g. `data/save/AO Demo/slot-1.sav`)
 
 ### Powerup State
 
@@ -477,25 +478,16 @@ use which mappers, see <http://bootgod.dyndns.org:7777/>. Trying other
 versions of the same game from different sources sometimes resolves the issue.
 
 If you get some other error when trying to start a game that previously
-worked, try removing any saved states from the directories listed above to
-ensure it's not an incompatible savestate file causing the issue.
+worked, try removing any configurations or save states from the
+[Directories](#directories) listed above to ensure it's not an incompatible
+savestate file causing the issue.
 
 If you encounter any shortcuts not working, ensure your operating system does
 not have a binding for it that is overriding it. macOS specifically has many
 things bound to `Ctrl-*`.
 
 If an an issue is not already created, please use the [github issue tracker][]
-to create it. A good guideline for what to include is:
-
-- The game experiencing the issue (e.g. `Super Mario Bros 3`). Please don't
-  include any download links or ROM attachments due to copyright laws.
-- Operating system and version (e.g. Windows 7, macOS Mojave 10.14.6, etc) or
-  browser version if running on the web (e.g. Chrome 77.0.3865).
-- TetaNES version (can be found in the  `About` menu)
-- What you were doing when the error happened.
-- A description of the error and what happeneed.
-- Any screenshots or console output.
-- Any related errors or logs.
+to create it.
 
 ## Roadmap
 
