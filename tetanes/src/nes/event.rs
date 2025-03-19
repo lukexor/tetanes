@@ -543,8 +543,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
                     ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                 }
-
-                self.renderer.prepare(&self.gamepads, &self.cfg);
+                // Root viewport needs repainting when Config changes to update deferred viewports
+                if let Some(window_id) = self.renderer.root_window_id() {
+                    self.repaint_times.insert(window_id, Instant::now());
+                }
             }
             NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
                 if let Some(window_id) = self.renderer.window_id_for_viewport(viewport_id) {
@@ -601,11 +603,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                 }
                 WindowEvent::Focused(focused) => {
-                    if focused {
+                    if focused && !self.occluded {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                            self.run_state = RunState::Running;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                            self.set_run_state(RunState::Running);
                         }
                     } else {
                         let time_since_last_save = Instant::now() - self.renderer.last_save_time;
@@ -621,26 +622,24 @@ impl ApplicationHandler<NesEvent> for Running {
                             .unwrap_or(false)
                         {
                             self.repaint_times.remove(&window_id);
-                            if self.renderer.rom_loaded() && !self.run_state.paused() {
-                                self.run_state = RunState::Paused;
-                                self.event(EmulationEvent::RunState(self.run_state));
+                            if self.renderer.rom_loaded() && !self.run_state().paused() {
+                                self.set_run_state(RunState::AutoPaused);
                             }
                         }
                     }
                 }
                 WindowEvent::Occluded(occluded) => {
+                    self.occluded = occluded;
                     // Note: Does not trigger on all platforms (e.g. linux)
                     if occluded {
                         self.repaint_times.remove(&window_id);
-                        if self.renderer.rom_loaded() && !self.run_state.paused() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && !self.run_state().paused() {
+                            self.set_run_state(RunState::AutoPaused);
                         }
                     } else {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                            self.run_state = RunState::Running;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                            self.set_run_state(RunState::Running);
                         }
                     }
                 }
@@ -751,6 +750,15 @@ impl ApplicationHandler<NesEvent> for Running {
 }
 
 impl Running {
+    fn run_state(&self) -> RunState {
+        self.renderer.gui.borrow().run_state
+    }
+
+    fn set_run_state(&mut self, state: RunState) {
+        self.renderer.gui.borrow_mut().run_state = state;
+        self.event(EmulationEvent::RunState(state));
+    }
+
     pub fn update_repaint_times(&mut self, event_loop: &ActiveEventLoop) {
         let mut next_repaint_time = self.repaint_times.values().min().copied();
         self.repaint_times.retain(|window_id, when| {
@@ -820,9 +828,8 @@ impl Running {
                 }
             }
             UiEvent::FileDialogCancelled => {
-                if self.renderer.rom_loaded() {
-                    self.run_state = RunState::Running;
-                    self.event(EmulationEvent::RunState(self.run_state));
+                if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                    self.set_run_state(RunState::Running);
                 }
             }
             UiEvent::UpdateAvailable(_) | UiEvent::Terminate => (),
@@ -841,11 +848,15 @@ impl Running {
         self.renderer.on_event(&mut event, &self.cfg);
         match event {
             NesEvent::Ui(event) => self.on_ui_event(&event),
-            NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
-                if let Ok(path) = path.canonicalize() {
-                    self.cfg.renderer.recent_roms.insert(path);
+            NesEvent::Emulation(event) => match event {
+                EmulationEvent::LoadRomPath(path) => {
+                    if let Ok(path) = path.canonicalize() {
+                        self.cfg.renderer.recent_roms.insert(path);
+                    }
                 }
-            }
+                EmulationEvent::Reset(_) => self.set_run_state(RunState::Running),
+                _ => (),
+            },
             _ => (),
         }
     }
@@ -943,8 +954,6 @@ impl Running {
                 _ => (),
             }
         }
-
-        self.renderer.prepare(&self.gamepads, &self.cfg);
     }
 
     /// Handle user input mapped to key bindings.
@@ -967,17 +976,17 @@ impl Running {
                     Ui::Quit => self.tx.event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
-                            self.run_state = match self.run_state {
+                            self.set_run_state(match self.run_state() {
                                 RunState::Running => RunState::ManuallyPaused,
-                                RunState::ManuallyPaused | RunState::Paused => RunState::Running,
-                            };
-                            self.event(EmulationEvent::RunState(self.run_state));
+                                RunState::ManuallyPaused | RunState::AutoPaused => {
+                                    RunState::Running
+                                }
+                            });
                         }
                     }
                     Ui::LoadRom => {
-                        if self.renderer.rom_loaded() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && !self.run_state().paused() {
+                            self.set_run_state(RunState::AutoPaused);
                         }
                         // NOTE: Due to some platforms file dialogs blocking the event loop,
                         // loading requires a round-trip in order for the above pause to
@@ -991,8 +1000,9 @@ impl Running {
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                            if !self.run_state().paused() {
+                                self.set_run_state(RunState::AutoPaused);
+                            }
                             // NOTE: Due to some platforms file dialogs blocking the event loop,
                             // loading requires a round-trip in order for the above pause to
                             // get processed.
@@ -1145,8 +1155,6 @@ impl Running {
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
                         self.event(EmulationEvent::Reset(kind));
-                        self.run_state = RunState::Running;
-                        self.event(EmulationEvent::RunState(self.run_state));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
                         self.event(EmulationEvent::Joypad((player, button, state)));

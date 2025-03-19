@@ -328,7 +328,7 @@ impl State {
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
-            run_state: RunState::Paused,
+            run_state: RunState::AutoPaused,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,

@@ -232,7 +232,7 @@ impl Renderer {
             ctx.clone(),
             tx.clone(),
             render_state,
-            cfg.clone(),
+            cfg,
         )));
 
         if let Err(err) = Self::load(&ctx, cfg) {
@@ -329,7 +329,7 @@ impl Renderer {
 
     pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
         let gui = self.gui.borrow();
-        let aspect_ratio = gui.aspect_ratio();
+        let aspect_ratio = gui.aspect_ratio(cfg);
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
         window_size.y += gui.menu_height;
         window_size
@@ -425,7 +425,8 @@ impl Renderer {
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx.event(EmulationEvent::RunState(RunState::Paused));
+        self.tx
+            .event(EmulationEvent::RunState(RunState::AutoPaused));
         self.gui.borrow_mut().error = Some(err.to_string());
     }
 
@@ -1025,11 +1026,6 @@ impl Renderer {
         }
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.gui.borrow_mut().prepare(gamepads, cfg);
-        self.ctx.request_repaint(); // Ensure any windows relying on cfg are repainted
-    }
-
     /// Request redraw.
     pub fn redraw(
         &mut self,
@@ -1058,8 +1054,6 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
 
-        self.gui.borrow_mut().prepare(gamepads, cfg);
-
         self.handle_resize(viewport_id, cfg);
 
         let (viewport_ui_cb, viewport_info, raw_input) = {
@@ -1075,7 +1069,9 @@ impl Renderer {
             let Some(window) = &viewport.window else {
                 return Ok(());
             };
-            if viewport.occluded {
+            // Always render the root viewport unless all viewports are occluded to ensure deferred
+            // viewports correctly get Config and Gamepads updates.
+            if viewport.occluded && viewport_id != ViewportId::ROOT {
                 return Ok(());
             }
 
@@ -1126,12 +1122,6 @@ impl Renderer {
                                 &frame_buffer
                             },
                         );
-                        // self.nametables_texture.update_partial(
-                        //     &render_state.queue,
-                        //     &frame_buffer,
-                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
-                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
-                        // );
                     }
                     Err(TryRecvError::Closed) => {
                         error!("frame channel closed unexpectedly, exiting");
@@ -1150,7 +1140,7 @@ impl Renderer {
         let mut output = self.ctx.run(raw_input, |ctx| {
             match &viewport_ui_cb {
                 Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-                None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
+                None => self.gui.borrow_mut().ui(ctx, cfg, gamepads),
             }
             self.gui
                 .borrow_mut()
@@ -1241,7 +1231,7 @@ impl Renderer {
             if let Some(render_state) = self.painter.borrow_mut().render_state_mut() {
                 let texture_size = cfg.texture_size();
                 let mut gui = self.gui.borrow_mut();
-                let aspect_ratio = gui.aspect_ratio();
+                let aspect_ratio = gui.aspect_ratio(cfg);
                 gui.nes_texture
                     .resize(render_state, texture_size, aspect_ratio);
             }
