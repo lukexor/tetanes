@@ -28,7 +28,12 @@ workspace = true
 
 [features]
 default = []
-profiling = ["tetanes-core/profiling", "dep:puffin", "dep:puffin_egui"]
+profiling = [
+  "tetanes-core/profiling",
+  "profiling/profile-with-puffin",
+  "dep:puffin",
+  "dep:puffin_egui",
+]
 # Until webgpu is stable on all platforms
 webgpu = []
 
@@ -37,11 +42,14 @@ anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "std",
+  "clock",
+] }
+cpal = "0.15"
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.31", features = [
+egui = { version = "0.31", default-features = false, features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
@@ -55,11 +63,8 @@ egui_extras = { version = "0.31", default-features = false, features = [
 gilrs = { version = "0.11", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
-nohash-hasher = "0.2"
 parking_lot = "0.12"
-profiling = { version = "1.0.16", default-features = false, features = [
-  "profile-with-puffin",
-] }
+profiling = { version = "1.0.16", default-features = false }
 puffin = { workspace = true, optional = true, features = ["web"] }
 puffin_egui = { version = "0.29", optional = true }
 ringbuf = "0.4"
@@ -70,13 +75,9 @@ thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-uuid = { version = "1.16", features = ["v4", "fast-rng", "serde"] }
+uuid = { version = "1.16", features = ["v4", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = { version = "24.0", features = [
-  "webgl",
-  "webgpu",
-  "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
-] }
+wgpu = "24.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -84,29 +85,41 @@ accesskit = "0.17"
 accesskit_winit = "0.23"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
+  "windows-sys",
 ] }
 clap.workspace = true
 ctrlc = "3.4"
 egui = { version = "0.31", default-features = false, features = ["accesskit"] }
 pollster = "0.4"
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "blocking",
+] }
 rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+sysinfo = { version = "0.33", default-features = false, features = [
+  "system",
+  "disk",
+  "network",
+] }
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64 = "0.22"
-chrono = { version = "0.4", default-features = false, features = ["wasmbind"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "std",
+  "clock",
+  "wasmbind",
+] }
 console_error_panic_hook = "0.1"
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-web = "0.1"
-uuid = { version = "1.10", features = [
-  "v4",
-  "fast-rng",
-  "serde",
-  "rng-getrandom",
+uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
+wgpu = { version = "24.0", features = [
+  "webgl",
+  "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
 ] }
 web-sys = { workspace = true, features = [
   "Clipboard",
@@ -148,8 +161,7 @@ fearless concurrency features in a large project. Features used in this project
 include complex enums, traits, generics, matching, iterators, channels, and
 threads.
 
-`TetaNES` also compiles for the web! Try it out in your browser
-(http://lukeworks.tech/tetanes-web)!
+Try it out in your browser (https://lukeworks.tech/tetanes-web)!
 """
 section = "game"
 assets = [
