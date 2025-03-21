@@ -171,7 +171,7 @@ impl Cpu {
             prev_nmi_pending: false,
             corrupted: false,
             cycle_accurate: true,
-            disasm: String::with_capacity(100),
+            disasm: String::new(),
         };
         cpu.set_region(cpu.region);
         cpu

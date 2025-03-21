@@ -15,128 +15,231 @@ use std::{
     str::FromStr,
 };
 
-/// Represents static ROM or RAM memory in bytes, with a custom Debug implementation that avoids
+/// Represents ROM or RAM memory in bytes, with a custom Debug implementation that avoids
 /// printing the entire contents.
-#[derive(Clone)]
-pub struct ConstMemory<T, const N: usize> {
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Memory<D> {
     ram_state: RamState,
-    data: [T; N],
+    is_ram: bool,
+    data: D,
 }
 
-impl<T, const N: usize> Default for ConstMemory<T, N>
-where
-    T: Default + Copy,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T, const N: usize> ConstMemory<T, N> {
-    /// Create a new, `ConstMemory` instance filled with `T::default()`.
+impl<D> Memory<D> {
+    /// Create a new `Memory` instance.
     pub fn new() -> Self
     where
-        T: Default + Copy,
+        D: Default,
     {
-        Self {
-            ram_state: RamState::AllZeros,
-            data: [T::default(); N],
-        }
+        Self::default()
     }
 
-    /// Create a new, empty `ConstMemory` instance filled with `val`.
-    pub const fn filled(val: T) -> Self
-    where
-        T: Copy,
-    {
-        Self {
-            ram_state: RamState::AllZeros,
-            data: [val; N],
-        }
+    /// Whether this `Memory` is RAM or ROM.
+    pub const fn is_ram(&self) -> bool {
+        self.is_ram
     }
 }
 
-impl<const N: usize> ConstMemory<u8, N> {
+impl Memory<Vec<u8>> {
+    /// Create a default ROM `Memory` instance.
+    pub fn rom() -> Self {
+        Self::default()
+    }
+
+    /// Create a default RAM `Memory` instance.
+    pub const fn ram(ram_state: RamState) -> Self {
+        Self {
+            ram_state,
+            is_ram: true,
+            data: Vec::new(),
+        }
+    }
+
     /// Fill ram based on [`RamState`].
     pub fn with_ram_state(mut self, state: RamState) -> Self {
         self.ram_state = state;
         self.ram_state.fill(&mut self.data);
         self
     }
+
+    /// Set `Memory` to have the given size, filled by `ram_state`.
+    pub fn with_size(mut self, size: usize) -> Self {
+        self.resize(size);
+        self
+    }
+
+    /// Resize `Memory` to the given size, filled by `ram_state`.
+    pub fn resize(&mut self, size: usize) {
+        self.data.resize(size, 0);
+        self.ram_state.fill(&mut self.data);
+    }
 }
 
-impl<const N: usize> Reset for ConstMemory<u8, N> {
+impl<T, const N: usize> Memory<ConstSlice<T, N>> {
+    /// Create a default ROM `Memory` instance.
+    pub fn rom_const() -> Self
+    where
+        T: Default + Copy,
+    {
+        Self::default()
+    }
+
+    /// Create a default RAM `Memory` instance.
+    pub fn ram_const(ram_state: RamState) -> Self
+    where
+        T: Default + Copy,
+    {
+        Self {
+            ram_state,
+            is_ram: true,
+            data: ConstSlice::new(),
+        }
+    }
+}
+
+impl Reset for Memory<Vec<u8>> {
     fn reset(&mut self, kind: ResetKind) {
-        if kind == ResetKind::Hard {
+        if self.is_ram && kind == ResetKind::Hard {
             self.ram_state.fill(&mut self.data);
         }
     }
 }
 
-impl<T, const N: usize> fmt::Debug for ConstMemory<T, N> {
+impl<const N: usize> Reset for Memory<ConstSlice<u8, N>> {
+    fn reset(&mut self, kind: ResetKind) {
+        if self.is_ram && kind == ResetKind::Hard {
+            self.ram_state.fill(&mut *self.data);
+        }
+    }
+}
+
+impl fmt::Debug for Memory<Vec<u8>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ConstMemory")
-            .field("len", &self.data.len())
+        f.debug_struct("Memory")
             .field("ram_state", &self.ram_state)
+            .field("is_ram", &self.is_ram)
+            .field("len", &self.data.len())
+            .field("capacity", &self.data.capacity())
             .finish()
     }
 }
 
-impl<T, const N: usize> Deref for ConstMemory<T, N> {
-    type Target = [T; N];
+impl<T, const N: usize> fmt::Debug for Memory<ConstSlice<T, N>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Memory")
+            .field("ram_state", &self.ram_state)
+            .field("is_ram", &self.is_ram)
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl<D: Deref> Deref for Memory<D> {
+    type Target = <D as Deref>::Target;
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl<T, const N: usize> DerefMut for ConstMemory<T, N> {
+impl<D: DerefMut> DerefMut for Memory<D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
 }
 
-impl<T, const N: usize> AsRef<[T]> for ConstMemory<T, N> {
+impl<T, D: AsRef<[T]>> AsRef<[T]> for Memory<D> {
     fn as_ref(&self) -> &[T] {
         self.data.as_ref()
     }
 }
 
-impl<T, const N: usize> AsMut<[T]> for ConstMemory<T, N> {
+impl<T, D: AsMut<[T]>> AsMut<[T]> for Memory<D> {
     fn as_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
 }
 
-impl<T, const N: usize> Index<usize> for ConstMemory<T, N> {
+#[derive(Clone)]
+pub struct ConstSlice<T, const N: usize>([T; N]);
+
+impl<T, const N: usize> ConstSlice<T, N> {
+    /// Create a new `ConstSlice` instance.
+    pub fn new() -> Self
+    where
+        T: Default + Copy,
+    {
+        Self::default()
+    }
+
+    /// Create a new `ConstSlice` instance filled with `val`.
+    pub const fn filled(val: T) -> Self
+    where
+        T: Copy,
+    {
+        Self([val; N])
+    }
+}
+
+impl<T: Default + Copy, const N: usize> Default for ConstSlice<T, N> {
+    fn default() -> Self {
+        Self([T::default(); N])
+    }
+}
+
+impl<T, const N: usize> Deref for ConstSlice<T, N> {
+    type Target = [T; N];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T, const N: usize> DerefMut for ConstSlice<T, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T, const N: usize> AsRef<[T]> for ConstSlice<T, N> {
+    fn as_ref(&self) -> &[T] {
+        self.0.as_ref()
+    }
+}
+
+impl<T, const N: usize> AsMut<[T]> for ConstSlice<T, N> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.0.as_mut()
+    }
+}
+
+impl<T, const N: usize> Index<usize> for ConstSlice<T, N> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        debug_assert!(self.data.len().is_power_of_two());
-        self.data.index(index & (self.data.len() - 1))
+        debug_assert!(self.0.len().is_power_of_two());
+        self.0.index(index & (self.0.len() - 1))
     }
 }
 
-impl<T, const N: usize> IndexMut<usize> for ConstMemory<T, N> {
+impl<T, const N: usize> IndexMut<usize> for ConstSlice<T, N> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        debug_assert!(self.data.len().is_power_of_two());
-        self.data.index_mut(index & (self.data.len() - 1))
+        debug_assert!(self.0.len().is_power_of_two());
+        self.0.index_mut(index & (self.0.len() - 1))
     }
 }
 
-impl<T: Serialize, const N: usize> Serialize for ConstMemory<T, N> {
+impl<T: Serialize, const N: usize> Serialize for ConstSlice<T, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let mut s = serializer.serialize_tuple(N)?;
-        for item in &self.data {
+        for item in &self.0 {
             s.serialize_element(item)?;
         }
         s.end()
     }
 }
 
-impl<'de, T, const N: usize> Deserialize<'de> for ConstMemory<T, N>
+impl<'de, T, const N: usize> Deserialize<'de> for ConstSlice<T, N>
 where
     T: Deserialize<'de> + Default + Copy,
 {
@@ -174,121 +277,7 @@ where
 
         deserializer
             .deserialize_tuple(N, ArrayVisitor(PhantomData))
-            .map(|data| Self {
-                ram_state: RamState::default(),
-                data,
-            })
-    }
-}
-
-/// Represents dynamic ROM or RAM memory in bytes, with a custom Debug implementation that avoids
-/// printing the entire contents.
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct DynMemory<T> {
-    ram_state: RamState,
-    data: Vec<T>,
-}
-
-impl<T> DynMemory<T> {
-    /// Create a new, empty `Memory` instance.
-    pub const fn new() -> Self {
-        Self {
-            ram_state: RamState::AllZeros,
-            data: Vec::new(),
-        }
-    }
-
-    /// Create a new `Memory` instance of a given size, zeroed out.
-    pub fn with_size(size: usize) -> Self
-    where
-        T: Default + Copy,
-    {
-        Self {
-            ram_state: RamState::default(),
-            data: vec![T::default(); size],
-        }
-    }
-}
-
-impl DynMemory<u8> {
-    /// Fill ram based on [`RamState`].
-    pub fn with_ram_state(mut self, state: RamState) -> Self {
-        self.ram_state = state;
-        self.ram_state.fill(&mut self.data);
-        self
-    }
-
-    pub fn resize(&mut self, size: usize) {
-        self.data.resize(size, 0);
-        self.ram_state.fill(&mut self.data);
-    }
-}
-
-impl<T> Deref for DynMemory<T> {
-    type Target = Vec<T>;
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-impl<T> DerefMut for DynMemory<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
-    }
-}
-
-impl<T> AsRef<[T]> for DynMemory<T> {
-    fn as_ref(&self) -> &[T] {
-        self.data.as_ref()
-    }
-}
-
-impl<T> AsMut<[T]> for DynMemory<T> {
-    fn as_mut(&mut self) -> &mut [T] {
-        self.data.as_mut()
-    }
-}
-
-impl<T> Index<usize> for DynMemory<T> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        debug_assert!(self.data.len().is_power_of_two());
-        self.data.index(index & (self.data.len() - 1))
-    }
-}
-
-impl<T> IndexMut<usize> for DynMemory<T> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        debug_assert!(self.data.len().is_power_of_two());
-        self.data.index_mut(index & (self.data.len() - 1))
-    }
-}
-
-impl From<Vec<u8>> for DynMemory<u8> {
-    fn from(data: Vec<u8>) -> Self {
-        Self {
-            ram_state: RamState::default(),
-            data,
-        }
-    }
-}
-
-impl<T> fmt::Debug for DynMemory<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DynMemory")
-            .field("len", &self.data.len())
-            .field("capacity", &self.data.capacity())
-            .field("ram_state", &self.ram_state)
-            .finish()
-    }
-}
-
-impl Reset for DynMemory<u8> {
-    fn reset(&mut self, kind: ResetKind) {
-        if kind == ResetKind::Hard {
-            self.ram_state.fill(&mut self.data);
-        }
+            .map(Self)
     }
 }
 

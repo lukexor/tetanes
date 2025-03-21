@@ -9,7 +9,7 @@ use crate::{
         Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
         m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
     },
-    mem::{DynMemory, RamState},
+    mem::{Memory, RamState},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -70,11 +70,11 @@ pub struct Cart {
     region: NesRegion,
     ram_state: RamState,
     pub(crate) mapper: Mapper,
-    pub(crate) chr_rom: DynMemory<u8>, // Character ROM
-    pub(crate) chr_ram: DynMemory<u8>, // Character RAM
-    pub(crate) prg_rom: DynMemory<u8>, // Program ROM
-    pub(crate) prg_ram: DynMemory<u8>, // Program RAM
-    pub(crate) ex_ram: DynMemory<u8>,  // Internal Extra RAM
+    pub(crate) chr_rom: Memory<Vec<u8>>, // Character ROM
+    pub(crate) chr_ram: Memory<Vec<u8>>, // Character RAM
+    pub(crate) prg_rom: Memory<Vec<u8>>, // Program ROM
+    pub(crate) prg_ram: Memory<Vec<u8>>, // Program RAM
+    pub(crate) ex_ram: Memory<Vec<u8>>,  // Internal Extra RAM
     pub(crate) game_info: Option<GameInfo>,
 }
 
@@ -86,17 +86,18 @@ impl Default for Cart {
 
 impl Cart {
     pub fn empty() -> Self {
+        let ram_state = RamState::default();
         let mut empty = Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
             region: NesRegion::Ntsc,
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr_rom: DynMemory::with_size(CHR_ROM_BANK_SIZE),
-            chr_ram: DynMemory::new(),
-            prg_rom: DynMemory::with_size(PRG_ROM_BANK_SIZE),
-            prg_ram: DynMemory::new(),
-            ex_ram: DynMemory::new(),
+            chr_rom: Memory::rom().with_size(CHR_ROM_BANK_SIZE),
+            chr_ram: Memory::ram(ram_state),
+            prg_rom: Memory::rom().with_size(PRG_ROM_BANK_SIZE),
+            prg_ram: Memory::ram(ram_state),
+            ex_ram: Memory::ram(ram_state),
             game_info: None,
         };
         empty.mapper = Nrom::load(&mut empty).expect("valid empty mapper");
@@ -134,7 +135,7 @@ impl Cart {
         debug!("{header:?}");
 
         let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = DynMemory::with_size(prg_rom_len);
+        let mut prg_rom = Memory::rom().with_size(prg_rom_len);
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
             if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                 Error::InvalidHeader {
@@ -151,9 +152,10 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let prg_ram = DynMemory::with_size(prg_ram_size).with_ram_state(ram_state);
+        let prg_ram = Memory::ram(ram_state).with_size(prg_ram_size);
 
-        let mut chr_rom = DynMemory::with_size((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
+        let mut chr_rom =
+            Memory::rom().with_size((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
         let chr_ram = if header.chr_rom_banks > 0 {
             rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
@@ -169,10 +171,10 @@ impl Cart {
                     Error::io(err, "failed to read chr-rom")
                 }
             })?;
-            DynMemory::new()
+            Memory::ram(ram_state)
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
-            DynMemory::with_size(chr_ram_size).with_ram_state(ram_state)
+            Memory::ram(ram_state).with_size(chr_ram_size)
         };
 
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);
@@ -202,7 +204,7 @@ impl Cart {
             chr_ram,
             prg_rom,
             prg_ram,
-            ex_ram: DynMemory::new(),
+            ex_ram: Memory::ram(ram_state),
             game_info,
         };
         cart.mapper = match cart.header.mapper_num {

@@ -162,7 +162,7 @@ impl Multi {
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
     ) -> anyhow::Result<Self> {
-        let (tx, rx) = channel::bounded(1024);
+        let (tx, rx) = channel::bounded(128);
         Ok(Self {
             tx,
             handle: std::thread::Builder::new()

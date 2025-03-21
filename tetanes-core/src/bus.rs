@@ -11,7 +11,7 @@ use crate::{
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, OnBusRead, OnBusWrite},
-    mem::{ConstMemory, DynMemory, RamState, Read, Write},
+    mem::{ConstSlice, Memory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -55,12 +55,12 @@ pub struct Bus {
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
-    pub prg_ram: DynMemory<u8>,
+    pub prg_ram: Memory<Vec<u8>>,
     #[serde(skip)]
-    pub prg_rom: DynMemory<u8>,
+    pub prg_rom: Memory<Vec<u8>>,
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: ConstMemory<u8, 0x0800>, // 2K NES Work Ram available to the CPU
+    pub wram: Memory<ConstSlice<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
 }
 
 impl Default for Bus {
@@ -76,13 +76,13 @@ impl Bus {
             genie_codes: HashMap::new(),
             input: Input::new(region),
             open_bus: 0x00,
-            ppu: Ppu::new(region),
-            prg_ram: DynMemory::new().with_ram_state(ram_state),
+            ppu: Ppu::new(region, ram_state),
+            prg_ram: Memory::ram(ram_state),
             prg_ram_protect: false,
-            prg_rom: DynMemory::new(),
+            prg_rom: Memory::rom(),
             ram_state,
             region,
-            wram: ConstMemory::new().with_ram_state(ram_state),
+            wram: Memory::ram_const(ram_state),
         }
     }
 
@@ -90,9 +90,9 @@ impl Bus {
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
         if cart.chr_ram.is_empty() {
-            self.ppu.bus.load_chr(cart.chr_rom, false);
+            self.ppu.bus.load_chr(cart.chr_rom);
         } else {
-            self.ppu.bus.load_chr(cart.chr_ram, true);
+            self.ppu.bus.load_chr(cart.chr_ram);
         }
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
@@ -110,7 +110,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn load_sram(&mut self, sram: DynMemory<u8>) {
+    pub fn load_sram(&mut self, sram: Memory<Vec<u8>>) {
         self.prg_ram = sram;
     }
 
@@ -363,7 +363,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = DynMemory::with_size(0x2000);
+        cart.chr_rom = Memory::rom().with_size(0x2000);
         cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
@@ -393,7 +393,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = DynMemory::with_size(0x2000);
+        cart.chr_ram = Memory::ram(RamState::default()).with_size(0x2000);
         cart.chr_ram.fill(0x66);
         bus.load_cart(cart);
 

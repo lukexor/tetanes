@@ -5,7 +5,7 @@ use crate::{
     cpu::Cpu,
     debug::PpuDebugger,
     mapper::{BusKind, Mapper, OnBusRead, OnBusWrite},
-    mem::{ConstMemory, Read, Write},
+    mem::{ConstSlice, RamState, Read, Write},
     ppu::{bus::Bus, frame::Frame},
 };
 use ctrl::Ctrl;
@@ -129,13 +129,15 @@ pub struct Ppu {
     pub vram_buffer: u8,
 
     /// $2004 Object Attribute Memory (OAM) data (read/write).
-    pub oamdata: ConstMemory<u8, 256>,
+    pub oamdata: ConstSlice<u8, 256>,
     /// Secondary OAM data on a given scanline.
-    pub secondary_oamdata: ConstMemory<u8, 32>,
+    pub secondary_oamdata: ConstSlice<u8, 32>,
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
     /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
-    pub spr_present: ConstMemory<bool, 256>,
+    // This is a per-frame optimization, shouldn't need to be saved
+    #[serde(skip)]
+    pub spr_present: ConstSlice<bool, 256>,
 
     pub prevent_vbl: bool,
     pub frame: Frame,
@@ -151,13 +153,14 @@ pub struct Ppu {
 
     pub open_bus: u8,
 
+    // Don't save debug state
     #[serde(skip)]
     pub debugger: Option<PpuDebugger>,
 }
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new(NesRegion::Ntsc)
+        Self::new(NesRegion::Ntsc, RamState::default())
     }
 }
 
@@ -238,7 +241,7 @@ impl Ppu {
     ];
 
     /// Create a new PPU instance.
-    pub fn new(region: NesRegion) -> Self {
+    pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         let mut ppu = Self {
             master_clock: 0,
             clock_divider: 0,
@@ -253,7 +256,7 @@ impl Ppu {
             mask: Mask::new(region),
             ctrl: Ctrl::new(),
             status: Status::new(),
-            bus: Bus::new(),
+            bus: Bus::new(ram_state),
 
             prev_palette: 0x00,
             curr_palette: 0x00,
@@ -277,10 +280,10 @@ impl Ppu {
             spr_count: 0,
             vram_buffer: 0x00,
 
-            oamdata: ConstMemory::new(),
-            secondary_oamdata: ConstMemory::new(),
+            oamdata: ConstSlice::new(),
+            secondary_oamdata: ConstSlice::new(),
             sprites: [Sprite::new(); 8],
-            spr_present: ConstMemory::new(),
+            spr_present: ConstSlice::new(),
 
             prevent_vbl: false,
             frame: Frame::new(),
@@ -667,7 +670,7 @@ impl Ppu {
             // 1..=64
             Self::OAM_CLEAR_START..=Self::OAM_CLEAR_END => {
                 self.oam_fetch = 0xFF;
-                self.secondary_oamdata = ConstMemory::filled(0xFF);
+                self.secondary_oamdata = ConstSlice::filled(0xFF);
             }
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
@@ -976,7 +979,7 @@ impl Ppu {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
-                            self.spr_present = ConstMemory::new();
+                            self.spr_present = ConstSlice::new();
                         }
                         if prerender_scanline
                             // 280..=304
@@ -1415,7 +1418,7 @@ impl Reset for Ppu {
             self.reset_signal = self.emulate_warmup;
         }
         if kind == ResetKind::Hard {
-            self.oamdata = ConstMemory::new();
+            self.oamdata = ConstSlice::new();
             self.oamaddr = 0x0000;
         }
         self.secondary_oamaddr = 0x0000;
@@ -1433,7 +1436,7 @@ impl Reset for Ppu {
         self.spr_zero_visible = false;
         self.spr_count = 0;
         self.sprites = [Sprite::new(); 8];
-        self.spr_present = ConstMemory::new();
+        self.spr_present = ConstSlice::new();
         self.open_bus = 0x00;
         self.bus.reset(kind);
     }

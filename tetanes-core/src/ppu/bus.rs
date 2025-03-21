@@ -3,7 +3,7 @@
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
     mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusWrite},
-    mem::{ConstMemory, DynMemory, Read, Write},
+    mem::{ConstSlice, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
@@ -29,17 +29,17 @@ impl PpuAddr for u16 {
 #[must_use]
 pub struct Bus {
     pub mapper: Mapper,
-    pub chr: DynMemory<u8>,
-    pub chr_is_ram: bool,
-    pub ciram: ConstMemory<u8, 0x0800>, // $2007 PPUDATA
-    pub palette: ConstMemory<u8, 32>,
-    pub exram: DynMemory<u8>,
+    pub chr: Memory<Vec<u8>>,
+    pub ciram: Memory<ConstSlice<u8, 0x0800>>, // $2007 PPUDATA
+    pub palette: Memory<ConstSlice<u8, 32>>,
+    #[serde(skip)]
+    pub exram: Memory<Vec<u8>>,
     pub open_bus: u8,
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        Self::new(RamState::default())
     }
 }
 
@@ -47,14 +47,13 @@ impl Bus {
     pub const VRAM_SIZE: usize = 0x0800; // Two 1k Nametables
     pub const PALETTE_SIZE: usize = 32; // 32 possible colors at a time
 
-    pub fn new() -> Self {
+    pub fn new(ram_state: RamState) -> Self {
         Self {
             mapper: Mapper::none(),
-            chr: DynMemory::new(),
-            chr_is_ram: false,
-            ciram: ConstMemory::new(),
-            palette: ConstMemory::new(),
-            exram: DynMemory::new(),
+            chr: Memory::rom(),
+            ciram: Memory::ram_const(ram_state),
+            palette: Memory::ram_const(ram_state),
+            exram: Memory::ram(ram_state),
             open_bus: 0x00,
         }
     }
@@ -63,12 +62,11 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr(&mut self, chr: DynMemory<u8>, is_ram: bool) {
+    pub fn load_chr(&mut self, chr: Memory<Vec<u8>>) {
         self.chr = chr;
-        self.chr_is_ram = is_ram;
     }
 
-    pub fn load_ex_ram(&mut self, ex_ram: DynMemory<u8>) {
+    pub fn load_ex_ram(&mut self, ex_ram: Memory<Vec<u8>>) {
         self.exram = ex_ram;
     }
 
@@ -205,7 +203,7 @@ impl Write for Bus {
                 MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
                 MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
                 MappedWrite::ChrRam(addr, val) => {
-                    if self.chr_is_ram {
+                    if self.chr.is_ram() {
                         self.chr[addr] = val;
                     }
                 }
@@ -245,7 +243,7 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
-        if self.chr_is_ram {
+        if self.chr.is_ram() {
             self.chr.reset(kind);
         }
         self.mapper.reset(kind);
