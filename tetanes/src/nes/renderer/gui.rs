@@ -78,7 +78,6 @@ pub struct Gui {
     pub initialized: bool,
     pub title: String,
     pub tx: NesEventProxy,
-    pub cfg: Config,
     pub nes_texture: Texture,
     pub corrupted_cpu_instr: Option<Instr>,
     pub run_state: RunState,
@@ -120,7 +119,7 @@ impl Gui {
         ctx: Context,
         tx: NesEventProxy,
         render_state: &mut RenderState,
-        cfg: Config,
+        cfg: &Config,
     ) -> Self {
         let nes_texture = Texture::new(
             render_state,
@@ -134,7 +133,6 @@ impl Gui {
             initialized: false,
             title: Config::WINDOW_TITLE.to_string(),
             tx: tx.clone(),
-            cfg,
             nes_texture,
             corrupted_cpu_instr: None,
             run_state: RunState::Running,
@@ -238,14 +236,14 @@ impl Gui {
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.about_open = !self.about_open,
-                    Menu::Keybinds => self.keybinds.toggle_open(),
+                    Menu::Keybinds => self.keybinds.toggle_open(&self.ctx),
                     Menu::PerfStats => {
                         self.perf_stats_open = !self.perf_stats_open;
                         self.tx
                             .event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
                     }
-                    Menu::PpuViewer => self.ppu_viewer.toggle_open(),
-                    Menu::Preferences => self.preferences.toggle_open(),
+                    Menu::PpuViewer => self.ppu_viewer.toggle_open(&self.ctx),
+                    Menu::Preferences => self.preferences.toggle_open(&self.ctx),
                 },
                 _ => (),
             },
@@ -275,57 +273,50 @@ impl Gui {
         self.loaded_rom.as_ref().map(|rom| rom.region)
     }
 
-    pub fn aspect_ratio(&self) -> f32 {
-        let region = self
-            .cfg
+    pub fn aspect_ratio(&self, cfg: &Config) -> f32 {
+        let region = cfg
             .deck
             .region
             .is_auto()
             .then(|| self.loaded_region())
             .flatten()
-            .unwrap_or(self.cfg.deck.region);
+            .unwrap_or(cfg.deck.region);
         region.aspect_ratio()
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.cfg = cfg.clone();
-        self.preferences.prepare(&self.cfg);
-        self.keybinds.prepare(gamepads, &self.cfg);
-        self.ppu_viewer.prepare(&self.cfg);
-    }
-
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, gamepads: Option<&Gamepads>) {
+    pub fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         if !self.initialized {
-            self.initialize(ctx);
+            self.initialize(ctx, cfg);
         }
 
-        if self.cfg.renderer.show_menubar {
-            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui));
+        if cfg.renderer.show_menubar {
+            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui, cfg));
         }
 
         let viewport_opts = ViewportOptions {
             enabled: !self.keybinds.wants_input(),
-            always_on_top: self.cfg.renderer.always_on_top,
+            always_on_top: cfg.renderer.always_on_top,
         };
 
         CentralPanel::default()
             .frame(Frame::canvas(&ctx.style()))
             .show(ctx, |ui| {
-                self.nes_frame(ui, viewport_opts.enabled, gamepads);
+                self.nes_frame(ui, viewport_opts.enabled, cfg, gamepads);
             });
 
-        self.preferences.show(ctx, viewport_opts);
-        self.keybinds.show(ctx, viewport_opts);
+        self.preferences.show(ctx, viewport_opts, cfg.clone());
+        self.keybinds
+            .show(ctx, viewport_opts, cfg.clone(), gamepads);
         self.ppu_viewer.show(ctx, viewport_opts);
 
         self.show_about_window(ctx, viewport_opts.enabled);
         self.show_about_homebrew_window(ctx, viewport_opts.enabled);
 
-        self.show_performance_window(ctx, viewport_opts.enabled);
+        self.show_performance_window(ctx, viewport_opts.enabled, cfg);
         self.show_update_window(ctx, viewport_opts.enabled);
 
         Self::show_viewport(
@@ -367,11 +358,11 @@ impl Gui {
         }
     }
 
-    fn initialize(&mut self, ctx: &Context) {
+    fn initialize(&mut self, ctx: &Context, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let theme = if self.cfg.renderer.dark_theme {
+        let theme = if cfg.renderer.dark_theme {
             Self::dark_theme()
         } else {
             Self::light_theme()
@@ -478,7 +469,7 @@ impl Gui {
             .show(ctx, |ui| info.ui(ui));
     }
 
-    fn show_performance_window(&mut self, ctx: &Context, enabled: bool) {
+    fn show_performance_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -486,7 +477,7 @@ impl Gui {
         egui::Window::new("🛠 Performance Stats")
             .open(&mut perf_stats_open)
             .show(ctx, |ui| {
-                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui));
+                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
             });
         self.perf_stats_open = perf_stats_open;
     }
@@ -592,7 +583,7 @@ impl Gui {
         self.update_window_open = update_window_open;
     }
 
-    fn menubar(&mut self, ui: &mut Ui) {
+    fn menubar(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -603,12 +594,12 @@ impl Gui {
 
                     ui.separator();
 
-                    ui.menu_button("📁 File", |ui| self.file_menu(ui));
-                    ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui));
-                    ui.menu_button("🔧 Config", |ui| self.config_menu(ui));
+                    ui.menu_button("📁 File", |ui| self.file_menu(ui, cfg));
+                    ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui, cfg));
+                    ui.menu_button("🔧 Config", |ui| self.config_menu(ui, cfg));
                     // icon: screen
-                    ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
-                    ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
+                    ui.menu_button("🖵 Window", |ui| self.window_menu(ui, cfg));
+                    ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui, cfg));
                     ui.menu_button("❓ Help", |ui| self.help_menu(ui));
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -644,15 +635,14 @@ impl Gui {
         }
     }
 
-    fn file_menu(&mut self, ui: &mut Ui) {
+    fn file_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let button =
-            Button::new("📂 Load ROM...").shortcut_text(self.cfg.shortcut(UiAction::LoadRom));
+        let button = Button::new("📂 Load ROM...").shortcut_text(cfg.shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
-                self.run_state = RunState::Paused;
+                self.run_state = RunState::AutoPaused;
                 self.tx.event(EmulationEvent::RunState(self.run_state));
             }
             // NOTE: Due to some platforms file dialogs blocking the event loop,
@@ -665,7 +655,6 @@ impl Gui {
         ui.menu_button("🍺 Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             let button =
@@ -683,7 +672,7 @@ impl Gui {
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.run_state = RunState::Paused;
+                self.run_state = RunState::AutoPaused;
                 tx.event(EmulationEvent::RunState(self.run_state));
                 // NOTE: Due to some platforms file dialogs blocking the event loop,
                 // loading requires a round-trip in order for the above pause to
@@ -787,12 +776,11 @@ impl Gui {
         });
     }
 
-    fn controls_menu(&mut self, ui: &mut Ui) {
+    fn controls_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             let button = Button::new(if self.run_state.paused() {
@@ -805,7 +793,7 @@ impl Gui {
             if res.clicked() {
                 self.run_state = match self.run_state {
                     RunState::Running => RunState::ManuallyPaused,
-                    RunState::ManuallyPaused | RunState::Paused => RunState::Running,
+                    RunState::ManuallyPaused | RunState::AutoPaused => RunState::Running,
                 };
                 tx.event(EmulationEvent::RunState(self.run_state));
                 ui.close_menu();
@@ -913,12 +901,11 @@ impl Gui {
         }
     }
 
-    fn config_menu(&mut self, ui: &mut Ui) {
+    fn config_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         Preferences::cycle_accurate_checkbox(
             tx,
@@ -1001,7 +988,7 @@ impl Gui {
         let toggle = ToggleValue::new(&mut preferences_open, "🔧 Preferences")
             .shortcut_text(cfg.shortcut(Menu::Preferences));
         if ui.add(toggle).clicked() {
-            self.preferences.set_open(preferences_open);
+            self.preferences.set_open(preferences_open, &self.ctx);
             ui.close_menu();
         }
 
@@ -1010,19 +997,18 @@ impl Gui {
         let toggle = ToggleValue::new(&mut keybinds_open, "🖮 Keybinds")
             .shortcut_text(cfg.shortcut(Menu::Keybinds));
         if ui.add(toggle).clicked() {
-            self.keybinds.set_open(keybinds_open);
+            self.keybinds.set_open(keybinds_open, &self.ctx);
             ui.close_menu();
         };
     }
 
-    fn window_menu(&mut self, ui: &mut Ui) {
+    fn window_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         use Setting::*;
 
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
         let RendererConfig {
             scale,
             fullscreen,
@@ -1068,12 +1054,11 @@ impl Gui {
         }
     }
 
-    fn debug_menu(&mut self, ui: &mut Ui) {
+    fn debug_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         #[cfg(feature = "profiling")]
         {
@@ -1158,7 +1143,7 @@ impl Gui {
             ToggleValue::new(&mut open, "🌇 PPU Viewer").shortcut_text(ppu_viewer_shortcut);
         let res = ui.add(toggle).on_hover_text("Toggle the PPU Viewer.");
         if res.clicked() {
-            self.ppu_viewer.set_open(open);
+            self.ppu_viewer.set_open(open, &self.ctx);
             ui.close_menu();
         }
 
@@ -1230,7 +1215,7 @@ impl Gui {
         });
     }
 
-    fn nes_frame(&mut self, ui: &mut Ui, enabled: bool, gamepads: Option<&Gamepads>) {
+    fn nes_frame(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config, gamepads: &Gamepads) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1250,7 +1235,7 @@ impl Gui {
                             .shrink_to_fit()
                             .sense(Sense::click());
 
-                        let hover_cursor = if self.cfg.deck.zapper {
+                        let hover_cursor = if cfg.deck.zapper {
                             CursorIcon::Crosshair
                         } else {
                             CursorIcon::Default
@@ -1259,14 +1244,14 @@ impl Gui {
                         let res = ui.add(image).on_hover_cursor(hover_cursor);
                         self.nes_frame = res.rect;
 
-                        if self.cfg.deck.zapper {
+                        if cfg.deck.zapper {
                             if res.clicked() {
                                 tx.event(EmulationEvent::ZapperTrigger);
                             }
-                            if self
-                                .cfg
+                            if
+                                cfg
                                 .action_input(DeckAction::ZapperAimOffscreen)
-                                .is_some_and(|input| input_down(ui, gamepads, &self.cfg, input))
+                                .is_some_and(|input| input_down(ui, gamepads, cfg, input))
                             {
                                 let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
                                 tx.event(EmulationEvent::ZapperAim(pos));
@@ -1315,7 +1300,7 @@ impl Gui {
                 });
             }
 
-            if self.cfg.renderer.show_messages {
+            if cfg.renderer.show_messages {
                 if let Some(instr) = self.corrupted_cpu_instr {
                     Frame::popup(ui.style()).show(ui, |ui| {
                         ui.with_layout(
@@ -1389,11 +1374,9 @@ impl Gui {
         });
     }
 
-    fn performance_stats(&mut self, ui: &mut Ui) {
+    fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
-
-        let cfg = &self.cfg;
 
         let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
         grid.show(ui, |ui| {

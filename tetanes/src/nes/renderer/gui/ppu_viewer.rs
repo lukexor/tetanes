@@ -1,5 +1,4 @@
 use crate::nes::{
-    config::Config,
     event::{DebugEvent, EmulationEvent, NesEventProxy},
     renderer::{
         gui::lib::{ViewportOptions, animated_dashed_rect},
@@ -163,7 +162,6 @@ pub struct PpuViewer {
     id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
-    resources: Option<Config>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -251,7 +249,6 @@ impl PpuViewer {
                 },
                 ppu: Ppu::default(),
             })),
-            resources: None,
         }
     }
 
@@ -263,19 +260,22 @@ impl PpuViewer {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool) {
+    pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
+        self.state.lock().update_debugger(self.open());
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn toggle_open(&self) {
+    pub fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
         self.state.lock().update_debugger(self.open());
-    }
-
-    pub fn prepare(&mut self, cfg: &Config) {
-        self.resources = Some(cfg.clone());
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
     pub fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {

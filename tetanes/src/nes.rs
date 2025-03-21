@@ -75,16 +75,16 @@ impl State {
 pub enum RunState {
     Running,
     ManuallyPaused,
-    Paused,
+    AutoPaused,
 }
 
 impl RunState {
     pub const fn paused(&self) -> bool {
-        matches!(self, Self::ManuallyPaused | Self::Paused)
+        matches!(self, Self::ManuallyPaused | Self::AutoPaused)
     }
 
     pub const fn auto_paused(&self) -> bool {
-        matches!(self, Self::Paused)
+        matches!(self, Self::AutoPaused)
     }
 
     pub const fn manually_paused(&self) -> bool {
@@ -104,10 +104,10 @@ pub(crate) struct Running {
     pub(crate) input_bindings: InputBindings,
     pub(crate) gamepads: Gamepads,
     pub(crate) modifiers: Modifiers,
-    pub(crate) run_state: RunState,
     pub(crate) replay_recording: bool,
     pub(crate) audio_recording: bool,
     pub(crate) rewinding: bool,
+    pub(crate) occluded: bool,
     pub(crate) repaint_times: HashMap<WindowId, Instant>,
 }
 
@@ -225,10 +225,10 @@ impl Nes {
                     input_bindings,
                     gamepads,
                     modifiers: Modifiers::default(),
-                    run_state: RunState::Running,
                     replay_recording: false,
                     audio_recording: false,
                     rewinding: false,
+                    occluded: false,
                     repaint_times: HashMap::default(),
                 };
                 running.initialize()?;

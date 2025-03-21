@@ -222,6 +222,7 @@ pub mod renderer {
     use crate::nes::{
         config::Config,
         event::Response,
+        input::Gamepads,
         renderer::{Viewport, gui::Gui},
     };
     use std::cell::RefCell;
@@ -312,10 +313,6 @@ pub mod renderer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
-        gui.borrow_mut()
-            .prepare(&Default::default(), &Default::default());
-
         let (viewport_ui_cb, raw_input) = {
             let State {
                 viewports,
@@ -359,9 +356,12 @@ pub mod renderer {
             (viewport_ui_cb, raw_input.take())
         };
 
+        // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
+        let config = Config::default();
+        let gamepads = Gamepads::default();
         let mut output = ctx.run(raw_input, |ctx| match &viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-            None => gui.borrow_mut().ui(ctx, None),
+            None => gui.borrow_mut().ui(ctx, &config, &gamepads),
         });
 
         let State {

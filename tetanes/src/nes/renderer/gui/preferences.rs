@@ -27,7 +27,6 @@ use tetanes_core::{
     control_deck::Config as DeckConfig, fs, genie::GenieCode, input::FourPlayer, mem::RamState,
     time::Duration, video::VideoFilter,
 };
-use tracing::warn;
 
 #[derive(Debug)]
 #[must_use]
@@ -43,7 +42,6 @@ pub struct Preferences {
     id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
-    resources: Option<Config>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -73,7 +71,6 @@ impl Preferences {
                 tab: Tab::default(),
                 genie_entry: GenieEntry::default(),
             })),
-            resources: None,
         }
     }
 
@@ -85,21 +82,23 @@ impl Preferences {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool) {
+    pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn toggle_open(&self) {
+    pub fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn prepare(&mut self, cfg: &Config) {
-        self.resources = Some(cfg.clone());
-    }
-
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config) {
         if !self.open() {
             return;
         }
@@ -109,10 +108,6 @@ impl Preferences {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        let Some(cfg) = self.resources.take() else {
-            warn!("Preferences::prepare was not called with required resources");
-            return;
-        };
 
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
