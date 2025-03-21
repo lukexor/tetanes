@@ -1,6 +1,6 @@
 //! NES Memory/Data Bus implementation.
 //!
-//! <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
+//! <https://wiki.nesdev.org/w/index.php/CPU_memory_map>
 
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
@@ -19,7 +19,7 @@ use std::{collections::HashMap, path::Path};
 
 /// NES Bus
 ///
-/// <http://wiki.nesdev.com/w/index.php/CPU_memory_map>
+/// <https://wiki.nesdev.org/w/index.php/CPU_memory_map>
 ///
 /// |-----------------| $FFFF |-----------------|
 /// | PRG-ROM         |       |                 |

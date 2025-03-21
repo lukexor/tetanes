@@ -1,6 +1,6 @@
 //! PPUMASK register implementation.
 //!
-//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK>
+//! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 
 use crate::common::{NesRegion, Reset, ResetKind};
 use bitflags::bitflags;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// PPUMASK register.
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK>
+/// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Mask {
@@ -26,7 +26,7 @@ pub struct Mask {
 bitflags! {
     // $2001 PPUMASK
     //
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUMASK
+    // https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK
     // BGRs bMmG
     // |||| |||+- Grayscale (0: normal color, 1: produce a grayscale display)
     // |||| ||+-- 1: Show background in leftmost 8 pixels of screen, 0: Hide

@@ -473,15 +473,15 @@ pub enum NesVariant {
 
 /// An `iNES` or `NES 2.0` formatted header representing hardware specs of a given NES cartridge.
 ///
-/// <http://wiki.nesdev.com/w/index.php/INES>
-/// <http://wiki.nesdev.com/w/index.php/NES_2.0>
-/// <http://nesdev.com/NESDoc.pdf> (page 28)
+/// <https://wiki.nesdev.org/w/index.php/INES>
+/// <https://wiki.nesdev.org/w/index.php/NES_2.0>
+/// <https://nesdev.org/NESDoc.pdf> (page 28)
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct NesHeader {
     pub variant: NesVariant,
     pub mapper_num: u16,    // The primary mapper number
-    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
+    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.org/w/index.php/NES_2.0_submappers
     pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
     pub prg_rom_banks: u16, // Number of 16KB PRG-ROM banks (Program ROM)
     pub chr_rom_banks: u16, // Number of 8KB CHR-ROM banks (Character ROM)

@@ -1,6 +1,6 @@
 //! `FxROM`/`MMC4` (Mapper 010).
 //!
-//! <http://wiki.nesdev.com/w/index.php/MMC4>
+//! <https://wiki.nesdev.org/w/index.php/MMC4>
 
 use crate::{
     cart::Cart,

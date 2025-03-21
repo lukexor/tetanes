@@ -1,13 +1,13 @@
 //! PPUSCROLL register implementation.
 //!
-//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL>
+//! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSCROLL>
 
 use crate::common::{Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
 /// PPUSCROLL register.
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSCROLL>
+/// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSCROLL>
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Scroll {
@@ -58,7 +58,7 @@ impl Scroll {
         }
     }
 
-    // https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
+    // https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching
     // NN 1111 YYY XXXXX
     // || |||| ||| +++-- high 3 bits of coarse X (x/4)
     // || |||| +++------ high 3 bits of coarse Y (y/4)
@@ -190,7 +190,7 @@ impl Scroll {
     // Increment Coarse X
     // 0-4 bits are incremented, with overflow toggling bit 10 which switches the horizontal
     // nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
+    // https://wiki.nesdev.org/w/index.php/PPU_scrolling#Wrapping_around
     pub const fn increment_x(&mut self) {
         // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
@@ -204,7 +204,7 @@ impl Scroll {
     // Increment Fine Y
     // Bits 12-14 are incremented for Fine Y, with overflow incrementing coarse Y in bits 5-9 with
     // overflow toggling bit 11 which switches the vertical nametable
-    // http://wiki.nesdev.com/w/index.php/PPU_scrolling#Wrapping_around
+    // https://wiki.nesdev.org/w/index.php/PPU_scrolling#Wrapping_around
     pub const fn increment_y(&mut self) {
         if (self.v & Self::FINE_Y_MASK) == Self::FINE_Y_MASK {
             self.set_v(self.v & !Self::FINE_Y_MASK); // set fine y = 0 and overflow into coarse y

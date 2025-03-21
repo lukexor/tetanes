@@ -11,7 +11,7 @@ use tracing::{error, trace};
 ///
 /// # References
 ///
-/// - <http://wiki.nesdev.com/w/index.php/6502_instructions>
+/// - <https://wiki.nesdev.org/w/index.php/6502_instructions>
 /// - <http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf>
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]

@@ -1,7 +1,7 @@
 //! `TxROM`/`MMC3` (Mapper 004).
 //!
-//! <https://wiki.nesdev.com/w/index.php/TxROM>
-//! <https://wiki.nesdev.com/w/index.php/MMC3>
+//! <https://wiki.nesdev.org/w/index.php/TxROM>
+//! <https://wiki.nesdev.org/w/index.php/MMC3>
 
 use crate::{
     cart::Cart,
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 /// MMC3 Revision.
 ///
-/// See:<http://forums.nesdev.com/viewtopic.php?p=62546#p62546>
+/// See: <https://forums.nesdev.org/viewtopic.php?p=62546#p62546>
 ///
 /// Known Revisions:
 ///

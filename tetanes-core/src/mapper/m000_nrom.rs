@@ -1,6 +1,6 @@
 //! `NROM` (Mapper 000).
 //!
-//! <http://wiki.nesdev.com/w/index.php/NROM>
+//! <https://wiki.nesdev.org/w/index.php/NROM>
 
 use crate::{
     cart::Cart,

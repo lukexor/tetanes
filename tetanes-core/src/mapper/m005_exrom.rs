@@ -1,7 +1,7 @@
 //! `ExROM`/`MMC5` (Mapper 5).
 //!
-//! <https://wiki.nesdev.com/w/index.php/ExROM>
-//! <https://wiki.nesdev.com/w/index.php/MMC5>
+//! <https://wiki.nesdev.org/w/index.php/ExROM>
+//! <https://wiki.nesdev.org/w/index.php/MMC5>
 
 use crate::{
     apu::{

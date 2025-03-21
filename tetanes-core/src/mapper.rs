@@ -1,6 +1,6 @@
 //! Memory Mappers for cartridges.
 //!
-//! <http://wiki.nesdev.com/w/index.php/Mapper>
+//! <https://wiki.nesdev.org/w/index.php/Mapper>
 
 use crate::{
     common::{Clock, Regional, Reset, Sram},

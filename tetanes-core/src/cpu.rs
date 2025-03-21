@@ -1,6 +1,6 @@
 //! 6502 Central Processing Unit (CPU) implementation.
 //!
-//! <http://wiki.nesdev.com/w/index.php/CPU>
+//! <https://wiki.nesdev.org/w/index.php/CPU>
 
 use crate::{
     bus::Bus,
@@ -57,7 +57,7 @@ bitflags! {
 }
 
 // Status Registers
-// http://wiki.nesdev.com/w/index.php/Status_flags
+// https://wiki.nesdev.org/w/index.php/Status_flags
 // 7654 3210
 // NVUB DIZC
 // |||| ||||
@@ -308,7 +308,7 @@ impl Cpu {
 
     /// Process an interrupted request.
     ///
-    /// <http://wiki.nesdev.com/w/index.php/IRQ>
+    /// <https://wiki.nesdev.org/w/index.php/IRQ>
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch PCH

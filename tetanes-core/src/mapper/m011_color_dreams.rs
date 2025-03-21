@@ -1,6 +1,6 @@
 //! `Color Dreams` (Mapper 011).
 //!
-//! <http://wiki.nesdev.com/w/index.php/Color_Dreams>
+//! <https://wiki.nesdev.org/w/index.php/Color_Dreams>
 
 use crate::{
     cart::Cart,

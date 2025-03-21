@@ -43,8 +43,7 @@ fearless concurrency features in a large project. Features used in this project
 include complex enums, traits, generics, matching, iterators, channels, and
 threads.
 
-`TetaNES` also compiles for the web! Try it out in your
-[browser](https://lukeworks.tech/tetanes-web)!
+Try it out in your [browser](https://lukeworks.tech/tetanes-web)!
 
 ## Features
 
@@ -235,8 +234,8 @@ Options:
 [iNES][] and [NES 2.0][] formatted ROMS are supported, though some advanced `NES
 2.0` features may not be implemented.
 
-[ines]: https://wiki.nesdev.com/w/index.php/INES
-[nes 2.0]: https://wiki.nesdev.com/w/index.php/NES_2.0
+[ines]: https://wiki.nesdev.org/w/index.php/INES
+[nes 2.0]: https://wiki.nesdev.org/w/index.php/NES_2.0
 
 ### Supported Mappers
 
@@ -502,9 +501,9 @@ See the [github issue tracker][].
 In addition to the wealth of information in the `docs/` directory, I also
 referenced these websites extensively during development:
 
-- [NES Documentation (PDF)](http://nesdev.com/NESDoc.pdf)
-- [NES Dev Wiki](http://wiki.nesdev.com/w/index.php/Nesdev_Wiki)
-- [6502 Datasheet](http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf)
+- [NES Documentation (PDF)](https://nesdev.org/NESDoc.pdf)
+- [NES Dev Wiki](https://wiki.nesdev.org/w/index.php/Nesdev_Wiki)
+- [6502 Datasheet](https://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf)
 
 ## License
 
@@ -532,18 +531,18 @@ wiki.
 - [nes-emulator](https://github.com/MichaelBurge/nes-emulator)
 - [LaiNES](https://github.com/AndreaOrru/LaiNES)
 - [ANESE](https://github.com/daniel5151/ANESE)
-- [FCEUX](http://www.fceux.com/web/home.html)
+- [FCEUX](https://fceux.com/web/home.html)
 
 I also couldn't have gotten this far without the amazing people over on the
-[NES Dev Forums](http://forums.nesdev.com/):
+[NES Dev Forums](https://forums.nesdev.org/):
 
-- [blargg](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=17) for
-  all his amazing [test roms](https://wiki.nesdev.com/w/index.php/Emulator_tests)
+- [blargg](https://forums.nesdev.org/memberlist.php?mode=viewprofile&u=17) for
+  all his amazing [test roms](https://wiki.nesdev.org/w/index.php/Emulator_tests)
 - [bisqwit](https://bisqwit.iki.fi/) for his test roms & integer NTSC video
   implementation
-- [Disch](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=33)
-- [Quietust](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=7)
-- [rainwarrior](http://forums.nesdev.com/memberlist.php?mode=viewprofile&u=5165)
+- [Disch](https://forums.nesdev.org/memberlist.php?mode=viewprofile&u=33)
+- [Quietust](https://forums.nesdev.org/memberlist.php?mode=viewprofile&u=7)
+- [rainwarrior](https://forums.nesdev.org/memberlist.php?mode=viewprofile&u=5165)
 - And many others who helped me understand the stickier bits of emulation
 
 Also, a huge shout out to

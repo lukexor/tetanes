@@ -1,7 +1,7 @@
 //! `CNROM` (Mapper 003).
 //!
-//! <https://wiki.nesdev.com/w/index.php/CNROM>
-//! <https://wiki.nesdev.com/w/index.php/INES_Mapper_003>
+//! <https://wiki.nesdev.org/w/index.php/CNROM>
+//! <https://wiki.nesdev.org/w/index.php/INES_Mapper_003>
 
 use crate::{
     cart::Cart,

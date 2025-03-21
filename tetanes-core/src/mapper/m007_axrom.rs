@@ -1,6 +1,6 @@
 //! `AxROM` (Mapper 007).
 //!
-//! <https://wiki.nesdev.com/w/index.php/AxROM>
+//! <https://wiki.nesdev.org/w/index.php/AxROM>
 
 use crate::{
     cart::Cart,

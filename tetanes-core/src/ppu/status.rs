@@ -1,6 +1,6 @@
 //! PPUSTATUS register implementation.
 //!
-//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS>
+//! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS>
 
 use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// PPUSTATUS register.
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS>
+/// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Status {
@@ -21,7 +21,7 @@ pub struct Status {
 bitflags! {
     // $2002 PPUSTATUS
     //
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS
+    // https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS
     // VSO. ....
     // |||+-++++- PPU open bus. Returns stale PPU bus contents.
     // ||+------- Sprite overflow. The intent was for this flag to be set

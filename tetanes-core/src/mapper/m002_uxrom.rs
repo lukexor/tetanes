@@ -1,6 +1,6 @@
 //! `UxROM` (Mapper 002).
 //!
-//! <https://wiki.nesdev.com/w/index.php/UxROM>
+//! <https://wiki.nesdev.org/w/index.php/UxROM>
 
 use crate::{
     cart::Cart,

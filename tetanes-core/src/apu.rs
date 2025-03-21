@@ -82,7 +82,7 @@ pub trait ApuRegisters {
 
 /// NES APU (Audio Processing Unit).
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/APU>
+/// See: <https://wiki.nesdev.org/w/index.php/APU>
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {

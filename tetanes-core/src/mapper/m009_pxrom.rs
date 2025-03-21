@@ -1,6 +1,6 @@
 //! `PxROM`/`MMC2` (Mapper 009).
 //!
-//! <http://wiki.nesdev.com/w/index.php/MMC2>
+//! <https://wiki.nesdev.org/w/index.php/MMC2>
 
 use crate::{
     cart::Cart,

@@ -27,7 +27,7 @@ pub mod status;
 
 /// Nametable Mirroring Mode
 ///
-/// <http://wiki.nesdev.com/w/index.php/Mirroring#Nametable_Mirroring>
+/// <https://wiki.nesdev.org/w/index.php/Mirroring#Nametable_Mirroring>
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum Mirroring {
@@ -71,7 +71,7 @@ pub trait Registers {
 
 /// NES PPU.
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/PPU>
+/// See: <https://wiki.nesdev.org/w/index.php/PPU>
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Ppu {
@@ -613,7 +613,7 @@ impl Ppu {
 
     /// Fetch BG nametable byte.
     ///
-    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_bg_nt_byte(&mut self) {
         self.prev_palette = self.curr_palette;
         self.curr_palette = self.next_palette;
@@ -629,7 +629,7 @@ impl Ppu {
 
     /// Fetch BG attribute byte.
     ///
-    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_bg_attr_byte(&mut self) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
@@ -639,7 +639,7 @@ impl Ppu {
     /// Fetch 4 tiles and write out shift registers every 8th cycle.
     /// Each tile fetch takes 2 cycles.
     ///
-    /// See: <https://wiki.nesdev.com/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     fn fetch_background(&mut self) {
         match self.cycle & 0x07 {
             0 => {
@@ -850,7 +850,7 @@ impl Ppu {
         }
     }
 
-    // http://wiki.nesdev.com/w/index.php/PPU_OAM
+    // https://wiki.nesdev.org/w/index.php/PPU_OAM
     fn fetch_sprites(&mut self) {
         // OAMADDR set to $00 on prerender and visible scanlines
         self.write_oamaddr(0x00);
@@ -984,7 +984,7 @@ impl Ppu {
                         {
                             // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
                             // if rendering is enabled
-                            // http://wiki.nesdev.com/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
+                            // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
                             self.scroll.copy_y();
                         }
                         self.fetch_sprites();
@@ -1558,7 +1558,7 @@ mod tests {
         assert_eq!(ppu.read_data(), 0x88);
     }
 
-    // Horizontal: https://wiki.nesdev.com/w/index.php/Mirroring
+    // Horizontal: https://wiki.nesdev.org/w/index.php/Mirroring
     //   [0x2000 A ] [0x2400 a ]
     //   [0x2800 B ] [0x2C00 b ]
     #[test]
@@ -1595,7 +1595,7 @@ mod tests {
         assert_eq!(ppu.read_data(), 0x77); // read b from $2C05
     }
 
-    // Vertical: https://wiki.nesdev.com/w/index.php/Mirroring
+    // Vertical: https://wiki.nesdev.org/w/index.php/Mirroring
     //   [0x2000 A ] [0x2400 B ]
     //   [0x2800 a ] [0x2C00 b ]
     #[test]

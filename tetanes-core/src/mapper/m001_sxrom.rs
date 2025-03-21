@@ -1,7 +1,7 @@
 //! `SxROM`/`MMC1` (Mapper 001).
 //!
-//! <http://wiki.nesdev.com/w/index.php/SxROM>
-//! <http://wiki.nesdev.com/w/index.php/MMC1>
+//! <https://wiki.nesdev.org/w/index.php/SxROM>
+//! <https://wiki.nesdev.org/w/index.php/MMC1>
 
 use crate::{
     cart::Cart,
