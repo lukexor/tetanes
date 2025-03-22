@@ -7,6 +7,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-03-22
+
+### ⛰️  Features
+
+
+- Add don't show again checkbox to update window. closes #390 - ([5cb1186](https://github.com/lukexor/tetanes/commit/5cb1186a0cd1d0016197f21bf89ad7d44339a94e))
+
+### 🐛 Bug Fixes
+
+
+- Fixed some configuration/repaint issues - ([8eb07da](https://github.com/lukexor/tetanes/commit/8eb07da1dbc53c7c2cebfe7b206dbd17ee98b1f5))
+- Basic cpu error recovery options - ([c60d8d1](https://github.com/lukexor/tetanes/commit/c60d8d1d02dde9e3383849e1af43111f26db29c7))
+- Remove color emojis from window titles. closes #410 - ([b149648](https://github.com/lukexor/tetanes/commit/b149648649c875df3303f6208e7de31995e2143b))
+- Fix ctrl-c handling while file dialog is open - ([cb006f2](https://github.com/lukexor/tetanes/commit/cb006f2846e302e7498749fc8f079c7bce7b5739))
+- Show warning if no audio device on startup. closes #388 - ([b0625e5](https://github.com/lukexor/tetanes/commit/b0625e5ccac22c0114bf19981549c9da1b5f2cab))
+- Handle ctrl-c. closes #386 - ([817ee58](https://github.com/lukexor/tetanes/commit/817ee5843a1b8da8676555a52ef2a9a8489477ec))
+
+### 🚜 Refactor
+
+
+- Cleaned up Memory struct - ([7cb31fb](https://github.com/lukexor/tetanes/commit/7cb31fb3878ee4e7e9b4ca9eabe123d570cc3176))
+
+### 📚 Documentation
+
+
+- Fix urls - ([8136c42](https://github.com/lukexor/tetanes/commit/8136c42bdab474e17ceda78819225349a3f1c520))
+- Ensure features display in docs.rs - ([f58b31c](https://github.com/lukexor/tetanes/commit/f58b31cc9d27f0187d759796c64e34ccea3f784a))
+- Remove custom docs.rs metadata - ([201b3bc](https://github.com/lukexor/tetanes/commit/201b3bc4f2ccddbb7b737fced5fa8ed67fac5d25))
+
+### ⚡ Performance
+
+
+- Re-enable puffin_egui with patched versions - ([24ee0cc](https://github.com/lukexor/tetanes/commit/24ee0cc6717442fdebead0f075994ab35cb382da))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Reduce dependencies - ([b16fcd3](https://github.com/lukexor/tetanes/commit/b16fcd353f7bc3233030c49243ddf1f65c80778e))
+- Zip windows installer - ([ccfb7f4](https://github.com/lukexor/tetanes/commit/ccfb7f42184aabda574c783e46b82e9cfb4dd6e6))
+- Updated deps - ([828b770](https://github.com/lukexor/tetanes/commit/828b770071cd9a5e54967573abef9d31888017bc))
+- Add versions to artifacts - ([a29241f](https://github.com/lukexor/tetanes/commit/a29241f2508972bc998519ec0bdf11041e5c22ba))
+
+
 ## [0.12.1](https://github.com/lukexor/tetanes/compare/0.12.0..0.12.1) - 2025-03-13
 
 ### ⛰️  Features
