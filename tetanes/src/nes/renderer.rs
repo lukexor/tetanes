@@ -421,6 +421,7 @@ impl Renderer {
         S: Into<String>,
     {
         self.gui.borrow_mut().add_message(ty, text);
+        self.ctx.request_repaint();
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {

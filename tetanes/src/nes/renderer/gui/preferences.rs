@@ -74,10 +74,6 @@ impl Preferences {
         }
     }
 
-    pub const fn id(&self) -> ViewportId {
-        self.id
-    }
-
     pub fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }

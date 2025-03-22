@@ -74,39 +74,41 @@ pub enum MessageType {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
-    pub ctx: Context,
-    pub initialized: bool,
-    pub title: String,
-    pub tx: NesEventProxy,
+    ctx: Context,
+    initialized: bool,
+    title: String,
+    tx: NesEventProxy,
     pub nes_texture: Texture,
-    pub corrupted_cpu_instr: Option<Instr>,
+    corrupted_cpu_instr: Option<Instr>,
     pub run_state: RunState,
     pub menu_height: f32,
-    pub nes_frame: Rect,
-    pub about_open: bool,
-    pub gui_settings_open: Arc<AtomicBool>,
+    nes_frame: Rect,
+    about_open: bool,
+    gui_settings_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_inspection_open: Arc<AtomicBool>,
+    gui_inspection_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_memory_open: Arc<AtomicBool>,
-    pub perf_stats_open: bool,
-    pub update_window_open: bool,
-    pub version: Version,
+    gui_memory_open: Arc<AtomicBool>,
+    perf_stats_open: bool,
+    update_window_open: bool,
+    version: Version,
     pub keybinds: Keybinds,
-    pub preferences: Preferences,
-    pub debugger_open: bool,
-    pub ppu_viewer: PpuViewer,
-    pub apu_mixer_open: bool,
-    pub viewport_info_open: bool,
-    pub replay_recording: bool,
-    pub audio_recording: bool,
-    pub frame_stats: FrameStats,
-    pub messages: Vec<(MessageType, String, Instant)>,
+    preferences: Preferences,
+    debugger_open: bool,
+    ppu_viewer: PpuViewer,
+    apu_mixer_open: bool,
+    viewport_info_open: bool,
+    replay_recording: bool,
+    audio_recording: bool,
+    frame_stats: FrameStats,
+    messages: Vec<(MessageType, String, Instant)>,
     pub loaded_rom: Option<LoadedRom>,
-    pub about_homebrew_rom_open: Option<RomAsset>,
-    pub start: Instant,
-    pub sys: System,
+    about_homebrew_rom_open: Option<RomAsset>,
+    start: Instant,
+    sys: System,
     pub error: Option<String>,
+    enable_auto_update: bool,
+    dont_show_updates: bool,
 }
 
 impl Gui {
@@ -162,6 +164,8 @@ impl Gui {
             start: Instant::now(),
             sys: System::default(),
             error: None,
+            enable_auto_update: false,
+            dont_show_updates: false,
         }
     }
 
@@ -192,6 +196,7 @@ impl Gui {
             NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
                 self.version.set_latest(version.clone());
                 self.update_window_open = true;
+                self.ctx.request_repaint();
             }
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
@@ -202,6 +207,7 @@ impl Gui {
                 }
                 EmulationEvent::CpuCorrupted { instr } => {
                     self.corrupted_cpu_instr = Some(*instr);
+                    self.ctx.request_repaint();
                 }
                 EmulationEvent::RunState(mode) => {
                     self.run_state = *mode;
@@ -317,7 +323,7 @@ impl Gui {
         self.show_about_homebrew_window(ctx, viewport_opts.enabled);
 
         self.show_performance_window(ctx, viewport_opts.enabled, cfg);
-        self.show_update_window(ctx, viewport_opts.enabled);
+        self.show_update_window(ctx, viewport_opts.enabled, cfg);
 
         Self::show_viewport(
             "🔧 UI Settings",
@@ -525,13 +531,12 @@ impl Gui {
         });
     }
 
-    fn show_update_window(&mut self, ctx: &Context, enabled: bool) {
+    fn show_update_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut update_window_open = self.update_window_open;
+        let mut update_window_open = self.update_window_open && cfg.renderer.show_updates;
         let mut close_window = false;
-        let enable_auto_update = false;
         egui::Window::new("🌐 Update Available")
             .open(&mut update_window_open)
             .resizable(false)
@@ -544,15 +549,24 @@ impl Gui {
                     ui.hyperlink("https://github.com/lukexor/tetanes/releases");
 
                     ui.add_space(15.0);
-                    ui.separator();
-                    ui.add_space(15.0);
 
                     // TODO: Add auto-update for each platform
-                    if enable_auto_update {
+                    if self.enable_auto_update {
                         ui.label("Would you like to install it and restart?");
                         ui.add_space(15.0);
 
-                        ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.dont_show_updates, "Don't show this again");
+                        ui.add_space(15.0);
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            let res = ui.button("Skip").on_hover_text(format!(
+                                "Keep the current version of TetaNES (v{}).",
+                                self.version.current()
+                            ));
+                            if res.clicked() {
+                                close_window = true;
+                            }
+
                             let res = ui.button("Continue").on_hover_text(format!(
                                 "Install the latest version (v{}) restart TetaNES.",
                                 self.version.current()
@@ -566,21 +580,32 @@ impl Gui {
                                     close_window = true;
                                 }
                             }
-                            let res = ui.button("Cancel").on_hover_text(format!(
-                                "Keep the current version of TetaNES (v{}).",
-                                self.version.current()
-                            ));
-                            if res.clicked() {
+                        });
+                    } else {
+                        ui.label("Click the above link to download the update for your system.");
+                        ui.add_space(15.0);
+
+                        ui.checkbox(&mut self.dont_show_updates, "Don't show this again");
+                        ui.add_space(15.0);
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            if ui.button("  OK  ").clicked() {
                                 close_window = true;
                             }
                         });
                     }
                 });
             });
-        if close_window {
-            update_window_open = false;
+        if close_window
+            || update_window_open != self.update_window_open && cfg.renderer.show_updates
+        {
+            self.update_window_open = false;
+            if self.dont_show_updates == cfg.renderer.show_updates {
+                self.tx
+                    .event(ConfigEvent::ShowUpdates(!self.dont_show_updates));
+                self.dont_show_updates = false;
+            }
         }
-        self.update_window_open = update_window_open;
     }
 
     fn menubar(&mut self, ui: &mut Ui, cfg: &Config) {

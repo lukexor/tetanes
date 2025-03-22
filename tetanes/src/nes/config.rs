@@ -98,6 +98,8 @@ pub struct RendererConfig {
     pub embed_viewports: bool,
     pub dark_theme: bool,
     pub shader: Shader,
+    #[serde(default)]
+    pub show_updates: bool,
 }
 
 impl Default for RendererConfig {
@@ -116,6 +118,7 @@ impl Default for RendererConfig {
             embed_viewports: false,
             dark_theme: true,
             shader: Shader::default(),
+            show_updates: true,
         }
     }
 }
