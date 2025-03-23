@@ -411,7 +411,10 @@ impl RenderState {
                     wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
                 )
             })
-            .unwrap_or(capabilities.formats[0]); // TODO: Is falling back to first available okay?
+            .unwrap_or_else(|| {
+                tracing::warn!(format = ?capabilities.formats[0], "failling back to first available format");
+                capabilities.formats[0]
+            });
 
         let (device, queue) =
             connection.map_err(|err| anyhow!("failed to create wgpu device: {err:?}"))?;
