@@ -2,17 +2,24 @@ use crate::nes::{
     action::Action,
     input::{ActionBindings, Gamepads, Input},
     renderer::shader::Shader,
+    rom::HOMEBREW_ROMS,
 };
 use anyhow::Context;
 use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::PathBuf,
+};
 use tetanes_core::{
     action::Action as DeckAction, common::NesRegion, control_deck::Config as DeckConfig, fs,
     input::Player, ppu::Ppu, time::Duration,
 };
 use tracing::{error, info};
 use uuid::Uuid;
+
+/// The maximum number of recent ROM entries to keep.
+const MAX_RECENT_ROMS: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
@@ -81,6 +88,26 @@ impl Default for EmulationConfig {
     }
 }
 
+/// Recently loaded ROM.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum RecentRom {
+    /// Path to a local file.
+    Path(PathBuf),
+    /// Included Homebrew title.
+    Homebrew { name: String },
+}
+
+impl RecentRom {
+    /// Return the name or title of this ROM.
+    pub fn name(&self) -> &str {
+        match self {
+            RecentRom::Path(path) => fs::filename(path).split('.').next().unwrap_or("??"),
+            RecentRom::Homebrew { name } => name,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
@@ -90,7 +117,7 @@ pub struct RendererConfig {
     pub hide_overscan: bool,
     pub scale: f32,
     pub zoom: f32,
-    pub recent_roms: HashSet<PathBuf>,
+    pub recent_roms: VecDeque<RecentRom>,
     pub roms_path: Option<PathBuf>,
     pub show_perf_stats: bool,
     pub show_messages: bool,
@@ -110,7 +137,7 @@ impl Default for RendererConfig {
             hide_overscan: true,
             scale: 3.0,
             zoom: 1.0,
-            recent_roms: HashSet::default(),
+            recent_roms: VecDeque::default(),
             roms_path: std::env::current_dir().ok(),
             show_perf_stats: false,
             show_messages: true,
@@ -386,6 +413,16 @@ impl Config {
             }
         }
 
+        // Only keep recent Homebrew ROMs that are still available.
+        let homebrew_roms = HOMEBREW_ROMS
+            .iter()
+            .map(|rom| rom.name)
+            .collect::<HashSet<_>>();
+        config.renderer.recent_roms.retain(|rom| match rom {
+            RecentRom::Path(_) => true,
+            RecentRom::Homebrew { name } => homebrew_roms.contains(name.as_str()),
+        });
+
         config
     }
 
@@ -491,6 +528,15 @@ impl Config {
                     .flatten()
             })
             .and_then(|bind| bind.bindings[0])
+    }
+
+    // Add a recently loaded ROM.
+    pub fn add_recent_rom(&mut self, rom: RecentRom) {
+        self.renderer.recent_roms.retain(|r| r != &rom);
+        self.renderer.recent_roms.push_front(rom);
+        if self.renderer.recent_roms.len() > MAX_RECENT_ROMS {
+            self.renderer.recent_roms.pop_back();
+        }
     }
 }
 

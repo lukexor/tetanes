@@ -3,7 +3,7 @@ use crate::{
     nes::{
         RunState,
         action::{Debug, DebugKind, DebugStep, Feature, Setting, Ui as UiAction},
-        config::{Config, RendererConfig},
+        config::{Config, RecentRom, RendererConfig},
         emulation::FrameStats,
         event::{
             ConfigEvent, DebugEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent,
@@ -31,7 +31,8 @@ use crate::{
 use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
     FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
-    Sense, Stroke, TopBottomPanel, Ui, ViewportClass, Visuals, hex_color, include_image, menu,
+    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, Visuals, hex_color, include_image,
+    menu,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
 use serde::{Deserialize, Serialize};
@@ -707,24 +708,43 @@ impl Gui {
             }
         });
 
-        // TODO: support saves and recent games on wasm? Requires storing the data
         if feature!(Filesystem) {
             ui.menu_button("🗄 Recently Played...", |ui| {
-                use tetanes_core::fs;
-
-                if cfg.renderer.recent_roms.is_empty() {
-                    ui.label("No recent ROMs");
-                } else {
-                    ScrollArea::vertical().show(ui, |ui| {
-                        // TODO: add timestamp, save slots, and screenshot
+                // Sizing pass here since the width of the submenu can change as recent ROMS are
+                // added or cleared.
+                ui.scope_builder(UiBuilder::new().sizing_pass(), |ui| {
+                    if cfg.renderer.recent_roms.is_empty() {
+                        ui.label("No recent ROMs");
+                    } else {
                         for rom in &cfg.renderer.recent_roms {
-                            if ui.button(fs::filename(rom)).clicked() {
-                                tx.event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                            if ui.button(rom.name()).clicked() {
+                                match rom {
+                                    RecentRom::Homebrew { name } => {
+                                        match HOMEBREW_ROMS.iter().find(|rom| rom.name == name) {
+                                            Some(rom) => {
+                                                tx.event(EmulationEvent::LoadRom((
+                                                    rom.name.to_string(),
+                                                    rom.data(),
+                                                )));
+                                            }
+                                            None => {
+                                                tx.event(UiEvent::Message((
+                                                    MessageType::Error,
+                                                    "Failed to load rom".into(),
+                                                )));
+                                            }
+                                        }
+                                    }
+                                    RecentRom::Path(path) => {
+                                        tx.event(EmulationEvent::LoadRomPath(path.to_path_buf()))
+                                    }
+                                }
                                 ui.close_menu();
                             }
                         }
-                    });
-                }
+                    }
+                });
             });
 
             ui.separator();

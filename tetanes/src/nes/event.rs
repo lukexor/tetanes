@@ -3,7 +3,7 @@ use crate::{
     nes::{
         Nes, RunState, Running, State,
         action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
-        config::Config,
+        config::{Config, RecentRom},
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
@@ -560,6 +560,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     );
                 }
             }
+            NesEvent::Emulation(EmulationEvent::LoadRom((ref name, _))) => {
+                self.cfg
+                    .add_recent_rom(RecentRom::Homebrew { name: name.clone() });
+            }
             NesEvent::Ui(ref event) => self.on_ui_event(event),
             _ => (),
         }
@@ -853,7 +857,7 @@ impl Running {
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::LoadRomPath(path) => {
                     if let Ok(path) = path.canonicalize() {
-                        self.cfg.renderer.recent_roms.insert(path);
+                        self.cfg.add_recent_rom(RecentRom::Path(path));
                     }
                 }
                 EmulationEvent::Reset(_) => self.set_run_state(RunState::Running),
