@@ -568,10 +568,7 @@ impl ControlDeck {
         if fs::exists(path) {
             fs::load::<Cpu>(path)
                 .map_err(Error::SaveState)
-                .map(|mut cpu| {
-                    cpu.bus.input.clear();
-                    self.load_cpu(cpu)
-                })
+                .map(|cpu| self.load_cpu(cpu))
         } else {
             Err(Error::NoSaveStateFound)
         }

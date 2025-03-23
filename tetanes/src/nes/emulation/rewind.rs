@@ -103,7 +103,6 @@ impl Rewind {
             let frame = self.frames[self.index].take()?;
             bincode::deserialize::<Cpu>(&frame.state)
                 .map(|mut cpu| {
-                    cpu.bus.input.clear();
                     cpu.bus.ppu.frame.buffer = frame.buffer;
                     cpu
                 })

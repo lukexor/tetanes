@@ -373,6 +373,7 @@ impl From<JoypadBtn> for JoypadBtnState {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
+    #[serde(skip)] // Don't save button states
     pub buttons: JoypadBtnState,
     pub concurrent_dpad: bool,
     pub index: u8,
@@ -466,9 +467,12 @@ impl Reset for Joypad {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
+    #[serde(skip)] // Don't save triggered state
     pub triggered: f32,
     pub trigger_release_delay: f32,
+    #[serde(skip)] // Don't save zapper position
     pub x: u32,
+    #[serde(skip)] // Don't save zapper position
     pub y: u32,
     pub radius: u32,
     pub connected: bool,
