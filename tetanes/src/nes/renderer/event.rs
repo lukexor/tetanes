@@ -121,7 +121,10 @@ impl Renderer {
         };
 
         let State {
-            viewports, focused, ..
+            viewports,
+            focused,
+            pointer_touch_id,
+            ..
         } = &mut *self.state.borrow_mut();
         let Some(viewport) = viewports.get_mut(&viewport_id) else {
             return Response::default();
@@ -247,7 +250,7 @@ impl Renderer {
             }
             // WindowEvent::TouchpadPressure {device_id, pressure, stage, ..  } => {} // TODO
             WindowEvent::Touch(touch) => {
-                Self::on_touch(viewport, pixels_per_point, touch);
+                Self::on_touch(viewport, pointer_touch_id, pixels_per_point, touch);
                 let consumed = match touch.phase {
                     TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled => {
                         self.ctx.wants_pointer_input()
@@ -457,7 +460,23 @@ impl Renderer {
             .push(egui::Event::PointerMoved(pos_in_points));
     }
 
-    fn on_touch(viewport: &mut Viewport, pixels_per_point: f32, touch: &Touch) {
+    fn on_touch(
+        viewport: &mut Viewport,
+        pointer_touch_id: &mut Option<u64>,
+        pixels_per_point: f32,
+        touch: &Touch,
+    ) {
+        // TODO: Unsure why touch.location is off by scale_factor, as egui-winit doesn't seem to
+        // have this issue
+        let scale_factor = viewport
+            .window
+            .as_ref()
+            .map_or(1.0, |window| window.scale_factor());
+        let location = PhysicalPosition::new(
+            touch.location.x / scale_factor,
+            touch.location.y / scale_factor,
+        );
+
         // Emit touch event
         viewport.raw_input.events.push(egui::Event::Touch {
             device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
@@ -469,8 +488,8 @@ impl Renderer {
                 TouchPhase::Cancelled => egui::TouchPhase::Cancel,
             },
             pos: egui::pos2(
-                touch.location.x as f32 / pixels_per_point,
-                touch.location.y as f32 / pixels_per_point,
+                location.x as f32 / pixels_per_point,
+                location.y as f32 / pixels_per_point,
             ),
             force: match touch.force {
                 Some(Force::Normalized(force)) => Some(force as f32),
@@ -482,6 +501,47 @@ impl Renderer {
                 None => None,
             },
         });
+        // If we're not yet translating a touch or we're translating this very
+        // touch …
+        if pointer_touch_id.is_none()
+            || pointer_touch_id.is_some_and(|touch_id| touch_id == touch.id)
+        {
+            // … emit PointerButton resp. PointerMoved events to emulate mouse
+            match touch.phase {
+                winit::event::TouchPhase::Started => {
+                    *pointer_touch_id = Some(touch.id);
+                    // First move the pointer to the right location
+                    Self::on_cursor_moved(viewport, pixels_per_point, location);
+                    Self::on_mouse_button_input(
+                        viewport.cursor_pos,
+                        viewport,
+                        ElementState::Pressed,
+                        MouseButton::Left,
+                    );
+                }
+                winit::event::TouchPhase::Moved => {
+                    Self::on_cursor_moved(viewport, pixels_per_point, location);
+                }
+                winit::event::TouchPhase::Ended => {
+                    *pointer_touch_id = None;
+                    Self::on_mouse_button_input(
+                        viewport.cursor_pos,
+                        viewport,
+                        ElementState::Released,
+                        MouseButton::Left,
+                    );
+                    // The pointer should vanish completely to not get any
+                    // hover effects
+                    viewport.cursor_pos = None;
+                    viewport.raw_input.events.push(egui::Event::PointerGone);
+                }
+                winit::event::TouchPhase::Cancelled => {
+                    *pointer_touch_id = None;
+                    viewport.cursor_pos = None;
+                    viewport.raw_input.events.push(egui::Event::PointerGone);
+                }
+            }
+        }
     }
 
     fn on_mouse_wheel(viewport: &mut Viewport, pixels_per_point: f32, delta: MouseScrollDelta) {

@@ -67,6 +67,7 @@ pub struct State {
     pub(crate) viewports: ViewportIdMap<Viewport>,
     viewport_from_window: HashMap<WindowId, ViewportId>,
     pub(crate) focused: Option<ViewportId>,
+    pointer_touch_id: Option<u64>,
     pub(crate) start_time: Instant,
 }
 
@@ -249,6 +250,7 @@ impl Renderer {
             viewports,
             viewport_from_window,
             focused: None,
+            pointer_touch_id: None,
             start_time: Instant::now(),
         };
 
@@ -1094,10 +1096,11 @@ impl Renderer {
                 && screen_size_in_points.y > 0.0)
                 .then(|| egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size_in_points));
             raw_input.viewport_id = viewport_id;
-            raw_input.viewports = viewports
-                .iter()
-                .map(|(id, viewport)| (*id, viewport.info.clone()))
-                .collect();
+            raw_input
+                .viewports
+                .entry(viewport_id)
+                .or_default()
+                .native_pixels_per_point = Some(window.scale_factor() as f32);
 
             (viewport_ui_cb, viewport_info, raw_input)
         };

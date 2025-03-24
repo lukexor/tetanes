@@ -617,7 +617,6 @@ impl Gui {
             let inner_res = menu::bar(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     Self::toggle_dark_mode_button(&self.tx, ui);
-
                     ui.separator();
 
                     ui.menu_button("📁 File", |ui| self.file_menu(ui, cfg));
@@ -628,9 +627,15 @@ impl Gui {
                     ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui, cfg));
                     ui.menu_button("❓ Help", |ui| self.help_menu(ui));
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        egui::warn_if_debug_build(ui);
-                    });
+                    if cfg!(debug_assertions) {
+                        ui.separator();
+                        ui.label(
+                            RichText::new("⚠ Debug build ⚠")
+                                .small()
+                                .color(ui.visuals().warn_fg_color),
+                        )
+                        .on_hover_text("TetaNES was compiled with debug assertions enabled.");
+                    }
                 });
             });
             let spacing = ui.style().spacing.item_spacing;

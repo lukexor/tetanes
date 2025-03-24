@@ -246,6 +246,7 @@ impl Cart {
 
         info!("loaded ROM `{cart}`");
         debug!("{cart:?}");
+
         Ok(cart)
     }
 
