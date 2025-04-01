@@ -504,7 +504,7 @@ async fn detect_user_platform() -> anyhow::Result<(Os, Arch)> {
 
     let user_agent = navigator.user_agent().unwrap_or_default();
     let mut os = if user_agent.contains("Mobile") {
-        Os::Mobile
+        anyhow::bail!("mobile download is unsupported");
     } else if user_agent.contains("Windows") {
         Os::Windows
     } else if user_agent.contains("Mac") {
@@ -595,40 +595,45 @@ fn set_download_versions(document: &web_sys::Document) {
                 selected_version.set_href(&download_url_by_os(os, arch));
                 let platform = platform_to_string(os, arch);
                 selected_version.set_inner_text(&format!("Download for {platform}"));
-            }
-        }
 
-        // Add mouseover/mouseout event listeners to version download links and make them visible
-        if let (Some(version_download), Some(version_options)) = (
-            document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
-            document.get_element_by_id(html_ids::VERSION_OPTIONS),
-        ) {
-            let on_mouseover = Closure::<dyn FnMut(_)>::new({
-                let version_options = version_options.clone();
-                move |_: web_sys::MouseEvent| {
-                    if let Err(err) = version_options.class_list().remove_1("hidden") {
+                // Add mouseover/mouseout event listeners to version download links and make them visible
+                if let (Some(version_download), Some(version_options)) = (
+                    document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
+                    document.get_element_by_id(html_ids::VERSION_OPTIONS),
+                ) {
+                    let on_mouseover = Closure::<dyn FnMut(_)>::new({
+                        let version_options = version_options.clone();
+                        move |_: web_sys::MouseEvent| {
+                            if let Err(err) = version_options.class_list().remove_1("hidden") {
+                                tracing::error!("{err:?}");
+                            }
+                        }
+                    });
+                    let on_mouseout =
+                        Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
+                            if let Err(err) = version_options.class_list().add_1("hidden") {
+                                tracing::error!("{err:?}");
+                            }
+                        });
+                    let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
+                    let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
+                    if let Err(err) = version_download
+                        .add_event_listener_with_callback("mouseover", on_mouseover_cb)
+                        .and_then(|_| {
+                            version_download
+                                .add_event_listener_with_callback("mouseout", on_mouseout_cb)
+                        })
+                        .and_then(|_| version_download.class_list().remove_1("hidden"))
+                    {
+                        tracing::error!("{err:?}");
+                    }
+                    on_mouseover.forget();
+                    on_mouseout.forget();
+                    if let Err(err) = version_download.class_list().remove_1("hidden") {
                         tracing::error!("{err:?}");
                     }
                 }
-            });
-            let on_mouseout = Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
-                if let Err(err) = version_options.class_list().add_1("hidden") {
-                    tracing::error!("{err:?}");
-                }
-            });
-            let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
-            let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
-            if let Err(err) = version_download
-                .add_event_listener_with_callback("mouseover", on_mouseover_cb)
-                .and_then(|_| {
-                    version_download.add_event_listener_with_callback("mouseout", on_mouseout_cb)
-                })
-                .and_then(|_| version_download.class_list().remove_1("hidden"))
-            {
-                tracing::error!("{err:?}");
             }
-            on_mouseover.forget();
-            on_mouseout.forget();
         }
     });
 }
