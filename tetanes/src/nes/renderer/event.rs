@@ -466,17 +466,6 @@ impl Renderer {
         pixels_per_point: f32,
         touch: &Touch,
     ) {
-        // TODO: Unsure why touch.location is off by scale_factor, as egui-winit doesn't seem to
-        // have this issue
-        let scale_factor = viewport
-            .window
-            .as_ref()
-            .map_or(1.0, |window| window.scale_factor());
-        let location = PhysicalPosition::new(
-            touch.location.x / scale_factor,
-            touch.location.y / scale_factor,
-        );
-
         // Emit touch event
         viewport.raw_input.events.push(egui::Event::Touch {
             device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
@@ -488,8 +477,8 @@ impl Renderer {
                 TouchPhase::Cancelled => egui::TouchPhase::Cancel,
             },
             pos: egui::pos2(
-                location.x as f32 / pixels_per_point,
-                location.y as f32 / pixels_per_point,
+                touch.location.x as f32 / pixels_per_point,
+                touch.location.y as f32 / pixels_per_point,
             ),
             force: match touch.force {
                 Some(Force::Normalized(force)) => Some(force as f32),
@@ -511,7 +500,7 @@ impl Renderer {
                 winit::event::TouchPhase::Started => {
                     *pointer_touch_id = Some(touch.id);
                     // First move the pointer to the right location
-                    Self::on_cursor_moved(viewport, pixels_per_point, location);
+                    Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
                     Self::on_mouse_button_input(
                         viewport.cursor_pos,
                         viewport,
@@ -520,7 +509,7 @@ impl Renderer {
                     );
                 }
                 winit::event::TouchPhase::Moved => {
-                    Self::on_cursor_moved(viewport, pixels_per_point, location);
+                    Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
                 }
                 winit::event::TouchPhase::Ended => {
                     *pointer_touch_id = None;
