@@ -31,7 +31,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
@@ -59,8 +59,8 @@ impl NesEventProxy {
     pub fn event(&self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("sending event: {event:?}");
-        if let Err(err) = self.0.send_event(event) {
-            error!("failed to send event: {err:?}");
+        if self.0.send_event(event).is_err() {
+            info!("event loop closed, exiting");
             std::process::exit(1);
         }
     }
@@ -335,22 +335,18 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         debug!("resumed event");
 
-        let state = if let State::Running(state) = &mut self.state {
+        if let State::Running(state) = &mut self.state {
             if feature!(Suspend) {
                 state.renderer.recreate_window(event_loop);
             }
-            state
-        } else {
-            if self.state.is_suspended() {
-                if let Err(err) = self.request_renderer_resources(event_loop) {
-                    error!("failed to request renderer resources: {err:?}");
-                    event_loop.exit();
-                }
+            if let Some(window_id) = state.renderer.root_window_id() {
+                state.repaint_times.insert(window_id, Instant::now());
             }
-            return;
-        };
-        if let Some(window_id) = state.renderer.root_window_id() {
-            state.repaint_times.insert(window_id, Instant::now());
+        } else if self.state.is_suspended() {
+            if let Err(err) = self.request_renderer_resources(event_loop) {
+                error!("failed to request renderer resources: {err:?}");
+                event_loop.exit();
+            }
         }
     }
 
