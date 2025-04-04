@@ -103,6 +103,7 @@ impl Rewind {
             let frame = self.frames[self.index].take()?;
             bincode::deserialize::<Cpu>(&frame.state)
                 .map(|mut cpu| {
+                    cpu.bus.input.clear(); // Discard inputs while rewinding
                     cpu.bus.ppu.frame.buffer = frame.buffer;
                     cpu
                 })
@@ -135,7 +136,8 @@ impl State {
         }
         // ~2 seconds worth of frames @ 60 FPS
         let mut rewind_frames = 120 / self.rewind.interval;
-        while let Some(cpu) = self.rewind.pop() {
+        while let Some(mut cpu) = self.rewind.pop() {
+            cpu.bus.input.clear(); // Discard inputs while rewinding
             self.control_deck.load_cpu(cpu);
             rewind_frames -= 1;
             if rewind_frames == 0 {

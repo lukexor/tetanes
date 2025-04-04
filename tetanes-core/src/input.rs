@@ -373,7 +373,6 @@ impl From<JoypadBtn> for JoypadBtnState {
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
-    #[serde(skip)] // Don't save button states
     pub buttons: JoypadBtnState,
     pub concurrent_dpad: bool,
     pub index: u8,
@@ -383,7 +382,7 @@ pub struct Joypad {
 impl Joypad {
     pub const fn new() -> Self {
         Self {
-            buttons: JoypadBtnState::from_bits_truncate(0),
+            buttons: JoypadBtnState::empty(),
             concurrent_dpad: false,
             index: 0,
             strobe: false,
