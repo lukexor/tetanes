@@ -7,14 +7,20 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      build:
-        description: "Run build-and-upload-artifacts"
-        required: true
-        type: boolean
       tag:
         description: "Release tag"
         required: true
         type: string
+      os:
+        description: "Target platform"
+        required: true
+        type: choice
+        options:
+          - all
+          - linux
+          - macos
+          - windows
+          - web
 
 permissions:
   contents: write
@@ -25,115 +31,176 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  build-and-upload-artifacts:
-    name: Build & Upload Artifacts (${{ matrix.target }})
+  build-linux:
+    name: Build Linux Artifacts (${{ matrix.target }})
     if: >
-      (startsWith(github.event.release.name, 'tetanes')
+      ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
-      || inputs.build
-    runs-on: ${{ matrix.os }}
+      || inputs.tag)
+      && (!inputs.os || inputs.os == 'linux')
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-          # TODO: windows aarch64
-          # - target: aarch64-pc-windows-msvc
-          #   os: windows-latest
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
           # TODO: aarch64 linux having trouble with docker in CI
           # - target: aarch64-unknown-linux-gnu
-          #   os: ubuntu-latest
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: aarch64-apple-darwin
-            os: macos-latest
-          - target: wasm32-unknown-unknown
-            os: ubuntu-latest
     defaults:
       run:
         shell: bash
-    outputs:
-      release_tag: ${{ steps.upload.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-      # wasm32-unknown-unknown doesn't need additional toolchains and rustup
-      # target is managed by build-artifacts already
-      #
-      # Windows/macOS just run `rustup add` since the CI runners support cross-compiling
-      # Linux relies on `cross`
-      - if: ${{ !startsWith(matrix.os, 'ubuntu') }}
-        uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
-      - if: startsWith(matrix.os, 'ubuntu')
-        uses: baptiste0928/cargo-install@v3
+      - uses: baptiste0928/cargo-install@v3
         with:
           crate: cross
           git: https://github.com/cross-rs/cross
           commit: 19be834
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-make
-      # Build `.deb`
-      - if: startsWith(matrix.os, 'ubuntu')
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deb
-      # Build `.msi`
-      - if: startsWith(matrix.os, 'windows')
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-wix
-      # Build `.wasm`
-      - if: startsWith(matrix.target, 'wasm32')
-        uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-      # Install linux dependencies
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: |
+          tool: cargo-make,cargo-deb
+      - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
-      # Windows/macOS/wasm32/ubuntu x86_64 can all build/cross build normally
-      - if: startsWith(matrix.os, 'macos') || startsWith(matrix.target, 'x86_64') || startsWith(matrix.target, 'wasm32')
+      - if: startsWith(matrix.target, 'x86_64')
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      # ubuntu aarch64 requires cross building
-      - if: startsWith(matrix.os, 'ubuntu') && startsWith(matrix.target, 'aarch64')
+      # aarch64 requires cross building
+      - if: startsWith(matrix.target, 'aarch64')
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
       - uses: actions/upload-artifact@v4
-        name: "Upload artifacts"
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
-      - id: upload
-        env:
+  build-macos:
+    name: Build macOS Artifacts (${{ matrix.target }})
+    if: >
+      ((startsWith(github.event.release.name, 'tetanes')
+        && !startsWith(github.event.release.name, 'tetanes-core'))
+      || inputs.tag)
+      && (!inputs.os || inputs.os == 'macos')
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+          - target: aarch64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - run: |
+          time cargo make build-artifacts -- --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-artifacts
+          path: tetanes/dist/
+  build-windows:
+    name: Build Windows Artifacts (${{ matrix.target }})
+    if: >
+      ((startsWith(github.event.release.name, 'tetanes')
+        && !startsWith(github.event.release.name, 'tetanes-core'))
+      || inputs.tag)
+      && (!inputs.os || inputs.os == 'windows')
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+          # TODO: windows aarch64
+          # - target: aarch64-pc-windows-msvc
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make,cargo-wix
+      - if: startsWith(matrix.target, 'x86_64')
+        run: |
+          time cargo make build-artifacts -- --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-artifacts
+          path: tetanes/dist/
+  build-web:
+    name: Build Web Artifacts (wasm32-unknown-unknown)
+    if: >
+      ((startsWith(github.event.release.name, 'tetanes')
+        && !startsWith(github.event.release.name, 'tetanes-core'))
+      || inputs.tag)
+      && (!inputs.os || inputs.os == 'web')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make,trunk
+      - run: |
+          time cargo make build-artifacts -- --target wasm32-unknown-unknown
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm32-unknown-unknown-artifacts
+          path: tetanes/dist/
+  upload-artifacts:
+    name: Upload Artifacts
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows, build-web]
+    if: |
+      always() && contains(needs.*.result, 'success')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload ${{ github.event.release.tag_name || inputs.tag }} tetanes/dist/* --clobber
-          echo "release_tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+          gh release upload ${{ github.event.release.tag_name || inputs.tag }} artifacts/**/* --clobber
   update-homebrew-formula:
     name: Update Homebrew Formula
-    if: >
-      (startsWith(github.event.release.name, 'tetanes')
-        && !startsWith(github.event.release.name, 'tetanes-core'))
-      || inputs.build
-    needs: build-and-upload-artifacts
+    needs: build-macos
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ needs.build-and-upload-artifacts.outputs.release_tag }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: "lukexor/homebrew-formulae"
+          token: ${{ secrets.REPOS }}
       - id: commit
         env:
           GH_TOKEN: ${{ github.token }}
