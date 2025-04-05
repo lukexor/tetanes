@@ -16,7 +16,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use egui::ViewportId;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::{Apu, Channel},
@@ -31,7 +31,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace, warn};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
@@ -60,8 +60,7 @@ impl NesEventProxy {
         let event = event.into();
         trace!("sending event: {event:?}");
         if self.0.send_event(event).is_err() {
-            info!("event loop closed, exiting");
-            std::process::exit(1);
+            warn!("event loop closed");
         }
     }
 
@@ -342,8 +341,10 @@ impl ApplicationHandler<NesEvent> for Nes {
             if let Some(window_id) = state.renderer.root_window_id() {
                 state.repaint_times.insert(window_id, Instant::now());
             }
-        } else if self.state.is_suspended() {
-            if let Err(err) = self.request_renderer_resources(event_loop) {
+        } else if let State::Suspended { should_terminate } = &self.state {
+            if let Err(err) =
+                self.request_renderer_resources(event_loop, Arc::clone(should_terminate))
+            {
                 error!("failed to request renderer resources: {err:?}");
                 event_loop.exit();
             }
@@ -393,6 +394,8 @@ impl ApplicationHandler<NesEvent> for Nes {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_exiting() {
             return;
+        } else if self.should_terminate() {
+            event_loop.exit();
         }
 
         #[cfg(feature = "profiling")]

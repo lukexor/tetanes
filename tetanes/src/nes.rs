@@ -14,7 +14,10 @@ use cfg_if::cfg_if;
 use config::Config;
 use crossbeam::channel::Receiver;
 use egui::ahash::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
 use winit::{
@@ -46,25 +49,31 @@ pub struct Nes {
     pub(crate) state: State,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[must_use]
 pub(crate) enum State {
-    #[default]
-    Suspended,
+    Suspended {
+        should_terminate: Arc<AtomicBool>,
+    },
     Pending {
         ctx: egui::Context,
         window: Arc<Window>,
         painter_rx: Receiver<Painter>,
+        should_terminate: Arc<AtomicBool>,
     },
     Running(Box<Running>),
     Exiting,
 }
 
-impl State {
-    pub const fn is_suspended(&self) -> bool {
-        matches!(self, Self::Suspended)
+impl Default for State {
+    fn default() -> Self {
+        Self::Suspended {
+            should_terminate: Default::default(),
+        }
     }
+}
 
+impl State {
     pub const fn is_exiting(&self) -> bool {
         matches!(self, Self::Exiting)
     }
@@ -97,8 +106,9 @@ impl RunState {
 pub(crate) struct Running {
     pub(crate) cfg: Config,
     // Only used by wasm currently
-    #[allow(unused)]
+    #[cfg_attr(target_arch = "wasm32", allow(unused))]
     pub(crate) tx: NesEventProxy,
+    pub(crate) should_terminate: Arc<AtomicBool>,
     pub(crate) emulation: Emulation,
     pub(crate) renderer: Renderer,
     pub(crate) input_bindings: InputBindings,
@@ -133,11 +143,33 @@ impl Nes {
         Ok(())
     }
 
+    /// Return whether the application should terminate.
+    pub fn should_terminate(&self) -> bool {
+        match &self.state {
+            State::Suspended { should_terminate }
+            | State::Pending {
+                should_terminate, ..
+            } => should_terminate.load(Ordering::Relaxed),
+            State::Running(running) => running.should_terminate.load(Ordering::Relaxed),
+            State::Exiting => true,
+        }
+    }
+
     /// Create the NES instance.
     pub fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
+        let should_terminate = Arc::new(AtomicBool::new(false));
+        #[cfg(not(target_arch = "wasm32"))]
+        // Minor issue if this fails, but not enough to terminate the program
+        let _ = ctrlc::set_handler({
+            let should_terminate = Arc::clone(&should_terminate);
+            move || {
+                should_terminate.store(true, Ordering::Relaxed);
+            }
+        });
+
         Self {
             init_state: Some((cfg, NesEventProxy::new(event_loop))),
-            state: State::Suspended,
+            state: State::Suspended { should_terminate },
         }
     }
 
@@ -150,6 +182,7 @@ impl Nes {
     pub(crate) fn request_renderer_resources(
         &mut self,
         event_loop: &ActiveEventLoop,
+        should_terminate: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         let (cfg, tx) = self
             .init_state
@@ -162,6 +195,7 @@ impl Nes {
             ctx,
             window,
             painter_rx,
+            should_terminate,
         };
 
         Ok(())
@@ -180,6 +214,7 @@ impl Nes {
                 ctx,
                 window,
                 painter_rx,
+                should_terminate,
             } => {
                 let resources = Resources {
                     ctx,
@@ -199,27 +234,10 @@ impl Nes {
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
                 let renderer = Renderer::new(event_loop, tx.clone(), resources, frame_rx, &cfg)?;
 
-                // Minor issue if this fails, but not enough to terminate the program
-                #[cfg(not(target_arch = "wasm32"))]
-                let _ = ctrlc::set_handler({
-                    let tx = tx.clone();
-                    move || {
-                        use std::{process, thread, time::Duration};
-
-                        tracing::info!("received ctrl-c. terminating...");
-
-                        // Give application time to clean up
-                        tx.event(event::UiEvent::Terminate);
-                        thread::sleep(Duration::from_millis(200));
-
-                        tracing::debug!("forcing termination...");
-                        process::exit(0);
-                    }
-                });
-
                 let mut running = Running {
                     cfg,
                     tx,
+                    should_terminate,
                     emulation,
                     renderer,
                     input_bindings,
@@ -239,7 +257,7 @@ impl Nes {
                 self.state = State::Running(running);
                 Ok(())
             }
-            State::Suspended | State::Exiting => anyhow::bail!("not in pending state"),
+            State::Suspended { .. } | State::Exiting => anyhow::bail!("not in pending state"),
         }
     }
 }

@@ -133,7 +133,6 @@ impl FrameTimeDiag {
 fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
     error!("{err}");
     tx.event(UiEvent::Terminate);
-    std::process::exit(1);
 }
 
 #[derive(Debug)]
@@ -229,7 +228,6 @@ impl Emulation {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(event.clone()) {
                     error!("failed to send emulation event: {event:?}. {err:?}");
-                    std::process::exit(1);
                 }
             }
         }
@@ -250,7 +248,6 @@ impl Emulation {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(NesEvent::Ui(UiEvent::Terminate)) {
                     error!("failed to send termination event. {err:?}");
-                    std::process::exit(1);
                 }
             }
         }
