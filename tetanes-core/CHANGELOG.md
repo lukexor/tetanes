@@ -7,6 +7,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-04-05
+
+### 🐛 Bug Fixes
+
+
+- Revert input serialization change, as it broke run-ahead - ([6489c57](https://github.com/lukexor/tetanes/commit/6489c579c738f88068423affb3833edd9105e523))
+- Fix touch events - ([1a8d3da](https://github.com/lukexor/tetanes/commit/1a8d3dad5243bb31858575e99e6961c33a2521d4))
+- Basic cpu error recovery options - ([c60d8d1](https://github.com/lukexor/tetanes/commit/c60d8d1d02dde9e3383849e1af43111f26db29c7))
+
+### 🚜 Refactor
+
+
+- Changed input serializing - ([ad37b47](https://github.com/lukexor/tetanes/commit/ad37b47ab07a54597eeb91b95fb524a0ea6b4e43))
+- Cleaned up Memory struct - ([7cb31fb](https://github.com/lukexor/tetanes/commit/7cb31fb3878ee4e7e9b4ca9eabe123d570cc3176))
+
+### 📚 Documentation
+
+
+- Fix urls - ([8136c42](https://github.com/lukexor/tetanes/commit/8136c42bdab474e17ceda78819225349a3f1c520))
+- Add notes about stability - ([af0ce20](https://github.com/lukexor/tetanes/commit/af0ce20410f4088453788a264f8102823c7cf7da))
+- Ensure features display in docs.rs - ([f58b31c](https://github.com/lukexor/tetanes/commit/f58b31cc9d27f0187d759796c64e34ccea3f784a))
+
+### 🧪 Testing
+
+
+- Fix tracing init in tests - ([e368ad5](https://github.com/lukexor/tetanes/commit/e368ad5ab41d3c484dcaf17a7a8ff8abae48aef9))
+
+
 ## [0.12.1](https://github.com/lukexor/tetanes/compare/0.12.0..0.12.1) - 2025-03-13
 
 ### ⛰️  Features
