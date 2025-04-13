@@ -81,7 +81,7 @@ wgpu = "24.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-accesskit = "0.17"
+accesskit = "0.18"
 accesskit_winit = "0.23"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
