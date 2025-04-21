@@ -110,8 +110,8 @@ impl Bus {
     }
 
     #[inline]
-    pub fn load_sram(&mut self, sram: Memory<Vec<u8>>) {
-        self.prg_ram = sram;
+    pub fn load_sram(&mut self, sram: impl Into<Memory<Vec<u8>>>) {
+        self.prg_ram = sram.into();
     }
 
     #[must_use]
@@ -322,7 +322,10 @@ impl Sram for Bus {
     }
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|data| self.load_sram(data))?;
+        fs::load(path.as_ref()).map(|mut data: Memory<Vec<u8>>| {
+            data.set_ram(self.ram_state);
+            self.load_sram(data)
+        })?;
         self.ppu.bus.mapper.load(path)
     }
 }

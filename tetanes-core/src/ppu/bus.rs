@@ -62,12 +62,12 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr(&mut self, chr: Memory<Vec<u8>>) {
-        self.chr = chr;
+    pub fn load_chr(&mut self, chr: impl Into<Memory<Vec<u8>>>) {
+        self.chr = chr.into();
     }
 
-    pub fn load_ex_ram(&mut self, ex_ram: Memory<Vec<u8>>) {
-        self.exram = ex_ram;
+    pub fn load_ex_ram(&mut self, ex_ram: impl Into<Memory<Vec<u8>>>) {
+        self.exram = ex_ram.into();
     }
 
     // Maps addresses to nametable pages based on mirroring mode
