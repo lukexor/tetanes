@@ -54,6 +54,12 @@ impl Memory<Vec<u8>> {
         }
     }
 
+    /// Set `Memory` as ram.
+    pub const fn set_ram(&mut self, ram_state: RamState) {
+        self.ram_state = ram_state;
+        self.is_ram = true;
+    }
+
     /// Fill ram based on [`RamState`].
     pub fn with_ram_state(mut self, state: RamState) -> Self {
         self.ram_state = state;
@@ -133,6 +139,16 @@ impl<T, const N: usize> fmt::Debug for Memory<ConstSlice<T, N>> {
     }
 }
 
+impl<T> From<T> for Memory<T> {
+    fn from(data: T) -> Self {
+        Self {
+            ram_state: RamState::default(),
+            is_ram: false,
+            data,
+        }
+    }
+}
+
 impl<D: Deref> Deref for Memory<D> {
     type Target = <D as Deref>::Target;
     fn deref(&self) -> &Self::Target {
@@ -182,6 +198,12 @@ impl<T, const N: usize> ConstSlice<T, N> {
 impl<T: Default + Copy, const N: usize> Default for ConstSlice<T, N> {
     fn default() -> Self {
         Self([T::default(); N])
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for ConstSlice<T, N> {
+    fn from(data: [T; N]) -> Self {
+        Self(data)
     }
 }
 
