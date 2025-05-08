@@ -601,13 +601,6 @@ impl NesHeader {
                     message: "battery-backed chr-ram is currently not supported".to_string(),
                 });
             }
-            if header[14] > 0 || header[15] > 0 {
-                return Err(Error::InvalidHeader {
-                    byte: 14,
-                    value: header[14],
-                    message: "unrecognized data found at header offsets 14-15".to_string(),
-                });
-            }
             NesVariant::Nes2
         } else if header[7] & 0x0C == 0x04 {
             // If D2..D3 of flag 7 == 1, then archaic iNES (supports bytes 0-7)
