@@ -97,7 +97,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.34", default-features = false, features = [
+sysinfo = { version = "0.35", default-features = false, features = [
   "system",
   "disk",
   "network",
@@ -117,7 +117,7 @@ cpal = { version = "0.15", features = ["wasm-bindgen"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-web = "0.1"
 uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
-wgpu = { version = "24.0", features = [
+wgpu = { version = "25.0", features = [
   "webgl",
   "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
 ] }
