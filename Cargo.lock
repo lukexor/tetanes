@@ -885,7 +885,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3538270d33cc669650c4b093848450d380def10c331d38c768e34cac80576e6e"
 dependencies = [
  "termcolor",
- "unicode-width",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
@@ -896,7 +896,7 @@ checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -4287,7 +4287,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -4342,7 +4342,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-core"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4367,7 +4367,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-utils"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -4722,6 +4722,12 @@ name = "unicode-width"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+
+[[package]]
+name = "unicode-width"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
 name = "unicode-xid"
