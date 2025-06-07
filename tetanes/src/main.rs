@@ -44,13 +44,23 @@ cfg_if! {
 }
 
 fn main() -> anyhow::Result<()> {
-    let log = logging::init();
-    if let Err(err) = log {
+    // Initialize logging early and handle error immediately
+    if let Err(err) = logging::init() {
         eprintln!("failed to initialize logging: {err:?}");
     }
 
     #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
 
-    Nes::run(load_config()?)
+    // Avoid unnecessary block expression
+    Nes::run(cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            tetanes::nes::config::Config::load(None)
+        } else {
+            use clap::Parser;
+            let opts = opts::Opts::parse();
+            tracing::debug!("CLI Options: {opts:?}");
+            opts.load()?
+        }
+    })
 }
