@@ -1,15 +1,19 @@
-//! `PxROM`/`MMC2` (Mapper 009)
+//! `PxROM`/`MMC2` (Mapper 009).
 //!
-//! <http://wiki.nesdev.com/w/index.php/MMC2>
+//! <https://wiki.nesdev.org/w/index.php/MMC2>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
 
+/// `PxROM`/`MMC2` (Mapper 009).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pxrom {
@@ -61,7 +65,7 @@ impl Pxrom {
     }
 }
 
-impl Mapped for Pxrom {
+impl Mirrored for Pxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -71,7 +75,7 @@ impl Mapped for Pxrom {
     }
 }
 
-impl MemMap for Pxrom {
+impl MapRead for Pxrom {
     // PPU $0000..=$0FFF Two 4K switchable CHR-ROM banks
     // PPU $1000..=$1FFF Two 4K switchable CHR-ROM banks
     // CPU $6000..=$7FFF 8K PRG-RAM bank (PlayChoice version only)
@@ -100,7 +104,9 @@ impl MemMap for Pxrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Pxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
@@ -134,6 +140,8 @@ impl Reset for Pxrom {
     }
 }
 
+impl OnBusRead for Pxrom {}
+impl OnBusWrite for Pxrom {}
 impl Clock for Pxrom {}
 impl Regional for Pxrom {}
 impl Sram for Pxrom {}

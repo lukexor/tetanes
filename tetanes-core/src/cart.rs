@@ -4,10 +4,10 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        self, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001, Axrom, BandaiFCG,
-        Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom154, Dxrom206, Dxrom76, Dxrom88, Dxrom95, Exrom,
-        Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom,
-        SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
+        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom76, Dxrom88, Dxrom95,
+        Dxrom154, Dxrom206, Exrom, Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163,
+        Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
+        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
     },
     mem::{Memory, RamState},
     ppu::Mirroring,
@@ -70,11 +70,11 @@ pub struct Cart {
     region: NesRegion,
     ram_state: RamState,
     pub(crate) mapper: Mapper,
-    pub(crate) chr_rom: Memory, // Character ROM
-    pub(crate) chr_ram: Memory, // Character RAM
-    pub(crate) prg_rom: Memory, // Program ROM
-    pub(crate) prg_ram: Memory, // Program RAM
-    pub(crate) ex_ram: Memory,  // Internal Extra RAM
+    pub(crate) chr_rom: Memory<Vec<u8>>, // Character ROM
+    pub(crate) chr_ram: Memory<Vec<u8>>, // Character RAM
+    pub(crate) prg_rom: Memory<Vec<u8>>, // Program ROM
+    pub(crate) prg_ram: Memory<Vec<u8>>, // Program RAM
+    pub(crate) ex_ram: Memory<Vec<u8>>,  // Internal Extra RAM
     pub(crate) game_info: Option<GameInfo>,
 }
 
@@ -86,17 +86,18 @@ impl Default for Cart {
 
 impl Cart {
     pub fn empty() -> Self {
+        let ram_state = RamState::default();
         let mut empty = Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
             region: NesRegion::Ntsc,
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr_rom: Memory::with_size(CHR_ROM_BANK_SIZE),
-            chr_ram: Memory::new(),
-            prg_rom: Memory::with_size(PRG_ROM_BANK_SIZE),
-            prg_ram: Memory::new(),
-            ex_ram: Memory::new(),
+            chr_rom: Memory::rom().with_size(CHR_ROM_BANK_SIZE),
+            chr_ram: Memory::ram(ram_state),
+            prg_rom: Memory::rom().with_size(PRG_ROM_BANK_SIZE),
+            prg_ram: Memory::ram(ram_state),
+            ex_ram: Memory::ram(ram_state),
             game_info: None,
         };
         empty.mapper = Nrom::load(&mut empty).expect("valid empty mapper");
@@ -134,7 +135,7 @@ impl Cart {
         debug!("{header:?}");
 
         let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = Memory::with_size(prg_rom_len);
+        let mut prg_rom = Memory::rom().with_size(prg_rom_len);
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
             if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                 Error::InvalidHeader {
@@ -151,11 +152,11 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let prg_ram = Memory::ram(ram_state, prg_ram_size);
+        let prg_ram = Memory::ram(ram_state).with_size(prg_ram_size);
 
-        let mut chr_rom = Memory::with_size((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
-        let mut chr_ram = Memory::new();
-        if header.chr_rom_banks > 0 {
+        let mut chr_rom =
+            Memory::rom().with_size((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
+        let chr_ram = if header.chr_rom_banks > 0 {
             rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                     Error::InvalidHeader {
@@ -170,13 +171,11 @@ impl Cart {
                     Error::io(err, "failed to read chr-rom")
                 }
             })?;
+            Memory::ram(ram_state)
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
-            if chr_ram_size > 0 {
-                chr_ram.resize(chr_ram_size, 0x00);
-                chr_ram.fill_ram(ram_state);
-            }
-        }
+            Memory::ram(ram_state).with_size(chr_ram_size)
+        };
 
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
@@ -205,7 +204,7 @@ impl Cart {
             chr_ram,
             prg_rom,
             prg_ram,
-            ex_ram: Memory::new(),
+            ex_ram: Memory::ram(ram_state),
             game_info,
         };
         cart.mapper = match cart.header.mapper_num {
@@ -240,52 +239,61 @@ impl Cart {
             88 => Dxrom88::load(&mut cart)?,
             95 => Dxrom95::load(&mut cart)?,
             154 => Dxrom154::load(&mut cart)?,
-            206 => Dxrom206::load(&mut cart)?,
             155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
+            206 => Dxrom206::load(&mut cart)?,
             _ => Mapper::none(),
         };
 
         info!("loaded ROM `{cart}`");
         debug!("{cart:?}");
+
         Ok(cart)
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_rom(&self) -> &[u8] {
         &self.chr_rom
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_ram(&self) -> &[u8] {
         &self.chr_ram
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_rom(&self) -> &[u8] {
         &self.prg_rom
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_ram(&self) -> &[u8] {
         &self.prg_ram
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_rom(&self) -> bool {
         !self.chr_rom.is_empty()
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_ram(&self) -> bool {
         !self.chr_ram.is_empty()
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_prg_ram(&self) -> bool {
         !self.prg_ram.is_empty()
     }
@@ -353,20 +361,17 @@ impl Cart {
 
     /// Allows mappers to add PRG-RAM.
     pub(crate) fn add_prg_ram(&mut self, capacity: usize) {
-        self.prg_ram.resize(capacity, 0x00);
-        self.prg_ram.fill_ram(self.ram_state);
+        self.prg_ram.resize(capacity);
     }
 
     /// Allows mappers to add CHR-RAM.
     pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
-        self.chr_ram.resize(capacity, 0x00);
-        self.chr_ram.fill_ram(self.ram_state);
+        self.chr_ram.resize(capacity);
     }
 
     /// Allows mappers to add EX-RAM.
     pub(crate) fn add_exram(&mut self, capacity: usize) {
-        self.ex_ram.resize(capacity, 0x00);
-        self.ex_ram.fill_ram(self.ram_state);
+        self.ex_ram.resize(capacity);
     }
 
     fn calculate_ram_size(value: u8) -> Result<usize> {
@@ -471,15 +476,15 @@ pub enum NesVariant {
 
 /// An `iNES` or `NES 2.0` formatted header representing hardware specs of a given NES cartridge.
 ///
-/// <http://wiki.nesdev.com/w/index.php/INES>
-/// <http://wiki.nesdev.com/w/index.php/NES_2.0>
-/// <http://nesdev.com/NESDoc.pdf> (page 28)
+/// <https://wiki.nesdev.org/w/index.php/INES>
+/// <https://wiki.nesdev.org/w/index.php/NES_2.0>
+/// <https://nesdev.org/NESDoc.pdf> (page 28)
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct NesHeader {
     pub variant: NesVariant,
     pub mapper_num: u16,    // The primary mapper number
-    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.com/w/index.php/NES_2.0_submappers
+    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.org/w/index.php/NES_2.0_submappers
     pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
     pub prg_rom_banks: u16, // Number of 16KB PRG-ROM banks (Program ROM)
     pub chr_rom_banks: u16, // Number of 8KB CHR-ROM banks (Character ROM)
@@ -594,13 +599,6 @@ impl NesHeader {
                     byte: 11,
                     value: chr_ram_shift,
                     message: "battery-backed chr-ram is currently not supported".to_string(),
-                });
-            }
-            if header[14] > 0 || header[15] > 0 {
-                return Err(Error::InvalidHeader {
-                    byte: 14,
-                    value: header[14],
-                    message: "unrecognized data found at header offsets 14-15".to_string(),
                 });
             }
             NesVariant::Nes2

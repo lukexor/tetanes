@@ -10,11 +10,10 @@ use egui::{
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::input::Player;
-use tracing::warn;
 use uuid::Uuid;
 use winit::event::ElementState;
 
@@ -40,7 +39,6 @@ pub struct Keybinds {
     id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
-    resources: Option<(Config, GamepadState)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +65,7 @@ pub struct ConnectedGamepad {
 }
 
 impl Keybinds {
-    const TITLE: &'static str = "🖮 Keybinds";
+    const TITLE: &'static str = "Keybinds";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -79,7 +77,6 @@ impl Keybinds {
                 pending_input: None,
                 gamepad_unassign_confirm: None,
             })),
-            resources: None,
         }
     }
 
@@ -89,49 +86,27 @@ impl Keybinds {
         })
     }
 
-    pub const fn id(&self) -> ViewportId {
-        self.id
-    }
-
     pub fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool) {
+    pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn toggle_open(&self) {
+    pub fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.resources = Some((
-            cfg.clone(),
-            GamepadState {
-                input_events: gamepads
-                    .events()
-                    .filter_map(|event| gamepads.input_from_event(event, cfg))
-                    .collect::<Vec<_>>(),
-                connected: gamepads.list().map(|gamepad_list| {
-                    gamepad_list
-                        .map(|(_, gamepad)| {
-                            let uuid = Gamepads::create_uuid(&gamepad);
-                            ConnectedGamepad {
-                                uuid,
-                                name: gamepad.name().to_string(),
-                                assignment: cfg.input.gamepad_assignment(&uuid),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }),
-            },
-        ));
-    }
-
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config, gamepads: &Gamepads) {
         if !self.open() {
             return;
         }
@@ -141,15 +116,29 @@ impl Keybinds {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        let Some((cfg, gamepad_state)) = self.resources.take() else {
-            warn!("Keybinds::prepare was not called with required resources");
-            return;
-        };
 
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
+        let gamepad_state = GamepadState {
+            input_events: gamepads
+                .events()
+                .filter_map(|event| gamepads.input_from_event(event, &cfg))
+                .collect::<Vec<_>>(),
+            connected: gamepads.list().map(|gamepad_list| {
+                gamepad_list
+                    .map(|(_, gamepad)| {
+                        let uuid = Gamepads::create_uuid(&gamepad);
+                        ConnectedGamepad {
+                            uuid,
+                            name: gamepad.name().to_string(),
+                            assignment: cfg.input.gamepad_assignment(&uuid),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        };
 
         ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
             if class == ViewportClass::Embedded {

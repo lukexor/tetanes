@@ -1,16 +1,19 @@
-//! `GxROM` (Mapper 066)
+//! `GxROM` (Mapper 066).
 //!
 //! <https://wiki.nesdev.org/w/index.php?title=GxROM>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `GxROM` (Mapper 066).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Gxrom {
@@ -36,7 +39,7 @@ impl Gxrom {
     }
 }
 
-impl Mapped for Gxrom {
+impl Mirrored for Gxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -46,7 +49,7 @@ impl Mapped for Gxrom {
     }
 }
 
-impl MemMap for Gxrom {
+impl MapRead for Gxrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
 
@@ -57,7 +60,9 @@ impl MemMap for Gxrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Gxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, (val & Self::CHR_BANK_MASK).into());
@@ -68,6 +73,8 @@ impl MemMap for Gxrom {
     }
 }
 
+impl OnBusRead for Gxrom {}
+impl OnBusWrite for Gxrom {}
 impl Reset for Gxrom {}
 impl Clock for Gxrom {}
 impl Regional for Gxrom {}

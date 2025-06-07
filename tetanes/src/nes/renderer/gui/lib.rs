@@ -57,7 +57,7 @@ pub fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
     ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
 }
 
-pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input: Input) -> bool {
+pub fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) -> bool {
     ui.input_mut(|i| match input {
         Input::Key(keycode, modifier_state) => key_from_keycode(keycode).is_some_and(|key| {
             let modifiers = modifiers_from_modifiers_state(modifier_state);
@@ -66,16 +66,14 @@ pub fn input_down(ui: &mut Ui, gamepads: Option<&Gamepads>, cfg: &Config, input:
         Input::Button(player, button) => cfg
             .input
             .gamepad_assigned_to(player)
-            .and_then(|uuid| gamepads.map(|g| g.gamepad_by_uuid(&uuid)))
-            .flatten()
+            .and_then(|uuid| gamepads.gamepad_by_uuid(&uuid))
             .is_some_and(|g| g.is_pressed(button)),
         Input::Mouse(mouse_button) => pointer_button_from_mouse(mouse_button)
             .is_some_and(|pointer| i.pointer.button_down(pointer)),
         Input::Axis(player, axis, direction) => cfg
             .input
             .gamepad_assigned_to(player)
-            .and_then(|uuid| gamepads.map(|g| g.gamepad_by_uuid(&uuid)))
-            .flatten()
+            .and_then(|uuid| gamepads.gamepad_by_uuid(&uuid))
             .and_then(|g| g.axis_data(axis).map(|data| data.value()))
             .is_some_and(|value| {
                 let (dir, state) = Gamepads::axis_state(value);

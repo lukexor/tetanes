@@ -79,14 +79,14 @@ impl Build {
     /// Create a new build context by cleaning up any previous artifacts and ensuring the
     /// dist directory is created.
     fn new(args: Args) -> anyhow::Result<Self> {
-        let dist_dir = PathBuf::from("dist");
+        let bin_name = env!("CARGO_PKG_NAME");
+        let dist_dir = PathBuf::from(bin_name).join("dist");
 
         if args.clean {
             let _ = remove_dir_all(&dist_dir); // ignore if not found
         }
         create_dir_all(&dist_dir)?;
 
-        let bin_name = env!("CARGO_PKG_NAME");
         let cargo_target_dir =
             PathBuf::from(env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()));
         let target_arch = args.target;
@@ -112,7 +112,7 @@ impl Build {
             #[cfg(target_os = "linux")]
             cross: args.cross,
             cargo_target_dir,
-            dist_dir: PathBuf::from("dist"),
+            dist_dir,
         })
     }
 
@@ -211,11 +211,14 @@ impl Build {
         copy("LICENSE-MIT", build_dir.join("LICENSE-MIT"))?;
         copy("LICENSE-APACHE", build_dir.join("LICENSE-APACHE"))?;
 
-        let build_bin_path = build_dir.join(self.bin_name);
-        copy(&self.bin_path, &build_bin_path)?;
+        let bin_path_build = build_dir.join(self.bin_name);
+        copy(&self.bin_path, &bin_path_build)?;
 
         self.tar_gz(
-            format!("{}-{}-unknown-linux-gnu.tar.gz", self.bin_name, self.arch),
+            format!(
+                "{}-{}-{}-unknown-linux-gnu.tar.gz",
+                self.bin_name, self.version, self.arch
+            ),
             &build_dir,
             ["."],
         )?;
@@ -224,7 +227,7 @@ impl Build {
         if !self.cross {
             // Debian .deb
             // NOTE: 1- is the deb revision number
-            let deb_name = format!("{}-1-amd64.deb", self.bin_name);
+            let deb_name = format!("{}-{}-1-amd64.deb", self.bin_name, self.version);
             let deb_path_dist = self.dist_dir.join(&deb_name);
             cmd_spawn_wait(
                 Command::new("cargo")
@@ -270,7 +273,8 @@ impl Build {
 
             // NOTE: AppImage name is derived from tetanes.desktop
             // Rename to lowercase
-            let app_image_name = format!("{}-{}.AppImage", self.bin_name, self.arch);
+            let app_image_name =
+                format!("{}-{}-{}.AppImage", self.bin_name, self.version, self.arch);
             let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
             let app_image_path_dist = self.dist_dir.join(&app_image_name);
             rename(&app_image_path, &app_image_path_dist)?;
@@ -290,7 +294,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("macos")?;
 
-        let artifact_name = format!("{}-{}", self.bin_name, self.arch);
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let app_name = format!("{}.app", self.app_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
@@ -392,7 +396,10 @@ impl Build {
         )?;
 
         self.tar_gz(
-            format!("{}-{}-apple-darwin.tar.gz", self.bin_name, self.arch),
+            format!(
+                "{}-{}-{}-apple-darwin.tar.gz",
+                self.bin_name, self.version, self.arch
+            ),
             &volume,
             [&app_name],
         )?;
@@ -418,8 +425,13 @@ impl Build {
     fn create_windows_installer(&self) -> anyhow::Result<()> {
         println!("creating windows installer...");
 
-        let installer_name = format!("{}-{}.msi", self.bin_name, self.arch);
-        let installer_path_dist = self.dist_dir.join(&installer_name);
+        let build_dir = self.create_build_dir("windows")?;
+
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
+        let installer_name = format!("{artifact_name}.msi");
+        let installer_path_build = build_dir.join(&installer_name);
+        let zip_name = format!("{artifact_name}.zip");
+        let zip_path_dist = self.dist_dir.join(&zip_name);
 
         cmd_spawn_wait(
             Command::new("cargo")
@@ -435,13 +447,22 @@ impl Build {
                     "--nocapture",
                     "-o",
                 ])
-                .arg(&installer_path_dist),
+                .arg(&installer_path_build),
         )?;
 
-        // TODO: maybe zip installer?
+        cmd_spawn_wait(Command::new("powershell").args([
+            "-Command",
+            "Compress-Archive",
+            "-Force",
+            "-Path",
+            &installer_path_build.to_string_lossy(),
+            "-DestinationPath",
+            &zip_path_dist.to_string_lossy(),
+        ]))?;
+
         self.write_sha256(
-            &installer_path_dist,
-            self.dist_dir.join(format!("{installer_name}-sha256.txt")),
+            &zip_path_dist,
+            self.dist_dir.join(format!("{zip_name}-sha256.txt")),
         )
     }
 
@@ -451,7 +472,10 @@ impl Build {
 
         let build_dir = self.dist_dir.join("web");
         self.tar_gz(
-            format!("{}-{}.tar.gz", self.bin_name, self.target_arch),
+            format!(
+                "{}-{}-{}.tar.gz",
+                self.bin_name, self.version, self.target_arch
+            ),
             &build_dir,
             ["."],
         )?;

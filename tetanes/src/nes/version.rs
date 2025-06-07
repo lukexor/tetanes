@@ -153,7 +153,7 @@ impl Version {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn check_for_updates(
+    pub const fn check_for_updates(
         &mut self,
         _tx: &crate::nes::event::NesEventProxy,
         _notify_latest: bool,
@@ -166,7 +166,10 @@ impl Version {
         tx: &crate::nes::event::NesEventProxy,
         notify_latest: bool,
     ) {
-        use crate::nes::{event::UiEvent, renderer::gui::MessageType};
+        use crate::nes::{
+            event::{ConfigEvent, UiEvent},
+            renderer::gui::MessageType,
+        };
 
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -192,6 +195,9 @@ impl Version {
                         Err(err) => {
                             tx.event(UiEvent::Message((MessageType::Error, err.to_string())));
                         }
+                    }
+                    if notify_latest {
+                        tx.event(ConfigEvent::ShowUpdates(true));
                     }
                 }
             });

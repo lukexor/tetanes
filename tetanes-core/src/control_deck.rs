@@ -102,7 +102,7 @@ pub struct MapperRevisionsConfig {
 
 impl MapperRevisionsConfig {
     /// Set the desired mapper revision to use when loading a ROM matching the available mapper types.
-    pub fn set(&mut self, rev: MapperRevision) {
+    pub const fn set(&mut self, rev: MapperRevision) {
         match rev {
             MapperRevision::Mmc3(rev) => self.mmc3 = rev,
             MapperRevision::Bf909(rev) => self.bf909 = rev,
@@ -191,7 +191,7 @@ impl Default for Config {
 }
 
 /// Represents a loaded ROM [`Cart`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedRom {
     /// Name of ROM.
     pub name: String,
@@ -361,7 +361,7 @@ impl ControlDeck {
 
     /// Set the [`MapperRevision`] to emulate for the any ROM loaded that uses this mapper.
     #[inline]
-    pub fn set_mapper_revision(&mut self, rev: MapperRevision) {
+    pub const fn set_mapper_revision(&mut self, rev: MapperRevision) {
         self.mapper_revisions.set(rev);
         self.update_mapper_revisions();
     }
@@ -369,14 +369,14 @@ impl ControlDeck {
     /// Set the set of [`MapperRevisionsConfig`] to emulate for the any ROM loaded that uses this
     /// mapper.
     #[inline]
-    pub fn set_mapper_revisions(&mut self, revs: MapperRevisionsConfig) {
+    pub const fn set_mapper_revisions(&mut self, revs: MapperRevisionsConfig) {
         self.mapper_revisions = revs;
         self.update_mapper_revisions();
     }
 
     /// Internal method to update the loaded ROM mapper revision when `mapper_revisions` is
     /// updated.
-    fn update_mapper_revisions(&mut self) {
+    const fn update_mapper_revisions(&mut self) {
         match &mut self.cpu.bus.ppu.bus.mapper {
             Mapper::Txrom(mapper) => {
                 mapper.set_revision(self.mapper_revisions.mmc3);
@@ -421,20 +421,20 @@ impl ControlDeck {
     /// Set whether emulation should be cycle accurate or not. Disabling this can increase
     /// performance.
     #[inline]
-    pub fn set_cycle_accurate(&mut self, enabled: bool) {
+    pub const fn set_cycle_accurate(&mut self, enabled: bool) {
         self.cpu.cycle_accurate = enabled;
     }
 
     /// Set emulation RAM initialization state.
     #[inline]
-    pub fn set_ram_state(&mut self, ram_state: RamState) {
+    pub const fn set_ram_state(&mut self, ram_state: RamState) {
         self.cpu.bus.ram_state = ram_state;
     }
 
     /// Set the headless mode which can increase performance when the frame and audio outputs are
     /// not needed.
     #[inline]
-    pub fn set_headless_mode(&mut self, mode: HeadlessMode) {
+    pub const fn set_headless_mode(&mut self, mode: HeadlessMode) {
         self.cpu.bus.ppu.skip_rendering = mode.contains(HeadlessMode::NO_VIDEO);
         self.cpu.bus.apu.skip_mixing = mode.contains(HeadlessMode::NO_AUDIO);
     }
@@ -444,7 +444,7 @@ impl ControlDeck {
     ///
     /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
     #[inline]
-    pub fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
+    pub const fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
         self.cpu.bus.ppu.emulate_warmup = enabled;
     }
 
@@ -569,7 +569,7 @@ impl ControlDeck {
             fs::load::<Cpu>(path)
                 .map_err(Error::SaveState)
                 .map(|mut cpu| {
-                    cpu.bus.input.clear();
+                    cpu.bus.input.clear(); // Discard inputs from save states
                     self.load_cpu(cpu)
                 })
         } else {
@@ -638,7 +638,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_instr(&mut self) -> Result<usize> {
+    pub fn clock_instr(&mut self) -> Result<u64> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
@@ -655,7 +655,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_seconds(&mut self, seconds: f32) -> Result<usize> {
+    pub fn clock_seconds(&mut self, seconds: f32) -> Result<u64> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
@@ -671,7 +671,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame(&mut self) -> Result<usize> {
+    pub fn clock_frame(&mut self) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -706,7 +706,7 @@ impl ControlDeck {
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_output<T>(
         &mut self,
-        handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
     ) -> Result<T> {
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
@@ -729,7 +729,7 @@ impl ControlDeck {
         &mut self,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         let cycles = self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
@@ -750,7 +750,7 @@ impl ControlDeck {
     pub fn clock_frame_ahead<T>(
         &mut self,
         run_ahead: usize,
-        handle_output: impl FnOnce(usize, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
     ) -> Result<T> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -796,7 +796,7 @@ impl ControlDeck {
         run_ahead: usize,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -834,7 +834,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_scanline(&mut self) -> Result<usize> {
+    pub fn clock_scanline(&mut self) -> Result<u64> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -862,7 +862,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Cpu`] state.
     #[inline]
-    pub fn cpu_mut(&mut self) -> &mut Cpu {
+    pub const fn cpu_mut(&mut self) -> &mut Cpu {
         &mut self.cpu
     }
 
@@ -874,7 +874,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Ppu`] state.
     #[inline]
-    pub fn ppu_mut(&mut self) -> &mut Ppu {
+    pub const fn ppu_mut(&mut self) -> &mut Ppu {
         &mut self.cpu.bus.ppu
     }
 
@@ -886,7 +886,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Bus`] state.
     #[inline]
-    pub fn bus_mut(&mut self) -> &mut Bus {
+    pub const fn bus_mut(&mut self) -> &mut Bus {
         &mut self.cpu.bus
     }
 
@@ -898,7 +898,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Apu`] state.
     #[inline]
-    pub fn apu_mut(&mut self) -> &Apu {
+    pub const fn apu_mut(&mut self) -> &Apu {
         &mut self.cpu.bus.apu
     }
 
@@ -910,7 +910,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Mapper`] state.
     #[inline]
-    pub fn mapper_mut(&mut self) -> &mut Mapper {
+    pub const fn mapper_mut(&mut self) -> &mut Mapper {
         &mut self.cpu.bus.ppu.bus.mapper
     }
 
@@ -928,13 +928,13 @@ impl ControlDeck {
 
     /// Returns the current [`Joypad`] state for a given controller slot.
     #[inline]
-    pub fn joypad(&mut self, slot: Player) -> &Joypad {
+    pub const fn joypad(&mut self, slot: Player) -> &Joypad {
         self.cpu.bus.input.joypad(slot)
     }
 
     /// Returns a mutable reference to the current [`Joypad`] state for a given controller slot.
     #[inline]
-    pub fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
+    pub const fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
         self.cpu.bus.input.joypad_mut(slot)
     }
 
@@ -946,7 +946,7 @@ impl ControlDeck {
 
     /// Enable [`Zapper`](crate::input::Zapper) gun.
     #[inline]
-    pub fn connect_zapper(&mut self, enabled: bool) {
+    pub const fn connect_zapper(&mut self, enabled: bool) {
         self.cpu.bus.input.connect_zapper(enabled);
     }
 
@@ -972,7 +972,7 @@ impl ControlDeck {
 
     /// Set the video filter for frame buffer output when calling [`ControlDeck::frame_buffer`].
     #[inline]
-    pub fn set_filter(&mut self, filter: VideoFilter) {
+    pub const fn set_filter(&mut self, filter: VideoFilter) {
         self.video.filter = filter;
     }
 
@@ -1021,13 +1021,13 @@ impl ControlDeck {
 
     /// Enable or disable a given [`Apu`] [`Channel`].
     #[inline]
-    pub fn set_apu_channel_enabled(&mut self, channel: Channel, enabled: bool) {
+    pub const fn set_apu_channel_enabled(&mut self, channel: Channel, enabled: bool) {
         self.cpu.bus.apu.set_channel_enabled(channel, enabled);
     }
 
     /// Toggle a given [`Apu`] [`Channel`].
     #[inline]
-    pub fn toggle_apu_channel(&mut self, channel: Channel) {
+    pub const fn toggle_apu_channel(&mut self, channel: Channel) {
         self.cpu.bus.apu.toggle_channel(channel);
     }
 
@@ -1041,7 +1041,7 @@ impl ControlDeck {
 
 impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.cpu.clock()
     }
 }

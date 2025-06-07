@@ -1,8 +1,9 @@
 use crate::{
     feature,
     nes::{
+        Nes, RunState, Running, State,
         action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
-        config::Config,
+        config::{Config, RecentRom},
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
@@ -10,18 +11,18 @@ use crate::{
             shader::Shader,
         },
         rom::RomData,
-        Nes, RunState, Running, State,
     },
     platform::open_file_dialog,
 };
 use anyhow::anyhow;
 use egui::ViewportId;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tetanes_core::{
     action::Action as DeckAction,
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
+    cpu::instr::Instr,
     debug::Debugger,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
@@ -30,7 +31,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
@@ -58,9 +59,8 @@ impl NesEventProxy {
     pub fn event(&self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("sending event: {event:?}");
-        if let Err(err) = self.0.send_event(event) {
-            error!("failed to send event: {err:?}");
-            std::process::exit(1);
+        if self.0.send_event(event).is_err() {
+            warn!("event loop closed");
         }
     }
 
@@ -131,6 +131,7 @@ pub enum ConfigEvent {
     CycleAccurate(bool),
     DarkTheme(bool),
     EmbedViewports(bool),
+    EmulatePpuWarmup(bool),
     FourPlayer(FourPlayer),
     Fullscreen(bool),
     GamepadAssign((Player, Uuid)),
@@ -153,6 +154,7 @@ pub enum ConfigEvent {
     Shader(Shader),
     ShowMenubar(bool),
     ShowMessages(bool),
+    ShowUpdates(bool),
     Speed(f32),
     VideoFilter(VideoFilter),
     ZapperConnected(bool),
@@ -167,7 +169,7 @@ impl From<ConfigEvent> for NesEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
-    Ppu(Ppu),
+    Ppu(Box<Ppu>),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -182,8 +184,8 @@ pub enum EmulationEvent {
     AddDebugger(Debugger),
     RemoveDebugger(Debugger),
     AudioRecord(bool),
+    CpuCorrupted { instr: Instr },
     DebugStep(DebugStep),
-    EmulatePpuWarmup(bool),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
     LoadReplay((String, ReplayData)),
@@ -282,7 +284,7 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         match event {
             NesEvent::Renderer(RendererEvent::ResourcesReady) => {
-                if let Err(err) = self.init_running() {
+                if let Err(err) = self.init_running(event_loop) {
                     error!("failed to create window: {err:?}");
                     event_loop.exit();
                     return;
@@ -332,22 +334,20 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         debug!("resumed event");
 
-        let state = if let State::Running(state) = &mut self.state {
+        if let State::Running(state) = &mut self.state {
             if feature!(Suspend) {
                 state.renderer.recreate_window(event_loop);
             }
-            state
-        } else {
-            if self.state.is_suspended() {
-                if let Err(err) = self.request_renderer_resources(event_loop) {
-                    error!("failed to request renderer resources: {err:?}");
-                    event_loop.exit();
-                }
+            if let Some(window_id) = state.renderer.root_window_id() {
+                state.repaint_times.insert(window_id, Instant::now());
             }
-            return;
-        };
-        if let Some(window_id) = state.renderer.root_window_id() {
-            state.repaint_times.insert(window_id, Instant::now());
+        } else if let State::Suspended { should_terminate } = &self.state {
+            if let Err(err) =
+                self.request_renderer_resources(event_loop, Arc::clone(should_terminate))
+            {
+                error!("failed to request renderer resources: {err:?}");
+                event_loop.exit();
+            }
         }
     }
 
@@ -394,6 +394,8 @@ impl ApplicationHandler<NesEvent> for Nes {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_exiting() {
             return;
+        } else if self.should_terminate() {
+            event_loop.exit();
         }
 
         #[cfg(feature = "profiling")]
@@ -487,6 +489,7 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
+                    ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,
                     ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,
                     ConfigEvent::Fullscreen(fullscreen) => renderer.fullscreen = *fullscreen,
                     ConfigEvent::GamepadAssign((player, uuid)) => {
@@ -536,12 +539,15 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::Shader(shader) => renderer.shader = *shader,
                     ConfigEvent::ShowMenubar(show) => renderer.show_menubar = *show,
                     ConfigEvent::ShowMessages(show) => renderer.show_messages = *show,
+                    ConfigEvent::ShowUpdates(show) => renderer.show_updates = *show,
                     ConfigEvent::Speed(speed) => emulation.speed = *speed,
                     ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
                     ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                 }
-
-                self.renderer.prepare(&self.gamepads, &self.cfg);
+                // Root viewport needs repainting when Config changes to update deferred viewports
+                if let Some(window_id) = self.renderer.root_window_id() {
+                    self.repaint_times.insert(window_id, Instant::now());
+                }
             }
             NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
                 if let Some(window_id) = self.renderer.window_id_for_viewport(viewport_id) {
@@ -552,6 +558,10 @@ impl ApplicationHandler<NesEvent> for Running {
                             .map_or(when, |last| (*last).min(when)),
                     );
                 }
+            }
+            NesEvent::Emulation(EmulationEvent::LoadRom((ref name, _))) => {
+                self.cfg
+                    .add_recent_rom(RecentRom::Homebrew { name: name.clone() });
             }
             NesEvent::Ui(ref event) => self.on_ui_event(event),
             _ => (),
@@ -598,11 +608,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                 }
                 WindowEvent::Focused(focused) => {
-                    if focused {
+                    if focused && !self.occluded {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                            self.run_state = RunState::Running;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                            self.set_run_state(RunState::Running);
                         }
                     } else {
                         let time_since_last_save = Instant::now() - self.renderer.last_save_time;
@@ -618,26 +627,24 @@ impl ApplicationHandler<NesEvent> for Running {
                             .unwrap_or(false)
                         {
                             self.repaint_times.remove(&window_id);
-                            if self.renderer.rom_loaded() && !self.run_state.paused() {
-                                self.run_state = RunState::Paused;
-                                self.event(EmulationEvent::RunState(self.run_state));
+                            if self.renderer.rom_loaded() && !self.run_state().paused() {
+                                self.set_run_state(RunState::AutoPaused);
                             }
                         }
                     }
                 }
                 WindowEvent::Occluded(occluded) => {
+                    self.occluded = occluded;
                     // Note: Does not trigger on all platforms (e.g. linux)
                     if occluded {
                         self.repaint_times.remove(&window_id);
-                        if self.renderer.rom_loaded() && !self.run_state.paused() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && !self.run_state().paused() {
+                            self.set_run_state(RunState::AutoPaused);
                         }
                     } else {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state.auto_paused() {
-                            self.run_state = RunState::Running;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                            self.set_run_state(RunState::Running);
                         }
                     }
                 }
@@ -748,6 +755,15 @@ impl ApplicationHandler<NesEvent> for Running {
 }
 
 impl Running {
+    fn run_state(&self) -> RunState {
+        self.renderer.gui.borrow().run_state
+    }
+
+    fn set_run_state(&mut self, state: RunState) {
+        self.renderer.gui.borrow_mut().run_state = state;
+        self.event(EmulationEvent::RunState(state));
+    }
+
     pub fn update_repaint_times(&mut self, event_loop: &ActiveEventLoop) {
         let mut next_repaint_time = self.repaint_times.values().min().copied();
         self.repaint_times.retain(|window_id, when| {
@@ -793,7 +809,7 @@ impl Running {
                         }
                     }
                     Err(err) => {
-                        error!("failed top open rom dialog: {err:?}");
+                        error!("failed to open rom dialog: {err:?}");
                         self.event(UiEvent::Error("failed to open rom dialog".to_string()));
                     }
                 }
@@ -811,15 +827,14 @@ impl Running {
                         }
                     }
                     Err(err) => {
-                        error!("failed top open replay dialog: {err:?}");
+                        error!("failed to open replay dialog: {err:?}");
                         self.event(UiEvent::Error("failed to open replay dialog".to_string()));
                     }
                 }
             }
             UiEvent::FileDialogCancelled => {
-                if self.renderer.rom_loaded() {
-                    self.run_state = RunState::Running;
-                    self.event(EmulationEvent::RunState(self.run_state));
+                if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                    self.set_run_state(RunState::Running);
                 }
             }
             UiEvent::UpdateAvailable(_) | UiEvent::Terminate => (),
@@ -838,11 +853,15 @@ impl Running {
         self.renderer.on_event(&mut event, &self.cfg);
         match event {
             NesEvent::Ui(event) => self.on_ui_event(&event),
-            NesEvent::Emulation(EmulationEvent::LoadRomPath(path)) => {
-                if let Ok(path) = path.canonicalize() {
-                    self.cfg.renderer.recent_roms.insert(path);
+            NesEvent::Emulation(event) => match event {
+                EmulationEvent::LoadRomPath(path) => {
+                    if let Ok(path) = path.canonicalize() {
+                        self.cfg.add_recent_rom(RecentRom::Path(path));
+                    }
                 }
-            }
+                EmulationEvent::Reset(_) => self.set_run_state(RunState::Running),
+                _ => (),
+            },
             _ => (),
         }
     }
@@ -940,8 +959,6 @@ impl Running {
                 _ => (),
             }
         }
-
-        self.renderer.prepare(&self.gamepads, &self.cfg);
     }
 
     /// Handle user input mapped to key bindings.
@@ -964,17 +981,17 @@ impl Running {
                     Ui::Quit => self.tx.event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
-                            self.run_state = match self.run_state {
+                            self.set_run_state(match self.run_state() {
                                 RunState::Running => RunState::ManuallyPaused,
-                                RunState::ManuallyPaused | RunState::Paused => RunState::Running,
-                            };
-                            self.event(EmulationEvent::RunState(self.run_state));
+                                RunState::ManuallyPaused | RunState::AutoPaused => {
+                                    RunState::Running
+                                }
+                            });
                         }
                     }
                     Ui::LoadRom => {
-                        if self.renderer.rom_loaded() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                        if self.renderer.rom_loaded() && !self.run_state().paused() {
+                            self.set_run_state(RunState::AutoPaused);
                         }
                         // NOTE: Due to some platforms file dialogs blocking the event loop,
                         // loading requires a round-trip in order for the above pause to
@@ -988,8 +1005,9 @@ impl Running {
                     }
                     Ui::LoadReplay => {
                         if self.renderer.rom_loaded() {
-                            self.run_state = RunState::Paused;
-                            self.event(EmulationEvent::RunState(self.run_state));
+                            if !self.run_state().paused() {
+                                self.set_run_state(RunState::AutoPaused);
+                            }
                             // NOTE: Due to some platforms file dialogs blocking the event loop,
                             // loading requires a round-trip in order for the above pause to
                             // get processed.
@@ -1128,13 +1146,20 @@ impl Running {
                             }
                         }
                     }
+                    Setting::SetShader(shader) if released => {
+                        let shader = if self.cfg.renderer.shader == shader {
+                            Shader::Default
+                        } else {
+                            shader
+                        };
+                        self.cfg.renderer.shader = shader;
+                        self.event(ConfigEvent::Shader(shader));
+                    }
                     _ => (),
                 },
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
                         self.event(EmulationEvent::Reset(kind));
-                        self.run_state = RunState::Running;
-                        self.event(EmulationEvent::RunState(self.run_state));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
                         self.event(EmulationEvent::Joypad((player, button, state)));

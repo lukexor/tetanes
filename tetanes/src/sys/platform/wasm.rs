@@ -3,22 +3,22 @@
 
 use crate::{
     nes::{
-        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
-        renderer::{gui, Renderer, State},
-        rom::RomData,
         Running,
+        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
+        renderer::{Renderer, State, gui},
+        rom::RomData,
     },
     platform::{BuilderExt, Initialize},
     thread,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use std::{
     path::{Path, PathBuf},
     rc::Rc,
 };
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    js_sys::Uint8Array, FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement,
+    FileReader, HtmlAnchorElement, HtmlCanvasElement, HtmlInputElement, js_sys::Uint8Array,
 };
 use winit::{platform::web::WindowAttributesExtWebSys, window::WindowAttributes};
 
@@ -222,7 +222,8 @@ pub mod renderer {
     use crate::nes::{
         config::Config,
         event::Response,
-        renderer::{gui::Gui, Viewport},
+        input::Gamepads,
+        renderer::{Viewport, gui::Gui},
     };
     use std::cell::RefCell;
     use wasm_bindgen_futures::JsFuture;
@@ -312,10 +313,6 @@ pub mod renderer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
-        gui.borrow_mut()
-            .prepare(&Default::default(), &Default::default());
-
         let (viewport_ui_cb, raw_input) = {
             let State {
                 viewports,
@@ -359,9 +356,12 @@ pub mod renderer {
             (viewport_ui_cb, raw_input.take())
         };
 
+        // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
+        let config = Config::default();
+        let gamepads = Gamepads::default();
         let mut output = ctx.run(raw_input, |ctx| match &viewport_ui_cb {
             Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-            None => gui.borrow_mut().ui(ctx, None),
+            None => gui.borrow_mut().ui(ctx, &config, &gamepads),
         });
 
         let State {
@@ -374,22 +374,28 @@ pub mod renderer {
 
         viewport.info.events.clear();
 
-        let copied_text = std::mem::take(&mut output.platform_output.copied_text);
-        tracing::warn!("Copied text: {copied_text}");
-        if !copied_text.is_empty() {
-            if let Some(clipboard) = web_sys::window().map(|window| window.navigator().clipboard())
-            {
-                let promise = clipboard.write_text(&copied_text);
-                let future = JsFuture::from(promise);
-                let future = async move {
-                    if let Err(err) = future.await {
-                        tracing::error!(
-                            "Cut/Copy failed: {}",
-                            err.as_string().unwrap_or_else(|| format!("{err:#?}"))
-                        );
+        let commands = std::mem::take(&mut output.platform_output.commands);
+        for command in commands {
+            use egui::OutputCommand;
+            if let OutputCommand::CopyText(copied_text) = command {
+                tracing::warn!("Copied text: {copied_text}");
+                if !copied_text.is_empty() {
+                    if let Some(clipboard) =
+                        web_sys::window().map(|window| window.navigator().clipboard())
+                    {
+                        let promise = clipboard.write_text(&copied_text);
+                        let future = JsFuture::from(promise);
+                        let future = async move {
+                            if let Err(err) = future.await {
+                                tracing::error!(
+                                    "Cut/Copy failed: {}",
+                                    err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                                );
+                            }
+                        };
+                        thread::spawn(future);
                     }
-                };
-                thread::spawn(future);
+                }
             }
         }
 
@@ -498,7 +504,7 @@ async fn detect_user_platform() -> anyhow::Result<(Os, Arch)> {
 
     let user_agent = navigator.user_agent().unwrap_or_default();
     let mut os = if user_agent.contains("Mobile") {
-        Os::Mobile
+        anyhow::bail!("mobile download is unsupported");
     } else if user_agent.contains("Windows") {
         Os::Windows
     } else if user_agent.contains("Mac") {
@@ -589,40 +595,45 @@ fn set_download_versions(document: &web_sys::Document) {
                 selected_version.set_href(&download_url_by_os(os, arch));
                 let platform = platform_to_string(os, arch);
                 selected_version.set_inner_text(&format!("Download for {platform}"));
-            }
-        }
 
-        // Add mouseover/mouseout event listeners to version download links and make them visible
-        if let (Some(version_download), Some(version_options)) = (
-            document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
-            document.get_element_by_id(html_ids::VERSION_OPTIONS),
-        ) {
-            let on_mouseover = Closure::<dyn FnMut(_)>::new({
-                let version_options = version_options.clone();
-                move |_: web_sys::MouseEvent| {
-                    if let Err(err) = version_options.class_list().remove_1("hidden") {
+                // Add mouseover/mouseout event listeners to version download links and make them visible
+                if let (Some(version_download), Some(version_options)) = (
+                    document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
+                    document.get_element_by_id(html_ids::VERSION_OPTIONS),
+                ) {
+                    let on_mouseover = Closure::<dyn FnMut(_)>::new({
+                        let version_options = version_options.clone();
+                        move |_: web_sys::MouseEvent| {
+                            if let Err(err) = version_options.class_list().remove_1("hidden") {
+                                tracing::error!("{err:?}");
+                            }
+                        }
+                    });
+                    let on_mouseout =
+                        Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
+                            if let Err(err) = version_options.class_list().add_1("hidden") {
+                                tracing::error!("{err:?}");
+                            }
+                        });
+                    let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
+                    let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
+                    if let Err(err) = version_download
+                        .add_event_listener_with_callback("mouseover", on_mouseover_cb)
+                        .and_then(|_| {
+                            version_download
+                                .add_event_listener_with_callback("mouseout", on_mouseout_cb)
+                        })
+                        .and_then(|_| version_download.class_list().remove_1("hidden"))
+                    {
+                        tracing::error!("{err:?}");
+                    }
+                    on_mouseover.forget();
+                    on_mouseout.forget();
+                    if let Err(err) = version_download.class_list().remove_1("hidden") {
                         tracing::error!("{err:?}");
                     }
                 }
-            });
-            let on_mouseout = Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
-                if let Err(err) = version_options.class_list().add_1("hidden") {
-                    tracing::error!("{err:?}");
-                }
-            });
-            let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
-            let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
-            if let Err(err) = version_download
-                .add_event_listener_with_callback("mouseover", on_mouseover_cb)
-                .and_then(|_| {
-                    version_download.add_event_listener_with_callback("mouseout", on_mouseout_cb)
-                })
-                .and_then(|_| version_download.class_list().remove_1("hidden"))
-            {
-                tracing::error!("{err:?}");
             }
-            on_mouseover.forget();
-            on_mouseout.forget();
         }
     });
 }
@@ -743,7 +754,7 @@ impl Initialize for Renderer {
             let on_keydown = Closure::<dyn FnMut(_)>::new(move |evt: web_sys::KeyboardEvent| {
                 use egui::Key;
 
-                let prevent_default = Key::from_name(&evt.key()).map_or(true, |key| {
+                let prevent_default = Key::from_name(&evt.key()).is_none_or(|key| {
                     // Allow ctrl/meta + X, C, V through
                     !matches!(key, Key::X | Key::C | Key::V) || !(evt.ctrl_key() || evt.meta_key())
                 });
@@ -793,7 +804,7 @@ impl Initialize for Renderer {
 
 pub fn download_save_states() -> anyhow::Result<()> {
     use crate::nes::config::Config;
-    use anyhow::{anyhow, Context};
+    use anyhow::{Context, anyhow};
     use base64::Engine;
     use std::io::{Cursor, Write};
     use tetanes_core::{control_deck::Config as DeckConfig, sys::fs::local_storage};

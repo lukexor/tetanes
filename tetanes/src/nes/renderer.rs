@@ -1,6 +1,7 @@
 use crate::{
     feature,
     nes::{
+        RunState,
         config::Config,
         event::{EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
         input::Gamepads,
@@ -10,7 +11,6 @@ use crate::{
             gui::{Gui, MessageType},
             painter::Painter,
         },
-        RunState,
     },
     platform::{self, BuilderExt, Initialize},
     thread,
@@ -18,9 +18,9 @@ use crate::{
 use anyhow::Context;
 use crossbeam::channel::{self, Receiver};
 use egui::{
-    ahash::HashMap, DeferredViewportUiCallback, Vec2, ViewportBuilder, ViewportClass,
+    DeferredViewportUiCallback, OutputCommand, Vec2, ViewportBuilder, ViewportClass,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair, ViewportIdSet, ViewportInfo,
-    ViewportOutput, WindowLevel,
+    ViewportOutput, WindowLevel, ahash::HashMap,
 };
 use parking_lot::Mutex;
 use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
@@ -31,8 +31,8 @@ use tetanes_core::{
     video::Frame,
 };
 use thingbuf::{
-    mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
     Recycle,
+    mpsc::{blocking::Receiver as BufReceiver, errors::TryRecvError},
 };
 use tracing::{debug, error, info, trace};
 use winit::{
@@ -67,6 +67,7 @@ pub struct State {
     pub(crate) viewports: ViewportIdMap<Viewport>,
     viewport_from_window: HashMap<WindowId, ViewportId>,
     pub(crate) focused: Option<ViewportId>,
+    pointer_touch_id: Option<u64>,
     pub(crate) start_time: Instant,
 }
 
@@ -170,6 +171,7 @@ impl std::fmt::Debug for Resources {
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
     pub fn new(
+        _event_loop: &ActiveEventLoop,
         tx: NesEventProxy,
         resources: Resources,
         frame_rx: BufReceiver<Frame, FrameRecycle>,
@@ -231,13 +233,15 @@ impl Renderer {
             ctx.clone(),
             tx.clone(),
             render_state,
-            cfg.clone(),
+            cfg,
         )));
 
         if let Err(err) = Self::load(&ctx, cfg) {
             tracing::error!("{err:?}");
         }
 
+        // Must be done before the window is shown for the first time, which is true here, because
+        // first_frame is set to true below
         #[cfg(not(target_arch = "wasm32"))]
         let accesskit =
             { accesskit_winit::Adapter::with_event_loop_proxy(&window, tx.inner().clone()) };
@@ -246,6 +250,7 @@ impl Renderer {
             viewports,
             viewport_from_window,
             focused: None,
+            pointer_touch_id: None,
             start_time: Instant::now(),
         };
 
@@ -326,7 +331,7 @@ impl Renderer {
 
     pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
         let gui = self.gui.borrow();
-        let aspect_ratio = gui.aspect_ratio();
+        let aspect_ratio = gui.aspect_ratio(cfg);
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
         window_size.y += gui.menu_height;
         window_size
@@ -418,11 +423,13 @@ impl Renderer {
         S: Into<String>,
     {
         self.gui.borrow_mut().add_message(ty, text);
+        self.ctx.request_repaint();
     }
 
     pub fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx.event(EmulationEvent::RunState(RunState::Paused));
+        self.tx
+            .event(EmulationEvent::RunState(RunState::AutoPaused));
         self.gui.borrow_mut().error = Some(err.to_string());
     }
 
@@ -770,19 +777,22 @@ impl Renderer {
     pub fn handle_platform_output(viewport: &mut Viewport, platform_output: egui::PlatformOutput) {
         let egui::PlatformOutput {
             cursor_icon,
-            open_url,
-            copied_text,
+            commands,
             ..
         } = platform_output;
 
         viewport.set_cursor(cursor_icon);
 
-        if let Some(open_url) = open_url {
-            Self::open_url_in_browser(&open_url.url);
-        }
-
-        if !copied_text.is_empty() {
-            viewport.clipboard.set(copied_text);
+        for command in commands {
+            match command {
+                OutputCommand::OpenUrl(open_url) => Self::open_url_in_browser(&open_url.url),
+                OutputCommand::CopyText(copied_text) => {
+                    if !copied_text.is_empty() {
+                        viewport.clipboard.set(copied_text);
+                    }
+                }
+                OutputCommand::CopyImage(_) => (),
+            }
         }
     }
 
@@ -1019,11 +1029,6 @@ impl Renderer {
         }
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.gui.borrow_mut().prepare(gamepads, cfg);
-        self.ctx.request_repaint(); // Ensure any windows relying on cfg are repainted
-    }
-
     /// Request redraw.
     pub fn redraw(
         &mut self,
@@ -1052,8 +1057,6 @@ impl Renderer {
         #[cfg(feature = "profiling")]
         puffin::GlobalProfiler::lock().new_frame();
 
-        self.gui.borrow_mut().prepare(gamepads, cfg);
-
         self.handle_resize(viewport_id, cfg);
 
         let (viewport_ui_cb, viewport_info, raw_input) = {
@@ -1069,7 +1072,9 @@ impl Renderer {
             let Some(window) = &viewport.window else {
                 return Ok(());
             };
-            if viewport.occluded {
+            // Always render the root viewport unless all viewports are occluded to ensure deferred
+            // viewports correctly get Config and Gamepads updates.
+            if viewport.occluded && viewport_id != ViewportId::ROOT {
                 return Ok(());
             }
 
@@ -1091,10 +1096,11 @@ impl Renderer {
                 && screen_size_in_points.y > 0.0)
                 .then(|| egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size_in_points));
             raw_input.viewport_id = viewport_id;
-            raw_input.viewports = viewports
-                .iter()
-                .map(|(id, viewport)| (*id, viewport.info.clone()))
-                .collect();
+            raw_input
+                .viewports
+                .entry(viewport_id)
+                .or_default()
+                .native_pixels_per_point = Some(window.scale_factor() as f32);
 
             (viewport_ui_cb, viewport_info, raw_input)
         };
@@ -1120,12 +1126,6 @@ impl Renderer {
                                 &frame_buffer
                             },
                         );
-                        // self.nametables_texture.update_partial(
-                        //     &render_state.queue,
-                        //     &frame_buffer,
-                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
-                        //     Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
-                        // );
                     }
                     Err(TryRecvError::Closed) => {
                         error!("frame channel closed unexpectedly, exiting");
@@ -1144,7 +1144,7 @@ impl Renderer {
         let mut output = self.ctx.run(raw_input, |ctx| {
             match &viewport_ui_cb {
                 Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-                None => self.gui.borrow_mut().ui(ctx, Some(gamepads)),
+                None => self.gui.borrow_mut().ui(ctx, cfg, gamepads),
             }
             self.gui
                 .borrow_mut()
@@ -1195,12 +1195,11 @@ impl Renderer {
             if feature!(ScreenReader) && self.ctx.options(|o| o.screen_reader) {
                 platform::speak_text(&output.platform_output.events_description());
             }
-            // TODO: Update accesskit when egui supports an updated version
-            // #[cfg(not(target_arch = "wasm32"))]
-            // if let Some(update) = output.platform_output.accesskit_update.take() {
-            //     tracing::trace!("update accesskit: {update:?}");
-            //     self.accesskit.update_if_active(|| update);
-            // }
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(update) = output.platform_output.accesskit_update.take() {
+                tracing::trace!("update accesskit: {update:?}");
+                self.accesskit.update_if_active(|| update);
+            }
 
             Self::handle_platform_output(viewport, output.platform_output);
             Self::handle_viewport_output(&self.ctx, viewports, output.viewport_output);
@@ -1236,7 +1235,7 @@ impl Renderer {
             if let Some(render_state) = self.painter.borrow_mut().render_state_mut() {
                 let texture_size = cfg.texture_size();
                 let mut gui = self.gui.borrow_mut();
-                let aspect_ratio = gui.aspect_ratio();
+                let aspect_ratio = gui.aspect_ratio(cfg);
                 gui.nes_texture
                     .resize(render_state, texture_size, aspect_ratio);
             }
@@ -1320,7 +1319,7 @@ impl Viewport {
 
     pub fn update_info(info: &mut ViewportInfo, ctx: &egui::Context, window: &Window) {
         let pixels_per_point = gui::lib::pixels_per_point(ctx, window);
-        let has_position = window.is_minimized().map_or(true, |minimized| !minimized);
+        let has_position = window.is_minimized().is_none_or(|minimized| !minimized);
 
         let inner_rect = has_position
             .then(|| gui::lib::inner_rect_in_points(window, pixels_per_point))

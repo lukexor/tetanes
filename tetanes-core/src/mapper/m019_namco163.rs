@@ -1,4 +1,4 @@
-//! `Namco163` (Mapper 019)
+//! `Namco163` (Mapper 019).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_019>
 
@@ -7,12 +7,15 @@ use crate::{
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{BankAccess, Banks, Memory},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
+    mem::{BankAccess, Banks, ConstSlice, Memory, RamState},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Namco163` board.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Board {
@@ -23,6 +26,7 @@ pub enum Board {
     Namco340,
 }
 
+/// `Namco163` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -32,6 +36,7 @@ pub struct Regs {
     prg_ram_protect: u8,
 }
 
+/// `Namco163` (Mapper 019).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Namco163 {
@@ -143,13 +148,13 @@ impl Namco163 {
     }
 }
 
-impl Mapped for Namco163 {
+impl Mirrored for Namco163 {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 }
 
-impl MemMap for Namco163 {
+impl MapRead for Namco163 {
     // PPU $0000..=$03FF 1K CHR Bank 1 Switchable
     // PPU $0400..=$07FF 1K CHR Bank 2 Switchable
     // PPU $0800..=$0BFF 1K CHR Bank 3 Switchable
@@ -180,6 +185,7 @@ impl MemMap for Namco163 {
     // $2400..=$27FF bank 9 -> page N -> addr + page * $0400
     // $2800..=$2BFF bank 10 -> page N -> addr + page * $0400
     // $2C00..=$2FFF bank 11 -> page N -> addr + page * $0400
+
     fn map_read(&mut self, addr: u16) -> MappedRead {
         if matches!(addr, 0x4800..=0x4FFF) {
             MappedRead::Data(self.audio.read_register(addr))
@@ -215,7 +221,9 @@ impl MemMap for Namco163 {
             },
         }
     }
+}
 
+impl MapWrite for Namco163 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x3EFF => {
@@ -335,7 +343,7 @@ impl Reset for Namco163 {
 }
 
 impl Clock for Namco163 {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         let cycles =
             if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
                 self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
@@ -353,6 +361,8 @@ impl Clock for Namco163 {
     }
 }
 
+impl OnBusRead for Namco163 {}
+impl OnBusWrite for Namco163 {}
 impl Regional for Namco163 {}
 
 impl Sram for Namco163 {
@@ -374,7 +384,7 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: Memory,
+    ram: Memory<ConstSlice<u8, 0x80>>,
     addr: usize,
     auto_increment: bool,
     disabled: bool,
@@ -391,7 +401,6 @@ impl Default for Audio {
 }
 
 impl Audio {
-    const RAM_SIZE: usize = 0x80;
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
@@ -406,7 +415,7 @@ impl Audio {
 
     pub fn new() -> Self {
         Self {
-            ram: Memory::with_size(Self::RAM_SIZE),
+            ram: Memory::ram_const(RamState::default()),
             addr: 0,
             auto_increment: false,
             disabled: false,
@@ -427,6 +436,7 @@ impl Audio {
     }
 
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn peek_register(&self, addr: u16) -> u8 {
         if matches!(addr, 0x4800..=0x4FFF) {
             self.ram[self.addr]
@@ -504,12 +514,14 @@ impl Audio {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn volume(&self) -> u8 {
         let base_addr = self.base_addr();
         self.ram[base_addr + Self::REG_VOLUME] & 0x0F
     }
 
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn set_phase(&mut self, phase: u32) {
         let base_addr = self.base_addr();
         self.ram[base_addr + Self::REG_PHASE_HIGH] = ((phase >> 16) & 0xFF) as u8;
@@ -550,13 +562,14 @@ impl Audio {
 
     #[must_use]
     #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn channel_count(&self) -> u8 {
         (self.ram[0x7F] >> 4) & 0x07
     }
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.disabled {
             return 0;
         }

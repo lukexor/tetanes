@@ -1,7 +1,7 @@
 use anyhow::Context;
 use std::path::PathBuf;
 use tracing_appender::{
-    non_blocking::WorkerGuard,
+    non_blocking::{NonBlockingBuilder, WorkerGuard},
     rolling::{RollingFileAppender, Rotation},
 };
 use tracing_subscriber::{
@@ -28,7 +28,10 @@ where
                 .unwrap_or_else(|| PathBuf::from("logs")),
         )
         .context("failed to create log file")?;
-    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+    let (file_writer, guard) = NonBlockingBuilder::default()
+        .buffered_lines_limit(4096)
+        .thread_name("tetanes-logger")
+        .finish(file_appender);
 
     let registry = registry
         .with(

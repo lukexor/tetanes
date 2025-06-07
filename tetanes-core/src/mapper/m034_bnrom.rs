@@ -1,16 +1,19 @@
-//! `BNROM` (Mapper 034)
+//! `BNROM` (Mapper 034).
 //!
 //! <https://www.nesdev.org/wiki/BNROM>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `BNROM` (Mapper 034).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Bnrom {
@@ -34,13 +37,13 @@ impl Bnrom {
     }
 }
 
-impl Mapped for Bnrom {
+impl Mirrored for Bnrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
 }
 
-impl MemMap for Bnrom {
+impl MapRead for Bnrom {
     // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -51,7 +54,9 @@ impl MemMap for Bnrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Bnrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => return MappedWrite::ChrRam(addr.into(), val),
@@ -63,6 +68,8 @@ impl MemMap for Bnrom {
     }
 }
 
+impl OnBusRead for Bnrom {}
+impl OnBusWrite for Bnrom {}
 impl Reset for Bnrom {}
 impl Clock for Bnrom {}
 impl Regional for Bnrom {}

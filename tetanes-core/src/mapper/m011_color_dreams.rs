@@ -1,15 +1,19 @@
-//! `Color Dreams` (Mapper 011)
+//! `Color Dreams` (Mapper 011).
 //!
-//! <http://wiki.nesdev.com/w/index.php/Color_Dreams>
+//! <https://wiki.nesdev.org/w/index.php/Color_Dreams>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
 
+/// `Color Dreams` (Mapper 011).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct ColorDreams {
@@ -35,7 +39,7 @@ impl ColorDreams {
     }
 }
 
-impl Mapped for ColorDreams {
+impl Mirrored for ColorDreams {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -45,7 +49,7 @@ impl Mapped for ColorDreams {
     }
 }
 
-impl MemMap for ColorDreams {
+impl MapRead for ColorDreams {
     // PPU $0000..=$1FFF 8K switchable CHR-ROM bank
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -56,7 +60,9 @@ impl MemMap for ColorDreams {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for ColorDreams {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks
@@ -68,6 +74,8 @@ impl MemMap for ColorDreams {
     }
 }
 
+impl OnBusRead for ColorDreams {}
+impl OnBusWrite for ColorDreams {}
 impl Reset for ColorDreams {}
 impl Clock for ColorDreams {}
 impl Regional for ColorDreams {}

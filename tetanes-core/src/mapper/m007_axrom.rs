@@ -1,16 +1,19 @@
-//! `AxROM` (Mapper 007)
+//! `AxROM` (Mapper 007).
 //!
-//! <https://wiki.nesdev.com/w/index.php/AxROM>
+//! <https://wiki.nesdev.org/w/index.php/AxROM>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `AxROM` (Mapper 007).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Axrom {
@@ -35,7 +38,7 @@ impl Axrom {
     }
 }
 
-impl Mapped for Axrom {
+impl Mirrored for Axrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -45,7 +48,7 @@ impl Mapped for Axrom {
     }
 }
 
-impl MemMap for Axrom {
+impl MapRead for Axrom {
     // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -56,7 +59,9 @@ impl MemMap for Axrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Axrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
@@ -74,6 +79,8 @@ impl MemMap for Axrom {
     }
 }
 
+impl OnBusRead for Axrom {}
+impl OnBusWrite for Axrom {}
 impl Reset for Axrom {}
 impl Clock for Axrom {}
 impl Regional for Axrom {}

@@ -2,9 +2,10 @@
 
 use crate::{
     nes::{
-        event::NesEventProxy,
+        emulation::Emulation,
+        event::{NesEvent, NesEventProxy},
         input::{Gamepads, InputBindings},
-        renderer::{painter::Painter, FrameRecycle, Resources},
+        renderer::{FrameRecycle, Renderer, Resources, painter::Painter},
     },
     platform::Initialize,
 };
@@ -13,10 +14,10 @@ use cfg_if::cfg_if;
 use config::Config;
 use crossbeam::channel::Receiver;
 use egui::ahash::HashMap;
-use emulation::Emulation;
-use event::NesEvent;
-use renderer::Renderer;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tetanes_core::{time::Instant, video::Frame};
 use thingbuf::mpsc::blocking;
 use winit::{
@@ -48,25 +49,31 @@ pub struct Nes {
     pub(crate) state: State,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[must_use]
 pub(crate) enum State {
-    #[default]
-    Suspended,
+    Suspended {
+        should_terminate: Arc<AtomicBool>,
+    },
     Pending {
         ctx: egui::Context,
         window: Arc<Window>,
         painter_rx: Receiver<Painter>,
+        should_terminate: Arc<AtomicBool>,
     },
-    Running(Running),
+    Running(Box<Running>),
     Exiting,
 }
 
-impl State {
-    pub const fn is_suspended(&self) -> bool {
-        matches!(self, Self::Suspended)
+impl Default for State {
+    fn default() -> Self {
+        Self::Suspended {
+            should_terminate: Default::default(),
+        }
     }
+}
 
+impl State {
     pub const fn is_exiting(&self) -> bool {
         matches!(self, Self::Exiting)
     }
@@ -77,16 +84,16 @@ impl State {
 pub enum RunState {
     Running,
     ManuallyPaused,
-    Paused,
+    AutoPaused,
 }
 
 impl RunState {
     pub const fn paused(&self) -> bool {
-        matches!(self, Self::ManuallyPaused | Self::Paused)
+        matches!(self, Self::ManuallyPaused | Self::AutoPaused)
     }
 
     pub const fn auto_paused(&self) -> bool {
-        matches!(self, Self::Paused)
+        matches!(self, Self::AutoPaused)
     }
 
     pub const fn manually_paused(&self) -> bool {
@@ -99,17 +106,18 @@ impl RunState {
 pub(crate) struct Running {
     pub(crate) cfg: Config,
     // Only used by wasm currently
-    #[allow(unused)]
+    #[cfg_attr(target_arch = "wasm32", allow(unused))]
     pub(crate) tx: NesEventProxy,
+    pub(crate) should_terminate: Arc<AtomicBool>,
     pub(crate) emulation: Emulation,
     pub(crate) renderer: Renderer,
     pub(crate) input_bindings: InputBindings,
     pub(crate) gamepads: Gamepads,
     pub(crate) modifiers: Modifiers,
-    pub(crate) run_state: RunState,
     pub(crate) replay_recording: bool,
     pub(crate) audio_recording: bool,
     pub(crate) rewinding: bool,
+    pub(crate) occluded: bool,
     pub(crate) repaint_times: HashMap<WindowId, Instant>,
 }
 
@@ -135,11 +143,33 @@ impl Nes {
         Ok(())
     }
 
+    /// Return whether the application should terminate.
+    pub fn should_terminate(&self) -> bool {
+        match &self.state {
+            State::Suspended { should_terminate }
+            | State::Pending {
+                should_terminate, ..
+            } => should_terminate.load(Ordering::Relaxed),
+            State::Running(running) => running.should_terminate.load(Ordering::Relaxed),
+            State::Exiting => true,
+        }
+    }
+
     /// Create the NES instance.
     pub fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
+        let should_terminate = Arc::new(AtomicBool::new(false));
+        #[cfg(not(target_arch = "wasm32"))]
+        // Minor issue if this fails, but not enough to terminate the program
+        let _ = ctrlc::set_handler({
+            let should_terminate = Arc::clone(&should_terminate);
+            move || {
+                should_terminate.store(true, Ordering::Relaxed);
+            }
+        });
+
         Self {
             init_state: Some((cfg, NesEventProxy::new(event_loop))),
-            state: State::Suspended,
+            state: State::Suspended { should_terminate },
         }
     }
 
@@ -152,6 +182,7 @@ impl Nes {
     pub(crate) fn request_renderer_resources(
         &mut self,
         event_loop: &ActiveEventLoop,
+        should_terminate: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         let (cfg, tx) = self
             .init_state
@@ -164,6 +195,7 @@ impl Nes {
             ctx,
             window,
             painter_rx,
+            should_terminate,
         };
 
         Ok(())
@@ -176,12 +208,13 @@ impl Nes {
     ///
     /// If GPU resources failed to be requested, the emulation or renderer fails to build, then an
     /// error is returned.
-    pub(crate) fn init_running(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn init_running(&mut self, event_loop: &ActiveEventLoop) -> anyhow::Result<()> {
         match std::mem::take(&mut self.state) {
             State::Pending {
                 ctx,
                 window,
                 painter_rx,
+                should_terminate,
             } => {
                 let resources = Resources {
                     ctx,
@@ -199,31 +232,32 @@ impl Nes {
                 cfg.input.update_gamepad_assignments(&gamepads);
 
                 let emulation = Emulation::new(tx.clone(), frame_tx.clone(), &cfg)?;
-                let renderer = Renderer::new(tx.clone(), resources, frame_rx, &cfg)?;
+                let renderer = Renderer::new(event_loop, tx.clone(), resources, frame_rx, &cfg)?;
 
                 let mut running = Running {
                     cfg,
                     tx,
+                    should_terminate,
                     emulation,
                     renderer,
                     input_bindings,
                     gamepads,
                     modifiers: Modifiers::default(),
-                    run_state: RunState::Running,
                     replay_recording: false,
                     audio_recording: false,
                     rewinding: false,
+                    occluded: false,
                     repaint_times: HashMap::default(),
                 };
                 running.initialize()?;
-                self.state = State::Running(running);
+                self.state = State::Running(Box::new(running));
                 Ok(())
             }
             State::Running(running) => {
                 self.state = State::Running(running);
                 Ok(())
             }
-            State::Suspended | State::Exiting => anyhow::bail!("not in pending state"),
+            State::Suspended { .. } | State::Exiting => anyhow::bail!("not in pending state"),
         }
     }
 }

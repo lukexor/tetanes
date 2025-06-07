@@ -18,10 +18,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use cfg_if::cfg_if;
-use tetanes::{logging, nes::Nes};
+use tetanes::{
+    logging,
+    nes::{Nes, config::Config},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod opts;
+
+cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        fn load_config() -> anyhow::Result<Config> {
+            Ok(Config::load(None))
+        }
+    } else {
+        fn load_config() -> anyhow::Result<Config> {
+            use clap::Parser;
+
+            let opts = opts::Opts::parse();
+            tracing::debug!("CLI Options: {opts:?}");
+
+            opts.load()
+        }
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     // Initialize logging early and handle error immediately

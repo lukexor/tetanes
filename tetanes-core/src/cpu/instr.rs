@@ -2,7 +2,7 @@
 
 use crate::{
     cpu::{Cpu, Status},
-    mem::Mem,
+    mem::{Read, Write},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, trace};
@@ -11,7 +11,7 @@ use tracing::{error, trace};
 ///
 /// # References
 ///
-/// - <http://wiki.nesdev.com/w/index.php/6502_instructions>
+/// - <https://wiki.nesdev.org/w/index.php/6502_instructions>
 /// - <http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf>
 #[rustfmt::skip]
 #[allow(clippy::upper_case_acronyms)]
@@ -54,7 +54,7 @@ use Operation::{
 /// (opcode, Addressing Mode, Operation, cycles taken)
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
-pub struct Instr(u8, AddrMode, Operation, usize);
+pub struct Instr(u8, AddrMode, Operation, u64);
 
 impl Instr {
     #[must_use]
@@ -71,7 +71,7 @@ impl Instr {
     }
 
     #[must_use]
-    pub const fn cycles(&self) -> usize {
+    pub const fn cycles(&self) -> u64 {
         self.3
     }
 }
@@ -144,7 +144,7 @@ impl Cpu {
     ///    1    PC     R  fetch opcode, increment PC
     ///    2    PC     R  fetch value, increment PC
     /// ```
-    pub fn imm(&mut self) {
+    pub const fn imm(&mut self) {
         self.abs_addr = self.pc;
         self.pc = self.pc.wrapping_add(1);
     }
@@ -789,7 +789,7 @@ impl Cpu {
     }
 
     /// TXS: Transfer X to Stack Pointer
-    pub fn txs(&mut self) {
+    pub const fn txs(&mut self) {
         self.sp = self.x;
     }
 
@@ -1042,7 +1042,7 @@ impl Cpu {
     ///  3    PC     R  copy low address byte to PCL, fetch high address
     ///                   byte to PCH
     /// ```
-    pub fn jmp(&mut self) {
+    pub const fn jmp(&mut self) {
         self.pc = self.abs_addr;
     }
 
@@ -1262,9 +1262,7 @@ impl Cpu {
             self.pc = self.read_u16(Self::NMI_VECTOR);
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         } else {
             self.push(status);
@@ -1273,18 +1271,13 @@ impl Cpu {
             self.pc = self.read_u16(Self::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         }
         // Prevent NMI from triggering immediately after BRK
         trace!(
             "Suppress NMI after BRK - PPU:{:3},{:3} CYC:{}, prev_nmi:{}",
-            self.bus.ppu.cycle,
-            self.bus.ppu.scanline,
-            self.cycle,
-            self.prev_nmi,
+            self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle, self.prev_nmi,
         );
         self.prev_nmi = false;
     }

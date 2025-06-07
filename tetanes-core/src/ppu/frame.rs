@@ -43,6 +43,7 @@ impl DerefMut for Buffer {
 #[must_use]
 pub struct Frame {
     pub count: u32,
+    pub is_odd: bool,
     #[serde(skip)]
     pub buffer: Buffer,
 }
@@ -57,12 +58,14 @@ impl Frame {
     pub fn new() -> Self {
         Self {
             count: 0,
+            is_odd: false,
             buffer: Buffer::default(),
         }
     }
 
-    pub fn increment(&mut self) {
+    pub const fn increment(&mut self) {
         self.count = self.count.wrapping_add(1);
+        self.is_odd = self.count & 0x01 == 0x01;
     }
 
     #[must_use]
@@ -70,6 +73,7 @@ impl Frame {
         self.buffer[(x + (y << 8)) as usize]
     }
 
+    #[inline]
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.buffer[(x + (y << 8)) as usize] = color;
     }
@@ -90,6 +94,12 @@ impl Frame {
     }
 
     #[must_use]
+    pub const fn is_odd(&self) -> bool {
+        self.is_odd
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn buffer(&self) -> &[u16] {
         &self.buffer
     }
@@ -98,6 +108,6 @@ impl Frame {
 impl Reset for Frame {
     fn reset(&mut self, _kind: ResetKind) {
         self.count = 0;
-        self.buffer.fill(0);
+        self.buffer = Buffer::default();
     }
 }

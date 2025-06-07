@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use thiserror::Error;
 
+/// Default directory for save states.
 pub const SAVE_DIR: &str = "save";
+/// Default directory for save RAM.
 pub const SRAM_DIR: &str = "sram";
 
 #[derive(Error, Debug)]
@@ -16,10 +18,14 @@ pub struct ParseNesRegionError;
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
+    /// Auto-detect region based on ROM headers and a pre-built game database.
     Auto,
+    /// NTSC, primarily North America.
     #[default]
     Ntsc,
+    /// PAL, primarily Japan and Europe.
     Pal,
+    /// Dendy, primarily Russia.
     Dendy,
 }
 
@@ -34,8 +40,8 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn is_auto(&self) -> bool {
-        self == &Self::Auto
+    pub const fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
     }
 
     #[must_use]
@@ -44,13 +50,13 @@ impl NesRegion {
     }
 
     #[must_use]
-    pub fn is_pal(&self) -> bool {
-        self == &Self::Pal
+    pub const fn is_pal(&self) -> bool {
+        matches!(self, Self::Pal)
     }
 
     #[must_use]
-    pub fn is_dendy(&self) -> bool {
-        self == &Self::Dendy
+    pub const fn is_dendy(&self) -> bool {
+        matches!(self, Self::Dendy)
     }
 
     #[must_use]
@@ -120,11 +126,14 @@ impl TryFrom<usize> for NesRegion {
 }
 
 /// Trait for types that have different behavior depending on NES region.
+// NOTE: enum_dispatch requires absolute paths to types
 #[enum_dispatch(Mapper)]
 pub trait Regional {
+    /// Return the current region.
     fn region(&self) -> crate::common::NesRegion {
         crate::common::NesRegion::Ntsc
     }
+    /// Set the region.
     fn set_region(&mut self, _region: crate::common::NesRegion) {}
 }
 
@@ -132,43 +141,53 @@ pub trait Regional {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum ResetKind {
+    /// Soft reset generally doesn't zero-out most registers or RAM.
     Soft,
+    /// Hard reset generally zeros-out most registers and RAM.
     Hard,
 }
 
 /// Trait for types that can can be reset.
 #[enum_dispatch(Mapper)]
+// NOTE: enum_dispatch requires absolute paths to types
 pub trait Reset {
+    /// Reset the component given the [`ResetKind`].
     fn reset(&mut self, _kind: crate::common::ResetKind) {}
 }
 
-/// Trait for types that can clock a single cycle.
+/// Trait for types that can be clocked.
 #[enum_dispatch(Mapper)]
 pub trait Clock {
-    fn clock(&mut self) -> usize {
+    /// Clock component a single time, returning the number of cycles clocked.
+    fn clock(&mut self) -> u64 {
         0
     }
 }
 
 /// Trait for types that can clock to a target cycle.
 pub trait ClockTo {
-    fn clock_to(&mut self, _cycle: usize) -> usize {
+    /// Clock component to the given master cycle, returning the number of cycles clocked.
+    fn clock_to(&mut self, _cycle: u64) -> u64 {
         0
     }
 }
 
 /// Trait for types that can output `f32` audio samples.
 pub trait Sample {
+    /// Output a single audio sample.
     fn output(&self) -> f32;
 }
 
 /// Trait for types that can save RAM to disk.
 #[enum_dispatch(Mapper)]
+// NOTE: enum_dispatch requires absolute paths to types
 pub trait Sram {
+    /// Save RAM to a given path.
     fn save(&self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
         Ok(())
     }
 
+    /// Load save RAM from a given path.
     fn load(&mut self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
         Ok(())
     }
@@ -421,38 +440,36 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn test_rom(directory: &str, test_name: &str) -> anyhow::Result<()> {
-        static INIT_TESTS: OnceLock<bool> = OnceLock::new();
+        thread_local! {
+            static INIT_TESTS: OnceLock<bool> = const { OnceLock::new() };
+        }
 
         let base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let initialized = INIT_TESTS.get_or_init(|| {
-            use tracing_subscriber::{
-                filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
-            };
-            registry()
-                .with(
-                    env::var("RUST_LOG")
-                        .ok()
-                        .and_then(|filter| filter.parse::<Targets>().ok())
-                        .unwrap_or_default(),
-                )
-                .with(
-                    fmt::layer()
-                        .compact()
-                        .with_line_number(true)
-                        .with_thread_ids(true)
-                        .with_thread_names(true)
-                        .with_writer(std::io::stderr),
-                )
-                .init();
-            let result_dir = base_dir.join(PathBuf::from(RESULT_DIR));
-            if result_dir.exists() {
-                if let Err(err) = fs::remove_dir_all(&result_dir) {
-                    panic!("failed to clear test results dir: {result_dir:?}. {err}",);
-                }
-            }
-            true
+        let initialized = INIT_TESTS.with(|init| {
+            *init.get_or_init(|| {
+                use tracing_subscriber::{
+                    filter::Targets, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt,
+                };
+                let _ = registry()
+                    .with(
+                        env::var("RUST_LOG")
+                            .ok()
+                            .and_then(|filter| filter.parse::<Targets>().ok())
+                            .unwrap_or_default(),
+                    )
+                    .with(
+                        fmt::layer()
+                            .compact()
+                            .with_line_number(true)
+                            .with_thread_ids(true)
+                            .with_thread_names(true)
+                            .with_writer(std::io::stderr),
+                    )
+                    .try_init();
+                true
+            })
         });
-        if *initialized {
+        if initialized {
             debug!("Initialized tests");
         }
 

@@ -1,25 +1,24 @@
 use crate::nes::{
-    config::Config,
     event::{DebugEvent, EmulationEvent, NesEventProxy},
     renderer::{
-        gui::lib::{animated_dashed_rect, ViewportOptions},
+        gui::lib::{ViewportOptions, animated_dashed_rect},
         painter::RenderState,
         texture::Texture,
     },
 };
 use egui::{
-    show_tooltip_at_pointer, CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image,
-    Label, Pos2, Rect, ScrollArea, Sense, SidePanel, Slider, TopBottomPanel, Ui, Vec2,
-    ViewportClass, ViewportId,
+    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Pos2, Rect,
+    ScrollArea, Sense, SidePanel, Slider, StrokeKind, TopBottomPanel, Ui, Vec2, ViewportClass,
+    ViewportId, show_tooltip_at_pointer,
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     debug::PpuDebugger,
-    ppu::{scroll::Scroll, sprite::Sprite, Ppu},
+    ppu::{Ppu, scroll::Scroll, sprite::Sprite},
 };
 
 #[derive(Debug)]
@@ -163,7 +162,6 @@ pub struct PpuViewer {
     id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
-    resources: Option<Config>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -176,7 +174,7 @@ pub enum Tab {
 }
 
 impl PpuViewer {
-    const TITLE: &'static str = "🎞 PPU Viewer";
+    const TITLE: &'static str = "PPU Viewer";
 
     pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
         Self {
@@ -251,7 +249,6 @@ impl PpuViewer {
                 },
                 ppu: Ppu::default(),
             })),
-            resources: None,
         }
     }
 
@@ -263,19 +260,22 @@ impl PpuViewer {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool) {
+    pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
+        self.state.lock().update_debugger(self.open());
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn toggle_open(&self) {
+    pub fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
         self.state.lock().update_debugger(self.open());
-    }
-
-    pub fn prepare(&mut self, cfg: &Config) {
-        self.resources = Some(cfg.clone());
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
     pub fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
@@ -376,7 +376,7 @@ impl State {
         let debugger = PpuDebugger {
             cycle: self.refresh_cycle,
             scanline: self.refresh_scanline,
-            callback: Arc::new(move |ppu| tx.event(DebugEvent::Ppu(ppu))),
+            callback: Arc::new(move |ppu| tx.event(DebugEvent::Ppu(Box::new(ppu)))),
         };
         self.tx.event(if open {
             EmulationEvent::AddDebugger(debugger.into())
@@ -820,14 +820,14 @@ impl State {
             // During rendering, subtract according to current cycle/scanline
             if cycle <= Ppu::VISIBLE_END {
                 if cycle >= 8 {
-                    scroll_x -= (cycle & !0x07) as u16;
+                    scroll_x = scroll_x.saturating_sub((cycle & !0x07) as u16);
                 }
                 // Adjust for 2x increments at end of last scanline
-                scroll_x -= 16;
+                scroll_x = scroll_x.saturating_sub(16);
             } else if cycle >= Ppu::BG_PREFETCH_START + 7 {
-                scroll_x -= 8;
+                scroll_x = scroll_x.saturating_sub(8);
                 if cycle >= Ppu::BG_PREFETCH_END {
-                    scroll_x -= 8;
+                    scroll_x = scroll_x.saturating_sub(8);
                 }
             }
             scroll_x += scroll.fine_x;
@@ -846,6 +846,7 @@ impl State {
             0.0,
             Color32::from_black_alpha(75),
             (1.0, Color32::WHITE),
+            egui::StrokeKind::Inside,
         );
 
         // Wrap overlay around the right/bottom edge
@@ -860,6 +861,7 @@ impl State {
                 0.0,
                 Color32::from_black_alpha(75),
                 (1.0, Color32::WHITE),
+                egui::StrokeKind::Inside,
             );
         }
     }
@@ -1388,7 +1390,8 @@ impl State {
             });
 
             let (rect, res) = ui.allocate_exact_size(size, Sense::click());
-            ui.painter().rect_stroke(rect, 0.0, (1.0, Color32::BLACK));
+            ui.painter()
+                .rect_stroke(rect, 0.0, (1.0, Color32::BLACK), StrokeKind::Inside);
 
             let size = Vec2::new(size.x / 8.0, size.y / 4.0);
             for offset in [0, 4] {

@@ -41,20 +41,20 @@
 
     <h1>TetaNES<br /><span id="version"></span></h1>
 
-    <div id="wrapper">
-      <canvas id="frame" width="512" height="480"></canvas>
-      <input type="file" id="load-rom" accept=".nes" class="hidden" />
-      <input type="file" id="load-replay" accept=".replay" class="hidden" />
-    </div>
-
-    <h2 id="loading-status">
-      <div class="loader"></div>
-      Loading...
-    </h2>
     <p id="error" class="hidden">
       An internal error occurred. Try refreshing the page or filing a
       <a href="https://github.com/lukexor/tetanes/issues/new">bug report</a>.
     </p>
+
+    <div id="wrapper">
+      <h2 id="loading-status">
+        <div class="loader"></div>
+        Loading...
+      </h2>
+      <canvas id="frame" width="880" height="696"></canvas>
+      <input type="file" id="load-rom" accept=".nes" class="hidden" />
+      <input type="file" id="load-replay" accept=".replay" class="hidden" />
+    </div>
 
     <div id="content">
       <p>
@@ -81,7 +81,7 @@
         desktop version:
       </p>
 
-      <div id="version-download" class="version-download">
+      <div id="version-download" class="hidden version-download">
         <a id="selected-version" rel="nofollow noopener" target="_blank">
           Download for Windows
         </a>
@@ -132,11 +132,11 @@
           <td>S</td>
         </tr>
         <tr>
-          <td>Start Button</td>
+          <td>Select Button</td>
           <td>Q</td>
         </tr>
         <tr>
-          <td>Select Button</td>
+          <td>Start Button</td>
           <td>W</td>
         </tr>
         <tr>

@@ -3,6 +3,7 @@
     html_favicon_url = "https://github.com/lukexor/tetanes/blob/main/assets/linux/icon.png?raw=true",
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/assets/linux/icon.png?raw=true"
 )]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub mod action;
 pub mod apu;
@@ -36,7 +37,7 @@ pub mod prelude {
         cpu::Cpu,
         genie::GenieCode,
         input::{FourPlayer, Input, Player},
-        mapper::{Mapped, MappedRead, MappedWrite, Mapper, MapperRevision},
+        mapper::{MappedRead, MappedWrite, Mapper, MapperRevision, Mirrored},
         mem::RamState,
         ppu::{Mirroring, Ppu},
         video::Frame,

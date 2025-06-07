@@ -1,8 +1,9 @@
 use crate::{
     feature,
     nes::{
+        RunState,
         action::{Debug, DebugKind, DebugStep, Feature, Setting, Ui as UiAction},
-        config::{Config, RendererConfig},
+        config::{Config, RecentRom, RendererConfig},
         emulation::FrameStats,
         event::{
             ConfigEvent, DebugEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent,
@@ -13,8 +14,8 @@ use crate::{
             gui::{
                 keybinds::Keybinds,
                 lib::{
-                    cursor_to_zapper, input_down, ShortcutText, ShowShortcut, ToggleValue,
-                    ViewportOptions,
+                    ShortcutText, ShowShortcut, ToggleValue, ViewportOptions, cursor_to_zapper,
+                    input_down,
                 },
                 ppu_viewer::PpuViewer,
                 preferences::Preferences,
@@ -22,28 +23,28 @@ use crate::{
             painter::RenderState,
             texture::Texture,
         },
-        rom::{RomAsset, HOMEBREW_ROMS},
+        rom::{HOMEBREW_ROMS, RomAsset},
         version::Version,
-        RunState,
     },
-    sys::{info::System, SystemInfo},
+    sys::{SystemInfo, info::System},
 };
 use egui::{
-    hex_color, include_image, menu,
+    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
+    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
+    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, Visuals, hex_color, include_image,
+    menu,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
-    Align, Button, CentralPanel, Color32, Context, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, Rounding,
-    ScrollArea, Sense, Stroke, TopBottomPanel, Ui, ViewportClass, Visuals,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     action::Action as DeckAction,
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
+    cpu::instr::Instr,
     ppu::Ppu,
     time::{Duration, Instant},
 };
@@ -74,39 +75,41 @@ pub enum MessageType {
 #[derive(Debug)]
 #[must_use]
 pub struct Gui {
-    pub ctx: Context,
-    pub initialized: bool,
-    pub title: String,
-    pub tx: NesEventProxy,
-    pub cfg: Config,
+    ctx: Context,
+    initialized: bool,
+    title: String,
+    tx: NesEventProxy,
     pub nes_texture: Texture,
+    corrupted_cpu_instr: Option<Instr>,
     pub run_state: RunState,
     pub menu_height: f32,
-    pub nes_frame: Rect,
-    pub about_open: bool,
-    pub gui_settings_open: Arc<AtomicBool>,
+    nes_frame: Rect,
+    about_open: bool,
+    gui_settings_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_inspection_open: Arc<AtomicBool>,
+    gui_inspection_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    pub gui_memory_open: Arc<AtomicBool>,
-    pub perf_stats_open: bool,
-    pub update_window_open: bool,
-    pub version: Version,
+    gui_memory_open: Arc<AtomicBool>,
+    perf_stats_open: bool,
+    update_window_open: bool,
+    version: Version,
     pub keybinds: Keybinds,
-    pub preferences: Preferences,
-    pub debugger_open: bool,
-    pub ppu_viewer: PpuViewer,
-    pub apu_mixer_open: bool,
-    pub viewport_info_open: bool,
-    pub replay_recording: bool,
-    pub audio_recording: bool,
-    pub frame_stats: FrameStats,
-    pub messages: Vec<(MessageType, String, Instant)>,
+    preferences: Preferences,
+    debugger_open: bool,
+    ppu_viewer: PpuViewer,
+    apu_mixer_open: bool,
+    viewport_info_open: bool,
+    replay_recording: bool,
+    audio_recording: bool,
+    frame_stats: FrameStats,
+    messages: Vec<(MessageType, String, Instant)>,
     pub loaded_rom: Option<LoadedRom>,
-    pub about_homebrew_rom_open: Option<RomAsset>,
-    pub start: Instant,
-    pub sys: System,
+    about_homebrew_rom_open: Option<RomAsset>,
+    start: Instant,
+    sys: System,
     pub error: Option<String>,
+    enable_auto_update: bool,
+    dont_show_updates: bool,
 }
 
 impl Gui {
@@ -119,7 +122,7 @@ impl Gui {
         ctx: Context,
         tx: NesEventProxy,
         render_state: &mut RenderState,
-        cfg: Config,
+        cfg: &Config,
     ) -> Self {
         let nes_texture = Texture::new(
             render_state,
@@ -133,8 +136,8 @@ impl Gui {
             initialized: false,
             title: Config::WINDOW_TITLE.to_string(),
             tx: tx.clone(),
-            cfg,
             nes_texture,
+            corrupted_cpu_instr: None,
             run_state: RunState::Running,
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
@@ -162,6 +165,8 @@ impl Gui {
             start: Instant::now(),
             sys: System::default(),
             error: None,
+            enable_auto_update: false,
+            dont_show_updates: false,
         }
     }
 
@@ -192,6 +197,7 @@ impl Gui {
             NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
                 self.version.set_latest(version.clone());
                 self.update_window_open = true;
+                self.ctx.request_repaint();
             }
             NesEvent::Emulation(event) => match event {
                 EmulationEvent::ReplayRecord(recording) => {
@@ -199,6 +205,10 @@ impl Gui {
                 }
                 EmulationEvent::AudioRecord(recording) => {
                     self.audio_recording = *recording;
+                }
+                EmulationEvent::CpuCorrupted { instr } => {
+                    self.corrupted_cpu_instr = Some(*instr);
+                    self.ctx.request_repaint();
                 }
                 EmulationEvent::RunState(mode) => {
                     self.run_state = *mode;
@@ -215,27 +225,32 @@ impl Gui {
                         self.menu_height = 0.0;
                     }
                 }
-                RendererEvent::ReplayLoaded => self.run_state = RunState::Running,
+                RendererEvent::ReplayLoaded => {
+                    self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
+                }
                 RendererEvent::RomUnloaded => {
                     self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.loaded_rom = None;
                     self.title = Config::WINDOW_TITLE.to_string();
                 }
                 RendererEvent::RomLoaded(rom) => {
                     self.run_state = RunState::Running;
+                    self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.loaded_rom = Some(rom.clone());
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.about_open = !self.about_open,
-                    Menu::Keybinds => self.keybinds.toggle_open(),
+                    Menu::Keybinds => self.keybinds.toggle_open(&self.ctx),
                     Menu::PerfStats => {
                         self.perf_stats_open = !self.perf_stats_open;
                         self.tx
                             .event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
                     }
-                    Menu::PpuViewer => self.ppu_viewer.toggle_open(),
-                    Menu::Preferences => self.preferences.toggle_open(),
+                    Menu::PpuViewer => self.ppu_viewer.toggle_open(&self.ctx),
+                    Menu::Preferences => self.preferences.toggle_open(&self.ctx),
                 },
                 _ => (),
             },
@@ -265,58 +280,51 @@ impl Gui {
         self.loaded_rom.as_ref().map(|rom| rom.region)
     }
 
-    pub fn aspect_ratio(&self) -> f32 {
-        let region = self
-            .cfg
+    pub fn aspect_ratio(&self, cfg: &Config) -> f32 {
+        let region = cfg
             .deck
             .region
             .is_auto()
             .then(|| self.loaded_region())
             .flatten()
-            .unwrap_or(self.cfg.deck.region);
+            .unwrap_or(cfg.deck.region);
         region.aspect_ratio()
     }
 
-    pub fn prepare(&mut self, gamepads: &Gamepads, cfg: &Config) {
-        self.cfg = cfg.clone();
-        self.preferences.prepare(&self.cfg);
-        self.keybinds.prepare(gamepads, &self.cfg);
-        self.ppu_viewer.prepare(&self.cfg);
-    }
-
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, gamepads: Option<&Gamepads>) {
+    pub fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         if !self.initialized {
-            self.initialize(ctx);
+            self.initialize(ctx, cfg);
         }
 
-        if self.cfg.renderer.show_menubar {
-            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui));
+        if cfg.renderer.show_menubar {
+            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui, cfg));
         }
 
         let viewport_opts = ViewportOptions {
             enabled: !self.keybinds.wants_input(),
-            always_on_top: self.cfg.renderer.always_on_top,
+            always_on_top: cfg.renderer.always_on_top,
         };
 
         CentralPanel::default()
             .frame(Frame::canvas(&ctx.style()))
             .show(ctx, |ui| {
-                self.nes_frame(ui, viewport_opts.enabled, gamepads);
+                self.nes_frame(ui, viewport_opts.enabled, cfg, gamepads);
             });
 
-        self.preferences.show(ctx, viewport_opts);
-        self.keybinds.show(ctx, viewport_opts);
+        self.preferences.show(ctx, viewport_opts, cfg.clone());
+        self.keybinds
+            .show(ctx, viewport_opts, cfg.clone(), gamepads);
         self.ppu_viewer.show(ctx, viewport_opts);
 
         self.show_about_window(ctx, viewport_opts.enabled);
         self.show_about_homebrew_window(ctx, viewport_opts.enabled);
 
-        self.show_performance_window(ctx, viewport_opts.enabled);
-        self.show_update_window(ctx, viewport_opts.enabled);
+        self.show_performance_window(ctx, viewport_opts.enabled, cfg);
+        self.show_update_window(ctx, viewport_opts.enabled, cfg);
 
         Self::show_viewport(
             "🔧 UI Settings",
@@ -350,19 +358,18 @@ impl Gui {
             );
         }
 
-        // TODO: Enable once updated to egui 0.28.0
-        // #[cfg(feature = "profiling")]
-        // if viewport_opts.enabled {
-        //     puffin::profile_scope!("puffin");
-        //     puffin_egui::show_viewport_if_enabled(ctx);
-        // }
+        #[cfg(feature = "profiling")]
+        if viewport_opts.enabled {
+            puffin::profile_scope!("puffin");
+            puffin_egui::show_viewport_if_enabled(ctx);
+        }
     }
 
-    fn initialize(&mut self, ctx: &Context) {
+    fn initialize(&mut self, ctx: &Context, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let theme = if self.cfg.renderer.dark_theme {
+        let theme = if cfg.renderer.dark_theme {
             Self::dark_theme()
         } else {
             Self::light_theme()
@@ -393,7 +400,7 @@ impl Gui {
         let mut fonts = FontDefinitions::default();
         for (name, data) in [FONT, BOLD_FONT, MONO_FONT] {
             let font_data = FontData::from_static(data);
-            fonts.font_data.insert(name.to_string(), font_data);
+            fonts.font_data.insert(name.to_string(), font_data.into());
         }
 
         match fonts.families.get_mut(&FontFamily::Proportional) {
@@ -469,7 +476,7 @@ impl Gui {
             .show(ctx, |ui| info.ui(ui));
     }
 
-    fn show_performance_window(&mut self, ctx: &Context, enabled: bool) {
+    fn show_performance_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -477,7 +484,7 @@ impl Gui {
         egui::Window::new("🛠 Performance Stats")
             .open(&mut perf_stats_open)
             .show(ctx, |ui| {
-                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui));
+                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
             });
         self.perf_stats_open = perf_stats_open;
     }
@@ -525,13 +532,12 @@ impl Gui {
         });
     }
 
-    fn show_update_window(&mut self, ctx: &Context, enabled: bool) {
+    fn show_update_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let mut update_window_open = self.update_window_open;
+        let mut update_window_open = self.update_window_open && cfg.renderer.show_updates;
         let mut close_window = false;
-        let enable_auto_update = false;
         egui::Window::new("🌐 Update Available")
             .open(&mut update_window_open)
             .resizable(false)
@@ -544,15 +550,24 @@ impl Gui {
                     ui.hyperlink("https://github.com/lukexor/tetanes/releases");
 
                     ui.add_space(15.0);
-                    ui.separator();
-                    ui.add_space(15.0);
 
                     // TODO: Add auto-update for each platform
-                    if enable_auto_update {
+                    if self.enable_auto_update {
                         ui.label("Would you like to install it and restart?");
                         ui.add_space(15.0);
 
-                        ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.dont_show_updates, "Don't show this again");
+                        ui.add_space(15.0);
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            let res = ui.button("Skip").on_hover_text(format!(
+                                "Keep the current version of TetaNES (v{}).",
+                                self.version.current()
+                            ));
+                            if res.clicked() {
+                                close_window = true;
+                            }
+
                             let res = ui.button("Continue").on_hover_text(format!(
                                 "Install the latest version (v{}) restart TetaNES.",
                                 self.version.current()
@@ -566,24 +581,35 @@ impl Gui {
                                     close_window = true;
                                 }
                             }
-                            let res = ui.button("Cancel").on_hover_text(format!(
-                                "Keep the current version of TetaNES (v{}).",
-                                self.version.current()
-                            ));
-                            if res.clicked() {
+                        });
+                    } else {
+                        ui.label("Click the above link to download the update for your system.");
+                        ui.add_space(15.0);
+
+                        ui.checkbox(&mut self.dont_show_updates, "Don't show this again");
+                        ui.add_space(15.0);
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                            if ui.button("  OK  ").clicked() {
                                 close_window = true;
                             }
                         });
                     }
                 });
             });
-        if close_window {
-            update_window_open = false;
+        if close_window
+            || update_window_open != self.update_window_open && cfg.renderer.show_updates
+        {
+            self.update_window_open = false;
+            if self.dont_show_updates == cfg.renderer.show_updates {
+                self.tx
+                    .event(ConfigEvent::ShowUpdates(!self.dont_show_updates));
+                self.dont_show_updates = false;
+            }
         }
-        self.update_window_open = update_window_open;
     }
 
-    fn menubar(&mut self, ui: &mut Ui) {
+    fn menubar(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -591,20 +617,25 @@ impl Gui {
             let inner_res = menu::bar(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     Self::toggle_dark_mode_button(&self.tx, ui);
-
                     ui.separator();
 
-                    ui.menu_button("📁 File", |ui| self.file_menu(ui));
-                    ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui));
-                    ui.menu_button("🔧 Config", |ui| self.config_menu(ui));
+                    ui.menu_button("📁 File", |ui| self.file_menu(ui, cfg));
+                    ui.menu_button("🔨 Controls", |ui| self.controls_menu(ui, cfg));
+                    ui.menu_button("🔧 Config", |ui| self.config_menu(ui, cfg));
                     // icon: screen
-                    ui.menu_button("🖵 Window", |ui| self.window_menu(ui));
-                    ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui));
+                    ui.menu_button("🖵 Window", |ui| self.window_menu(ui, cfg));
+                    ui.menu_button("🕷 Debug", |ui| self.debug_menu(ui, cfg));
                     ui.menu_button("❓ Help", |ui| self.help_menu(ui));
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        egui::warn_if_debug_build(ui);
-                    });
+                    if cfg!(debug_assertions) {
+                        ui.separator();
+                        ui.label(
+                            RichText::new("⚠ Debug build ⚠")
+                                .small()
+                                .color(ui.visuals().warn_fg_color),
+                        )
+                        .on_hover_text("TetaNES was compiled with debug assertions enabled.");
+                    }
                 });
             });
             let spacing = ui.style().spacing.item_spacing;
@@ -635,16 +666,15 @@ impl Gui {
         }
     }
 
-    fn file_menu(&mut self, ui: &mut Ui) {
+    fn file_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let button =
-            Button::new("📂 Load ROM...").shortcut_text(self.cfg.shortcut(UiAction::LoadRom));
+        let button = Button::new("📂 Load ROM...").shortcut_text(cfg.shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
-                self.run_state = RunState::Paused;
-                self.tx.event(EmulationEvent::RunState(RunState::Paused));
+                self.run_state = RunState::AutoPaused;
+                self.tx.event(EmulationEvent::RunState(self.run_state));
             }
             // NOTE: Due to some platforms file dialogs blocking the event loop,
             // loading requires a round-trip in order for the above pause to
@@ -656,7 +686,6 @@ impl Gui {
         ui.menu_button("🍺 Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             let button =
@@ -674,8 +703,8 @@ impl Gui {
                 .on_hover_text("Load a replay file for the currently loaded ROM.")
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
-                self.run_state = RunState::Paused;
-                tx.event(EmulationEvent::RunState(RunState::Paused));
+                self.run_state = RunState::AutoPaused;
+                tx.event(EmulationEvent::RunState(self.run_state));
                 // NOTE: Due to some platforms file dialogs blocking the event loop,
                 // loading requires a round-trip in order for the above pause to
                 // get processed.
@@ -684,24 +713,43 @@ impl Gui {
             }
         });
 
-        // TODO: support saves and recent games on wasm? Requires storing the data
         if feature!(Filesystem) {
             ui.menu_button("🗄 Recently Played...", |ui| {
-                use tetanes_core::fs;
-
-                if cfg.renderer.recent_roms.is_empty() {
-                    ui.label("No recent ROMs");
-                } else {
-                    ScrollArea::vertical().show(ui, |ui| {
-                        // TODO: add timestamp, save slots, and screenshot
+                // Sizing pass here since the width of the submenu can change as recent ROMS are
+                // added or cleared.
+                ui.scope_builder(UiBuilder::new().sizing_pass(), |ui| {
+                    if cfg.renderer.recent_roms.is_empty() {
+                        ui.label("No recent ROMs");
+                    } else {
                         for rom in &cfg.renderer.recent_roms {
-                            if ui.button(fs::filename(rom)).clicked() {
-                                tx.event(EmulationEvent::LoadRomPath(rom.to_path_buf()));
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                            if ui.button(rom.name()).clicked() {
+                                match rom {
+                                    RecentRom::Homebrew { name } => {
+                                        match HOMEBREW_ROMS.iter().find(|rom| rom.name == name) {
+                                            Some(rom) => {
+                                                tx.event(EmulationEvent::LoadRom((
+                                                    rom.name.to_string(),
+                                                    rom.data(),
+                                                )));
+                                            }
+                                            None => {
+                                                tx.event(UiEvent::Message((
+                                                    MessageType::Error,
+                                                    "Failed to load rom".into(),
+                                                )));
+                                            }
+                                        }
+                                    }
+                                    RecentRom::Path(path) => {
+                                        tx.event(EmulationEvent::LoadRomPath(path.to_path_buf()))
+                                    }
+                                }
                                 ui.close_menu();
                             }
                         }
-                    });
-                }
+                    }
+                });
             });
 
             ui.separator();
@@ -778,12 +826,11 @@ impl Gui {
         });
     }
 
-    fn controls_menu(&mut self, ui: &mut Ui) {
+    fn controls_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             let button = Button::new(if self.run_state.paused() {
@@ -796,7 +843,7 @@ impl Gui {
             if res.clicked() {
                 self.run_state = match self.run_state {
                     RunState::Running => RunState::ManuallyPaused,
-                    RunState::ManuallyPaused | RunState::Paused => RunState::Running,
+                    RunState::ManuallyPaused | RunState::AutoPaused => RunState::Running,
                 };
                 tx.event(EmulationEvent::RunState(self.run_state));
                 ui.close_menu();
@@ -904,12 +951,11 @@ impl Gui {
         }
     }
 
-    fn config_menu(&mut self, ui: &mut Ui) {
+    fn config_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         Preferences::cycle_accurate_checkbox(
             tx,
@@ -966,10 +1012,10 @@ impl Gui {
         ui.separator();
 
         ui.menu_button("🌉 Video Filter...", |ui| {
-            Preferences::video_filter_radio(tx, ui, cfg.deck.filter);
+            Preferences::video_filter_radio(tx, ui, cfg.deck.filter, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🕶 Shader...", |ui| {
-            Preferences::shader_radio(tx, ui, cfg.renderer.shader);
+            Preferences::shader_radio(tx, ui, cfg.renderer.shader, cfg, ShowShortcut::Yes);
         });
         ui.menu_button("🌎 Nes Region...", |ui| {
             Preferences::nes_region_radio(tx, ui, cfg.deck.region);
@@ -992,7 +1038,7 @@ impl Gui {
         let toggle = ToggleValue::new(&mut preferences_open, "🔧 Preferences")
             .shortcut_text(cfg.shortcut(Menu::Preferences));
         if ui.add(toggle).clicked() {
-            self.preferences.set_open(preferences_open);
+            self.preferences.set_open(preferences_open, &self.ctx);
             ui.close_menu();
         }
 
@@ -1001,19 +1047,18 @@ impl Gui {
         let toggle = ToggleValue::new(&mut keybinds_open, "🖮 Keybinds")
             .shortcut_text(cfg.shortcut(Menu::Keybinds));
         if ui.add(toggle).clicked() {
-            self.keybinds.set_open(keybinds_open);
+            self.keybinds.set_open(keybinds_open, &self.ctx);
             ui.close_menu();
         };
     }
 
-    fn window_menu(&mut self, ui: &mut Ui) {
+    fn window_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         use Setting::*;
 
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
         let RendererConfig {
             scale,
             fullscreen,
@@ -1059,12 +1104,11 @@ impl Gui {
         }
     }
 
-    fn debug_menu(&mut self, ui: &mut Ui) {
+    fn debug_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let tx = &self.tx;
-        let cfg = &self.cfg;
 
         #[cfg(feature = "profiling")]
         {
@@ -1149,7 +1193,7 @@ impl Gui {
             ToggleValue::new(&mut open, "🌇 PPU Viewer").shortcut_text(ppu_viewer_shortcut);
         let res = ui.add(toggle).on_hover_text("Toggle the PPU Viewer.");
         if res.clicked() {
-            self.ppu_viewer.set_open(open);
+            self.ppu_viewer.set_open(open, &self.ctx);
             ui.close_menu();
         }
 
@@ -1221,7 +1265,7 @@ impl Gui {
         });
     }
 
-    fn nes_frame(&mut self, ui: &mut Ui, enabled: bool, gamepads: Option<&Gamepads>) {
+    fn nes_frame(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config, gamepads: &Gamepads) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1241,7 +1285,7 @@ impl Gui {
                             .shrink_to_fit()
                             .sense(Sense::click());
 
-                        let hover_cursor = if self.cfg.deck.zapper {
+                        let hover_cursor = if cfg.deck.zapper {
                             CursorIcon::Crosshair
                         } else {
                             CursorIcon::Default
@@ -1250,14 +1294,14 @@ impl Gui {
                         let res = ui.add(image).on_hover_cursor(hover_cursor);
                         self.nes_frame = res.rect;
 
-                        if self.cfg.deck.zapper {
+                        if cfg.deck.zapper {
                             if res.clicked() {
                                 tx.event(EmulationEvent::ZapperTrigger);
                             }
-                            if self
-                                .cfg
+                            if
+                                cfg
                                 .action_input(DeckAction::ZapperAimOffscreen)
-                                .is_some_and(|input| input_down(ui, gamepads, &self.cfg, input))
+                                .is_some_and(|input| input_down(ui, gamepads, cfg, input))
                             {
                                 let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
                                 tx.event(EmulationEvent::ZapperAim(pos));
@@ -1306,33 +1350,83 @@ impl Gui {
                 });
             }
 
-            if self.cfg.renderer.show_messages
-                && (!self.messages.is_empty() || self.error.is_some())
-            {
-                Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.with_layout(
-                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                        |ui| {
-                            self.message_bar(ui);
-                            self.error_bar(ui);
-                        },
-                    );
-                });
-            }
+            if cfg.renderer.show_messages {
+                if let Some(instr) = self.corrupted_cpu_instr {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                ui.colored_label(
+                                    Color32::RED,
+                                    format!(
+                                        "Invalid CPU opcode: ${:02X} {:?} #{:?} encountered. Title: {}",
+                                        instr.opcode(),
+                                        instr.op(),
+                                        instr.addr_mode(),
+                                        self.loaded_rom.as_ref().map(|rom| rom.name.as_str()).unwrap_or_default()
+                                    ),
+                                );
 
-            if self.run_state.paused() {
-                Frame::none().inner_margin(5.0).show(ui, |ui| {
-                    ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
-                });
+                                ui.vertical(|ui| {
+                                    ui.label("Recovery options:");
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Reset").clicked() {
+                                            self.tx.event(EmulationEvent::Reset(ResetKind::Soft));
+                                            self.corrupted_cpu_instr = None;
+                                        }
+                                        if ui.button("Power Cycle").clicked() {
+                                            self.tx.event(EmulationEvent::Reset(ResetKind::Hard));
+                                            self.corrupted_cpu_instr = None;
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Clear Save States").clicked() {
+                                            preferences::State::clear_save_states(&self.tx);
+                                        }
+                                        if ui.button("Load ROM").clicked() {
+                                            self.tx.event(UiEvent::LoadRomDialog);
+                                        }
+                                    });
+                                });
+                            },
+                        );
+                    });
+                }
+
+                if self.error.is_some() {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                self.error_bar(ui);
+                            },
+                        );
+                    });
+                }
+
+                if !self.messages.is_empty() {
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.with_layout(
+                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                            |ui| {
+                                self.message_bar(ui);
+                            },
+                        );
+                    });
+                }
+
+                if self.run_state.paused() {
+                    Frame::new().inner_margin(5.0).show(ui, |ui| {
+                        ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
+                    });
+                }
             }
         });
     }
 
-    fn performance_stats(&mut self, ui: &mut Ui) {
+    fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
-
-        let cfg = &self.cfg;
 
         let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
         grid.show(ui, |ui| {
@@ -1572,9 +1666,12 @@ impl Gui {
 
     fn error_bar(&mut self, ui: &mut Ui) {
         if let Some(error) = self.error.clone() {
+            let available_width = ui.available_width();
+            ui.set_min_width(available_width);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(error).color(Color32::RED));
-                if ui.button("").clicked() {
+                let res = ui.colored_label(Color32::RED, error);
+                ui.add_space(available_width - res.rect.width() - 30.0);
+                if ui.button("❌").clicked() {
                     self.error = None;
                 }
             });
@@ -1590,7 +1687,7 @@ impl Gui {
                     bg_fill: hex_color!("#14191f"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#253340")), // separators, indentation lines
                     fg_stroke: Stroke::new(1.0, hex_color!("#e6b673")), // normal text color
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 inactive: WidgetVisuals {
@@ -1598,7 +1695,7 @@ impl Gui {
                     bg_fill: hex_color!("#253340"),      // checkbox background
                     bg_stroke: Stroke::default(),
                     fg_stroke: Stroke::new(1.0, hex_color!("#a9491f")), // button text
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
@@ -1606,7 +1703,7 @@ impl Gui {
                     bg_fill: hex_color!("#212733"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#f29718")), // e.g. hover over window edge or button
                     fg_stroke: Stroke::new(1.5, hex_color!("#ffb454")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
@@ -1614,7 +1711,7 @@ impl Gui {
                     bg_fill: hex_color!("#253340"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#fed7aa")),
                     fg_stroke: Stroke::new(2.0, hex_color!("#fed7aa")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
@@ -1622,7 +1719,7 @@ impl Gui {
                     bg_fill: hex_color!("#14191f"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#253340")),
                     fg_stroke: Stroke::new(1.0, hex_color!("#ffb454")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },
@@ -1636,11 +1733,11 @@ impl Gui {
             code_bg_color: hex_color!("#253340"),
             warn_fg_color: hex_color!("#e7c547"),
             error_fg_color: hex_color!("#ff3333"),
-            window_rounding: Rounding::ZERO,
+            window_corner_radius: CornerRadius::ZERO,
             window_fill: hex_color!("#14191f"),
             window_stroke: Stroke::new(1.0, hex_color!("#253340")),
             window_highlight_topmost: true,
-            menu_rounding: Rounding::ZERO,
+            menu_corner_radius: CornerRadius::ZERO,
             panel_fill: hex_color!("#14191f"),
             text_cursor: TextCursorStyle {
                 stroke: Stroke::new(2.0, hex_color!("#95e6cb")),
@@ -1661,7 +1758,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffffff"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")), // separators, indentation lines
                     fg_stroke: Stroke::new(1.0, hex_color!("#253340")), // normal text color
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 inactive: WidgetVisuals {
@@ -1669,7 +1766,7 @@ impl Gui {
                     bg_fill: hex_color!("#d9d8d7"),      // checkbox background
                     bg_stroke: Stroke::default(),
                     fg_stroke: Stroke::new(1.0, hex_color!("#a2441b")), // button text
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
@@ -1677,7 +1774,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffd9b3"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")), // e.g. hover over window edge or button
                     fg_stroke: Stroke::new(1.5, hex_color!("#ff6a00")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
@@ -1685,7 +1782,7 @@ impl Gui {
                     bg_fill: hex_color!("#d9d7ce"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#3e4b59")),
                     fg_stroke: Stroke::new(2.0, hex_color!("#3e4b59")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
@@ -1693,7 +1790,7 @@ impl Gui {
                     bg_fill: hex_color!("#ffffff"),
                     bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")),
                     fg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")),
-                    rounding: Rounding::ZERO,
+                    corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },

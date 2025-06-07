@@ -20,11 +20,25 @@ category = "Development"
 command = "cargo"
 args = ["clean"]
 
-[tasks.lint]
-description = "Lint with clippy"
+[tasks.check-fmt]
+description = "Check format"
 category = "Development"
 command = "cargo"
-args = ["clippy"]
+args = ["fmt", "--all", "--check"]
+
+[tasks.lint-web]
+description = "Lint TetaNES Web"
+category = "Development"
+command = "cargo"
+args = ["clippy", "--locked", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+dependencies = ["add-wasm-target"]
+
+[tasks.lint]
+description = "Lint TetaNES"
+category = "Development"
+command = "cargo"
+args = ["clippy", "--locked", "--all-features", "--keep-going"]
+dependencies = ["lint-web"]
 
 [tasks.build]
 description = "Build TetaNES"
@@ -50,6 +64,18 @@ category = "Development"
 command = "cargo"
 args = ["bench", "--bench", "clock_frame", "${@}"]
 
+[tasks.test]
+description = "Test TetaNES"
+category = "Development"
+command = "cargo"
+args = ["nextest", "run", "--locked", "--all-features", "--no-fail-fast", "${@}"]
+
+[tasks.bench-flamegraph]
+description = "Benchmark TetaNES w/ Flamegraph"
+category = "Development"
+command = "cargo"
+args = ["bench", "--profile", "flamegraph", "--bench", "clock_frame", "${@}", "--", "--profile-time", "60"]
+
 [tasks.run]
 description = "Run TetaNES in release mode"
 category = "Development"
@@ -74,18 +100,26 @@ category = "Development"
 command = "rustup"
 args = ["target", "add", "wasm32-unknown-unknown"]
 
-[tasks.create-dist]
-description = "Creates dist directory"
-category = "Development"
-command = "mkdir"
-args = ["-p", "dist"]
-
 [tasks.build-web]
 description = "Build TetaNES Web"
 category = "Build"
 command = "trunk"
 args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web", "--public-url", "./"]
-dependencies = ["create-dist", "add-wasm-target"]
+dependencies = ["add-wasm-target"]
+
+[tasks.docs-web]
+description = "Document TetaNES Web"
+category = "Documentation"
+command = "cargo"
+args = ["doc", "--locked", "--no-deps", "--document-private-items", "--lib", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+dependencies = ["add-wasm-target"]
+
+[tasks.docs]
+description = "Document TetaNES"
+category = "Documentation"
+command = "cargo"
+args = ["doc", "--locked", "--no-deps", "--document-private-items", "--all-features", "--workspace", "--keep-going"]
+dependencies = ["docs-web"]
 
 [tasks.run-web]
 description = "Run TetaNES Web in release mode"

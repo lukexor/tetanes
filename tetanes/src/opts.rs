@@ -73,6 +73,10 @@ pub struct Opts {
     /// Choose power-up RAM state. [default: "all-zeros"]
     #[arg(short = 'm', long, value_enum)]
     pub(crate) ram_state: Option<RamState>,
+    /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
+    /// some games not working correctly.
+    #[arg(short = 'w', long)]
+    pub(crate) emulate_ppu_warmup: bool,
     /// Choose default NES region. [default: "ntsc"]
     #[arg(short = 'r', long, value_enum)]
     pub(crate) region: Option<NesRegion>,
@@ -118,6 +122,7 @@ impl Opts {
         if let Some(RamState(ram_state)) = self.ram_state {
             cfg.deck.ram_state = ram_state;
         }
+        cfg.deck.emulate_ppu_warmup = self.emulate_ppu_warmup || cfg.deck.emulate_ppu_warmup;
         if let Some(NesRegion(region)) = self.region {
             cfg.deck.region = region;
         }

@@ -1,13 +1,11 @@
 [package]
 name = "tetanes"
 version.workspace = true
-rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "A cross-platform NES Emulator written in Rust using wgpu"
 authors.workspace = true
 readme = "../README.md"
-documentation.workspace = true
 repository.workspace = true
 homepage.workspace = true
 categories = ["emulators", "wasm"]
@@ -29,41 +27,44 @@ bench = false
 workspace = true
 
 [features]
-default = ["tetanes-core/cycle-accurate"]
+default = []
 profiling = [
   "tetanes-core/profiling",
+  "profiling/profile-with-puffin",
   "dep:puffin",
   "dep:puffin_egui",
-  "egui/puffin",
 ]
-cycle-accurate = []
+# Until webgpu is stable on all platforms
+webgpu = []
 
 [dependencies]
 anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "std",
+  "clock",
+] }
+cpal = "0.15"
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.29", features = [
+egui = { version = "0.31", default-features = false, features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
-  "log",
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.29", default-features = false, features = [
+egui_extras = { version = "0.31", default-features = false, features = [
   "image",
   "serde",
 ] }
 gilrs = { version = "0.11", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
-nohash-hasher = "0.2"
 parking_lot = "0.12"
+profiling = { version = "1.0.16", default-features = false }
 puffin = { workspace = true, optional = true, features = ["web"] }
 puffin_egui = { version = "0.29", optional = true }
 ringbuf = "0.4"
@@ -74,13 +75,9 @@ thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-uuid = { version = "1.10", features = ["v4", "fast-rng", "serde"] }
+uuid = { version = "1.16", features = ["v4", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = { version = "23.0", features = [
-  "webgl",
-  "webgpu",
-  "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
-] }
+wgpu = "24.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -88,23 +85,42 @@ accesskit = "0.17"
 accesskit_winit = "0.23"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
+  "windows-sys",
 ] }
 clap.workspace = true
-egui = { version = "0.29", default-features = false, features = ["accesskit"] }
+ctrlc = { version = "3.4", features = ["termination"] }
+egui = { version = "0.31", default-features = false, features = ["accesskit"] }
 pollster = "0.4"
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "blocking",
+] }
 rfd = "0.15"
 semver = "1"
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.35", default-features = false, features = [
+  "system",
+  "disk",
+  "network",
+] }
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64 = "0.22"
-chrono = { version = "0.4", default-features = false, features = ["wasmbind"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "std",
+  "clock",
+  "wasmbind",
+] }
 console_error_panic_hook = "0.1"
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-web = "0.1"
+uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
+wgpu = { version = "25.0", features = [
+  "webgl",
+  "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
+] }
 web-sys = { workspace = true, features = [
   "Clipboard",
   "ClipboardEvent",
@@ -127,11 +143,7 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-zip = { version = "2.1", default-features = false, features = ["deflate"] }
-
-[package.metadata.docs.rs]
-rustc-args = ["--cfg=web_sys_unstable_apis"]
-targets = ["wasm32-unknown-unknown"]
+zip = { version = "2.3", default-features = false, features = ["deflate"] }
 
 [package.metadata.deb]
 extended-description = """
@@ -149,8 +161,7 @@ fearless concurrency features in a large project. Features used in this project
 include complex enums, traits, generics, matching, iterators, channels, and
 threads.
 
-`TetaNES` also compiles for the web! Try it out in your browser
-(http://lukeworks.tech/tetanes-web)!
+Try it out in your browser (https://lukeworks.tech/tetanes-web)!
 """
 section = "game"
 assets = [

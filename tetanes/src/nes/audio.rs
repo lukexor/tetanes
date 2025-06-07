@@ -1,10 +1,10 @@
 use crate::nes::config::Config;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{
+    CachingCons, CachingProd, HeapRb,
     producer::Producer,
     traits::{Consumer, Observer, Split},
-    CachingCons, CachingProd, HeapRb,
 };
 use std::{fs::File, io::BufWriter, iter, path::PathBuf, sync::Arc};
 use tetanes_core::time::Duration;
@@ -96,6 +96,11 @@ impl Audio {
                 .as_ref()
                 .and_then(|output| output.mixer.as_ref())
                 .is_some_and(|mixer| !mixer.paused)
+    }
+
+    /// Returns the current audio device, if any.
+    pub fn device(&self) -> Option<&cpal::Device> {
+        self.output.as_ref().map(|output| &output.device)
     }
 
     /// Set whether the audio mixer is enabled. Returns [`State`] representing the state of

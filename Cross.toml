@@ -1,0 +1,9 @@
+[build]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  """apt update && apt install -y \
+      libudev-dev:$CROSS_DEB_ARCH \
+      libssl-dev:$CROSS_DEB_ARCH \
+      libasound2-dev:$CROSS_DEB_ARCH
+  """,
+]

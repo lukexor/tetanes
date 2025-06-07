@@ -90,7 +90,7 @@ canvas {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+  margin-bottom: 40px;
 }
 
 #content {
@@ -106,9 +106,14 @@ canvas {
 }
 
 #loading-status {
+  position: absolute;
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 880px;
+  height: 696px;
+  border: 2px dotted #e6b673;
+  margin: 0;
 }
 
 .loader {

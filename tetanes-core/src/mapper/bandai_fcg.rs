@@ -1,4 +1,4 @@
-//! `Bandai FCG` (Mappers 016, 153, 157, and 159)
+//! `Bandai FCG` (Mappers 016, 153, 157, and 159).
 //!
 //! <https://www.nesdev.org/wiki/INES_Mapper_016>
 
@@ -7,12 +7,16 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap, Mirroring},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
+        OnBusWrite,
+    },
     mem::{Banks, Memory},
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
 
+/// `Bandai FCG` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
@@ -25,6 +29,7 @@ pub struct Regs {
     pub irq_reload: u16,
 }
 
+/// Memory operation.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum MemoryOp {
@@ -35,6 +40,7 @@ pub enum MemoryOp {
     ReadWrite,
 }
 
+/// `Bandai FCG` (Mappers 016, 153, 157, and 159).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BandaiFCG {
@@ -225,7 +231,7 @@ impl BandaiFCG {
     }
 }
 
-impl Mapped for BandaiFCG {
+impl Mirrored for BandaiFCG {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -235,7 +241,7 @@ impl Mapped for BandaiFCG {
     }
 }
 
-impl MemMap for BandaiFCG {
+impl MapRead for BandaiFCG {
     // Mapper 016
     //
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
@@ -306,7 +312,9 @@ impl MemMap for BandaiFCG {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for BandaiFCG {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -335,7 +343,7 @@ impl MemMap for BandaiFCG {
 }
 
 impl Clock for BandaiFCG {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if let Some(barcode_reader) = &mut self.barcode_reader {
             barcode_reader.clock();
         }
@@ -376,6 +384,8 @@ impl Sram for BandaiFCG {
     }
 }
 
+impl OnBusRead for BandaiFCG {}
+impl OnBusWrite for BandaiFCG {}
 impl Regional for BandaiFCG {}
 impl Reset for BandaiFCG {}
 
@@ -410,7 +420,7 @@ impl BarcodeReader {
         }
     }
 
-    pub fn input(&mut self, barcode: u64, digit_count: u32) {
+    pub const fn input(&mut self, barcode: u64, digit_count: u32) {
         self.new_barcode = barcode;
         self.new_barcode_digit_count = digit_count;
     }
@@ -559,7 +569,7 @@ impl BarcodeReader {
 }
 
 impl Clock for BarcodeReader {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         self.master_clock += 1;
         1
     }
@@ -598,7 +608,7 @@ pub struct Eeprom {
     output: u8,
     prev_scl: u8,
     prev_sda: u8,
-    rom_data: Memory,
+    rom_data: Memory<Vec<u8>>,
 }
 
 impl Eeprom {
@@ -618,7 +628,7 @@ impl Eeprom {
             output: 0,
             prev_scl: 0,
             prev_sda: 0,
-            rom_data: Memory::with_size(rom_size),
+            rom_data: Memory::rom().with_size(rom_size),
         }
     }
 
@@ -843,7 +853,7 @@ impl Eeprom {
         self.write(self.prev_scl, sda);
     }
 
-    pub fn write_bit(&mut self, dest: u8, val: u8) -> Option<u8> {
+    pub const fn write_bit(&mut self, dest: u8, val: u8) -> Option<u8> {
         if self.counter < 8 {
             let mask = !(1 << self.counter);
             let dest = (dest & mask) | (val << self.counter);
@@ -854,7 +864,7 @@ impl Eeprom {
         }
     }
 
-    pub fn read_bit(&mut self) {
+    pub const fn read_bit(&mut self) {
         if self.counter < 8 {
             self.output = if self.data & (1 << self.counter) > 0 {
                 1

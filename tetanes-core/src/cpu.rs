@@ -1,11 +1,11 @@
 //! 6502 Central Processing Unit (CPU) implementation.
 //!
-//! <http://wiki.nesdev.com/w/index.php/CPU>
+//! <https://wiki.nesdev.org/w/index.php/CPU>
 
 use crate::{
     bus::Bus,
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
-    mem::Mem,
+    mem::{Read, Write},
 };
 use bitflags::bitflags;
 use instr::{
@@ -22,7 +22,7 @@ use instr::{
 use serde::{Deserialize, Serialize};
 use std::{
     cell::Cell,
-    fmt::{self, Write},
+    fmt::{self},
 };
 use tracing::trace;
 
@@ -56,7 +56,7 @@ bitflags! {
 }
 
 // Status Registers
-// http://wiki.nesdev.com/w/index.php/Status_flags
+// https://wiki.nesdev.org/w/index.php/Status_flags
 // 7654 3210
 // NVUB DIZC
 // |||| ||||
@@ -87,22 +87,22 @@ bitflags! {
 /// Every cycle is either a read or a write.
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Cycle {
-    start: usize,
-    end: usize,
+    start: u64,
+    end: u64,
 }
 
 /// The Central Processing Unit status and registers
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 #[must_use]
 pub struct Cpu {
-    pub cycle: usize, // total number of cycles ran
-    pub pc: u16,      // program counter
+    pub cycle: u64, // total number of cycles ran
+    pub pc: u16,    // program counter
     pub bus: Bus,
     // start/end cycle counts for reads
     pub read_cycles: Cycle,
     // start/end cycle counts for writes
     pub write_cycles: Cycle,
-    pub master_clock: usize,
+    pub master_clock: u64,
     pub instr: Instr,     // The currently executing instruction
     pub fetched_data: u8, // Represents data fetched for the ALU
     pub status: Status,   // Status Registers
@@ -132,10 +132,10 @@ impl Cpu {
     const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
     const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
 
-    // Represents CPU/PPU alignment and would range from 1..=Ppu::clock_divider-1
+    // Represents CPU/PPU alignment and would range from 1..=ppu.clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
-    const PPU_OFFSET: usize = 1;
+    const PPU_OFFSET: u64 = 1;
 
     const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
     const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
@@ -170,7 +170,7 @@ impl Cpu {
             prev_nmi_pending: false,
             corrupted: false,
             cycle_accurate: true,
-            disasm: String::with_capacity(100),
+            disasm: String::new(),
         };
         cpu.set_region(cpu.region);
         cpu
@@ -183,8 +183,8 @@ impl Cpu {
         if cpu.bus.prg_rom.is_empty() {
             cpu.bus.prg_rom = std::mem::take(&mut self.bus.prg_rom);
         };
-        if cpu.bus.ppu.bus.chr_rom.is_empty() {
-            cpu.bus.ppu.bus.chr_rom = std::mem::take(&mut self.bus.ppu.bus.chr_rom);
+        if cpu.bus.ppu.bus.chr.is_empty() {
+            cpu.bus.ppu.bus.chr = std::mem::take(&mut self.bus.ppu.bus.chr);
         };
         // Doesn't make sense to load a debugger from a previous state
         cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
@@ -307,7 +307,7 @@ impl Cpu {
 
     /// Process an interrupted request.
     ///
-    /// <http://wiki.nesdev.com/w/index.php/IRQ>
+    /// <https://wiki.nesdev.org/w/index.php/IRQ>
     ///  #  address R/W description
     /// --- ------- --- -----------------------------------------------
     ///  1    PC     R  fetch PCH
@@ -337,9 +337,7 @@ impl Cpu {
             self.pc = self.read_u16(Self::NMI_VECTOR);
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         } else {
             self.push(status);
@@ -348,9 +346,7 @@ impl Cpu {
             self.pc = self.read_u16(Self::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle,
-                self.bus.ppu.scanline,
-                self.cycle
+                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         }
     }
@@ -383,7 +379,7 @@ impl Cpu {
     }
 
     /// Start a CPU cycle.
-    fn start_cycle(&mut self, increment: usize) {
+    fn start_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
         self.cycle = self.cycle.wrapping_add(1);
 
@@ -394,7 +390,7 @@ impl Cpu {
     }
 
     /// End a CPU cycle.
-    fn end_cycle(&mut self, increment: usize) {
+    fn end_cycle(&mut self, increment: u64) {
         self.master_clock = self.master_clock.wrapping_add(increment);
 
         if self.cycle_accurate {
@@ -651,6 +647,8 @@ impl Cpu {
 
     /// Disassemble the instruction at the given program counter.
     pub fn disassemble(&mut self, pc: &mut u16) -> &str {
+        use fmt::Write;
+
         let opcode = self.peek(*pc);
         let instr = Cpu::INSTRUCTIONS[opcode as usize];
         self.disasm.clear();
@@ -718,7 +716,10 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let x_offset = abs_addr.wrapping_add(self.x.into());
                 let val = self.peek(x_offset);
-                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}");
+                let _ = write!(
+                    self.disasm,
+                    "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},X @ ${x_offset:04X} = #${val:02X}"
+                );
             }
             ABY => {
                 let byte1 = self.peek(addr);
@@ -727,7 +728,10 @@ impl Cpu {
                 addr = addr.wrapping_add(2);
                 let y_offset = abs_addr.wrapping_add(self.y.into());
                 let val = self.peek(y_offset);
-                let _ = write!(self.disasm, "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}");
+                let _ = write!(
+                    self.disasm,
+                    "${byte1:02X} ${byte2:02X} {instr} ${abs_addr:04X},Y @ ${y_offset:04X} = #${val:02X}"
+                );
             }
             IND => {
                 let byte1 = self.peek(addr);
@@ -821,7 +825,7 @@ impl Cpu {
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction.
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         let start_cycle = self.cycle;
 
         self.trace_instr();
@@ -830,19 +834,19 @@ impl Clock for Cpu {
         self.instr = Cpu::INSTRUCTIONS[opcode as usize];
 
         match self.instr.addr_mode() {
-            IMM => self.imm(),
-            ZP0 => self.zp0(),
-            ZPX => self.zpx(),
-            ZPY => self.zpy(),
-            ABS => self.abs(),
-            ABX => self.abx(),
-            ABY => self.aby(),
-            IND => self.ind(),
-            IDX => self.idx(),
-            IDY => self.idy(),
-            REL => self.rel(),
-            ACC => self.acc(),
-            IMP => self.imp(),
+            IMM => self.imm(), // Immediate
+            ZP0 => self.zp0(), // Zero Page
+            ZPX => self.zpx(), // Zero Page w/ X-offset
+            ZPY => self.zpy(), // Zero Page w/ Y-offset
+            ABS => self.abs(), // Absolute
+            ABX => self.abx(), // Absolute w/ X-offset
+            ABY => self.aby(), // Absolute w/ Y-offset
+            IND => self.ind(), // Indirect
+            IDX => self.idx(), // Indirect w/ X-offset
+            IDY => self.idy(), // Indirect w/ Y-offset
+            REL => self.rel(), // Relative
+            ACC => self.acc(), // Accumulator
+            IMP => self.imp(), // Implied
         };
 
         match self.instr.op() {
@@ -942,7 +946,7 @@ impl Clock for Cpu {
     }
 }
 
-impl Mem for Cpu {
+impl Read for Cpu {
     fn read(&mut self, addr: u16) -> u8 {
         if Self::halt_for_dma() {
             self.handle_dma(addr);
@@ -957,7 +961,9 @@ impl Mem for Cpu {
     fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
+}
 
+impl Write for Cpu {
     fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.write_cycles.start);
         self.bus.write(addr, val);

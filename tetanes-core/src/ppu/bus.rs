@@ -2,8 +2,8 @@
 
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
-    mapper::{Mapped, MappedRead, MappedWrite, Mapper, MemMap},
-    mem::{Mem, Memory},
+    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusWrite},
+    mem::{ConstSlice, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
@@ -29,18 +29,17 @@ impl PpuAddr for u16 {
 #[must_use]
 pub struct Bus {
     pub mapper: Mapper,
-    pub chr_ram: Memory,
+    pub chr: Memory<Vec<u8>>,
+    pub ciram: Memory<ConstSlice<u8, 0x0800>>, // $2007 PPUDATA
+    pub palette: Memory<ConstSlice<u8, 32>>,
     #[serde(skip)]
-    pub chr_rom: Memory,
-    pub ciram: Memory, // $2007 PPUDATA
-    pub palette: [u8; Self::PALETTE_SIZE],
-    pub exram: Memory,
+    pub exram: Memory<Vec<u8>>,
     pub open_bus: u8,
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new()
+        Self::new(RamState::default())
     }
 }
 
@@ -48,14 +47,13 @@ impl Bus {
     pub const VRAM_SIZE: usize = 0x0800; // Two 1k Nametables
     pub const PALETTE_SIZE: usize = 32; // 32 possible colors at a time
 
-    pub fn new() -> Self {
+    pub fn new(ram_state: RamState) -> Self {
         Self {
             mapper: Mapper::none(),
-            ciram: Memory::with_size(Self::VRAM_SIZE),
-            palette: [0x00; Self::PALETTE_SIZE],
-            chr_ram: Memory::new(),
-            chr_rom: Memory::new(),
-            exram: Memory::new(),
+            chr: Memory::rom(),
+            ciram: Memory::ram_const(ram_state),
+            palette: Memory::ram_const(ram_state),
+            exram: Memory::ram(ram_state),
             open_bus: 0x00,
         }
     }
@@ -64,16 +62,12 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr_rom(&mut self, chr_rom: Memory) {
-        self.chr_rom = chr_rom;
+    pub fn load_chr(&mut self, chr: impl Into<Memory<Vec<u8>>>) {
+        self.chr = chr.into();
     }
 
-    pub fn load_chr_ram(&mut self, chr_ram: Memory) {
-        self.chr_ram = chr_ram;
-    }
-
-    pub fn load_ex_ram(&mut self, ex_ram: Memory) {
-        self.exram = ex_ram;
+    pub fn load_ex_ram(&mut self, ex_ram: impl Into<Memory<Vec<u8>>>) {
+        self.exram = ex_ram.into();
     }
 
     // Maps addresses to nametable pages based on mirroring mode
@@ -110,57 +104,37 @@ impl Bus {
     }
 
     pub fn read_ciram(&mut self, addr: u16) -> u8 {
-        let val = match self.mapper.map_read(addr) {
-            MappedRead::Bus => self
-                .ciram
-                .get(Self::ciram_mirror(addr, self.mirroring()))
-                .copied()
-                .unwrap_or(0),
-            MappedRead::CIRam(mapped_addr) => {
-                self.ciram.get(mapped_addr & 0x07FF).copied().unwrap_or(0)
-            }
-            MappedRead::ExRam(addr) => self.exram.get(addr).copied().unwrap_or(0),
+        match self.mapper.map_read(addr) {
+            MappedRead::Bus => self.ciram[Self::ciram_mirror(addr, self.mirroring())],
+            MappedRead::CIRam(addr) => self.ciram[addr],
+            MappedRead::ExRam(addr) => self.exram[addr],
             MappedRead::Data(data) => data,
-            MappedRead::Chr(addr) => {
-                if self.chr_ram.is_empty() {
-                    self.chr_rom.get(addr).copied().unwrap_or(0)
-                } else {
-                    self.chr_ram.get(addr).copied().unwrap_or(0)
-                }
-            }
+            MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
-                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}");
+                0
             }
             MappedRead::PrgRam(mapped) => {
-                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}");
+                0
             }
-        };
-        self.open_bus = val;
-        val
+        }
     }
 
     pub fn peek_ciram(&self, addr: u16) -> u8 {
         match self.mapper.map_peek(addr) {
-            MappedRead::Bus => self
-                .ciram
-                .get(Self::ciram_mirror(addr, self.mirroring()))
-                .copied()
-                .unwrap_or(0),
-            MappedRead::CIRam(addr) => self.ciram.get(addr & 0x07FF).copied().unwrap_or(0),
-            MappedRead::ExRam(addr) => self.exram.get(addr).copied().unwrap_or(0),
+            MappedRead::Bus => self.ciram[Self::ciram_mirror(addr, self.mirroring())],
+            MappedRead::CIRam(addr) => self.ciram[addr],
+            MappedRead::ExRam(addr) => self.exram[addr],
             MappedRead::Data(data) => data,
-            MappedRead::Chr(addr) => {
-                if self.chr_ram.is_empty() {
-                    self.chr_rom.get(addr).copied().unwrap_or(0)
-                } else {
-                    self.chr_ram.get(addr).copied().unwrap_or(0)
-                }
-            }
+            MappedRead::Chr(addr) => self.chr[addr],
             MappedRead::PrgRom(mapped) => {
-                panic!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-ROM read at ${addr:04X} ${mapped:04X}");
+                0
             }
             MappedRead::PrgRam(mapped) => {
-                panic!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}")
+                tracing::warn!("unexpected mapped PRG-RAM read at ${addr:04X} ${mapped:04X}");
+                0
             }
         }
     }
@@ -171,13 +145,7 @@ impl Bus {
         } else {
             addr.into()
         };
-        let val = if self.chr_ram.is_empty() {
-            self.chr_rom.get(addr).copied().unwrap_or(0)
-        } else {
-            self.chr_ram.get(addr).copied().unwrap_or(0)
-        };
-        self.open_bus = val;
-        val
+        self.chr[addr]
     }
 
     pub fn peek_chr(&self, addr: u16) -> u8 {
@@ -186,42 +154,29 @@ impl Bus {
         } else {
             addr.into()
         };
-        if self.chr_ram.is_empty() {
-            self.chr_rom.get(addr).copied().unwrap_or(0)
-        } else {
-            self.chr_ram.get(addr).copied().unwrap_or(0)
-        }
+        self.chr[addr]
     }
 
-    pub fn read_palette(&mut self, addr: u16) -> u8 {
-        let val = self
-            .palette
-            .get(self.palette_mirror(addr))
-            .copied()
-            .unwrap_or(0);
-        self.open_bus = val;
-        val
-    }
-
+    #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn peek_palette(&self, addr: u16) -> u8 {
-        self.palette
-            .get(self.palette_mirror(addr))
-            .copied()
-            .unwrap_or(0)
+        self.palette[self.palette_mirror(addr)]
     }
 }
 
-impl Mem for Bus {
+impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
-        match addr {
+        let val = match addr {
             0x2000..=0x3EFF => self.read_ciram(addr),
             0x0000..=0x1FFF => self.read_chr(addr),
-            0x3F00..=0x3FFF => self.read_palette(addr),
+            0x3F00..=0x3FFF => self.peek_palette(addr),
             _ => {
                 error!("unexpected PPU memory access at ${:04X}", addr);
                 0x00
             }
-        }
+        };
+        self.open_bus = val;
+        val
     }
 
     fn peek(&self, addr: u16) -> u8 {
@@ -235,50 +190,42 @@ impl Mem for Bus {
             }
         }
     }
+}
 
+impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x3EFF => match self.mapper.map_write(addr, val) {
                 MappedWrite::Bus => {
                     let addr = Self::ciram_mirror(addr, self.mirroring());
-                    if let Some(v) = self.ciram.get_mut(addr) {
-                        *v = val;
-                    }
+                    self.ciram[addr] = val;
                 }
-                MappedWrite::CIRam(addr, val) => {
-                    if let Some(v) = self.ciram.get_mut(addr & 0x07FF) {
-                        *v = val;
-                    }
-                }
-                MappedWrite::ExRam(addr, val) => {
-                    if let Some(v) = self.exram.get_mut(addr) {
-                        *v = val;
-                    }
-                }
+                MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
+                MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
                 MappedWrite::ChrRam(addr, val) => {
-                    if !self.chr_ram.is_empty() {
-                        if let Some(v) = self.chr_ram.get_mut(addr) {
-                            *v = val;
-                        }
+                    if self.chr.is_ram() {
+                        self.chr[addr] = val;
                     }
                 }
                 MappedWrite::PrgRam(mapped, val) => {
-                    panic!("unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}");
+                    tracing::warn!(
+                        "unexpected mapped PRG-RAM write at ${addr:04X} for ${mapped:04X} with ${val:02X}"
+                    );
                 }
                 MappedWrite::PrgRamProtect(val) => {
-                    panic!("unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}");
+                    tracing::warn!(
+                        "unexpected mapped PRG-RAM Protect write at ${addr:04X} with {val}"
+                    );
                 }
                 MappedWrite::None => (),
             },
             0x3F00..=0x3FFF => {
                 let addr = self.palette_mirror(addr);
-                if let Some(v) = self.palette.get_mut(addr) {
-                    *v = val;
-                }
+                self.palette[addr] = val;
             }
             _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
-        self.mapper.ppu_bus_write(addr, val);
+        self.mapper.on_bus_write(addr, val, BusKind::Ppu);
         self.open_bus = val;
     }
 }
@@ -296,6 +243,9 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
+        if self.chr.is_ram() {
+            self.chr.reset(kind);
+        }
         self.mapper.reset(kind);
     }
 }

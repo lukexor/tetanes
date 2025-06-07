@@ -1,16 +1,19 @@
-//! `UxROM` (Mapper 002)
+//! `UxROM` (Mapper 002).
 //!
-//! <https://wiki.nesdev.com/w/index.php/UxROM>
+//! <https://wiki.nesdev.org/w/index.php/UxROM>
 
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Mapped, MappedRead, MappedWrite, Mapper, MemMap},
+    mapper::{
+        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
+    },
     mem::Banks,
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
+/// `UxROM` (Mapper 002).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Uxrom {
@@ -35,7 +38,7 @@ impl Uxrom {
     }
 }
 
-impl Mapped for Uxrom {
+impl Mirrored for Uxrom {
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -45,7 +48,7 @@ impl Mapped for Uxrom {
     }
 }
 
-impl MemMap for Uxrom {
+impl MapRead for Uxrom {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM/CHR-RAM Bank
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
@@ -57,7 +60,9 @@ impl MemMap for Uxrom {
             _ => MappedRead::Bus,
         }
     }
+}
 
+impl MapWrite for Uxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
@@ -70,6 +75,8 @@ impl MemMap for Uxrom {
     }
 }
 
+impl OnBusRead for Uxrom {}
+impl OnBusWrite for Uxrom {}
 impl Reset for Uxrom {}
 impl Clock for Uxrom {}
 impl Regional for Uxrom {}

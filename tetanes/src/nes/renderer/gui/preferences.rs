@@ -1,12 +1,13 @@
 use crate::{
     feature,
     nes::{
+        action::Setting,
         config::{AudioConfig, Config, EmulationConfig, RendererConfig},
-        event::{ConfigEvent, EmulationEvent, NesEventProxy, UiEvent},
+        event::{ConfigEvent, NesEventProxy, UiEvent},
         renderer::{
             gui::{
-                lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
                 MessageType,
+                lib::{RadioValue, ShortcutText, ShowShortcut, ViewportOptions},
             },
             shader::Shader,
         },
@@ -18,15 +19,14 @@ use egui::{
 };
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
     action::Action as DeckAction, apu::Channel, common::NesRegion,
     control_deck::Config as DeckConfig, fs, genie::GenieCode, input::FourPlayer, mem::RamState,
     time::Duration, video::VideoFilter,
 };
-use tracing::warn;
 
 #[derive(Debug)]
 #[must_use]
@@ -42,7 +42,6 @@ pub struct Preferences {
     id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
-    resources: Option<Config>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -61,7 +60,7 @@ pub struct GenieEntry {
 }
 
 impl Preferences {
-    const TITLE: &'static str = "🔧 Preferences";
+    const TITLE: &'static str = "Preferences";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -72,33 +71,30 @@ impl Preferences {
                 tab: Tab::default(),
                 genie_entry: GenieEntry::default(),
             })),
-            resources: None,
         }
-    }
-
-    pub const fn id(&self) -> ViewportId {
-        self.id
     }
 
     pub fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool) {
+    pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn toggle_open(&self) {
+    pub fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
+        if !self.open() {
+            ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
+        }
     }
 
-    pub fn prepare(&mut self, cfg: &Config) {
-        self.resources = Some(cfg.clone());
-    }
-
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config) {
         if !self.open() {
             return;
         }
@@ -108,10 +104,6 @@ impl Preferences {
 
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
-        let Some(cfg) = self.resources.take() else {
-            warn!("Preferences::prepare was not called with required resources");
-            return;
-        };
 
         let mut viewport_builder = egui::ViewportBuilder::default().with_title(Self::TITLE);
         if opts.always_on_top {
@@ -303,25 +295,66 @@ impl Preferences {
         }
     }
 
-    pub fn video_filter_radio(tx: &NesEventProxy, ui: &mut Ui, mut filter: VideoFilter) {
+    pub fn video_filter_radio(
+        tx: &NesEventProxy,
+        ui: &mut Ui,
+        mut filter: VideoFilter,
+        cfg: &Config,
+        show_shortcut: ShowShortcut,
+    ) {
         let previous_filter = filter;
-        ui.radio_value(&mut filter, VideoFilter::Pixellate, "Pixellate")
-            .on_hover_text("Basic pixel-perfect rendering");
-        ui.radio_value(&mut filter, VideoFilter::Ntsc, "Ntsc")
-            .on_hover_text(
-                "Emulate traditional NTSC rendering where chroma spills over into luma.",
-            );
+
+        let shortcut =
+            show_shortcut.then(|| cfg.shortcut(DeckAction::SetVideoFilter(VideoFilter::Pixellate)));
+        let icon = shortcut.is_some().then_some("🌁 ").unwrap_or_default();
+        let radio = RadioValue::new(
+            &mut filter,
+            VideoFilter::Pixellate,
+            format!("{icon}Pixellate"),
+        )
+        .shortcut_text(shortcut.unwrap_or_default());
+        ui.add(radio).on_hover_text("Basic pixel-perfect rendering");
+
+        let shortcut =
+            show_shortcut.then(|| cfg.shortcut(DeckAction::SetVideoFilter(VideoFilter::Ntsc)));
+        let icon = shortcut.is_some().then_some("📼 ").unwrap_or_default();
+        let radio = RadioValue::new(&mut filter, VideoFilter::Ntsc, format!("{icon}Ntsc"))
+            .shortcut_text(shortcut.unwrap_or_default());
+        ui.add(radio).on_hover_text(
+            "Emulate traditional NTSC rendering where chroma spills over into luma.",
+        );
+
         if filter != previous_filter {
             tx.event(ConfigEvent::VideoFilter(filter));
         }
     }
 
-    pub fn shader_radio(tx: &NesEventProxy, ui: &mut Ui, mut shader: Shader) {
+    pub fn shader_radio(
+        tx: &NesEventProxy,
+        ui: &mut Ui,
+        mut shader: Shader,
+        cfg: &Config,
+        show_shortcut: ShowShortcut,
+    ) {
         let previous_shader = shader;
-        ui.radio_value(&mut shader, Shader::None, "None")
-            .on_hover_text("No shader.");
-        ui.radio_value(&mut shader, Shader::CrtEasymode, "CRT Easymode")
+
+        let shortcut = show_shortcut.then(|| cfg.shortcut(Setting::SetShader(Shader::Default)));
+        let icon = shortcut.is_some().then_some("🗋 ").unwrap_or_default();
+        let radio = RadioValue::new(&mut shader, Shader::Default, format!("{icon}Default"))
+            .shortcut_text(shortcut.unwrap_or_default());
+        ui.add(radio).on_hover_text("Default shader.");
+
+        let shortcut = show_shortcut.then(|| cfg.shortcut(Setting::SetShader(Shader::CrtEasymode)));
+        let icon = shortcut.is_some().then_some("📺 ").unwrap_or_default();
+        let radio = RadioValue::new(
+            &mut shader,
+            Shader::CrtEasymode,
+            format!("{icon}CRT Easymode"),
+        )
+        .shortcut_text(shortcut.unwrap_or_default());
+        ui.add(radio)
             .on_hover_text("Emulate traditional CRT aperture grill masking.");
+
         if shader != previous_shader {
             tx.event(ConfigEvent::Shader(shader));
         }
@@ -664,7 +697,7 @@ impl State {
                     "Can result in some games not working correctly"
                 ));
             if res.clicked() {
-                tx.event(EmulationEvent::EmulatePpuWarmup(emulate_ppu_warmup));
+                tx.event(ConfigEvent::EmulatePpuWarmup(emulate_ppu_warmup));
             }
             ui.end_row();
         });
@@ -899,13 +932,15 @@ impl State {
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                     ui.strong("Video Filter:");
                 });
-                ui.vertical(|ui| Preferences::video_filter_radio(tx, ui, filter));
+                ui.vertical(|ui| {
+                    Preferences::video_filter_radio(tx, ui, filter, cfg, ShowShortcut::No);
+                });
                 ui.end_row();
 
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                     ui.strong("Shader:");
                 });
-                ui.vertical(|ui| Preferences::shader_radio(tx, ui, shader));
+                ui.vertical(|ui| Preferences::shader_radio(tx, ui, shader, cfg, ShowShortcut::No));
             });
     }
 
@@ -1048,7 +1083,7 @@ impl State {
         }
     }
 
-    fn clear_save_states(tx: &NesEventProxy) {
+    pub(crate) fn clear_save_states(tx: &NesEventProxy) {
         let data_dir = Config::default_data_dir();
         match fs::clear_dir(data_dir) {
             Ok(_) => tx.event(UiEvent::Message((

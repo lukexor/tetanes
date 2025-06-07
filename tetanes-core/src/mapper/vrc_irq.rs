@@ -20,7 +20,7 @@ pub struct VrcIrq {
 }
 
 impl VrcIrq {
-    pub fn write_reload(&mut self, val: u8) {
+    pub const fn write_reload(&mut self, val: u8) {
         self.reload = val;
     }
 
@@ -44,7 +44,7 @@ impl VrcIrq {
 }
 
 impl Clock for VrcIrq {
-    fn clock(&mut self) -> usize {
+    fn clock(&mut self) -> u64 {
         if self.enabled {
             self.prescalar_counter -= 3;
             if self.cycle_mode || self.prescalar_counter <= 0 {

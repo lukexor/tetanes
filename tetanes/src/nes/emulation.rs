@@ -1,16 +1,16 @@
 use crate::{
     nes::{
+        RunState,
         action::DebugStep,
         audio::{Audio, State as AudioState},
         config::{Config, FrameRate},
         emulation::{replay::Record, rewind::Rewind},
         event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
-        renderer::{gui::MessageType, FrameRecycle},
-        RunState,
+        renderer::{FrameRecycle, gui::MessageType},
     },
     thread,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use chrono::Local;
 use crossbeam::channel;
 use egui::ViewportId;
@@ -133,13 +133,12 @@ impl FrameTimeDiag {
 fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
     error!("{err}");
     tx.event(UiEvent::Terminate);
-    std::process::exit(1);
 }
 
 #[derive(Debug)]
 #[must_use]
 enum Threads {
-    Single(Single),
+    Single(Box<Single>),
     Multi(Multi),
 }
 
@@ -162,7 +161,7 @@ impl Multi {
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
     ) -> anyhow::Result<Self> {
-        let (tx, rx) = channel::bounded(1024);
+        let (tx, rx) = channel::bounded(128);
         Ok(Self {
             tx,
             handle: std::thread::Builder::new()
@@ -213,9 +212,9 @@ impl Emulation {
         let backend = if threaded {
             Threads::Multi(Multi::spawn(tx, frame_tx, cfg)?)
         } else {
-            Threads::Single(Single {
+            Threads::Single(Box::new(Single {
                 state: State::new(tx, frame_tx, cfg),
-            })
+            }))
         };
 
         Ok(Self { threads: backend })
@@ -224,12 +223,11 @@ impl Emulation {
     /// Handle event.
     pub fn on_event(&mut self, event: &NesEvent) {
         match &mut self.threads {
-            Threads::Single(Single { state }) => state.on_event(event),
+            Threads::Single(single) => single.state.on_event(event),
             Threads::Multi(Multi { tx, handle }) => {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(event.clone()) {
                     error!("failed to send emulation event: {event:?}. {err:?}");
-                    std::process::exit(1);
                 }
             }
         }
@@ -237,7 +235,7 @@ impl Emulation {
 
     pub fn try_clock_frame(&mut self) {
         match &mut self.threads {
-            Threads::Single(Single { state }) => state.try_clock_frame(),
+            Threads::Single(single) => single.state.try_clock_frame(),
             // Multi-threaded emulation handles it's own clock timing and redraw requests
             Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
         }
@@ -250,7 +248,6 @@ impl Emulation {
                 handle.thread().unpark();
                 if let Err(err) = tx.try_send(NesEvent::Ui(UiEvent::Terminate)) {
                     error!("failed to send termination event. {err:?}");
-                    std::process::exit(1);
                 }
             }
         }
@@ -301,6 +298,13 @@ impl State {
             cfg.audio.latency,
             cfg.audio.buffer_size,
         );
+        if cfg.audio.enabled && audio.device().is_none() {
+            tx.event(ConfigEvent::AudioEnabled(false));
+            tx.event(UiEvent::Message((
+                MessageType::Warn,
+                "No audio device found.".into(),
+            )));
+        }
         if Apu::DEFAULT_SAMPLE_RATE != audio.sample_rate {
             control_deck.set_sample_rate(audio.sample_rate);
         }
@@ -321,7 +325,7 @@ impl State {
             clock_time_accumulator: 0.0,
             last_frame_time: Instant::now(),
             frame_time_diag: FrameTimeDiag::new(),
-            run_state: RunState::Paused,
+            run_state: RunState::AutoPaused,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -350,17 +354,20 @@ impl State {
         writer: impl FnOnce(&mut ControlDeck) -> control_deck::Result<T>,
     ) -> Option<T> {
         writer(&mut self.control_deck)
-            .map_err(|err| {
-                self.set_run_state(RunState::Paused);
-                self.on_error(err);
-            })
+            .map_err(|err| self.on_error(err))
             .ok()
     }
 
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
         let err = err.into();
         error!("Emulation error: {err:?}");
-        self.add_message(MessageType::Error, err);
+        if self.control_deck.cpu_corrupted() {
+            self.tx.event(EmulationEvent::CpuCorrupted {
+                instr: self.control_deck.cpu().instr,
+            });
+        } else {
+            self.add_message(MessageType::Error, err);
+        }
     }
 
     /// Handle event.
@@ -396,6 +403,8 @@ impl State {
                     self.audio_record(*recording);
                 }
             }
+            EmulationEvent::CpuCorrupted { .. } => (), // Ignore, as only this module emits this
+            // event
             EmulationEvent::DebugStep(step) => {
                 if self.control_deck.is_running() {
                     match step {
@@ -425,9 +434,6 @@ impl State {
                         }
                     }
                 }
-            }
-            EmulationEvent::EmulatePpuWarmup(enabled) => {
-                self.control_deck.set_emulate_ppu_warmup(*enabled);
             }
             EmulationEvent::InstantRewind => {
                 if self.control_deck.is_running() {
@@ -466,9 +472,8 @@ impl State {
             }
             EmulationEvent::Reset(kind) => {
                 self.frame_time_diag.reset();
-                if self.control_deck.is_running() {
+                if self.control_deck.is_running() || self.control_deck.cpu_corrupted() {
                     self.control_deck.reset(*kind);
-                    self.set_run_state(RunState::Running);
                     match kind {
                         ResetKind::Soft => self.add_message(MessageType::Info, "Reset"),
                         ResetKind::Hard => self.add_message(MessageType::Info, "Power Cycled"),
@@ -566,6 +571,9 @@ impl State {
             }
             ConfigEvent::CycleAccurate(enabled) => {
                 self.control_deck.set_cycle_accurate(*enabled);
+            }
+            ConfigEvent::EmulatePpuWarmup(enabled) => {
+                self.control_deck.set_emulate_ppu_warmup(*enabled);
             }
             ConfigEvent::FourPlayer(four_player) => {
                 self.control_deck.set_four_player(*four_player);
@@ -728,9 +736,9 @@ impl State {
             }
         }
         if let Err(err) = self.audio.start() {
+            self.tx.event(ConfigEvent::AudioEnabled(false));
             self.on_error(err);
         }
-        self.set_run_state(RunState::Running);
         self.tx.event(RendererEvent::RomLoaded(rom));
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -765,7 +773,6 @@ impl State {
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
         self.control_deck.load_cpu(start);
-        self.set_run_state(RunState::Running);
         self.tx.event(RendererEvent::ReplayLoaded);
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -959,10 +966,7 @@ impl State {
                         self.save_state(self.save_slot, true);
                     }
                 }
-                Err(err) => {
-                    self.set_run_state(RunState::Paused);
-                    self.on_error(err);
-                }
+                Err(err) => self.on_error(err),
             }
         }
 

@@ -1,6 +1,6 @@
 //! PPUCTRL register implementation.
 //!
-//! See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL>
+//! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
 
 use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
@@ -13,7 +13,7 @@ const NAMETABLE4: u16 = 0x2C00;
 
 /// PPUCTRL register.
 ///
-/// See: <https://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL>
+/// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Ctrl {
@@ -30,7 +30,7 @@ pub struct Ctrl {
 bitflags! {
     // $2000 PPUCTRL
     //
-    // http://wiki.nesdev.com/w/index.php/PPU_registers#PPUCTRL
+    // https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL
     // VPHB SINN
     // |||| ||++- Nametable Select: 0b00 = $2000 (upper-left); 0b01 = $2400 (upper-right);
     // |||| ||                      0b10 = $2800 (lower-left); 0b11 = $2C00 (lower-right)

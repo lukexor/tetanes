@@ -1,9 +1,9 @@
 use crate::nes::renderer::shader::{self, Shader};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use egui::{
+    NumExt, ViewportId, ViewportIdMap, ViewportIdSet,
     ahash::HashMap,
     epaint::{self, Primitive, Vertex},
-    NumExt, ViewportId, ViewportIdMap, ViewportIdSet,
 };
 use std::{
     borrow::Cow,
@@ -70,17 +70,13 @@ impl Surface {
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         shader: Shader,
     ) {
-        if matches!(shader, Shader::None) {
-            self.shader_resources = None;
-        } else {
-            self.shader_resources = Some(shader::Resources::new(
-                device,
-                format,
-                self.create_texture_view(device, format),
-                uniform_bind_group_layout,
-                shader,
-            ));
-        }
+        self.shader_resources = shader::Resources::new(
+            device,
+            format,
+            self.create_texture_view(device, format),
+            uniform_bind_group_layout,
+            shader,
+        );
     }
 }
 
@@ -101,8 +97,18 @@ pub struct Painter {
 
 impl Default for Painter {
     fn default() -> Self {
+        let descriptor = if cfg!(all(target_arch = "wasm32", not(feature = "webgpu"))) {
+            // TODO: WebGPU is still unsafe/experimental on Linux in Chrome and still nightly on
+            // Firefox
+            wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all().difference(wgpu::Backends::BROWSER_WEBGPU),
+                ..Default::default()
+            }
+        } else {
+            wgpu::InstanceDescriptor::default()
+        };
         Self {
-            instance: wgpu::Instance::new(wgpu::InstanceDescriptor::default()),
+            instance: wgpu::Instance::new(&descriptor),
             render_state: None,
             surfaces: Default::default(),
         }
@@ -281,7 +287,7 @@ impl Painter {
         self.render_state.as_ref()
     }
 
-    pub fn render_state_mut(&mut self) -> Option<&mut RenderState> {
+    pub const fn render_state_mut(&mut self) -> Option<&mut RenderState> {
         self.render_state.as_mut()
     }
 
@@ -381,6 +387,9 @@ impl RenderState {
                     &wgpu::DeviceDescriptor {
                         required_limits: wgpu::Limits {
                             max_texture_dimension_2d: 4096,
+                            // Default Edge installed on Windows 10 is limited to 6 attachments,
+                            // and we never need more than 1.
+                            max_color_attachments: 6,
                             ..base_limits
                         },
                         ..device_descriptor
@@ -402,7 +411,10 @@ impl RenderState {
                     wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
                 )
             })
-            .unwrap_or(capabilities.formats[0]); // TODO: Is falling back to first available okay?
+            .unwrap_or_else(|| {
+                tracing::warn!(format = ?capabilities.formats[0], "failling back to first available format");
+                capabilities.formats[0]
+            });
 
         let (device, queue) =
             connection.map_err(|err| anyhow!("failed to create wgpu device: {err:?}"))?;
@@ -669,14 +681,14 @@ impl RenderState {
 
         let queue_write_data_to_texture = |texture, origin| {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture,
                     mip_level: 0,
                     origin,
                     aspect: wgpu::TextureAspect::All,
                 },
                 data_bytes,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
@@ -793,7 +805,11 @@ impl RenderState {
             );
 
             let Some(mut index_buffer_staging) = index_buffer_staging else {
-                panic!("Failed to create staging buffer for index data. Index count: {index_count}. Required index buffer size: {required_index_buffer_size}. Actual size {} and capacity: {} (bytes)", self.index_buffer.buffer.size(), self.index_buffer.capacity);
+                panic!(
+                    "Failed to create staging buffer for index data. Index count: {index_count}. Required index buffer size: {required_index_buffer_size}. Actual size {} and capacity: {} (bytes)",
+                    self.index_buffer.buffer.size(),
+                    self.index_buffer.capacity
+                );
             };
 
             let mut index_offset = 0;
@@ -828,7 +844,11 @@ impl RenderState {
             );
 
             let Some(mut vertex_buffer_staging) = vertex_buffer_staging else {
-                panic!("Failed to create staging buffer for vertex data. Vertex count: {vertex_count}. Required vertex buffer size: {required_vertex_buffer_size}. Actual size {} and capacity: {} (bytes)", self.vertex_buffer.buffer.size(), self.vertex_buffer.capacity);
+                panic!(
+                    "Failed to create staging buffer for vertex data. Vertex count: {vertex_count}. Required vertex buffer size: {required_vertex_buffer_size}. Actual size {} and capacity: {} (bytes)",
+                    self.vertex_buffer.buffer.size(),
+                    self.vertex_buffer.capacity
+                );
             };
 
             let mut vertex_offset = 0;

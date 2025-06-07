@@ -5,8 +5,8 @@ use crate::{
         event::{ConfigEvent, NesEvent, RendererEvent, Response, UiEvent},
         input::{Gamepads, Input},
         renderer::{
-            gui::{lib::pixels_per_point, Gui},
             Renderer, State, Viewport,
+            gui::{Gui, lib::pixels_per_point},
         },
     },
 };
@@ -82,34 +82,31 @@ impl Renderer {
                 }
                 _ => (),
             },
-            // TODO: Update accesskit when egui supports an updated version
-            // #[cfg(not(target_arch = "wasm32"))]
-            // NesEvent::AccessKit { window_id, event } => {
-            //     use crate::nes::event::AccessKitWindowEvent;
-            //     if let Some(viewport_id) = self.viewport_id_for_window(*window_id) {
-            //         let mut state = self.state.borrow_mut();
-            //         if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
-            //             match event {
-            //                 AccessKitWindowEvent::InitialTreeRequested => {
-            //                     self.ctx.enable_accesskit();
-            //                     let update = self.ctx.accesskit_placeholder_tree_update();
-            //                     self.accesskit.update_if_active(|| update);
-            //                 }
-            //                 AccessKitWindowEvent::ActionRequested(request) => {
-            //                     viewport
-            //                         .raw_input
-            //                         .events
-            //                         .push(egui::Event::AccessKitActionRequest(request.clone()));
-            //                 }
-            //                 AccessKitWindowEvent::AccessibilityDeactivated => {
-            //                     self.ctx.disable_accesskit();
-            //                 }
-            //             }
-
-            //             self.ctx.request_repaint_of(viewport_id);
-            //         };
-            //     }
-            // }
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { window_id, event } => {
+                use crate::nes::event::AccessKitWindowEvent;
+                if let Some(viewport_id) = self.viewport_id_for_window(*window_id) {
+                    let mut state = self.state.borrow_mut();
+                    if let Some(viewport) = state.viewports.get_mut(&viewport_id) {
+                        match event {
+                            AccessKitWindowEvent::InitialTreeRequested => {
+                                self.ctx.enable_accesskit();
+                                self.ctx.request_repaint_of(viewport_id);
+                            }
+                            AccessKitWindowEvent::ActionRequested(request) => {
+                                viewport
+                                    .raw_input
+                                    .events
+                                    .push(egui::Event::AccessKitActionRequest(request.clone()));
+                                self.ctx.request_repaint_of(viewport_id);
+                            }
+                            AccessKitWindowEvent::AccessibilityDeactivated => {
+                                self.ctx.disable_accesskit();
+                            }
+                        }
+                    };
+                }
+            }
             _ => (),
         }
     }
@@ -124,7 +121,10 @@ impl Renderer {
         };
 
         let State {
-            viewports, focused, ..
+            viewports,
+            focused,
+            pointer_touch_id,
+            ..
         } = &mut *self.state.borrow_mut();
         let Some(viewport) = viewports.get_mut(&viewport_id) else {
             return Response::default();
@@ -250,7 +250,7 @@ impl Renderer {
             }
             // WindowEvent::TouchpadPressure {device_id, pressure, stage, ..  } => {} // TODO
             WindowEvent::Touch(touch) => {
-                Self::on_touch(viewport, pixels_per_point, touch);
+                Self::on_touch(viewport, pointer_touch_id, pixels_per_point, touch);
                 let consumed = match touch.phase {
                     TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled => {
                         self.ctx.wants_pointer_input()
@@ -460,7 +460,12 @@ impl Renderer {
             .push(egui::Event::PointerMoved(pos_in_points));
     }
 
-    fn on_touch(viewport: &mut Viewport, pixels_per_point: f32, touch: &Touch) {
+    fn on_touch(
+        viewport: &mut Viewport,
+        pointer_touch_id: &mut Option<u64>,
+        pixels_per_point: f32,
+        touch: &Touch,
+    ) {
         // Emit touch event
         viewport.raw_input.events.push(egui::Event::Touch {
             device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
@@ -485,6 +490,47 @@ impl Renderer {
                 None => None,
             },
         });
+        // If we're not yet translating a touch or we're translating this very
+        // touch …
+        if pointer_touch_id.is_none()
+            || pointer_touch_id.is_some_and(|touch_id| touch_id == touch.id)
+        {
+            // … emit PointerButton resp. PointerMoved events to emulate mouse
+            match touch.phase {
+                winit::event::TouchPhase::Started => {
+                    *pointer_touch_id = Some(touch.id);
+                    // First move the pointer to the right location
+                    Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
+                    Self::on_mouse_button_input(
+                        viewport.cursor_pos,
+                        viewport,
+                        ElementState::Pressed,
+                        MouseButton::Left,
+                    );
+                }
+                winit::event::TouchPhase::Moved => {
+                    Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
+                }
+                winit::event::TouchPhase::Ended => {
+                    *pointer_touch_id = None;
+                    Self::on_mouse_button_input(
+                        viewport.cursor_pos,
+                        viewport,
+                        ElementState::Released,
+                        MouseButton::Left,
+                    );
+                    // The pointer should vanish completely to not get any
+                    // hover effects
+                    viewport.cursor_pos = None;
+                    viewport.raw_input.events.push(egui::Event::PointerGone);
+                }
+                winit::event::TouchPhase::Cancelled => {
+                    *pointer_touch_id = None;
+                    viewport.cursor_pos = None;
+                    viewport.raw_input.events.push(egui::Event::PointerGone);
+                }
+            }
+        }
     }
 
     fn on_mouse_wheel(viewport: &mut Viewport, pixels_per_point: f32, delta: MouseScrollDelta) {
