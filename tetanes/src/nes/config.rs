@@ -370,7 +370,7 @@ impl Config {
         Self::default_data_dir()
             .join(Self::SAVE_DIR)
             .join(name)
-            .join(format!("slot-{}", slot))
+            .join(format!("slot-{slot}"))
             .with_extension(Self::SAVE_EXTENSION)
     }
 

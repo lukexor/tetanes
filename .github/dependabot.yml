@@ -7,9 +7,3 @@ updates:
       interval: "weekly"
     assignees:
       - "lukexor"
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    assignees:
-      - "lukexor"

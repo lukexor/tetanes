@@ -46,7 +46,7 @@ chrono = { version = "0.4", default-features = false, features = [
   "std",
   "clock",
 ] }
-cpal = "0.15"
+cpal = "0.16"
 crossbeam = "0.8"
 dirs.workspace = true
 egui = { version = "0.31", default-features = false, features = [
@@ -77,11 +77,13 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid = { version = "1.16", features = ["v4", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = "24.0"
+wgpu = "25.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Blocked upgrading until egui upgrades accesskit
 accesskit = "0.17"
+# Blocked upgrading until accesskit can be upgraded
 accesskit_winit = "0.23"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
@@ -112,7 +114,7 @@ chrono = { version = "0.4", default-features = false, features = [
   "wasmbind",
 ] }
 console_error_panic_hook = "0.1"
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
+cpal = { version = "0.16", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.3", features = ["wasm_js"] }
 tracing-web = "0.1"
@@ -143,7 +145,7 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-zip = { version = "2.3", default-features = false, features = ["deflate"] }
+zip = { version = "4.0", default-features = false, features = ["deflate"] }
 
 [package.metadata.deb]
 extended-description = """

@@ -437,7 +437,9 @@ impl Renderer {
         let path = Config::default_config_dir().join("gui.dat");
         if fs::exists(&path) {
             let data = fs::load_raw(path).context("failed to load gui memory")?;
-            let memory = bincode::deserialize(&data).context("failed to deserialize gui memory")?;
+            let config = bincode::config::legacy();
+            let (memory, _) = bincode::serde::decode_from_slice(&data, config)
+                .context("failed to deserialize gui memory")?;
             ctx.memory_mut(|mem| {
                 *mem = memory;
             });
@@ -462,7 +464,9 @@ impl Renderer {
 
         let path = Config::default_config_dir().join("gui.dat");
         self.ctx.memory(|mem| {
-            let data = bincode::serialize(&mem).context("failed to serialize gui memory")?;
+            let config = bincode::config::legacy();
+            let data = bincode::serde::encode_to_vec(mem, config)
+                .context("failed to serialize gui memory")?;
             fs::save_raw(path, &data).context("failed to save gui memory")
         })?;
         self.last_save_time = Instant::now();

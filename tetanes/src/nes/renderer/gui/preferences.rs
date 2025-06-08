@@ -231,7 +231,7 @@ impl Preferences {
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = shortcut.is_some().then_some("📐 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "📐 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut cycle_accurate, format!("{icon}Cycle Accurate"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
@@ -249,7 +249,7 @@ impl Preferences {
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = shortcut.is_some().then_some("🔄 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🔄 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut rewind, format!("{icon}Enable Rewinding"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
@@ -267,7 +267,7 @@ impl Preferences {
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = shortcut.is_some().then_some("🔫 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🔫 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut zapper, format!("{icon}Enable Zapper Gun"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
@@ -285,7 +285,7 @@ impl Preferences {
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = shortcut.is_some().then_some("📺 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "📺 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut hide_overscan, format!("{icon}Hide Overscan"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui.add(checkbox)
@@ -306,7 +306,7 @@ impl Preferences {
 
         let shortcut =
             show_shortcut.then(|| cfg.shortcut(DeckAction::SetVideoFilter(VideoFilter::Pixellate)));
-        let icon = shortcut.is_some().then_some("🌁 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🌁 ").unwrap_or_default();
         let radio = RadioValue::new(
             &mut filter,
             VideoFilter::Pixellate,
@@ -317,7 +317,7 @@ impl Preferences {
 
         let shortcut =
             show_shortcut.then(|| cfg.shortcut(DeckAction::SetVideoFilter(VideoFilter::Ntsc)));
-        let icon = shortcut.is_some().then_some("📼 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "📼 ").unwrap_or_default();
         let radio = RadioValue::new(&mut filter, VideoFilter::Ntsc, format!("{icon}Ntsc"))
             .shortcut_text(shortcut.unwrap_or_default());
         ui.add(radio).on_hover_text(
@@ -339,13 +339,13 @@ impl Preferences {
         let previous_shader = shader;
 
         let shortcut = show_shortcut.then(|| cfg.shortcut(Setting::SetShader(Shader::Default)));
-        let icon = shortcut.is_some().then_some("🗋 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🗋 ").unwrap_or_default();
         let radio = RadioValue::new(&mut shader, Shader::Default, format!("{icon}Default"))
             .shortcut_text(shortcut.unwrap_or_default());
         ui.add(radio).on_hover_text("Default shader.");
 
         let shortcut = show_shortcut.then(|| cfg.shortcut(Setting::SetShader(Shader::CrtEasymode)));
-        let icon = shortcut.is_some().then_some("📺 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "📺 ").unwrap_or_default();
         let radio = RadioValue::new(
             &mut shader,
             Shader::CrtEasymode,
@@ -407,7 +407,7 @@ impl Preferences {
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
-        let icon = shortcut.is_some().then_some("☰ ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "☰ ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut show_menubar, format!("{icon}Show Menu Bar"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui.add(checkbox).on_hover_text("Show the menu bar.");
@@ -424,7 +424,7 @@ impl Preferences {
     ) {
         let shortcut = shortcut.into();
         // icon: document with text
-        let icon = shortcut.is_some().then_some("🖹 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🖹 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut show_messages, format!("{icon}Show Messages"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
@@ -438,7 +438,7 @@ impl Preferences {
     pub fn screen_reader_checkbox(ui: &mut Ui, shortcut: impl Into<Option<String>>) {
         let shortcut = shortcut.into();
         // icon: document with text
-        let icon = shortcut.is_some().then_some("🔈 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🔈 ").unwrap_or_default();
         let mut screen_reader = ui.ctx().options(|o| o.screen_reader);
         let checkbox = Checkbox::new(&mut screen_reader, format!("{icon}Enable Screen Reader"))
             .shortcut_text(shortcut.unwrap_or_default());
@@ -474,7 +474,7 @@ impl Preferences {
     ) {
         let shortcut = shortcut.into();
         // icon: screen
-        let icon = shortcut.is_some().then_some("🖵 ").unwrap_or_default();
+        let icon = shortcut.as_ref().map(|_| "🖵 ").unwrap_or_default();
         let checkbox = Checkbox::new(&mut fullscreen, format!("{icon}Fullscreen"))
             .shortcut_text(shortcut.unwrap_or_default());
         if ui.add(checkbox).clicked() {
@@ -492,7 +492,7 @@ impl Preferences {
             ui.add_enabled_ui(!cfg.renderer.fullscreen, |ui| {
                 let shortcut = shortcut.into();
                 // icon: maximize
-                let icon = shortcut.is_some().then_some("🗖 ").unwrap_or_default();
+                let icon = shortcut.as_ref().map(|_| "🗖 ").unwrap_or_default();
                 let mut embed_viewports = ui.ctx().embed_viewports();
                 let checkbox =
                     Checkbox::new(&mut embed_viewports, format!("{icon}Embed Viewports"))
@@ -516,7 +516,7 @@ impl Preferences {
     ) {
         if feature!(OsViewports) {
             let shortcut = shortcut.into();
-            let icon = shortcut.is_some().then_some("🔝 ").unwrap_or_default();
+            let icon = shortcut.as_ref().map(|_| "🔝 ").unwrap_or_default();
             let checkbox = Checkbox::new(&mut always_on_top, format!("{icon}Always on Top"))
                 .shortcut_text(shortcut.unwrap_or_default());
             // FIXME: Currently when not using embeded viewports, toggling always on top from

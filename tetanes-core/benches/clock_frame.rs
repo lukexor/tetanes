@@ -1,6 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use pprof::criterion::{Output, PProfProfiler};
-use std::{fs::File, path::Path, time::Duration};
+use std::{fs::File, hint::black_box, path::Path, time::Duration};
 use tetanes_core::{
     control_deck::{Config, ControlDeck},
     mem::RamState,

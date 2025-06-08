@@ -73,7 +73,8 @@ impl Rewind {
         if self.interval_counter >= self.interval {
             self.interval_counter = 0;
 
-            let state = bincode::serialize(&cpu)
+            let config = bincode::config::legacy();
+            let state = bincode::serde::encode_to_vec(cpu, config)
                 .map_err(|err| Error::SerializationFailed(err.to_string()))?;
             self.frames[self.index] = Some(Frame {
                 buffer: cpu.bus.ppu.frame.buffer.clone(),
@@ -101,8 +102,9 @@ impl Rewind {
             }
 
             let frame = self.frames[self.index].take()?;
-            bincode::deserialize::<Cpu>(&frame.state)
-                .map(|mut cpu| {
+            let config = bincode::config::legacy();
+            bincode::serde::decode_from_slice::<Cpu, _>(&frame.state, config)
+                .map(|(mut cpu, _)| {
                     cpu.bus.input.clear(); // Discard inputs while rewinding
                     cpu.bus.ppu.frame.buffer = frame.buffer;
                     cpu

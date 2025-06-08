@@ -111,8 +111,9 @@ pub fn save<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
 where
     T: ?Sized + Serialize,
 {
-    let data =
-        bincode::serialize(value).map_err(|err| Error::SerializationFailed(err.to_string()))?;
+    let config = bincode::config::legacy();
+    let data = bincode::serde::encode_to_vec(value, config)
+        .map_err(|err| Error::SerializationFailed(err.to_string()))?;
     let mut writer = fs::writer_impl(path)?;
     write_header(&mut writer).map_err(Error::WriteHeaderFailed)?;
     encode(&mut writer, &data).map_err(Error::EncodingFailed)?;
@@ -140,7 +141,10 @@ where
     let mut reader = fs::reader_impl(path)?;
     validate_header(&mut reader)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
-    bincode::deserialize(&data).map_err(|err| Error::DeserializationFailed(err.to_string()))
+    let config = bincode::config::legacy();
+    let (res, _) = bincode::serde::decode_from_slice(&data, config)
+        .map_err(|err| Error::DeserializationFailed(err.to_string()))?;
+    Ok(res)
 }
 
 pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>
@@ -150,7 +154,10 @@ where
     let mut reader = Cursor::new(bytes);
     validate_header(&mut reader)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
-    bincode::deserialize(&data).map_err(|err| Error::SerializationFailed(err.to_string()))
+    let config = bincode::config::legacy();
+    let (res, _) = bincode::serde::decode_from_slice(&data, config)
+        .map_err(|err| Error::SerializationFailed(err.to_string()))?;
+    Ok(res)
 }
 
 pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {

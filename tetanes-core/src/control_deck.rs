@@ -763,7 +763,8 @@ impl ControlDeck {
         self.clock_frame()?;
         let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
         // Save state so we can rewind
-        let state = bincode::serialize(&self.cpu)
+        let config = bincode::config::legacy();
+        let state = bincode::serde::encode_to_vec(&self.cpu, config)
             .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
 
         // Clock additional frames and discard video/audio
@@ -778,7 +779,7 @@ impl ControlDeck {
         let result = self.clock_frame_output(handle_output)?;
 
         // Restore back to current frame
-        let mut state = bincode::deserialize::<Cpu>(&state)
+        let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
         state.bus.ppu.frame.buffer = frame;
         self.load_cpu(state);
@@ -808,7 +809,8 @@ impl ControlDeck {
         self.clock_frame()?;
         let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
         // Save state so we can rewind
-        let state = bincode::serialize(&self.cpu)
+        let config = bincode::config::legacy();
+        let state = bincode::serde::encode_to_vec(&self.cpu, config)
             .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
 
         // Clock additional frames and discard video/audio
@@ -821,7 +823,7 @@ impl ControlDeck {
         let cycles = self.clock_frame_into(frame_buffer, audio_samples)?;
 
         // Restore back to current frame
-        let mut state = bincode::deserialize::<Cpu>(&state)
+        let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
         state.bus.ppu.frame.buffer = frame;
         self.load_cpu(state);
