@@ -17,10 +17,10 @@ where
         let error_div = web_sys::window()
             .and_then(|window| window.document())
             .and_then(|document| document.get_element_by_id("error"));
-        if let Some(error_div) = error_div {
-            if let Err(err) = error_div.class_list().remove_1("hidden") {
-                tracing::error!("{err:?}")
-            }
+        if let Some(error_div) = error_div
+            && let Err(err) = error_div.class_list().remove_1("hidden")
+        {
+            tracing::error!("{err:?}")
         }
 
         console_error_panic_hook::hook(info);

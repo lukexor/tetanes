@@ -294,23 +294,23 @@ impl ApplicationHandler<NesEvent> for Nes {
                 // WindowEvents
                 event_loop.listen_device_events(DeviceEvents::Never);
 
-                if let State::Running(state) = &mut self.state {
-                    if let Some(window) = state.renderer.root_window() {
-                        if window.is_visible().unwrap_or(true) {
-                            state.repaint_times.insert(window.id(), Instant::now());
-                        } else {
-                            // Immediately redraw the root window on start if not
-                            // visible. Fixes a bug where `window.request_redraw()` events
-                            // may not be sent if the window isn't visible, which is the
-                            // case until the first frame is drawn.
-                            if let Err(err) = state.renderer.redraw(
-                                window.id(),
-                                event_loop,
-                                &mut state.gamepads,
-                                &mut state.cfg,
-                            ) {
-                                state.renderer.on_error(err);
-                            }
+                if let State::Running(state) = &mut self.state
+                    && let Some(window) = state.renderer.root_window()
+                {
+                    if window.is_visible().unwrap_or(true) {
+                        state.repaint_times.insert(window.id(), Instant::now());
+                    } else {
+                        // Immediately redraw the root window on start if not
+                        // visible. Fixes a bug where `window.request_redraw()` events
+                        // may not be sent if the window isn't visible, which is the
+                        // case until the first frame is drawn.
+                        if let Err(err) = state.renderer.redraw(
+                            window.id(),
+                            event_loop,
+                            &mut state.gamepads,
+                            &mut state.cfg,
+                        ) {
+                            state.renderer.on_error(err);
                         }
                     }
                 }
@@ -341,13 +341,12 @@ impl ApplicationHandler<NesEvent> for Nes {
             if let Some(window_id) = state.renderer.root_window_id() {
                 state.repaint_times.insert(window_id, Instant::now());
             }
-        } else if let State::Suspended { should_terminate } = &self.state {
-            if let Err(err) =
+        } else if let State::Suspended { should_terminate } = &self.state
+            && let Err(err) =
                 self.request_renderer_resources(event_loop, Arc::clone(should_terminate))
-            {
-                error!("failed to request renderer resources: {err:?}");
-                event_loop.exit();
-            }
+        {
+            error!("failed to request renderer resources: {err:?}");
+            event_loop.exit();
         }
     }
 
@@ -502,13 +501,13 @@ impl ApplicationHandler<NesEvent> for Running {
                         }
                     }
                     ConfigEvent::GamepadUnassign(player) => {
-                        if let Some(uuid) = input.unassign_gamepad(*player) {
-                            if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                                self.tx.event(UiEvent::Message((
-                                    MessageType::Info,
-                                    format!("Unassigned gamepad `{name}` from player {player:?}."),
-                                )));
-                            }
+                        if let Some(uuid) = input.unassign_gamepad(*player)
+                            && let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid)
+                        {
+                            self.tx.event(UiEvent::Message((
+                                MessageType::Info,
+                                format!("Unassigned gamepad `{name}` from player {player:?}."),
+                            )));
                         }
                     }
                     ConfigEvent::GamepadAssignments(assignments) => {
@@ -615,10 +614,10 @@ impl ApplicationHandler<NesEvent> for Running {
                         }
                     } else {
                         let time_since_last_save = Instant::now() - self.renderer.last_save_time;
-                        if time_since_last_save > Duration::from_secs(30) {
-                            if let Err(err) = self.renderer.save(&self.cfg) {
-                                error!("failed to save rendererer state: {err:?}");
-                            }
+                        if time_since_last_save > Duration::from_secs(30)
+                            && let Err(err) = self.renderer.save(&self.cfg)
+                        {
+                            error!("failed to save rendererer state: {err:?}");
                         }
                         if self
                             .renderer
@@ -657,15 +656,15 @@ impl ApplicationHandler<NesEvent> for Running {
                     // is changed to the window, or away from it. Synthetic key presses
                     // represent no real key presses and should be ignored.
                     // See https://github.com/rust-windowing/winit/issues/3543
-                    if !is_synthetic || event.state != ElementState::Pressed {
-                        if let PhysicalKey::Code(key) = event.physical_key {
-                            self.on_input(
-                                window_id,
-                                Input::Key(key, self.modifiers.state()),
-                                event.state,
-                                event.repeat,
-                            );
-                        }
+                    if (!is_synthetic || event.state != ElementState::Pressed)
+                        && let PhysicalKey::Code(key) = event.physical_key
+                    {
+                        self.on_input(
+                            window_id,
+                            Input::Key(key, self.modifiers.state()),
+                            event.state,
+                            event.repeat,
+                        );
                     }
                 }
                 WindowEvent::ModifiersChanged(modifiers) => {
@@ -724,11 +723,11 @@ impl ApplicationHandler<NesEvent> for Running {
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        if feature!(Suspend) {
-            if let Err(err) = self.renderer.drop_window() {
-                error!("failed to suspend window: {err:?}");
-                event_loop.exit();
-            }
+        if feature!(Suspend)
+            && let Err(err) = self.renderer.drop_window()
+        {
+            error!("failed to suspend window: {err:?}");
+            event_loop.exit();
         }
     }
 
@@ -935,25 +934,24 @@ impl Running {
                     let saved_assignment = self.cfg.input.gamepad_assignment(&uuid);
                     if let Some(player) =
                         saved_assignment.or_else(|| self.cfg.input.next_gamepad_unassigned())
+                        && let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid)
                     {
-                        if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                            self.renderer.add_message(
-                                MessageType::Info,
-                                format!("Assigned gamepad `{name}` to player {player:?}."),
-                            );
-                            self.cfg.input.assign_gamepad(player, uuid);
-                        }
+                        self.renderer.add_message(
+                            MessageType::Info,
+                            format!("Assigned gamepad `{name}` to player {player:?}."),
+                        );
+                        self.cfg.input.assign_gamepad(player, uuid);
                     }
                 }
                 EventType::Disconnected => {
                     self.gamepads.disconnect(event.id);
-                    if let Some(player) = self.cfg.input.unassign_gamepad_name(&uuid) {
-                        if let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid) {
-                            self.renderer.add_message(
-                                MessageType::Info,
-                                format!("Unassigned gamepad `{name}` from player {player:?}."),
-                            );
-                        }
+                    if let Some(player) = self.cfg.input.unassign_gamepad_name(&uuid)
+                        && let Some(name) = self.gamepads.gamepad_name_by_uuid(&uuid)
+                    {
+                        self.renderer.add_message(
+                            MessageType::Info,
+                            format!("Unassigned gamepad `{name}` from player {player:?}."),
+                        );
                     }
                 }
                 _ => (),

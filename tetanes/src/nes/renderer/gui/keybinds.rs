@@ -246,10 +246,10 @@ impl State {
                                 binding: slot,
                                 conflict: None,
                             });
-                        } else if res.secondary_clicked() {
-                            if let Some(input) = input {
-                                clear_bind = Some(input)
-                            }
+                        } else if res.secondary_clicked()
+                            && let Some(input) = input
+                        {
+                            clear_bind = Some(input)
                         }
                     }
                     ui.end_row();

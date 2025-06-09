@@ -572,14 +572,14 @@ impl Gui {
                                 "Install the latest version (v{}) restart TetaNES.",
                                 self.version.current()
                             ));
-                            if res.clicked() {
-                                if let Err(err) = self.version.install_update_and_restart() {
-                                    self.add_message(
-                                        MessageType::Error,
-                                        format!("Failed to install update: {err}"),
-                                    );
-                                    close_window = true;
-                                }
+                            if res.clicked()
+                                && let Err(err) = self.version.install_update_and_restart()
+                            {
+                                self.add_message(
+                                    MessageType::Error,
+                                    format!("Failed to install update: {err}"),
+                                );
+                                close_window = true;
                             }
                         });
                     } else {

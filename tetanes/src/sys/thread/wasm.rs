@@ -18,13 +18,13 @@ pub fn park_timeout_impl(_dur: Duration) {}
 /// Sleeps the current thread for the specified duration.
 pub async fn sleep_impl(dur: Duration) {
     let mut cb = |resolve: Function, _reject: Function| {
-        if let Some(window) = web_sys::window() {
-            if let Err(err) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        if let Some(window) = web_sys::window()
+            && let Err(err) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                 &resolve,
                 dur.as_secs() as i32,
-            ) {
-                tracing::error!("failed to call window.set_timeout: {err:?}");
-            }
+            )
+        {
+            tracing::error!("failed to call window.set_timeout: {err:?}");
         }
     };
     if let Err(err) = JsFuture::from(Promise::new(&mut cb)).await {

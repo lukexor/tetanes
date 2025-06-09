@@ -234,42 +234,40 @@ pub mod renderer {
         desired_window_width: f32,
         cfg: &Config,
     ) -> Response {
-        if let Some(window) = renderer.root_window() {
-            if let Some(canvas) = crate::platform::get_canvas() {
-                // Can't use `Window::inner_size` here because it's reported incorrectly so
-                // use `get_client_bounding_rect` instead.
-                let window_width = canvas.get_bounding_client_rect().width() as f32;
+        if let Some(window) = renderer.root_window()
+            && let Some(canvas) = crate::platform::get_canvas()
+        {
+            // Can't use `Window::inner_size` here because it's reported incorrectly so
+            // use `get_client_bounding_rect` instead.
+            let window_width = canvas.get_bounding_client_rect().width() as f32;
 
-                if window_width < desired_window_width {
-                    tracing::debug!(
-                        "window width ({window_width}) is less than desired ({desired_window_width})"
-                    );
+            if window_width < desired_window_width {
+                tracing::debug!(
+                    "window width ({window_width}) is less than desired ({desired_window_width})"
+                );
 
-                    let scale = if let Some(viewport_width) = web_sys::window()
-                        .and_then(|win| win.inner_width().ok())
-                        .and_then(|width| width.as_f64())
-                        .map(|width| width as f32)
-                    {
-                        renderer.find_max_scale_for_width(0.8 * viewport_width, cfg)
-                    } else {
-                        1.0
-                    };
+                let scale = if let Some(viewport_width) = web_sys::window()
+                    .and_then(|win| win.inner_width().ok())
+                    .and_then(|width| width.as_f64())
+                    .map(|width| width as f32)
+                {
+                    renderer.find_max_scale_for_width(0.8 * viewport_width, cfg)
+                } else {
+                    1.0
+                };
 
-                    tracing::debug!("max scale for viewport: {scale}");
-                    let new_window_size = renderer.window_size_for_scale(cfg, scale);
-                    if (window_width - new_window_size.x).abs() > 1.0 {
-                        tracing::debug!("constraining window to viewport: {new_window_size:?}");
+                tracing::debug!("max scale for viewport: {scale}");
+                let new_window_size = renderer.window_size_for_scale(cfg, scale);
+                if (window_width - new_window_size.x).abs() > 1.0 {
+                    tracing::debug!("constraining window to viewport: {new_window_size:?}");
 
-                        let _ = window.request_inner_size(LogicalSize::new(
-                            new_window_size.x,
-                            new_window_size.y,
-                        ));
-                    }
-                    return Response {
-                        consumed: true,
-                        repaint: true,
-                    };
+                    let _ = window
+                        .request_inner_size(LogicalSize::new(new_window_size.x, new_window_size.y));
                 }
+                return Response {
+                    consumed: true,
+                    repaint: true,
+                };
             }
         }
 
@@ -379,22 +377,21 @@ pub mod renderer {
             use egui::OutputCommand;
             if let OutputCommand::CopyText(copied_text) = command {
                 tracing::warn!("Copied text: {copied_text}");
-                if !copied_text.is_empty() {
-                    if let Some(clipboard) =
+                if !copied_text.is_empty()
+                    && let Some(clipboard) =
                         web_sys::window().map(|window| window.navigator().clipboard())
-                    {
-                        let promise = clipboard.write_text(&copied_text);
-                        let future = JsFuture::from(promise);
-                        let future = async move {
-                            if let Err(err) = future.await {
-                                tracing::error!(
-                                    "Cut/Copy failed: {}",
-                                    err.as_string().unwrap_or_else(|| format!("{err:#?}"))
-                                );
-                            }
-                        };
-                        thread::spawn(future);
-                    }
+                {
+                    let promise = clipboard.write_text(&copied_text);
+                    let future = JsFuture::from(promise);
+                    let future = async move {
+                        if let Err(err) = future.await {
+                            tracing::error!(
+                                "Cut/Copy failed: {}",
+                                err.as_string().unwrap_or_else(|| format!("{err:#?}"))
+                            );
+                        }
+                    };
+                    thread::spawn(future);
                 }
             }
         }
@@ -590,48 +587,46 @@ fn set_download_versions(document: &web_sys::Document) {
         if let Some(selected_version) = document
             .get_element_by_id(html_ids::SELECTED_VERSION)
             .and_then(|el| el.dyn_into::<HtmlAnchorElement>().ok())
+            && let Ok((os, arch)) = detect_user_platform().await
         {
-            if let Ok((os, arch)) = detect_user_platform().await {
-                selected_version.set_href(&download_url_by_os(os, arch));
-                let platform = platform_to_string(os, arch);
-                selected_version.set_inner_text(&format!("Download for {platform}"));
+            selected_version.set_href(&download_url_by_os(os, arch));
+            let platform = platform_to_string(os, arch);
+            selected_version.set_inner_text(&format!("Download for {platform}"));
 
-                // Add mouseover/mouseout event listeners to version download links and make them visible
-                if let (Some(version_download), Some(version_options)) = (
-                    document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
-                    document.get_element_by_id(html_ids::VERSION_OPTIONS),
-                ) {
-                    let on_mouseover = Closure::<dyn FnMut(_)>::new({
-                        let version_options = version_options.clone();
-                        move |_: web_sys::MouseEvent| {
-                            if let Err(err) = version_options.class_list().remove_1("hidden") {
-                                tracing::error!("{err:?}");
-                            }
+            // Add mouseover/mouseout event listeners to version download links and make them visible
+            if let (Some(version_download), Some(version_options)) = (
+                document.get_element_by_id(html_ids::VERSION_DOWNLOAD),
+                document.get_element_by_id(html_ids::VERSION_OPTIONS),
+            ) {
+                let on_mouseover = Closure::<dyn FnMut(_)>::new({
+                    let version_options = version_options.clone();
+                    move |_: web_sys::MouseEvent| {
+                        if let Err(err) = version_options.class_list().remove_1("hidden") {
+                            tracing::error!("{err:?}");
                         }
-                    });
-                    let on_mouseout =
-                        Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
-                            if let Err(err) = version_options.class_list().add_1("hidden") {
-                                tracing::error!("{err:?}");
-                            }
-                        });
-                    let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
-                    let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
-                    if let Err(err) = version_download
-                        .add_event_listener_with_callback("mouseover", on_mouseover_cb)
-                        .and_then(|_| {
-                            version_download
-                                .add_event_listener_with_callback("mouseout", on_mouseout_cb)
-                        })
-                        .and_then(|_| version_download.class_list().remove_1("hidden"))
-                    {
+                    }
+                });
+                let on_mouseout = Closure::<dyn FnMut(_)>::new(move |_: web_sys::MouseEvent| {
+                    if let Err(err) = version_options.class_list().add_1("hidden") {
                         tracing::error!("{err:?}");
                     }
-                    on_mouseover.forget();
-                    on_mouseout.forget();
-                    if let Err(err) = version_download.class_list().remove_1("hidden") {
-                        tracing::error!("{err:?}");
-                    }
+                });
+                let on_mouseover_cb = on_mouseover.as_ref().unchecked_ref();
+                let on_mouseout_cb = on_mouseout.as_ref().unchecked_ref();
+                if let Err(err) = version_download
+                    .add_event_listener_with_callback("mouseover", on_mouseover_cb)
+                    .and_then(|_| {
+                        version_download
+                            .add_event_listener_with_callback("mouseout", on_mouseout_cb)
+                    })
+                    .and_then(|_| version_download.class_list().remove_1("hidden"))
+                {
+                    tracing::error!("{err:?}");
+                }
+                on_mouseover.forget();
+                on_mouseout.forget();
+                if let Err(err) = version_download.class_list().remove_1("hidden") {
+                    tracing::error!("{err:?}");
                 }
             }
         }
@@ -640,10 +635,10 @@ fn set_download_versions(document: &web_sys::Document) {
 
 /// Hides the loading status when the WASM module has finished loading.
 fn finish_loading(document: &web_sys::Document, tx: &NesEventProxy) -> anyhow::Result<()> {
-    if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
-        if let Err(err) = status.class_list().add_1("hidden") {
-            on_error(tx, err);
-        }
+    if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS)
+        && let Err(err) = status.class_list().add_1("hidden")
+    {
+        on_error(tx, err);
     }
 
     Ok(())
@@ -678,18 +673,18 @@ impl Initialize for Renderer {
             let ctx = self.ctx.clone();
             let state = Rc::clone(&self.state);
             move |evt: web_sys::ClipboardEvent| {
-                if let Some(data) = evt.clipboard_data() {
-                    if let Ok(text) = data.get_data("text") {
-                        let text = text.replace("\r\n", "\n");
-                        if !text.is_empty() {
-                            let res = renderer::set_clipboard_text(&state, text);
-                            if res.repaint {
-                                ctx.request_repaint();
-                            }
-                            if res.consumed {
-                                evt.stop_propagation();
-                                evt.prevent_default();
-                            }
+                if let Some(data) = evt.clipboard_data()
+                    && let Ok(text) = data.get_data("text")
+                {
+                    let text = text.replace("\r\n", "\n");
+                    if !text.is_empty() {
+                        let res = renderer::set_clipboard_text(&state, text);
+                        if res.repaint {
+                            ctx.request_repaint();
+                        }
+                        if res.consumed {
+                            evt.stop_propagation();
+                            evt.prevent_default();
                         }
                     }
                 }

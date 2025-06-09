@@ -76,10 +76,10 @@ impl Record {
     }
 
     pub fn push(&mut self, frame: u32, event: EmulationEvent) {
-        if self.start.is_some() {
-            if let Ok(event) = ReplayEvent::try_from(event) {
-                self.events.push(ReplayFrame { frame, event });
-            }
+        if self.start.is_some()
+            && let Ok(event) = ReplayEvent::try_from(event)
+        {
+            self.events.push(ReplayFrame { frame, event });
         }
     }
 

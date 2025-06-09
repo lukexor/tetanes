@@ -570,11 +570,11 @@ impl State {
                     }
 
                     #[cfg(target_arch = "wasm32")]
-                    if ui.button("Download Save States").clicked() {
-                        if let Err(err) = crate::platform::download_save_states() {
-                            self.tx
-                                .event(UiEvent::Message((MessageType::Error, err.to_string())));
-                        }
+                    if ui.button("Download Save States").clicked()
+                        && let Err(err) = crate::platform::download_save_states()
+                    {
+                        self.tx
+                            .event(UiEvent::Message((MessageType::Error, err.to_string())));
                     }
                 });
             });

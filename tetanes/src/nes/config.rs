@@ -255,10 +255,10 @@ impl InputConfig {
                     }
                 }
                 None => {
-                    if let Some(uuid) = available.next() {
-                        if !assigned.contains(uuid) {
-                            *assigned_uuid = Some(*uuid);
-                        }
+                    if let Some(uuid) = available.next()
+                        && !assigned.contains(uuid)
+                    {
+                        *assigned_uuid = Some(*uuid);
                     }
                 }
             }
