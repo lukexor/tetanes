@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3](https://github.com/lukexor/tetanes/compare/0.12.2..0.12.3) - 2025-06-09
+
+### 🐛 Bug Fixes
+
+
+- Ignore header bytes 14/15. closed #430 - ([8ff2bd9](https://github.com/lukexor/tetanes/commit/8ff2bd96d055c5a2551e44deb69c8a5e1c5b191e))
+- Fixed memory methods to allow working with &[u8] - ([6c2cf4a](https://github.com/lukexor/tetanes/commit/6c2cf4aa33e5fa7ba3c903c775b6ecfcf47f059d))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Update deps - ([782dc21](https://github.com/lukexor/tetanes/commit/782dc213f25f34cc47af0c2f71cdf9bfd44ae28b))
+
+
 ## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-04-05
 
 ### 🐛 Bug Fixes
