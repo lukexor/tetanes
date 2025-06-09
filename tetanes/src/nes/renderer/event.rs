@@ -410,8 +410,8 @@ impl Renderer {
         let State {
             viewports, focused, ..
         } = &mut *self.state.borrow_mut();
-        if let Some(id) = *focused {
-            if let Some(viewport) = viewports.get_mut(&id) {
+        if let Some(id) = *focused
+            && let Some(viewport) = viewports.get_mut(&id) {
                 viewport
                     .raw_input
                     .events
@@ -420,7 +420,6 @@ impl Renderer {
                         y: delta.1 as f32,
                     }));
             }
-        }
     }
 
     fn on_mouse_button_input(
@@ -429,8 +428,8 @@ impl Renderer {
         state: ElementState,
         button: MouseButton,
     ) {
-        if let Some(pos) = pointer_pos {
-            if let Some(button) = pointer_button_from_mouse(button) {
+        if let Some(pos) = pointer_pos
+            && let Some(button) = pointer_button_from_mouse(button) {
                 let pressed = state == ElementState::Pressed;
 
                 viewport.raw_input.events.push(egui::Event::PointerButton {
@@ -440,7 +439,6 @@ impl Renderer {
                     modifiers: viewport.raw_input.modifiers,
                 });
             }
-        }
     }
 
     fn on_cursor_moved(

@@ -529,11 +529,10 @@ impl State {
                 let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
                 let image_rect = res.rect;
 
-                if let Some(pos) = res.hover_pos() {
-                    if image_rect.contains(pos) {
+                if let Some(pos) = res.hover_pos()
+                    && image_rect.contains(pos) {
                         self.nametable_hover(ui, &res, pos);
                     }
-                }
 
                 if self.show_dividers {
                     // Split the 4x4 nametables in half vertically and horizontally
@@ -903,11 +902,10 @@ impl State {
                 let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
                 let image_rect = res.rect;
 
-                if let Some(pos) = res.hover_pos() {
-                    if image_rect.contains(pos) {
+                if let Some(pos) = res.hover_pos()
+                    && image_rect.contains(pos) {
                         self.pattern_tables_hover(ui, &res, pos);
                     }
-                }
 
                 if self.show_dividers {
                     ui.painter().vline(
@@ -1053,11 +1051,10 @@ impl State {
                     let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
                     let oam_image_rect = res.rect;
 
-                    if let Some(pos) = res.hover_pos() {
-                        if oam_image_rect.contains(pos) {
+                    if let Some(pos) = res.hover_pos()
+                        && oam_image_rect.contains(pos) {
                             self.oam_hover(ui, &res, pos);
                         }
-                    }
 
                     if self.show_tile_grid {
                         paint_grid(ui, oam_image_rect, 8.0, 8.0, Color32::LIGHT_BLUE);
@@ -1071,11 +1068,10 @@ impl State {
                     let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
                     let spr_image_rect = res.rect;
 
-                    if let Some(pos) = res.hover_pos() {
-                        if spr_image_rect.contains(pos) {
+                    if let Some(pos) = res.hover_pos()
+                        && spr_image_rect.contains(pos) {
                             self.sprites_hover(ui, &res, pos);
                         }
-                    }
 
                     if self.show_tile_grid {
                         paint_grid(ui, spr_image_rect, 30.0, 32.0, Color32::LIGHT_BLUE);
@@ -1253,11 +1249,10 @@ impl State {
                         .on_hover_cursor(CursorIcon::Cell);
                     let palette_rect = res.rect;
 
-                    if let Some(pos) = res.hover_pos() {
-                        if palette_rect.contains(pos) {
+                    if let Some(pos) = res.hover_pos()
+                        && palette_rect.contains(pos) {
                             self.palette_hover(ui, &res, pos);
                         }
-                    }
 
                     if let Some(offset) = self.palette.selected {
                         let selection = tile_selection(palette_rect, self.palette.size, offset);

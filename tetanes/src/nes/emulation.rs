@@ -96,11 +96,10 @@ impl FrameTimeDiag {
 
         // Ignore the first few frames to allow the average to stabilize
         if frame_time.is_finite() && self.frame_count >= 10 {
-            if self.history.len() >= Self::MAX_HISTORY {
-                if let Some(oldest) = self.history.pop_front() {
+            if self.history.len() >= Self::MAX_HISTORY
+                && let Some(oldest) = self.history.pop_front() {
                     self.sum -= oldest;
                 }
-            }
             self.sum += frame_time;
             self.history.push_back(frame_time);
         }
@@ -660,11 +659,10 @@ impl State {
         if !self.control_deck.cpu_corrupted() {
             self.run_state = mode;
             if self.run_state.paused() {
-                if let Some(rom) = self.control_deck.loaded_rom() {
-                    if let Err(err) = self.record.stop(&rom.name) {
+                if let Some(rom) = self.control_deck.loaded_rom()
+                    && let Err(err) = self.record.stop(&rom.name) {
                         self.on_error(err);
                     }
-                }
             } else {
                 self.last_auto_save = Instant::now();
                 // To avoid having a large dip in frame stats when unpausing
@@ -729,11 +727,10 @@ impl State {
     fn on_load_rom(&mut self, rom: LoadedRom) {
         if self.auto_load {
             let save_path = Config::save_path(&rom.name, self.save_slot);
-            if let Err(err) = self.control_deck.load_state(save_path) {
-                if !matches!(err, control_deck::Error::NoSaveStateFound) {
+            if let Err(err) = self.control_deck.load_state(save_path)
+                && !matches!(err, control_deck::Error::NoSaveStateFound) {
                     error!("failed to load state: {err:?}");
                 }
-            }
         }
         if let Err(err) = self.audio.start() {
             self.tx.event(ConfigEvent::AudioEnabled(false));
@@ -815,11 +812,10 @@ impl State {
                     Err(err) => self.on_error(err),
                     _ => (),
                 }
-            } else if recording {
-                if let Err(err) = self.audio.start_recording() {
+            } else if recording
+                && let Err(err) = self.audio.start_recording() {
                     self.on_error(err);
                 }
-            }
         }
     }
 

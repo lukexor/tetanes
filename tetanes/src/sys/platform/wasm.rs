@@ -234,8 +234,8 @@ pub mod renderer {
         desired_window_width: f32,
         cfg: &Config,
     ) -> Response {
-        if let Some(window) = renderer.root_window() {
-            if let Some(canvas) = crate::platform::get_canvas() {
+        if let Some(window) = renderer.root_window()
+            && let Some(canvas) = crate::platform::get_canvas() {
                 // Can't use `Window::inner_size` here because it's reported incorrectly so
                 // use `get_client_bounding_rect` instead.
                 let window_width = canvas.get_bounding_client_rect().width() as f32;
@@ -271,7 +271,6 @@ pub mod renderer {
                     };
                 }
             }
-        }
 
         Response::default()
     }
@@ -379,8 +378,8 @@ pub mod renderer {
             use egui::OutputCommand;
             if let OutputCommand::CopyText(copied_text) = command {
                 tracing::warn!("Copied text: {copied_text}");
-                if !copied_text.is_empty() {
-                    if let Some(clipboard) =
+                if !copied_text.is_empty()
+                    && let Some(clipboard) =
                         web_sys::window().map(|window| window.navigator().clipboard())
                     {
                         let promise = clipboard.write_text(&copied_text);
@@ -395,7 +394,6 @@ pub mod renderer {
                         };
                         thread::spawn(future);
                     }
-                }
             }
         }
 
@@ -590,8 +588,7 @@ fn set_download_versions(document: &web_sys::Document) {
         if let Some(selected_version) = document
             .get_element_by_id(html_ids::SELECTED_VERSION)
             .and_then(|el| el.dyn_into::<HtmlAnchorElement>().ok())
-        {
-            if let Ok((os, arch)) = detect_user_platform().await {
+            && let Ok((os, arch)) = detect_user_platform().await {
                 selected_version.set_href(&download_url_by_os(os, arch));
                 let platform = platform_to_string(os, arch);
                 selected_version.set_inner_text(&format!("Download for {platform}"));
@@ -634,17 +631,15 @@ fn set_download_versions(document: &web_sys::Document) {
                     }
                 }
             }
-        }
     });
 }
 
 /// Hides the loading status when the WASM module has finished loading.
 fn finish_loading(document: &web_sys::Document, tx: &NesEventProxy) -> anyhow::Result<()> {
-    if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS) {
-        if let Err(err) = status.class_list().add_1("hidden") {
+    if let Some(status) = document.get_element_by_id(html_ids::LOADING_STATUS)
+        && let Err(err) = status.class_list().add_1("hidden") {
             on_error(tx, err);
         }
-    }
 
     Ok(())
 }
@@ -678,8 +673,8 @@ impl Initialize for Renderer {
             let ctx = self.ctx.clone();
             let state = Rc::clone(&self.state);
             move |evt: web_sys::ClipboardEvent| {
-                if let Some(data) = evt.clipboard_data() {
-                    if let Ok(text) = data.get_data("text") {
+                if let Some(data) = evt.clipboard_data()
+                    && let Ok(text) = data.get_data("text") {
                         let text = text.replace("\r\n", "\n");
                         if !text.is_empty() {
                             let res = renderer::set_clipboard_text(&state, text);
@@ -692,7 +687,6 @@ impl Initialize for Renderer {
                             }
                         }
                     }
-                }
             }
         });
         if let Err(err) =

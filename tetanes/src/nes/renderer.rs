@@ -616,8 +616,8 @@ impl Renderer {
 
         let window = event_loop.create_window(window_attrs)?;
 
-        if let Some(size) = inner_size {
-            if window
+        if let Some(size) = inner_size
+            && window
                 .request_inner_size(PhysicalSize::new(
                     pixels_per_point * size.x,
                     pixels_per_point * size.y,
@@ -626,7 +626,6 @@ impl Renderer {
             {
                 debug!("Failed to set window size");
             }
-        }
         if let Some(size) = min_inner_size {
             window.set_min_inner_size(Some(PhysicalSize::new(
                 pixels_per_point * size.x,
@@ -844,11 +843,10 @@ impl Renderer {
                 }
                 ViewportCommand::StartDrag => {
                     // If `.has_focus()` is not checked on x11 the input will be permanently taken until the app is killed!
-                    if window.has_focus() {
-                        if let Err(err) = window.drag_window() {
+                    if window.has_focus()
+                        && let Err(err) = window.drag_window() {
                             tracing::warn!("{command:?}: {err}");
                         }
-                    }
                 }
                 ViewportCommand::InnerSize(size) => {
                     let width_px = pixels_per_point * size.x.max(1.0);
@@ -1111,8 +1109,8 @@ impl Renderer {
 
         // Copy NES frame buffer before drawing UI because a UI interaction might cause a texture
         // resize tied to a configuration change.
-        if viewport_id == ViewportId::ROOT {
-            if let Some(render_state) = &self.painter.borrow().render_state() {
+        if viewport_id == ViewportId::ROOT
+            && let Some(render_state) = &self.painter.borrow().render_state() {
                 let mut frame_buffer = self.frame_rx.try_recv_ref();
                 while self.frame_rx.remaining() < 2 {
                     trace!("skipping frame");
@@ -1141,7 +1139,6 @@ impl Renderer {
                     _ => (),
                 }
             }
-        }
 
         // Mutated by accesskit below on platforms that support it
         #[allow(unused_mut)]
