@@ -1,6 +1,7 @@
 ---
 name: Security Audit
 
+# yamllint disable-line rule:truthy
 on:
   schedule:
     # At 06:00 once a week on Sunday
@@ -14,6 +15,9 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+
+permissions:
+  contents: read
 
 jobs:
   audit:

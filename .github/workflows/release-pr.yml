@@ -10,6 +10,15 @@ permissions:
   pull-requests: write
   contents: write
 
+env:
+  # Unnecessary for CI and just pollutes cache
+  CARGO_INCREMENTAL: 0
+  # Remove debug symbols, substantially reduces cache size
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
   release-pr:
     name: Release PR
