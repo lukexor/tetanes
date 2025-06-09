@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3](https://github.com/lukexor/tetanes/compare/0.12.2..0.12.3) - 2025-06-09
+
+### 🎨 Styling
+
+
+- Fix nightly lints - ([991b7a8](https://github.com/lukexor/tetanes/commit/991b7a8181a1cc40daa0446c22271dfacbb37799))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Update deps - ([782dc21](https://github.com/lukexor/tetanes/commit/782dc213f25f34cc47af0c2f71cdf9bfd44ae28b))
+- Try to shore up CD builds/uploads - ([96d3193](https://github.com/lukexor/tetanes/commit/96d3193aebefded818cff7bf6bd00bade1341a7f))
+
+
 ## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-04-05
 
 ### ⛰️  Features
