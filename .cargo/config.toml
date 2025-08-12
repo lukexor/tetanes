@@ -1,10 +1,10 @@
 [build]
-rustflags = ["-Z", "threads=8"]
+# rustflags = ["-Z", "threads=8"]  # Nightly-only flag, commented out for stable Rust
 
 [target.'cfg(target_arch = "wasm32")']
 rustflags = [
-  "-Zthreads=8",
-  "-Zwasm-c-abi=spec",
+  # "-Zthreads=8",  # Nightly-only flag, commented out for stable Rust
+  # "-Zwasm-c-abi=spec",  # Nightly-only flag, commented out for stable Rust
   "--cfg=web_sys_unstable_apis",
   "--cfg=getrandom_backend=\"wasm_js\"",
 ]

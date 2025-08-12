@@ -494,6 +494,12 @@ impl State {
                 }
             }
             EmulationEvent::SaveState(slot) => self.save_state(*slot, false),
+            EmulationEvent::SaveStateToPath(path) => {
+                let _ = self.save_state_to_path(path);
+            }
+            EmulationEvent::LoadStateFromPath(path) => {
+                let _ = self.load_state_from_path(path);
+            }
             EmulationEvent::ShowFrameStats(show) => {
                 self.frame_time_diag.reset();
                 self.show_frame_stats = *show;
@@ -700,6 +706,65 @@ impl State {
                     self.on_error(err);
                 }
             }
+        }
+    }
+
+    /// Save the current state to a specific file path relative to the root.
+    pub fn save_state_to_path(&mut self, path: &str) -> Result<(), tetanes_core::control_deck::Error> {
+        if self.control_deck.loaded_rom().is_some() {
+            let file_path = std::path::PathBuf::from(path);
+            // Make path relative to current working directory if not absolute
+            let save_path = if file_path.is_absolute() {
+                file_path
+            } else {
+                std::env::current_dir().unwrap_or_default().join(file_path)
+            };
+            
+            match self.control_deck.save_state(&save_path) {
+                Ok(_) => {
+                    self.add_message(MessageType::Info, format!("State saved to {}", save_path.display()));
+                    Ok(())
+                }
+                Err(err) => {
+                    let err_msg = format!("Failed to save state: {}", err);
+                    self.add_message(MessageType::Error, err_msg);
+                    Err(err)
+                }
+            }
+        } else {
+            Err(tetanes_core::control_deck::Error::RomNotLoaded)
+        }
+    }
+
+    /// Load the current state from a specific file path relative to the root.
+    pub fn load_state_from_path(&mut self, path: &str) -> Result<(), tetanes_core::control_deck::Error> {
+        if self.control_deck.loaded_rom().is_some() {
+            let file_path = std::path::PathBuf::from(path);
+            // Make path relative to current working directory if not absolute
+            let load_path = if file_path.is_absolute() {
+                file_path
+            } else {
+                std::env::current_dir().unwrap_or_default().join(file_path)
+            };
+            
+            match self.control_deck.load_state(&load_path) {
+                Ok(_) => {
+                    self.add_message(MessageType::Info, format!("State loaded from {}", load_path.display()));
+                    Ok(())
+                }
+                Err(control_deck::Error::NoSaveStateFound) => {
+                    let err = tetanes_core::control_deck::Error::NoSaveStateFound;
+                    self.add_message(MessageType::Warn, format!("State file not found: {}", load_path.display()));
+                    Err(err)
+                }
+                Err(err) => {
+                    let err_msg = format!("Failed to load state: {}", err);
+                    self.add_message(MessageType::Error, err_msg);
+                    Err(err)
+                }
+            }
+        } else {
+            Err(tetanes_core::control_deck::Error::RomNotLoaded)
         }
     }
 

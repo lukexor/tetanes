@@ -1,0 +1,45 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "tetanes-py"
+description = "TetaNES-Py - Python bindings for the TetaNES NES emulator with Gymnasium support"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+authors = [
+    { name = "TetaNES Contributors" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.20.0",
+    "gymnasium>=0.26.0",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = []
+examples = []
+
+[tool.maturin]
+module-name = "tetanes_py._tetanes" # Module name inside the package
+python-source = "python" 
+# Build for Python 3.8+ with stable ABI
+features = ["pyo3/extension-module"]

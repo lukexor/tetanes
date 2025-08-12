@@ -1,0 +1,38 @@
+[package]
+name = "tetanes-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for TetaNES - A NES emulator written in Rust"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[lib]
+name = "tetanes_py"
+crate-type = ["cdylib"]
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+missing_const_for_fn = "warn"
+print_literal = "warn"
+
+[lints.rust]
+future_incompatible = "warn"
+nonstandard_style = "warn"
+rust_2018_compatibility = "warn"
+rust_2018_idioms = "warn"
+rust_2021_compatibility = "warn"
+unused = "warn"
+# PyO3-specific false positive overrides
+unsafe_op_in_unsafe_fn = "allow"
+non_local_definitions = "allow"
+
+[dependencies]
+tetanes-core.workspace = true
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38"] }
+numpy = "0.20"
+anyhow.workspace = true
+
+[dev-dependencies]
