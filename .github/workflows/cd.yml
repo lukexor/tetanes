@@ -219,7 +219,7 @@ jobs:
             sed "s/%aarch64_SHA%/${aarch64_SHA}/g" \
             > Casks/tetanes.rb
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-      - uses: stefanzweifel/git-auto-commit-action@v6
+      - uses: stefanzweifel/git-auto-commit-action@v7
         with:
           file_pattern: "*.rb"
           commit_message: Version Bump v${{ steps.commit.outputs.version }}
