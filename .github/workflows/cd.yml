@@ -77,7 +77,7 @@ jobs:
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -111,7 +111,7 @@ jobs:
           tool: cargo-make
       - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -147,7 +147,7 @@ jobs:
       - if: startsWith(matrix.target, 'x86_64')
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -175,7 +175,7 @@ jobs:
           tool: cargo-make,trunk
       - run: |
           time cargo make build-artifacts -- --target wasm32-unknown-unknown
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wasm32-unknown-unknown-artifacts
           path: tetanes/dist/
