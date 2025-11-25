@@ -29,7 +29,7 @@ const OS_OPTIONS: [(Os, Arch, &str); 5] = [
     (Os::Windows, Arch::X86_64, html_ids::WINDOWS_X86_LINK),
     (Os::MacOs, Arch::Aarch64, html_ids::MACOS_AARCH64_LINK),
     (Os::MacOs, Arch::X86_64, html_ids::MACOS_X86_LINK),
-    (Os::Linux, Arch::X86_64, html_ids::LINXU_X86_LINK),
+    (Os::Linux, Arch::X86_64, html_ids::LINUX_X86_LINK),
 ];
 
 #[derive(Debug)]
@@ -877,7 +877,7 @@ mod html_ids {
     pub(super) const WINDOWS_X86_LINK: &str = "x86_64-pc-windows-msvc";
     pub(super) const MACOS_X86_LINK: &str = "x86_64-apple-darwin";
     pub(super) const MACOS_AARCH64_LINK: &str = "aarch64-apple-darwin";
-    pub(super) const LINXU_X86_LINK: &str = "x86_64-unknown-linux-gnu";
+    pub(super) const LINUX_X86_LINK: &str = "x86_64-unknown-linux-gnu";
 }
 
 /// Gets the primary canvas element.
