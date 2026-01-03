@@ -3,7 +3,7 @@
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
     mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusWrite},
-    mem::{ConstSlice, Memory, RamState, Read, Write},
+    mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
 };
 use serde::{Deserialize, Serialize};
@@ -29,11 +29,11 @@ impl PpuAddr for u16 {
 #[must_use]
 pub struct Bus {
     pub mapper: Mapper,
-    pub chr: Memory<Vec<u8>>,
-    pub ciram: Memory<ConstSlice<u8, 0x0800>>, // $2007 PPUDATA
-    pub palette: Memory<ConstSlice<u8, 32>>,
+    pub chr: Memory<Box<[u8]>>,
+    pub ciram: Memory<ConstArray<u8, 0x0800>>, // $2007 PPUDATA
+    pub palette: Memory<ConstArray<u8, 32>>,
     #[serde(skip)]
-    pub exram: Memory<Vec<u8>>,
+    pub exram: Memory<Box<[u8]>>,
     pub open_bus: u8,
 }
 
@@ -50,10 +50,10 @@ impl Bus {
     pub fn new(ram_state: RamState) -> Self {
         Self {
             mapper: Mapper::none(),
-            chr: Memory::rom(),
+            chr: Memory::rom(0),
             ciram: Memory::ram_const(ram_state),
             palette: Memory::ram_const(ram_state),
-            exram: Memory::ram(ram_state),
+            exram: Memory::empty(),
             open_bus: 0x00,
         }
     }
@@ -62,12 +62,12 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr(&mut self, chr: impl Into<Memory<Vec<u8>>>) {
-        self.chr = chr.into();
+    pub fn load_chr(&mut self, chr: Memory<Box<[u8]>>) {
+        self.chr = chr;
     }
 
-    pub fn load_ex_ram(&mut self, ex_ram: impl Into<Memory<Vec<u8>>>) {
-        self.exram = ex_ram.into();
+    pub fn load_ex_ram(&mut self, ex_ram: Memory<Box<[u8]>>) {
+        self.exram = ex_ram;
     }
 
     // Maps addresses to nametable pages based on mirroring mode

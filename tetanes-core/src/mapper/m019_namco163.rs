@@ -10,7 +10,7 @@ use crate::{
     mapper::{
         self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
     },
-    mem::{BankAccess, Banks, ConstSlice, Memory, RamState},
+    mem::{BankAccess, Banks, ConstArray, Memory, RamState},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -384,7 +384,7 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: Memory<ConstSlice<u8, 0x80>>,
+    ram: Memory<ConstArray<u8, 0x80>>,
     addr: usize,
     auto_increment: bool,
     disabled: bool,

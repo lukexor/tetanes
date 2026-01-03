@@ -5,7 +5,7 @@ use crate::{
     cpu::Cpu,
     debug::PpuDebugger,
     mapper::{BusKind, Mapper, OnBusRead, OnBusWrite},
-    mem::{ConstSlice, RamState, Read, Write},
+    mem::{ConstArray, RamState, Read, Write},
     ppu::{bus::Bus, frame::Frame},
 };
 use ctrl::Ctrl;
@@ -129,15 +129,15 @@ pub struct Ppu {
     pub vram_buffer: u8,
 
     /// $2004 Object Attribute Memory (OAM) data (read/write).
-    pub oamdata: ConstSlice<u8, 256>,
+    pub oamdata: ConstArray<u8, 256>,
     /// Secondary OAM data on a given scanline.
-    pub secondary_oamdata: ConstSlice<u8, 32>,
+    pub secondary_oamdata: ConstArray<u8, 32>,
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
     /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
     // This is a per-frame optimization, shouldn't need to be saved
     #[serde(skip)]
-    pub spr_present: ConstSlice<bool, 256>,
+    pub spr_present: ConstArray<bool, 256>,
 
     pub prevent_vbl: bool,
     pub frame: Frame,
@@ -280,10 +280,10 @@ impl Ppu {
             spr_count: 0,
             vram_buffer: 0x00,
 
-            oamdata: ConstSlice::new(),
-            secondary_oamdata: ConstSlice::new(),
+            oamdata: ConstArray::new(),
+            secondary_oamdata: ConstArray::new(),
             sprites: [Sprite::new(); 8],
-            spr_present: ConstSlice::new(),
+            spr_present: ConstArray::new(),
 
             prevent_vbl: false,
             frame: Frame::new(),
@@ -670,7 +670,7 @@ impl Ppu {
             // 1..=64
             Self::OAM_CLEAR_START..=Self::OAM_CLEAR_END => {
                 self.oam_fetch = 0xFF;
-                self.secondary_oamdata = ConstSlice::filled(0xFF);
+                self.secondary_oamdata = ConstArray::filled(0xFF);
             }
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag
@@ -1016,7 +1016,7 @@ impl Ppu {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
-                            self.spr_present = ConstSlice::new();
+                            self.spr_present = ConstArray::new();
                         }
                         if prerender_scanline
                             // 280..=304
@@ -1459,7 +1459,7 @@ impl Reset for Ppu {
             self.reset_signal = self.emulate_warmup;
         }
         if kind == ResetKind::Hard {
-            self.oamdata = ConstSlice::new();
+            self.oamdata = ConstArray::new();
             self.oamaddr = 0x0000;
         }
         self.secondary_oamaddr = 0x0000;
@@ -1477,7 +1477,7 @@ impl Reset for Ppu {
         self.spr_zero_visible = false;
         self.spr_count = 0;
         self.sprites = [Sprite::new(); 8];
-        self.spr_present = ConstSlice::new();
+        self.spr_present = ConstArray::new();
         self.open_bus = 0x00;
         self.bus.reset(kind);
     }
@@ -1646,9 +1646,9 @@ mod tests {
     fn vram_vertical_mirror() {
         let mut ppu = Ppu::default();
         let mut cart = Cart::default();
-        let mut mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
-        mapper.set_mirroring(Mirroring::Vertical);
-        ppu.load_mapper(mapper);
+        cart.mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
+        cart.mapper.set_mirroring(Mirroring::Vertical);
+        ppu.load_mapper(cart.mapper);
 
         ppu.write_addr(0x20);
         ppu.write_addr(0x05);

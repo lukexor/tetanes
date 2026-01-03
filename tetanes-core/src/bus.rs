@@ -11,7 +11,7 @@ use crate::{
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, OnBusRead, OnBusWrite},
-    mem::{ConstSlice, Memory, RamState, Read, Write},
+    mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -55,12 +55,12 @@ pub struct Bus {
     pub open_bus: u8,
     pub ppu: Ppu,
     pub prg_ram_protect: bool,
-    pub prg_ram: Memory<Vec<u8>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     #[serde(skip)]
-    pub prg_rom: Memory<Vec<u8>>,
+    pub prg_rom: Memory<Box<[u8]>>,
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: Memory<ConstSlice<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
+    pub wram: Memory<ConstArray<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
 }
 
 impl Default for Bus {
@@ -77,9 +77,9 @@ impl Bus {
             input: Input::new(region),
             open_bus: 0x00,
             ppu: Ppu::new(region, ram_state),
-            prg_ram: Memory::ram(ram_state),
+            prg_ram: Memory::empty(),
             prg_ram_protect: false,
-            prg_rom: Memory::rom(),
+            prg_rom: Memory::rom(0),
             ram_state,
             region,
             wram: Memory::ram_const(ram_state),
@@ -110,7 +110,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn load_sram(&mut self, sram: impl Into<Memory<Vec<u8>>>) {
+    pub fn load_sram(&mut self, sram: impl Into<Memory<Box<[u8]>>>) {
         self.prg_ram = sram.into();
     }
 
@@ -322,7 +322,7 @@ impl Sram for Bus {
     }
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|mut data: Memory<Vec<u8>>| {
+        fs::load(path.as_ref()).map(|mut data: Memory<Box<[u8]>>| {
             data.set_ram(self.ram_state);
             self.load_sram(data)
         })?;
@@ -333,7 +333,7 @@ impl Sram for Bus {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::mapper::Cnrom;
+    use crate::mapper::{Cnrom, Nrom};
 
     #[test]
     fn load_cart_values() {
@@ -366,7 +366,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = Memory::rom().with_size(0x2000);
+        cart.chr_rom = Memory::rom(0x2000);
         cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
@@ -396,8 +396,9 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = Memory::ram(RamState::default()).with_size(0x2000);
+        cart.chr_ram = Memory::ram(0x2000, RamState::default());
         cart.chr_ram.fill(0x66);
+        cart.mapper = Nrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00);
@@ -430,6 +431,8 @@ mod test {
     fn genie_codes() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
+        cart.prg_rom = Memory::rom(0x8000);
+        cart.mapper = Nrom::load(&mut cart).unwrap();
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts
         let addr = 0x9F41;
