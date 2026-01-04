@@ -224,24 +224,6 @@ impl Preferences {
         }
     }
 
-    pub fn cycle_accurate_checkbox(
-        tx: &NesEventProxy,
-        ui: &mut Ui,
-        mut cycle_accurate: bool,
-        shortcut: impl Into<Option<String>>,
-    ) {
-        let shortcut = shortcut.into();
-        let icon = shortcut.as_ref().map(|_| "📐 ").unwrap_or_default();
-        let checkbox = Checkbox::new(&mut cycle_accurate, format!("{icon}Cycle Accurate"))
-            .shortcut_text(shortcut.unwrap_or_default());
-        let res = ui
-            .add(checkbox)
-            .on_hover_text("Enables more accurate NES emulation at a slight cost in performance.");
-        if res.clicked() {
-            tx.event(ConfigEvent::CycleAccurate(cycle_accurate));
-        }
-    }
-
     pub fn rewind_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
@@ -598,7 +580,6 @@ impl State {
             ..
         } = cfg.emulation;
         let DeckConfig {
-            cycle_accurate,
             mut emulate_ppu_warmup,
             four_player,
             ram_state,
@@ -612,7 +593,6 @@ impl State {
         grid.show(ui, |ui| {
             let tx = &self.tx;
 
-            Preferences::cycle_accurate_checkbox(tx, ui, cycle_accurate, None);
             let res = ui.checkbox(&mut auto_load, "Auto-Load")
                 .on_hover_text("Automatically load game state from the current save slot on load.");
             if res.changed() {
@@ -1053,7 +1033,6 @@ impl State {
             ConfigEvent::AutoSave(emulation.auto_save),
             ConfigEvent::AutoSaveInterval(emulation.auto_save_interval),
             ConfigEvent::ConcurrentDpad(deck.concurrent_dpad),
-            ConfigEvent::CycleAccurate(deck.cycle_accurate),
             ConfigEvent::DarkTheme(renderer.dark_theme),
             ConfigEvent::EmbedViewports(renderer.embed_viewports),
             ConfigEvent::FourPlayer(deck.four_player),

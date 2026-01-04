@@ -48,19 +48,20 @@ use std::{collections::HashMap, path::Path};
 /// |-----------------| $0000 |-----------------|
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
+#[repr(C)]
 pub struct Bus {
-    pub apu: Apu,
-    pub genie_codes: HashMap<u16, GenieCode>,
-    pub input: Input,
-    pub open_bus: u8,
+    pub wram: Memory<ConstArray<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
     pub ppu: Ppu,
-    pub prg_ram_protect: bool,
-    pub prg_ram: Memory<Box<[u8]>>,
-    #[serde(skip)]
+    pub apu: Apu,
+    pub input: Input,
+    pub genie_codes: HashMap<u16, GenieCode>,
     pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
+    pub open_bus: u8,
+    pub prg_ram_protect: bool,
+    #[serde(skip)]
     pub ram_state: RamState,
     pub region: NesRegion,
-    pub wram: Memory<ConstArray<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
 }
 
 impl Default for Bus {
@@ -72,17 +73,17 @@ impl Default for Bus {
 impl Bus {
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
-            apu: Apu::new(region),
-            genie_codes: HashMap::new(),
-            input: Input::new(region),
-            open_bus: 0x00,
+            wram: Memory::new_const(),
             ppu: Ppu::new(region, ram_state),
+            apu: Apu::new(region),
+            input: Input::new(region),
+            genie_codes: HashMap::new(),
+            prg_rom: Memory::new(0),
             prg_ram: Memory::empty(),
             prg_ram_protect: false,
-            prg_rom: Memory::rom(0),
+            open_bus: 0x00,
             ram_state,
             region,
-            wram: Memory::ram_const(ram_state),
         }
     }
 
@@ -90,9 +91,9 @@ impl Bus {
         self.prg_rom = cart.prg_rom;
         self.load_sram(cart.prg_ram);
         if cart.chr_ram.is_empty() {
-            self.ppu.bus.load_chr(cart.chr_rom);
+            self.ppu.bus.load_chr(cart.chr_rom, false);
         } else {
-            self.ppu.bus.load_chr(cart.chr_ram);
+            self.ppu.bus.load_chr(cart.chr_ram, true);
         }
         self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
@@ -308,8 +309,10 @@ impl Regional for Bus {
 
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
-        self.prg_ram.reset(kind);
-        self.wram.reset(kind);
+        if kind == ResetKind::Hard {
+            self.ram_state.fill(&mut self.prg_ram);
+            self.ram_state.fill(&mut *self.wram);
+        }
         self.ppu.reset(kind);
         self.apu.reset(kind);
     }
@@ -322,10 +325,7 @@ impl Sram for Bus {
     }
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|mut data: Memory<Box<[u8]>>| {
-            data.set_ram(self.ram_state);
-            self.load_sram(data)
-        })?;
+        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.load_sram(data))?;
         self.ppu.bus.mapper.load(path)
     }
 }
@@ -366,7 +366,7 @@ mod test {
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = Memory::rom(0x2000);
+        cart.chr_rom = Memory::new(0x2000);
         cart.chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
         cart.mapper = Cnrom::load(&mut cart).unwrap();
@@ -396,7 +396,7 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = Memory::ram(0x2000, RamState::default());
+        cart.chr_ram = Memory::new(0x2000);
         cart.chr_ram.fill(0x66);
         cart.mapper = Nrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
@@ -431,7 +431,7 @@ mod test {
     fn genie_codes() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.prg_rom = Memory::rom(0x8000);
+        cart.prg_rom = Memory::new(0x8000);
         cart.mapper = Nrom::load(&mut cart).unwrap();
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts

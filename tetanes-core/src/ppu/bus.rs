@@ -27,14 +27,17 @@ impl PpuAddr for u16 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
+#[repr(C)]
 pub struct Bus {
     pub mapper: Mapper,
-    pub chr: Memory<Box<[u8]>>,
     pub ciram: Memory<ConstArray<u8, 0x0800>>, // $2007 PPUDATA
     pub palette: Memory<ConstArray<u8, 32>>,
+    pub chr_ram: bool,
+    pub chr: Memory<Box<[u8]>>,
     #[serde(skip)]
     pub exram: Memory<Box<[u8]>>,
     pub open_bus: u8,
+    pub ram_state: RamState,
 }
 
 impl Default for Bus {
@@ -50,11 +53,13 @@ impl Bus {
     pub fn new(ram_state: RamState) -> Self {
         Self {
             mapper: Mapper::none(),
-            chr: Memory::rom(0),
-            ciram: Memory::ram_const(ram_state),
-            palette: Memory::ram_const(ram_state),
+            ciram: Memory::new_const().with_ram_state(ram_state),
+            palette: Memory::new_const().with_ram_state(ram_state),
+            chr_ram: false,
+            chr: Memory::new(0),
             exram: Memory::empty(),
             open_bus: 0x00,
+            ram_state,
         }
     }
 
@@ -62,7 +67,8 @@ impl Bus {
         self.mapper.mirroring()
     }
 
-    pub fn load_chr(&mut self, chr: Memory<Box<[u8]>>) {
+    pub fn load_chr(&mut self, chr: Memory<Box<[u8]>>, is_ram: bool) {
+        self.chr_ram = is_ram;
         self.chr = chr;
     }
 
@@ -203,7 +209,7 @@ impl Write for Bus {
                 MappedWrite::CIRam(addr, val) => self.ciram[addr] = val,
                 MappedWrite::ExRam(addr, val) => self.exram[addr] = val,
                 MappedWrite::ChrRam(addr, val) => {
-                    if self.chr.is_ram() {
+                    if self.chr_ram {
                         self.chr[addr] = val;
                     }
                 }
@@ -243,8 +249,8 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
-        if self.chr.is_ram() {
-            self.chr.reset(kind);
+        if self.chr_ram {
+            self.ram_state.fill(&mut self.chr);
         }
         self.mapper.reset(kind);
     }

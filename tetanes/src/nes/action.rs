@@ -37,7 +37,7 @@ impl Ord for Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 113] = [
+    pub const BINDABLE: [Self; 112] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -56,7 +56,6 @@ impl Action {
         Self::Setting(Setting::ToggleEmbedViewports),
         Self::Setting(Setting::ToggleAlwaysOnTop),
         Self::Setting(Setting::ToggleAudio),
-        Self::Setting(Setting::ToggleCycleAccurate),
         Self::Setting(Setting::ToggleRewinding),
         Self::Setting(Setting::ToggleOverscan),
         Self::Setting(Setting::ToggleMenubar),
@@ -209,7 +208,6 @@ impl AsRef<str> for Action {
                 Setting::ToggleEmbedViewports => "Toggle Embed Viewports",
                 Setting::ToggleAlwaysOnTop => "Toggle Always On Top",
                 Setting::ToggleAudio => "Toggle Audio",
-                Setting::ToggleCycleAccurate => "Toggle Cycle Accurate",
                 Setting::ToggleRewinding => "Toggle Rewinding",
                 Setting::ToggleOverscan => "Toggle Overscan",
                 Setting::ToggleMenubar => "Toggle Menubar",
@@ -333,7 +331,6 @@ impl TryFrom<&str> for Action {
             "Toggle Embed Viewports" => Self::Setting(Setting::ToggleEmbedViewports),
             "Toggle Always On Top" => Self::Setting(Setting::ToggleAlwaysOnTop),
             "Toggle Audio" => Self::Setting(Setting::ToggleAudio),
-            "Toggle Cycle Accurate" => Self::Setting(Setting::ToggleCycleAccurate),
             "Toggle Rewinding" => Self::Setting(Setting::ToggleRewinding),
             "Toggle Overscan" => Self::Setting(Setting::ToggleOverscan),
             "Toggle Menubar" => Self::Setting(Setting::ToggleMenubar),
@@ -495,7 +492,6 @@ pub enum Setting {
     ToggleEmbedViewports,
     ToggleAlwaysOnTop,
     ToggleAudio,
-    ToggleCycleAccurate,
     ToggleRewinding,
     ToggleOverscan,
     ToggleMenubar,

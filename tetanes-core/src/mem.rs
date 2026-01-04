@@ -1,6 +1,5 @@
 //! Memory and Bankswitching implementations.
 
-use crate::common::{Reset, ResetKind};
 use rand::RngCore;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -18,105 +17,48 @@ use std::{
 /// Represents ROM or RAM memory in bytes, with a custom Debug implementation that avoids
 /// printing the entire contents.
 #[derive(Default, Clone, Serialize, Deserialize)]
-pub struct Memory<D> {
-    ram_state: RamState,
-    is_ram: bool,
-    data: D,
-}
-
-impl<D> Memory<D> {
-    /// Whether this `Memory` is RAM or ROM.
-    pub const fn is_ram(&self) -> bool {
-        self.is_ram
-    }
-}
+pub struct Memory<D>(D);
 
 impl Memory<Box<[u8]>> {
     /// Create an empty `Memory` instance.
     pub fn empty() -> Self {
-        Self {
-            ram_state: Default::default(),
-            is_ram: false,
-            data: Vec::new().into_boxed_slice(),
-        }
+        Self(Vec::new().into_boxed_slice())
     }
 
-    /// Create a default ROM `Memory` instance.
-    pub fn rom(size: usize) -> Self {
-        Self {
-            ram_state: Default::default(),
-            is_ram: false,
-            data: vec![0; size].into_boxed_slice(),
-        }
+    /// Create a default `Memory` instance.
+    pub fn new(size: usize) -> Self {
+        Self(vec![0; size].into_boxed_slice())
     }
 
-    /// Create a default RAM `Memory` instance.
-    pub fn ram(size: usize, ram_state: RamState) -> Self {
-        Self {
-            ram_state,
-            is_ram: true,
-            data: vec![0; size].into_boxed_slice(),
-        }
-    }
-
-    /// Set `Memory` as ram.
-    pub const fn set_ram(&mut self, ram_state: RamState) {
-        self.ram_state = ram_state;
-        self.is_ram = true;
-    }
-
-    /// Fill ram based on [`RamState`].
+    /// Fill memory based on [`RamState`].
     pub fn with_ram_state(mut self, state: RamState) -> Self {
-        self.ram_state = state;
-        self.ram_state.fill(&mut self.data);
+        state.fill(&mut self.0);
         self
     }
 }
 
 impl<T, const N: usize> Memory<ConstArray<T, N>> {
     /// Create a default ROM `Memory` instance.
-    pub fn rom_const() -> Self
+    pub fn new_const() -> Self
     where
         T: Default + Copy,
     {
         Self::default()
     }
-
-    /// Create a default RAM `Memory` instance.
-    pub fn ram_const(ram_state: RamState) -> Self
-    where
-        T: Default + Copy,
-    {
-        Self {
-            ram_state,
-            is_ram: true,
-            data: ConstArray::new(),
-        }
-    }
 }
 
-impl Reset for Memory<Box<[u8]>> {
-    fn reset(&mut self, kind: ResetKind) {
-        if self.is_ram && kind == ResetKind::Hard {
-            self.ram_state.fill(&mut self.data);
-        }
-    }
-}
-
-impl<const N: usize> Reset for Memory<ConstArray<u8, N>> {
-    fn reset(&mut self, kind: ResetKind) {
-        if self.is_ram && kind == ResetKind::Hard {
-            self.ram_state.fill(&mut *self.data);
-        }
+impl<const N: usize> Memory<ConstArray<u8, N>> {
+    /// Fill memory based on [`RamState`].
+    pub fn with_ram_state(mut self, state: RamState) -> Self {
+        state.fill(&mut *self.0);
+        self
     }
 }
 
 impl fmt::Debug for Memory<Box<[u8]>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
-            .field("ram_state", &self.ram_state)
-            .field("is_ram", &self.is_ram)
-            .field("len", &self.data.len())
+            .field("len", &self.0.len())
             .finish()
     }
 }
@@ -124,45 +66,39 @@ impl fmt::Debug for Memory<Box<[u8]>> {
 impl<T, const N: usize> fmt::Debug for Memory<ConstArray<T, N>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
-            .field("ram_state", &self.ram_state)
-            .field("is_ram", &self.is_ram)
-            .field("len", &self.data.len())
+            .field("len", &self.0.len())
             .finish()
     }
 }
 
 impl<T> From<T> for Memory<T> {
     fn from(data: T) -> Self {
-        Self {
-            ram_state: RamState::default(),
-            is_ram: false,
-            data,
-        }
+        Self(data)
     }
 }
 
 impl<D: Deref> Deref for Memory<D> {
     type Target = <D as Deref>::Target;
     fn deref(&self) -> &Self::Target {
-        &self.data
+        &self.0
     }
 }
 
 impl<D: DerefMut> DerefMut for Memory<D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
+        &mut self.0
     }
 }
 
 impl<T, D: AsRef<[T]>> AsRef<[T]> for Memory<D> {
     fn as_ref(&self) -> &[T] {
-        self.data.as_ref()
+        self.0.as_ref()
     }
 }
 
 impl<T, D: AsMut<[T]>> AsMut<[T]> for Memory<D> {
     fn as_mut(&mut self) -> &mut [T] {
-        self.data.as_mut()
+        self.0.as_mut()
     }
 }
 
@@ -184,6 +120,14 @@ impl<T, const N: usize> ConstArray<T, N> {
         T: Copy,
     {
         Self([val; N])
+    }
+}
+
+impl<T, const N: usize> fmt::Debug for ConstArray<T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConstArray")
+            .field("len", &self.0.len())
+            .finish()
     }
 }
 

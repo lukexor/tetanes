@@ -460,6 +460,8 @@ pub(crate) mod tests {
                     .with(
                         fmt::layer()
                             .compact()
+                            .with_ansi(false)
+                            .without_time()
                             .with_line_number(true)
                             .with_thread_ids(true)
                             .with_thread_names(true)

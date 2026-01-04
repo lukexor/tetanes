@@ -359,11 +359,15 @@ impl State {
     }
 
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
+        use tetanes_core::mem::Read;
+
         let err = err.into();
         error!("Emulation error: {err:?}");
         if self.control_deck.cpu_corrupted() {
+            let cpu = self.control_deck.cpu();
+            let opcode = cpu.peek(cpu.pc.wrapping_sub(1));
             self.tx.event(EmulationEvent::CpuCorrupted {
-                instr: self.control_deck.cpu().instr,
+                instr: Cpu::INSTR_REF[usize::from(opcode)],
             });
         } else {
             self.add_message(MessageType::Error, err);
@@ -568,9 +572,6 @@ impl State {
             ConfigEvent::AutoSaveInterval(interval) => self.auto_save_interval = *interval,
             ConfigEvent::ConcurrentDpad(enabled) => {
                 self.control_deck.set_concurrent_dpad(*enabled);
-            }
-            ConfigEvent::CycleAccurate(enabled) => {
-                self.control_deck.set_cycle_accurate(*enabled);
             }
             ConfigEvent::EmulatePpuWarmup(enabled) => {
                 self.control_deck.set_emulate_ppu_warmup(*enabled);
@@ -938,20 +939,19 @@ impl State {
             }
 
             let run_ahead = if self.speed > 1.0 { 0 } else { self.run_ahead };
-            let res = self.control_deck.clock_frame_ahead(
-                run_ahead,
-                |_cycles, frame_buffer, audio_samples| {
-                    self.audio.process(audio_samples);
-                    match self.frame_tx.try_send_ref() {
-                        Ok(mut frame) => {
-                            frame.clear();
-                            frame.extend_from_slice(frame_buffer);
+            let res =
+                self.control_deck
+                    .clock_frame_ahead(run_ahead, |_, frame_buffer, audio_samples| {
+                        self.audio.process(audio_samples);
+                        match self.frame_tx.try_send_ref() {
+                            Ok(mut frame) => {
+                                frame.clear();
+                                frame.extend_from_slice(frame_buffer);
+                            }
+                            Err(TrySendError::Full(_)) => debug!("dropped frame"),
+                            Err(_) => shutdown(&self.tx, "failed to get frame"),
                         }
-                        Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                        Err(_) => shutdown(&self.tx, "failed to get frame"),
-                    }
-                },
-            );
+                    });
             match res {
                 Ok(()) => {
                     self.update_frame_stats();

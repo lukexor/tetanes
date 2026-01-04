@@ -22,7 +22,7 @@ use tetanes_core::{
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
-    cpu::instr::Instr,
+    cpu::instr::InstrRef,
     debug::Debugger,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
@@ -128,7 +128,6 @@ pub enum ConfigEvent {
     AutoSave(bool),
     AutoSaveInterval(Duration),
     ConcurrentDpad(bool),
-    CycleAccurate(bool),
     DarkTheme(bool),
     EmbedViewports(bool),
     EmulatePpuWarmup(bool),
@@ -184,7 +183,7 @@ pub enum EmulationEvent {
     AddDebugger(Debugger),
     RemoveDebugger(Debugger),
     AudioRecord(bool),
-    CpuCorrupted { instr: Instr },
+    CpuCorrupted { instr: InstrRef },
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
@@ -485,7 +484,6 @@ impl ApplicationHandler<NesEvent> for Running {
                         emulation.auto_save_interval = *interval;
                     }
                     ConfigEvent::ConcurrentDpad(enabled) => deck.concurrent_dpad = *enabled,
-                    ConfigEvent::CycleAccurate(enabled) => deck.cycle_accurate = *enabled,
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
                     ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,

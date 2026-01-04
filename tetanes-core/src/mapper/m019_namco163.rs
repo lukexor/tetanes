@@ -10,7 +10,7 @@ use crate::{
     mapper::{
         self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
     },
-    mem::{BankAccess, Banks, ConstArray, Memory, RamState},
+    mem::{BankAccess, Banks, ConstArray, Memory},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -415,7 +415,7 @@ impl Audio {
 
     pub fn new() -> Self {
         Self {
-            ram: Memory::ram_const(RamState::default()),
+            ram: Memory::new_const(),
             addr: 0,
             auto_increment: false,
             disabled: false,

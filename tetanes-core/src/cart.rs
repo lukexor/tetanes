@@ -86,16 +86,15 @@ impl Default for Cart {
 
 impl Cart {
     pub fn empty() -> Self {
-        let ram_state = RamState::default();
         Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
             region: NesRegion::Ntsc,
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr_rom: Memory::ram(CHR_ROM_BANK_SIZE, ram_state),
+            chr_rom: Memory::new(CHR_ROM_BANK_SIZE),
             chr_ram: Memory::empty(),
-            prg_rom: Memory::ram(PRG_ROM_BANK_SIZE, ram_state),
+            prg_rom: Memory::new(PRG_ROM_BANK_SIZE),
             prg_ram: Memory::empty(),
             ex_ram: Memory::empty(),
             game_info: None,
@@ -133,7 +132,7 @@ impl Cart {
         debug!("{header:?}");
 
         let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = Memory::rom(prg_rom_len);
+        let mut prg_rom = Memory::new(prg_rom_len);
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
             if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                 Error::InvalidHeader {
@@ -150,9 +149,9 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let prg_ram = Memory::ram(prg_ram_size, ram_state);
+        let prg_ram = Memory::new(prg_ram_size).with_ram_state(ram_state);
 
-        let mut chr_rom = Memory::rom((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
+        let mut chr_rom = Memory::new((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
         let chr_ram = if header.chr_rom_banks > 0 {
             rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
@@ -171,7 +170,7 @@ impl Cart {
             Memory::empty()
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
-            Memory::ram(chr_ram_size, ram_state)
+            Memory::new(chr_ram_size).with_ram_state(ram_state)
         };
 
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);
@@ -358,17 +357,17 @@ impl Cart {
 
     /// Allows mappers to add PRG-RAM.
     pub(crate) fn add_prg_ram(&mut self, capacity: usize) {
-        self.prg_ram = Memory::ram(capacity, self.ram_state);
+        self.prg_ram = Memory::new(capacity).with_ram_state(self.ram_state);
     }
 
     /// Allows mappers to add CHR-RAM.
     pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
-        self.chr_ram = Memory::ram(capacity, self.ram_state);
+        self.chr_ram = Memory::new(capacity).with_ram_state(self.ram_state);
     }
 
     /// Allows mappers to add EX-RAM.
     pub(crate) fn add_exram(&mut self, capacity: usize) {
-        self.ex_ram = Memory::ram(capacity, self.ram_state);
+        self.ex_ram = Memory::new(capacity).with_ram_state(self.ram_state);
     }
 
     fn calculate_ram_size(value: u8) -> Result<usize> {

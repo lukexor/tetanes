@@ -115,9 +115,6 @@ impl MapperRevisionsConfig {
 #[must_use]
 /// Control deck configuration settings.
 pub struct Config {
-    /// Whether to emulate the NES with cycle accuracy or not. Increased CPU use, but more accurate
-    /// emulation.
-    pub cycle_accurate: bool,
     /// Video filter.
     pub filter: VideoFilter,
     /// NES region.
@@ -173,7 +170,6 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            cycle_accurate: true,
             filter: VideoFilter::default(),
             region: NesRegion::Auto,
             ram_state: RamState::Random,
@@ -418,13 +414,6 @@ impl ControlDeck {
         self.cpu.bus.input.set_concurrent_dpad(enabled);
     }
 
-    /// Set whether emulation should be cycle accurate or not. Disabling this can increase
-    /// performance.
-    #[inline]
-    pub const fn set_cycle_accurate(&mut self, enabled: bool) {
-        self.cpu.cycle_accurate = enabled;
-    }
-
     /// Set emulation RAM initialization state.
     #[inline]
     pub const fn set_ram_state(&mut self, ram_state: RamState) {
@@ -452,14 +441,14 @@ impl ControlDeck {
     /// match.
     pub fn add_debugger(&mut self, debugger: Debugger) {
         match debugger {
-            Debugger::Ppu(debugger) => self.cpu.bus.ppu.debugger = Some(debugger),
+            Debugger::Ppu(debugger) => self.cpu.bus.ppu.debugger = debugger,
         }
     }
 
     /// Removes a debugger callback.
     pub fn remove_debugger(&mut self, debugger: Debugger) {
         match debugger {
-            Debugger::Ppu(_) => self.cpu.bus.ppu.debugger = None,
+            Debugger::Ppu(_) => self.cpu.bus.ppu.debugger = Default::default(),
         }
     }
 
@@ -1051,7 +1040,7 @@ impl Clock for ControlDeck {
 impl Regional for ControlDeck {
     /// Get the NES format for the emulation.
     fn region(&self) -> NesRegion {
-        self.cpu.region
+        self.cpu.region()
     }
 
     /// Set the NES format for the emulation.

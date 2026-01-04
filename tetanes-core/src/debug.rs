@@ -21,6 +21,16 @@ pub struct PpuDebugger {
     pub callback: Arc<dyn Fn(Ppu) + Send + Sync + 'static>,
 }
 
+impl Default for PpuDebugger {
+    fn default() -> Self {
+        Self {
+            cycle: u32::MAX,
+            scanline: u32::MAX,
+            callback: Arc::new(|_| {}),
+        }
+    }
+}
+
 impl PartialEq for PpuDebugger {
     fn eq(&self, other: &Self) -> bool {
         self.cycle == other.cycle && self.scanline == other.scanline

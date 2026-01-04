@@ -628,7 +628,7 @@ impl Eeprom {
             output: 0,
             prev_scl: 0,
             prev_sda: 0,
-            rom_data: Memory::rom(rom_size),
+            rom_data: Memory::new(rom_size),
         }
     }
 

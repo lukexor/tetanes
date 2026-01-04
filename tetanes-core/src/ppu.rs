@@ -74,6 +74,7 @@ pub trait Registers {
 /// See: <https://wiki.nesdev.org/w/index.php/PPU>
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
+#[repr(C)]
 pub struct Ppu {
     /// Master clock.
     pub master_clock: u64,
@@ -89,35 +90,33 @@ pub struct Ppu {
     pub prerender_scanline: u32,
     /// Scanline that Sprite Evaluation for PAL starts on.
     pub pal_spr_eval_scanline: u32,
-    /// Whether PPU is skipping rendering (used for
-    /// [`HeadlessMode`](crate::control_deck::HeadlessMode)).
-    pub skip_rendering: bool,
 
-    /// $2005 PPUSCROLL and $2006 PPUADDR (write-only).
-    pub scroll: Scroll,
     /// $2001 PPUMASK (write-only).
     pub mask: Mask,
-    /// $2000 PPUCTRL (write-only).
-    pub ctrl: Ctrl,
-    /// $2002 PPUSTATUS (read-only).
-    pub status: Status,
+    /// $2005 PPUSCROLL and $2006 PPUADDR (write-only).
+    pub scroll: Scroll,
     /// PPU Memory/Data Bus.
     pub bus: Bus,
+    /// $2000 PPUCTRL (write-only).
+    pub ctrl: Ctrl,
 
     pub curr_palette: u8,
     pub prev_palette: u8,
     pub next_palette: u8,
-    pub tile_shift_lo: u16,
-    pub tile_shift_hi: u16,
     pub tile_lo: u8,
     pub tile_hi: u8,
+    pub tile_shift_lo: u16,
+    pub tile_shift_hi: u16,
     pub tile_addr: u16,
 
-    pub oamaddr_lo: u8,
-    pub oamaddr_hi: u8,
+    /// $2002 PPUSTATUS (read-only).
+    pub status: Status,
+
+    pub oam_fetch: u8,
     /// $2003 OAM addr (write-only).
     pub oamaddr: u8,
-    pub oam_fetch: u8,
+    pub oamaddr_lo: u8,
+    pub oamaddr_hi: u8,
     pub oam_eval_done: bool,
     pub secondary_oamaddr: u8,
     pub overflow_count: u8,
@@ -143,7 +142,10 @@ pub struct Ppu {
     pub frame: Frame,
 
     pub region: NesRegion,
-    pub cycle_count: usize,
+
+    /// Whether PPU is skipping rendering (used for
+    /// [`HeadlessMode`](crate::control_deck::HeadlessMode)).
+    pub skip_rendering: bool,
     /// Internal signal that clears status registers and prevents writes and cleared at the end of
     /// VBlank.
     ///
@@ -155,7 +157,7 @@ pub struct Ppu {
 
     // Don't save debug state
     #[serde(skip)]
-    pub debugger: Option<PpuDebugger>,
+    pub debugger: PpuDebugger,
 }
 
 impl Default for Ppu {
@@ -289,13 +291,12 @@ impl Ppu {
             frame: Frame::new(),
 
             region,
-            cycle_count: 0,
             reset_signal: false,
             emulate_warmup: false,
 
             open_bus: 0x00,
 
-            debugger: None,
+            debugger: Default::default(),
         };
 
         ppu.set_region(ppu.region);
@@ -311,14 +312,14 @@ impl Ppu {
     }
 
     /// Return the current frame number.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
         self.frame.number()
     }
 
     /// Return whether current frame number is odd.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn is_odd_frame(&self) -> bool {
         self.frame.is_odd()
@@ -364,7 +365,6 @@ impl Ppu {
             secondary_oamdata: self.secondary_oamdata.clone(),
             sprites: self.sprites,
             region: self.region,
-            cycle_count: self.cycle_count,
             ..Default::default()
         }
     }
@@ -572,6 +572,7 @@ impl Ppu {
 }
 
 impl Ppu {
+    #[inline(always)]
     const fn increment_vram_addr(&mut self) {
         // During rendering, v increments coarse X and coarse Y simultaneously
         if self.mask.rendering_enabled
@@ -617,6 +618,7 @@ impl Ppu {
     /// Fetch BG nametable byte.
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline(always)]
     fn fetch_bg_nt_byte(&mut self) {
         self.prev_palette = self.curr_palette;
         self.curr_palette = self.next_palette;
@@ -633,6 +635,7 @@ impl Ppu {
     /// Fetch BG attribute byte.
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline(always)]
     fn fetch_bg_attr_byte(&mut self) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
@@ -643,6 +646,7 @@ impl Ppu {
     /// Each tile fetch takes 2 cycles.
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline]
     fn fetch_background(&mut self) {
         match self.cycle & 0x07 {
             0 => {
@@ -870,6 +874,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn pixel_palette(&mut self) -> u8 {
         let x = self.cycle - 1;
         let show_bg = self.mask.show_bg;
@@ -924,6 +929,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn headless_sprite_zero_hit(&mut self) {
         if !self.mask.rendering_enabled || !self.spr_zero_visible || self.status.spr_zero_hit {
             return;
@@ -961,6 +967,7 @@ impl Ppu {
         }
     }
 
+    #[inline]
     fn render_pixel(&mut self) {
         let addr = self.scroll.addr();
         let color =
@@ -979,6 +986,7 @@ impl Ppu {
         );
     }
 
+    #[inline]
     fn tick(&mut self) {
         // Local variables improve cache locality
         let cycle = self.cycle;
@@ -991,7 +999,6 @@ impl Ppu {
         if self.mask.rendering_enabled {
             let prerender_scanline = scanline == self.prerender_scanline;
             let render_scanline = prerender_scanline || visible_scanline;
-            let region = self.region;
 
             if render_scanline {
                 match cycle {
@@ -1042,7 +1049,7 @@ impl Ppu {
 
                         if prerender_scanline
                             && cycle == Self::ODD_SKIP
-                            && region.is_ntsc()
+                            && self.region.is_ntsc()
                             && self.is_odd_frame()
                         {
                             // NTSC behavior while rendering - each odd PPU frame is one clock shorter
@@ -1056,7 +1063,7 @@ impl Ppu {
                     }
                     _ => (),
                 }
-            } else if region.is_pal() && scanline >= self.pal_spr_eval_scanline {
+            } else if scanline >= self.pal_spr_eval_scanline && self.region.is_pal() {
                 self.evaluate_sprites();
                 // 257..=320
                 if matches!(cycle, Self::SPR_FETCH_START..=Self::SPR_FETCH_END) {
@@ -1145,6 +1152,7 @@ impl Registers for Ppu {
     //       |   3 | BG Switch, 1 = show background, 0 = hide background
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
+    #[inline(always)]
     fn write_mask(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
@@ -1190,6 +1198,7 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     //
     // Non-mutating version of `read_status`.
+    #[inline(always)]
     fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
         (self.status.read() & 0xE0) | (self.open_bus & 0x1F)
@@ -1200,6 +1209,7 @@ impl Registers for Ppu {
     //       |     | accessed via $2004. This address will increment by 1 after
     //       |     | each access to $2004. The Sprite Memory contains coordinates,
     //       |     | colors, and other attributes of the sprites.
+    #[inline(always)]
     fn write_oamaddr(&mut self, val: u8) {
         self.open_bus = val;
         self.oamaddr = val;
@@ -1210,6 +1220,7 @@ impl Registers for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
+    #[inline(always)]
     fn read_oamdata(&mut self) -> u8 {
         let val = self.peek_oamdata();
         self.open_bus = val;
@@ -1244,7 +1255,7 @@ impl Registers for Ppu {
         if self.mask.rendering_enabled
             && (self.scanline <= Self::VISIBLE_SCANLINE_END
                 || self.scanline == self.prerender_scanline
-                || (self.region.is_pal() && self.scanline >= self.pal_spr_eval_scanline))
+                || (self.scanline >= self.pal_spr_eval_scanline && self.region.is_pal()))
         {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDATA
             // Writes to OAMDATA during rendering do not modify values, but do perform a glitch
@@ -1277,6 +1288,7 @@ impl Registers for Ppu {
     //       |     | When scrolled, the picture may span over several Name Tables.
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
+    #[inline(always)]
     fn write_scroll(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
@@ -1286,6 +1298,7 @@ impl Registers for Ppu {
     }
 
     // $2006 | W   | PPUADDR
+    #[inline(always)]
     fn write_addr(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
@@ -1391,12 +1404,8 @@ impl Clock for Ppu {
             }
         }
 
-        self.cycle_count = self.cycle_count.wrapping_add(1);
-
-        if let Some(inspector) = &self.debugger {
-            if self.scanline == inspector.scanline && self.cycle == inspector.cycle {
-                (*inspector.callback)(self.clone_state());
-            }
+        if self.scanline == self.debugger.scanline && self.cycle == self.debugger.cycle {
+            (*self.debugger.callback)(self.clone_state());
         }
 
         1
@@ -1487,7 +1496,6 @@ impl std::fmt::Debug for Ppu {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ppu")
             .field("region", &self.region)
-            .field("cycle_count", &self.cycle_count)
             .field("bus", &self.bus)
             .field("ctrl", &self.ctrl)
             .field("mask", &self.mask)

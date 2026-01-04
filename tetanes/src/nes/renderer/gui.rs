@@ -44,7 +44,7 @@ use tetanes_core::{
     action::Action as DeckAction,
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
-    cpu::instr::Instr,
+    cpu::instr::InstrRef,
     ppu::Ppu,
     time::{Duration, Instant},
 };
@@ -80,7 +80,7 @@ pub struct Gui {
     title: String,
     tx: NesEventProxy,
     pub nes_texture: Texture,
-    corrupted_cpu_instr: Option<Instr>,
+    corrupted_cpu_instr: Option<InstrRef>,
     pub run_state: RunState,
     pub menu_height: f32,
     nes_frame: Rect,
@@ -957,12 +957,6 @@ impl Gui {
 
         let tx = &self.tx;
 
-        Preferences::cycle_accurate_checkbox(
-            tx,
-            ui,
-            cfg.deck.cycle_accurate,
-            cfg.shortcut(Setting::ToggleCycleAccurate),
-        );
         Preferences::zapper_checkbox(
             tx,
             ui,
@@ -1360,9 +1354,9 @@ impl Gui {
                                     Color32::RED,
                                     format!(
                                         "Invalid CPU opcode: ${:02X} {:?} #{:?} encountered. Title: {}",
-                                        instr.opcode(),
-                                        instr.op(),
-                                        instr.addr_mode(),
+                                        instr.opcode,
+                                        instr.instr,
+                                        instr.addr_mode,
                                         self.loaded_rom.as_ref().map(|rom| rom.name.as_str()).unwrap_or_default()
                                     ),
                                 );

@@ -25,10 +25,11 @@ workspace = true
 [features]
 default = []
 profiling = ["dep:puffin"]
+trace = []
 
 [dependencies]
 bincode.workspace = true
-bitflags = { version = "2.6", features = ["serde"] }
+bitflags = { version = "2.10", features = ["serde"] }
 cfg-if.workspace = true
 dirs.workspace = true
 enum_dispatch = "0.3"

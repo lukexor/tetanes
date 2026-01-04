@@ -63,17 +63,19 @@ impl Frame {
         }
     }
 
+    #[inline(always)]
     pub const fn increment(&mut self) {
         self.count = self.count.wrapping_add(1);
         self.is_odd = self.count & 0x01 == 0x01;
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn pixel(&self, x: u32, y: u32) -> u16 {
         self.buffer[(x + (y << 8)) as usize]
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
         self.buffer[(x + (y << 8)) as usize] = color;
     }
@@ -88,18 +90,20 @@ impl Frame {
         u32::from(red) + u32::from(green) + u32::from(blue)
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn number(&self) -> u32 {
         self.count
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn is_odd(&self) -> bool {
         self.is_odd
     }
 
+    #[inline(always)]
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn buffer(&self) -> &[u16] {
         &self.buffer
     }
