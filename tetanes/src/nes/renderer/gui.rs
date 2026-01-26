@@ -31,8 +31,8 @@ use crate::{
 use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
     FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
-    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, Visuals, hex_color, include_image,
-    menu,
+    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
+    include_image, menu,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
 use serde::{Deserialize, Serialize};
@@ -174,18 +174,16 @@ impl Gui {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if self.keybinds.wants_input()
-            && matches!(
-                event,
-                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
-            )
-        {
-            Response {
-                consumed: true,
-                ..Default::default()
+        match event {
+            WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
+                if self.keybinds.wants_input() =>
+            {
+                Response {
+                    consumed: true,
+                    ..Default::default()
+                }
             }
-        } else {
-            Response::default()
+            _ => Response::default(),
         }
     }
 
@@ -487,6 +485,15 @@ impl Gui {
                 ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
             });
         self.perf_stats_open = perf_stats_open;
+    }
+
+    pub(super) fn close_viewport(&self, viewport_id: ViewportId) {
+        match viewport_id {
+            id if id == self.keybinds.id => self.keybinds.toggle_open(&self.ctx),
+            id if id == self.ppu_viewer.id => self.ppu_viewer.toggle_open(&self.ctx),
+            id if id == self.preferences.id => self.preferences.toggle_open(&self.ctx),
+            _ => (),
+        }
     }
 
     fn show_viewport(

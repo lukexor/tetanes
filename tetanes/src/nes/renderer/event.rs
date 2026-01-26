@@ -156,6 +156,7 @@ impl Renderer {
                     self.tx.event(UiEvent::Terminate);
                 } else {
                     viewport.info.events.push(egui::ViewportEvent::Close);
+                    self.gui.borrow_mut().close_viewport(viewport_id);
 
                     // We may need to repaint both us and our parent to close the window,
                     // and perhaps twice (once to notice the close-event, once again to enforce it).

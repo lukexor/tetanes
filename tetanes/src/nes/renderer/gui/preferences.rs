@@ -39,7 +39,7 @@ pub struct State {
 #[derive(Debug)]
 #[must_use]
 pub struct Preferences {
-    id: ViewportId,
+    pub id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }

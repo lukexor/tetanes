@@ -159,7 +159,7 @@ impl Default for PaletteColor {
 #[derive(Debug)]
 #[must_use]
 pub struct PpuViewer {
-    id: ViewportId,
+    pub id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }

@@ -36,7 +36,7 @@ pub struct State {
 #[derive(Debug)]
 #[must_use]
 pub struct Keybinds {
-    id: ViewportId,
+    pub id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }
@@ -59,9 +59,9 @@ pub struct GamepadState {
 #[derive(Debug, PartialEq, Eq)]
 #[must_use]
 pub struct ConnectedGamepad {
-    pub uuid: Uuid,
-    pub name: String,
-    pub assignment: Option<Player>,
+    uuid: Uuid,
+    name: String,
+    assignment: Option<Player>,
 }
 
 impl Keybinds {
