@@ -1542,7 +1542,23 @@ impl Gui {
             ui.end_row();
 
             ui.strong("Run Time:");
-            ui.label(format!("{} s", self.start.elapsed().as_secs()));
+            let run_time = {
+                let secs = self.start.elapsed().as_secs();
+                let days = secs / 86_400;
+                let hours = (secs % 86_400) / 3_600;
+                let mins = (secs % 3_600) / 60;
+                let secs = secs % 60;
+                if days > 0 {
+                    format!("{days}d {hours}h {mins}m {secs}s")
+                } else if hours > 0 {
+                    format!("{hours}h {mins}m {secs}s")
+                } else if mins > 0 {
+                    format!("{mins}m {secs}s")
+                } else {
+                    format!("{secs}s")
+                }
+            };
+            ui.label(run_time);
             ui.end_row();
 
             let (cursor_pos, zapper_pos) = match ui.input(|i| i.pointer.latest_pos()) {
