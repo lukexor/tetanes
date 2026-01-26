@@ -66,9 +66,17 @@ serde_json = "1.0"
 web-time = "1.0"
 web-sys = "0.3"
 
-# Playable framerates in development
 [profile.dev]
+# `debug = false` Saves both compile time and WASM download times
+debug = false
+# Playable framerates in development
 opt-level = 1
+# Higher opt-level for deps speeds up incremental compile times and can improve
+# runtime performance
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
 
 # TODO: Would be nice to move lto to `dist` but Trunk doesn't support profiles yet
 # See: https://github.com/trunk-rs/trunk/issues/605
@@ -78,14 +86,16 @@ codegen-units = 1
 lto = true
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
 panic = "abort"
+strip = true
 
 [profile.flamegraph]
 inherits = "release"
+lto = "off"
 debug = true
+strip = false
 
 [profile.dist]
 inherits = "release"
-strip = true
 
 [workspace.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
