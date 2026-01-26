@@ -396,16 +396,17 @@ impl Joypad {
 
     pub fn set_button(&mut self, button: impl Into<JoypadBtnState>, pressed: bool) {
         let button = button.into();
-        if pressed && !self.concurrent_dpad {
-            if let Some(button) = match button {
-                JoypadBtnState::LEFT => Some(JoypadBtnState::RIGHT),
-                JoypadBtnState::RIGHT => Some(JoypadBtnState::LEFT),
-                JoypadBtnState::UP => Some(JoypadBtnState::DOWN),
-                JoypadBtnState::DOWN => Some(JoypadBtnState::UP),
-                _ => None,
-            } {
-                self.buttons.set(button, false);
-            }
+        let prevent_concurrent_dpad = pressed && !self.concurrent_dpad;
+        if let Some(button) = match button {
+            JoypadBtnState::LEFT if prevent_concurrent_dpad => Some(JoypadBtnState::RIGHT),
+            JoypadBtnState::RIGHT if prevent_concurrent_dpad => Some(JoypadBtnState::LEFT),
+            JoypadBtnState::UP if prevent_concurrent_dpad => Some(JoypadBtnState::DOWN),
+            JoypadBtnState::DOWN if prevent_concurrent_dpad => Some(JoypadBtnState::UP),
+            JoypadBtnState::TURBO_A if !pressed => Some(JoypadBtnState::A),
+            JoypadBtnState::TURBO_B if !pressed => Some(JoypadBtnState::B),
+            _ => None,
+        } {
+            self.buttons.set(button, false);
         }
         self.buttons.set(button, pressed);
     }
