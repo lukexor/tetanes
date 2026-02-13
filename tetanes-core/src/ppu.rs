@@ -924,6 +924,43 @@ impl Ppu {
         }
     }
 
+    fn headless_sprite_zero_hit(&mut self) {
+        if !self.mask.rendering_enabled || !self.spr_zero_visible || self.status.spr_zero_hit {
+            return;
+        }
+
+        let x = self.cycle - 1;
+        if x == 255
+            || (x < 8 && (!self.mask.show_left_bg || !self.mask.show_left_spr))
+            || !self.spr_present[x as usize]
+        {
+            return;
+        }
+
+        let shift = 15 - self.scroll.fine_x;
+        let bg_color =
+            (((self.tile_shift_hi >> shift) & 0x01) << 1) | ((self.tile_shift_lo >> shift) & 0x01);
+        if bg_color == 0 {
+            return;
+        }
+
+        let sprite = &self.sprites[0];
+        let shift = x.wrapping_sub(sprite.x);
+        if shift > 7 {
+            return;
+        }
+        let shift = if sprite.flip_horizontal {
+            shift
+        } else {
+            7 - shift
+        };
+        let spr_color =
+            (((sprite.tile_hi >> shift) & 0x01) << 1) | ((sprite.tile_lo >> shift) & 0x01);
+        if spr_color != 0 {
+            self.status.set_spr_zero_hit(true);
+        }
+    }
+
     fn render_pixel(&mut self) {
         let addr = self.scroll.addr();
         let color =
@@ -1036,8 +1073,12 @@ impl Ppu {
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        if visible_scanline && visible_cycle && !self.skip_rendering {
-            self.render_pixel();
+        if visible_scanline && visible_cycle {
+            if self.skip_rendering {
+                self.headless_sprite_zero_hit();
+            } else {
+                self.render_pixel();
+            }
         }
         // Update shift registers after rendering
         if bg_fetch_cycle {
@@ -1690,6 +1731,33 @@ mod tests {
         let status = ppu.read_status();
         assert_eq!(status >> 7, 1);
         assert_eq!(ppu.status.read() >> 7, 0);
+    }
+
+    #[test]
+    fn sprite_zero_hit_headless_visible_cycle() {
+        let mut ppu = Ppu::default();
+        ppu.write_mask(0x18);
+        ppu.skip_rendering = true;
+        ppu.scanline = 0;
+        ppu.cycle = 10;
+        ppu.scroll.fine_x = 0;
+
+        ppu.tile_shift_lo = 0x8000;
+        ppu.tile_shift_hi = 0x0000;
+
+        ppu.spr_zero_visible = true;
+        ppu.spr_present[9] = true;
+
+        ppu.sprites[0].x = 8;
+        ppu.sprites[0].tile_lo = 0b0000_0010;
+        ppu.sprites[0].tile_hi = 0x00;
+        ppu.sprites[0].flip_horizontal = true;
+        ppu.sprites[0].bg_priority = false;
+        ppu.status.set_spr_zero_hit(false);
+
+        ppu.tick();
+
+        assert!(ppu.status.spr_zero_hit);
     }
 
     #[test]
