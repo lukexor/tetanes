@@ -276,9 +276,6 @@ impl ApplicationHandler<NesEvent> for Nes {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         trace!("user event: {event:?}");
 
         match event {
@@ -328,9 +325,6 @@ impl ApplicationHandler<NesEvent> for Nes {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         debug!("resumed event");
 
         if let State::Running(state) = &mut self.state {
@@ -359,9 +353,6 @@ impl ApplicationHandler<NesEvent> for Nes {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         trace!("window event: {window_id:?} {event:?}");
 
         if let State::Running(state) = &mut self.state {
@@ -379,9 +370,6 @@ impl ApplicationHandler<NesEvent> for Nes {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         trace!("device event: {device_id:?} {event:?}");
 
         if let State::Running(state) = &mut self.state {
@@ -396,9 +384,6 @@ impl ApplicationHandler<NesEvent> for Nes {
             event_loop.exit();
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if let State::Running(state) = &mut self.state {
             state.about_to_wait(event_loop);
         }
@@ -408,9 +393,6 @@ impl ApplicationHandler<NesEvent> for Nes {
         if self.state.is_exiting() {
             return;
         }
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         debug!("suspended event");
 
@@ -425,9 +407,6 @@ impl ApplicationHandler<NesEvent> for Nes {
         }
 
         debug!("exiting");
-
-        #[cfg(feature = "profiling")]
-        puffin::set_scopes_on(false);
 
         if let State::Running(state) = &mut self.state {
             state.exiting(event_loop);
@@ -693,9 +672,6 @@ impl ApplicationHandler<NesEvent> for Running {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         self.gamepads.update_events();
         if let Some(window_id) = self.renderer.root_window_id() {
             let res = self.renderer.on_gamepad_update(&self.gamepads);
@@ -787,9 +763,6 @@ impl Running {
     }
 
     pub fn on_ui_event(&mut self, event: &UiEvent) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             UiEvent::Message((ty, msg)) => self.renderer.add_message(*ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err.clone())),
@@ -840,9 +813,6 @@ impl Running {
 
     /// Trigger a custom event.
     pub fn event(&mut self, event: impl Into<NesEvent>) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut event = event.into();
         trace!("Nes event: {event:?}");
 
@@ -866,9 +836,6 @@ impl Running {
     /// Handle gamepad event.
     pub fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
         use gilrs::EventType;
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         // Connect first because we may not have a name set yet
         if event.event == EventType::Connected {
@@ -965,9 +932,6 @@ impl Running {
         state: ElementState,
         repeat: bool,
     ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if let Some(action) = self.input_bindings.get(&input).copied() {
             trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
             let released = state == ElementState::Released;

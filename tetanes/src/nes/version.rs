@@ -171,9 +171,6 @@ impl Version {
             renderer::gui::MessageType,
         };
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let spawn_update = std::thread::Builder::new()
             .name("check_updates".into())
             .spawn({

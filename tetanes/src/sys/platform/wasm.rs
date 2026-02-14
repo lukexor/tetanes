@@ -308,9 +308,6 @@ pub mod renderer {
         state: &Rc<RefCell<State>>,
         gui: &Rc<RefCell<Gui>>,
     ) -> Response {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let (viewport_ui_cb, raw_input) = {
             let State {
                 viewports,

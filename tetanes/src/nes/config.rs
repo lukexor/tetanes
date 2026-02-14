@@ -198,10 +198,8 @@ impl InputConfig {
             None => {
                 let mut bindings = [None; 3];
                 bindings[binding] = Some(input);
-                self.action_bindings.push(ActionBindings {
-                    action,
-                    bindings: [Some(input), None, None],
-                });
+                self.action_bindings
+                    .push(ActionBindings { action, bindings });
             }
         }
         let keybinds = if let Action::Deck(DeckAction::Joypad((player, _))) = action {

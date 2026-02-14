@@ -182,9 +182,6 @@ impl Multi {
         debug!("emulation thread started");
         let mut state = State::new(tx, frame_tx, cfg); // Has to be created on the thread, since
         loop {
-            #[cfg(feature = "profiling")]
-            puffin::profile_scope!("emulation loop");
-
             while let Ok(event) = rx.try_recv() {
                 state.on_event(&event);
             }
@@ -376,9 +373,6 @@ impl State {
 
     /// Handle event.
     fn on_event(&mut self, event: &NesEvent) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             NesEvent::Ui(UiEvent::Terminate) => {
                 self.unload_rom();
@@ -392,9 +386,6 @@ impl State {
 
     /// Handle emulation event.
     fn on_emulation_event(&mut self, event: &EmulationEvent) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             EmulationEvent::AddDebugger(debugger) => {
                 self.control_deck.add_debugger(debugger.clone());
@@ -531,9 +522,6 @@ impl State {
 
     /// Handle config event.
     fn on_config_event(&mut self, event: &ConfigEvent) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
                 let prev_enabled = self.control_deck.channel_enabled(*channel);
@@ -619,9 +607,6 @@ impl State {
         if !self.show_frame_stats {
             return;
         }
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         self.frame_time_diag
             .push(self.last_frame_time.elapsed().as_secs_f32());
@@ -870,9 +855,6 @@ impl State {
     }
 
     fn park_duration(&self) -> Option<Duration> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
         let duration = if self.run_state.paused() || !self.control_deck.is_running() {
@@ -901,9 +883,6 @@ impl State {
     }
 
     fn try_clock_frame(&mut self) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let last_clock_duration = self.last_clock_time.elapsed();
         self.last_clock_time = Instant::now();
         self.clock_time_accumulator += last_clock_duration.as_secs_f32();

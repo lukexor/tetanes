@@ -24,9 +24,6 @@ use winit::{
 impl Renderer {
     /// Handle event.
     pub fn on_event(&mut self, event: &mut NesEvent, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         {
             let painter = self.painter.borrow();
             if let Some(render_state) = painter.render_state() {
@@ -113,9 +110,6 @@ impl Renderer {
 
     /// Handle window event.
     pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> Response {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let Some(viewport_id) = self.viewport_id_for_window(window_id) else {
             return Response::default();
         };
@@ -639,9 +633,6 @@ impl Renderer {
 
     /// Handle gamepad event updates.
     pub fn on_gamepad_update(&self, gamepads: &Gamepads) -> Response {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if self.gui.borrow().keybinds.wants_input() && gamepads.has_events() {
             Response {
                 consumed: true,

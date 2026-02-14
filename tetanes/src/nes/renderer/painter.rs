@@ -174,9 +174,6 @@ impl Painter {
         clipped_primitives: &[epaint::ClippedPrimitive],
         textures_delta: &epaint::textures::TexturesDelta,
     ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let Some(render_state) = &mut self.render_state else {
             return;
         };
@@ -226,6 +223,7 @@ impl Painter {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -234,6 +232,7 @@ impl Painter {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_state.render(&mut render_pass, clipped_primitives, &screen_descriptor);
@@ -249,6 +248,7 @@ impl Painter {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -257,6 +257,7 @@ impl Painter {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_scissor_rect(0, 0, size_in_pixels[0], size_in_pixels[1]);
@@ -481,7 +482,7 @@ impl RenderState {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gui pipeline layout"),
             bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let pipeline =
@@ -525,7 +526,7 @@ impl RenderState {
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             }
         );
@@ -663,14 +664,6 @@ impl RenderState {
                     "Mismatch between texture size and texel count"
                 );
                 Cow::Borrowed(&image.pixels)
-            }
-            epaint::ImageData::Font(image) => {
-                assert_eq!(
-                    width as usize * height as usize,
-                    image.pixels.len(),
-                    "Mismatch between texture size and texel count"
-                );
-                Cow::Owned(image.srgba_pixels(None).collect::<Vec<egui::Color32>>())
             }
         };
         let data_bytes: &[u8] = bytemuck::cast_slice(data_color32.as_slice());

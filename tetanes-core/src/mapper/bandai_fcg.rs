@@ -426,7 +426,11 @@ impl BarcodeReader {
     }
 
     pub fn barcode(&self) -> String {
-        todo!()
+        format!(
+            "{:0>width$}",
+            self.new_barcode,
+            width = self.new_barcode_digit_count as usize
+        )
     }
 
     pub fn init(&mut self) {
@@ -485,9 +489,9 @@ impl BarcodeReader {
         ];
 
         let barcode = self.barcode();
-        let mut code = Vec::new();
+        let mut codes = Vec::new();
         for ch in barcode.chars() {
-            code.push(ch.to_digit(10).expect("valid barcode character") as usize);
+            codes.push(ch.to_digit(10).expect("valid barcode character") as usize);
         }
 
         self.data.clear();
@@ -503,12 +507,12 @@ impl BarcodeReader {
         let mut sum = 0;
         if barcode.len() == 13 {
             for i in 0..6 {
-                let odd = PREFIX_PARITY_TYPE[code[0]][i] != 0;
+                let odd = PREFIX_PARITY_TYPE[codes[0]][i] != 0;
                 for j in 0..7 {
                     self.data.push(if odd {
-                        DATA_LEFT_ODD[code[i + 1]][j]
+                        DATA_LEFT_ODD[codes[i + 1]][j]
                     } else {
-                        DATA_LEFT_EVEN[code[i + 1]][j]
+                        DATA_LEFT_EVEN[codes[i + 1]][j]
                     });
                 }
             }
@@ -519,19 +523,19 @@ impl BarcodeReader {
             self.data.push(0);
             self.data.push(8);
 
-            for i in 7..12 {
-                for j in 0..7 {
-                    self.data.push(DATA_RIGHT[code[i]][j]);
+            for code in codes.iter().skip(7).take(5) {
+                for data in DATA_RIGHT[*code].iter().take(7) {
+                    self.data.push(*data);
                 }
             }
 
-            for (i, code) in code.iter().enumerate().take(12) {
+            for (i, code) in codes.iter().enumerate().take(12) {
                 sum += if (i & 1) == 1 { *code * 3 } else { *code };
             }
         } else {
-            for i in 0..4 {
-                for j in 0..7 {
-                    self.data.push(DATA_LEFT_ODD[code[i]][j]);
+            for code in codes.iter().take(4) {
+                for data in DATA_LEFT_ODD[*code].iter().take(7) {
+                    self.data.push(*data);
                 }
             }
 
@@ -541,21 +545,21 @@ impl BarcodeReader {
             self.data.push(0);
             self.data.push(8);
 
-            for i in 4..7 {
-                for j in 0..7 {
-                    self.data.push(DATA_RIGHT[code[i]][j]);
+            for code in codes.iter().skip(4).take(3) {
+                for data in DATA_RIGHT[*code].iter().take(7) {
+                    self.data.push(*data);
                 }
             }
 
-            for (i, code) in code.iter().enumerate().take(7) {
+            for (i, code) in codes.iter().enumerate().take(7) {
                 sum += if (i & 1) == 1 { *code } else { *code * 3 };
             }
         }
 
         sum = (10 - (sum % 10)) % 10;
 
-        for i in 0..7 {
-            self.data.push(DATA_RIGHT[sum][i]);
+        for data in DATA_RIGHT[sum].iter().take(7) {
+            self.data.push(*data);
         }
 
         self.data.push(0);
@@ -892,5 +896,68 @@ impl Sram for Eeprom {
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
         fs::load(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bandai_fcg_barcode_formatting() {
+        let mut reader = BarcodeReader::new();
+        reader.input(4902425679235, 13);
+        assert_eq!(reader.barcode(), "4902425679235");
+
+        // Test zero-padding for EAN-8
+        reader.input(1234567, 8);
+        assert_eq!(reader.barcode(), "01234567");
+    }
+
+    #[test]
+    fn bandai_fcg_ean13_checksum() {
+        // EAN-13: first 12 digits -> checksum is 13th
+        // 490242567923 -> check digit 5
+        let mut reader = BarcodeReader::new();
+        reader.input(4902425679235, 13);
+        reader.init();
+
+        // The checksum is encoded in the last 7 data bits before the end guard
+        // End guard is [0,8,0] + 32x8, so check digit encoding ends at len-35
+        let check_digit_pattern = &reader.data[reader.data.len() - 35 - 7..reader.data.len() - 35];
+
+        // DATA_RIGHT[5] = [0, 8, 8, 0, 0, 0, 8]
+        assert_eq!(check_digit_pattern, &[0, 8, 8, 0, 0, 0, 8]);
+    }
+
+    #[test]
+    fn bandai_fcg_ean13_structure() {
+        let mut reader = BarcodeReader::new();
+        reader.input(4902425679235, 13);
+        reader.init();
+
+        // EAN-13 total: 33 (quiet) + 3 (start) + 42 (left) + 5 (center) + 42 (right) + 3 (end) + 32 (quiet)
+        // = 33 + 3 + 42 + 5 + 42 + 3 + 32 = 160
+        assert_eq!(reader.data.len(), 160);
+
+        // Start guard at index 33
+        assert_eq!(&reader.data[33..36], &[0, 8, 0]);
+
+        // Center guard at index 33 + 3 + 42 = 78
+        assert_eq!(&reader.data[78..83], &[8, 0, 8, 0, 8]);
+
+        // End guard at index 83 + 35 = 125 (after 5 digits * 7 bits)
+        assert_eq!(&reader.data[125..128], &[0, 8, 0]);
+    }
+
+    #[test]
+    fn bandai_fcg_ean8_structure() {
+        let mut reader = BarcodeReader::new();
+        // Valid EAN-8: 12345670 (checksum 0)
+        reader.input(12345670, 8);
+        reader.init();
+
+        // EAN-8: 33 + 3 + 28 + 5 + 28 + 3 + 32 = 132
+        assert_eq!(reader.data.len(), 132);
     }
 }

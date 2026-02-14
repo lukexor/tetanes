@@ -1,6 +1,6 @@
 //! Memory and Bankswitching implementations.
 
-use rand::RngCore;
+use rand::Rng;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{SeqAccess, Visitor},

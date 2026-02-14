@@ -1037,7 +1037,7 @@ impl Cpu {
     pub fn rol(&mut self, val: u8) -> u8 {
         let carry = self.status_bit(Status::C);
         self.status.set(Status::C, (val & 0x80) > 0);
-        let res = val << 1 | carry;
+        let res = (val << 1) | carry;
         self.set_zn_status(res);
         res
     }
@@ -1062,7 +1062,7 @@ impl Cpu {
     fn ror(&mut self, val: u8) -> u8 {
         let carry = self.status_bit(Status::C);
         self.status.set(Status::C, (val & 1) > 0);
-        let res = val >> 1 | (carry << 7);
+        let res = (val >> 1) | (carry << 7);
         self.set_zn_status(res);
         res
     }

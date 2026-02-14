@@ -69,12 +69,11 @@ impl Audio {
         let host = cpal::default_host();
         let output = Output::create(&host, sample_rate, latency, buffer_size);
         if let Some(output) = &output {
-            let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
+            let desired_sample_rate = sample_rate as u32;
             if output.config.sample_rate != desired_sample_rate {
-                sample_rate = output.config.sample_rate.0 as f32;
+                sample_rate = output.config.sample_rate as f32;
                 debug!(
-                    "Unable to match desired sample_rate: {}. Using {sample_rate} instead",
-                    desired_sample_rate.0
+                    "Unable to match desired sample_rate: {desired_sample_rate}. Using {sample_rate} instead",
                 );
             }
         }
@@ -307,9 +306,9 @@ impl Output {
         debug!(
             "device name: {}",
             device
-                .name()
+                .description()
                 .as_ref()
-                .map(String::as_ref)
+                .map(|desc| desc.name())
                 .unwrap_or("unknown")
         );
         let (config, sample_format) = match Self::choose_config(&device, sample_rate, buffer_size) {
@@ -335,9 +334,9 @@ impl Output {
         buffer_size: usize,
     ) -> anyhow::Result<(cpal::StreamConfig, cpal::SampleFormat)> {
         let mut supported_configs = device.supported_output_configs()?;
-        let desired_sample_rate = cpal::SampleRate(sample_rate as u32);
+        let desired_sample_rate = sample_rate as u32;
         let desired_buffer_size = buffer_size as u32;
-        debug!("desired: sample rate: {desired_sample_rate:?}, buffer_size: {buffer_size}");
+        debug!("desired: sample rate: {desired_sample_rate}, buffer_size: {buffer_size}");
 
         let chosen_config = supported_configs
             .find(|config| {
@@ -445,7 +444,7 @@ impl Mixer {
         use cpal::SampleFormat;
 
         let channels = config.channels;
-        let sample_rate = config.sample_rate.0;
+        let sample_rate = config.sample_rate;
         let sample_latency =
             (latency.as_secs_f32() * sample_rate as f32 * channels as f32).ceil() as usize;
         let processed_samples = Vec::with_capacity(2 * sample_latency);
@@ -552,9 +551,6 @@ impl Mixer {
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
-                #[cfg(feature = "profiling")]
-                puffin::profile_scope!("audio callback");
-
                 if consumer.occupied_len() < out.len() {
                     trace!(
                         "audio underrun: {} < {}",
@@ -576,9 +572,6 @@ impl Mixer {
     }
 
     fn process(&mut self, samples: &[f32]) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if self.paused {
             return;
         }

@@ -64,11 +64,6 @@ The current minimum Rust version is `1.85.0`.
 To build the project, you'll need a nightly version of the compiler and run
 `cargo build` or `cargo build --release` (if you want better framerates).
 
-#### Feature Flags
-
-- **profiling** - Enables [puffin](https://github.com/EmbarkStudios/puffin)
-  profiling.
-
 ### Getting Started
 
 Below is a basic example of setting up `tetanes_core` with a ROM and running the

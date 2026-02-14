@@ -111,9 +111,6 @@ impl Keybinds {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
 
@@ -169,9 +166,6 @@ impl Keybinds {
 
 impl State {
     fn ui(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config, gamepad_state: &GamepadState) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         self.show_set_keybind_window(ui.ctx(), cfg, &gamepad_state.input_events);
         self.show_gamepad_unassign_window(ui.ctx());
 
@@ -202,9 +196,6 @@ impl State {
         cfg: &Config,
         connected_gamepads: Option<&[ConnectedGamepad]>,
     ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.set_min_height(ui.available_height());
 
         if let Some(player) = player {
@@ -341,9 +332,6 @@ impl State {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut set_keybind_open = self.pending_input.is_some();
         let res = egui::Window::new("🖮 Set Keybind")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
@@ -381,9 +369,6 @@ impl State {
         else {
             return;
         };
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         if let Some(action) = conflict {
             ui.label(format!("Conflict with {action}."));
@@ -472,9 +457,6 @@ impl State {
         if self.gamepad_unassign_confirm.is_none() {
             return;
         }
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         let mut gamepad_unassign_open = self.gamepad_unassign_confirm.is_some();
         let res = egui::Window::new("🎮 Unassign Gamepad")

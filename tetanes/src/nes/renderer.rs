@@ -23,7 +23,12 @@ use egui::{
     ViewportOutput, WindowLevel, ahash::HashMap,
 };
 use parking_lot::Mutex;
-use std::{cell::RefCell, collections::hash_map::Entry, rc::Rc, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, hash_map::Entry},
+    rc::Rc,
+    sync::Arc,
+};
 use tetanes_core::{
     fs,
     ppu::Ppu,
@@ -243,8 +248,13 @@ impl Renderer {
         // Must be done before the window is shown for the first time, which is true here, because
         // first_frame is set to true below
         #[cfg(not(target_arch = "wasm32"))]
-        let accesskit =
-            { accesskit_winit::Adapter::with_event_loop_proxy(&window, tx.inner().clone()) };
+        let accesskit = {
+            accesskit_winit::Adapter::with_event_loop_proxy(
+                _event_loop,
+                &window,
+                tx.inner().clone(),
+            )
+        };
 
         let state = State {
             viewports,
@@ -391,9 +401,6 @@ impl Renderer {
     }
 
     fn initialize_all_windows(&mut self, event_loop: &ActiveEventLoop) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if self.ctx.embed_viewports() {
             return;
         }
@@ -734,9 +741,6 @@ impl Renderer {
         mut builder: ViewportBuilder,
         viewport_ui_cb: Option<Arc<DeferredViewportUiCallback>>,
     ) -> &'a mut Viewport {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if builder.icon.is_none() {
             builder.icon = viewports
                 .get_mut(&ids.parent)
@@ -808,11 +812,8 @@ impl Renderer {
     fn handle_viewport_output(
         ctx: &egui::Context,
         viewports: &mut ViewportIdMap<Viewport>,
-        outputs: ViewportIdMap<ViewportOutput>,
+        outputs: BTreeMap<ViewportId, ViewportOutput>,
     ) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         for (id, output) in outputs {
             let ids = ViewportIdPair::from_self_and_parent(id, output.parent);
             let viewport = Self::create_or_update_viewport(
@@ -1040,9 +1041,6 @@ impl Renderer {
         gamepads: &mut Gamepads,
         cfg: &mut Config,
     ) -> anyhow::Result<()> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if self.first_frame {
             self.initialize()?;
             self.resize_window(cfg);
@@ -1056,9 +1054,6 @@ impl Renderer {
         let Some(viewport_id) = self.viewport_id_for_window(window_id) else {
             return Ok(());
         };
-
-        #[cfg(feature = "profiling")]
-        puffin::GlobalProfiler::lock().new_frame();
 
         self.handle_resize(viewport_id, cfg);
 
@@ -1226,9 +1221,6 @@ impl Renderer {
     }
 
     fn handle_resize(&mut self, viewport_id: ViewportId, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if viewport_id == ViewportId::ROOT && self.resize_texture {
             tracing::debug!("resizing window and texture");
 
@@ -1287,9 +1279,6 @@ impl Viewport {
         if self.window.is_some() {
             return;
         }
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         let viewport_id = self.ids.this;
 

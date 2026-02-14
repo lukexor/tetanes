@@ -28,12 +28,7 @@ workspace = true
 
 [features]
 default = []
-profiling = [
-  "tetanes-core/profiling",
-  "profiling/profile-with-puffin",
-  "dep:puffin",
-  "dep:puffin_egui",
-]
+profiling = ["tetanes-core/profiling"]
 # Until webgpu is stable on all platforms
 webgpu = []
 
@@ -46,17 +41,17 @@ chrono = { version = "0.4", default-features = false, features = [
   "std",
   "clock",
 ] }
-cpal = "0.16"
+cpal = "0.17"
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.31", default-features = false, features = [
+egui = { version = "0.33", default-features = false, features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.31", default-features = false, features = [
+egui_extras = { version = "0.33", default-features = false, features = [
   "image",
   "serde",
 ] }
@@ -64,12 +59,11 @@ gilrs = { version = "0.11", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
 parking_lot = "0.12"
-profiling = { version = "1.0.16", default-features = false }
-puffin = { workspace = true, optional = true, features = ["web"] }
-puffin_egui = { version = "0.29", optional = true }
+profiling = { version = "1.0", default-features = false }
 ringbuf = "0.4"
 serde.workspace = true
 serde_json.workspace = true
+sysinfo = "0.38"
 tetanes-core.workspace = true
 thingbuf = "0.1"
 thiserror.workspace = true
@@ -77,29 +71,29 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid = { version = "1.16", features = ["v4", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = "25.0"
+wgpu = "28.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Blocked upgrading until egui upgrades accesskit
-accesskit = "0.17"
+accesskit = "0.21"
 # Blocked upgrading until accesskit can be upgraded
-accesskit_winit = "0.23"
+accesskit_winit = "0.29"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
   "windows-sys",
 ] }
 clap.workspace = true
-ctrlc = { version = "3.4", features = ["termination"] }
-egui = { version = "0.31", default-features = false, features = ["accesskit"] }
+ctrlc = { version = "3.5", features = ["termination"] }
+egui = { version = "0.33", default-features = false, features = ["accesskit"] }
 pollster = "0.4"
-reqwest = { version = "0.12", default-features = false, features = [
-  "rustls-tls",
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
   "blocking",
 ] }
-rfd = "0.15"
+rfd = "0.17"
 semver = "1"
-sysinfo = { version = "0.35", default-features = false, features = [
+sysinfo = { version = "0.38", default-features = false, features = [
   "system",
   "disk",
   "network",
@@ -114,12 +108,12 @@ chrono = { version = "0.4", default-features = false, features = [
   "wasmbind",
 ] }
 console_error_panic_hook = "0.1"
-cpal = { version = "0.16", features = ["wasm-bindgen"] }
+cpal = { version = "0.17", features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 tracing-web = "0.1"
 uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
-wgpu = { version = "25.0", features = [
+wgpu = { version = "28.0", features = [
   "webgl",
   "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
 ] }
@@ -145,7 +139,7 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-zip = { version = "4.0", default-features = false, features = ["deflate"] }
+zip = { version = "7.4", default-features = false, features = ["deflate"] }
 
 [package.metadata.deb]
 extended-description = """

@@ -661,9 +661,6 @@ impl ControlDeck {
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame(&mut self) -> Result<u64> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         // Frames that aren't multiples of the default render 1 more/less frames
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
@@ -741,9 +738,6 @@ impl ControlDeck {
         run_ahead: usize,
         handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
     ) -> Result<T> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if run_ahead == 0 {
             return self.clock_frame_output(handle_output);
         }
@@ -787,9 +781,6 @@ impl ControlDeck {
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
     ) -> Result<u64> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if run_ahead == 0 {
             return self.clock_frame_into(frame_buffer, audio_samples);
         }
@@ -826,9 +817,6 @@ impl ControlDeck {
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<u64> {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut total_cycles = 0;
         let current_scanline = self.cpu.bus.ppu.scanline;
         while current_scanline == self.cpu.bus.ppu.scanline {

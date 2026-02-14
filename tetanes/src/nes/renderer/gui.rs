@@ -32,7 +32,7 @@ use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
     FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
     Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
-    include_image, menu,
+    include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
 use serde::{Deserialize, Serialize};
@@ -171,9 +171,6 @@ impl Gui {
     }
 
     pub fn on_window_event(&mut self, event: &WindowEvent) -> Response {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
                 if self.keybinds.wants_input() =>
@@ -188,9 +185,6 @@ impl Gui {
     }
 
     pub fn on_event(&mut self, queue: &wgpu::Queue, event: &mut NesEvent) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match event {
             NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
                 self.version.set_latest(version.clone());
@@ -291,9 +285,6 @@ impl Gui {
 
     /// Create the UI.
     pub fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if !self.initialized {
             self.initialize(ctx, cfg);
         }
@@ -355,18 +346,9 @@ impl Gui {
                 },
             );
         }
-
-        #[cfg(feature = "profiling")]
-        if viewport_opts.enabled {
-            puffin::profile_scope!("puffin");
-            puffin_egui::show_viewport_if_enabled(ctx);
-        }
     }
 
     fn initialize(&mut self, ctx: &Context, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let theme = if cfg.renderer.dark_theme {
             Self::dark_theme()
         } else {
@@ -421,9 +403,6 @@ impl Gui {
     }
 
     fn show_about_window(&mut self, ctx: &Context, enabled: bool) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut about_open = self.about_open;
         egui::Window::new("ℹ About TetaNES")
             .open(&mut about_open)
@@ -435,9 +414,6 @@ impl Gui {
         let Some(rom) = self.about_homebrew_rom_open else {
             return;
         };
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         let mut about_homebrew_open = true;
         egui::Window::new(format!("ℹ About {}", rom.name))
@@ -475,9 +451,6 @@ impl Gui {
     }
 
     fn show_performance_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut perf_stats_open = self.perf_stats_open;
         egui::Window::new("🛠 Performance Stats")
             .open(&mut perf_stats_open)
@@ -506,9 +479,6 @@ impl Gui {
         if !open.load(Ordering::Acquire) {
             return;
         }
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         let title = title.into();
         let viewport_id = egui::ViewportId::from_hash_of(&title);
@@ -540,9 +510,6 @@ impl Gui {
     }
 
     fn show_update_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let mut update_window_open = self.update_window_open && cfg.renderer.show_updates;
         let mut close_window = false;
         egui::Window::new("🌐 Update Available")
@@ -617,11 +584,8 @@ impl Gui {
     }
 
     fn menubar(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.add_enabled_ui(!self.keybinds.wants_input(), |ui| {
-            let inner_res = menu::bar(ui, |ui| {
+            let inner_res = egui::MenuBar::new().ui(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     Self::toggle_dark_mode_button(&self.tx, ui);
                     ui.separator();
@@ -674,9 +638,6 @@ impl Gui {
     }
 
     fn file_menu(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let button = Button::new("📂 Load ROM...").shortcut_text(cfg.shortcut(UiAction::LoadRom));
         if ui.add(button).clicked() {
             if self.loaded_rom.is_some() {
@@ -687,7 +648,6 @@ impl Gui {
             // loading requires a round-trip in order for the above pause to
             // get processed.
             self.tx.event(UiEvent::LoadRomDialog);
-            ui.close_menu();
         }
 
         ui.menu_button("🍺 Homebrew ROM...", |ui| self.homebrew_rom_menu(ui));
@@ -700,7 +660,6 @@ impl Gui {
             let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 tx.event(EmulationEvent::UnloadRom);
-                ui.close_menu();
             }
 
             let button =
@@ -716,7 +675,6 @@ impl Gui {
                 // loading requires a round-trip in order for the above pause to
                 // get processed.
                 tx.event(UiEvent::LoadReplayDialog);
-                ui.close_menu();
             }
         });
 
@@ -752,7 +710,6 @@ impl Gui {
                                         tx.event(EmulationEvent::LoadRomPath(path.to_path_buf()))
                                     }
                                 }
-                                ui.close_menu();
                             }
                         }
                     }
@@ -803,22 +760,17 @@ impl Gui {
             let button = Button::new("⎆ Quit").shortcut_text(cfg.shortcut(UiAction::Quit));
             if ui.add(button).clicked() {
                 tx.event(UiEvent::Terminate);
-                ui.close_menu();
             };
         }
     }
 
     fn homebrew_rom_menu(&mut self, ui: &mut Ui) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ScrollArea::vertical().show(ui, |ui| {
             for rom in HOMEBREW_ROMS {
                 ui.horizontal(|ui| {
                     if ui.button(rom.name).clicked() {
                         self.tx
                             .event(EmulationEvent::LoadRom((rom.name.to_string(), rom.data())));
-                        ui.close_menu();
                     }
                     let res = ui.button("ℹ").on_hover_ui(|ui| {
                         ui.set_max_width(400.0);
@@ -826,7 +778,6 @@ impl Gui {
                     });
                     if res.clicked() {
                         self.about_homebrew_rom_open = Some(rom);
-                        ui.close_menu();
                     }
                 });
             }
@@ -834,9 +785,6 @@ impl Gui {
     }
 
     fn controls_menu(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let tx = &self.tx;
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
@@ -853,7 +801,6 @@ impl Gui {
                     RunState::ManuallyPaused | RunState::AutoPaused => RunState::Running,
                 };
                 tx.event(EmulationEvent::RunState(self.run_state));
-                ui.close_menu();
             };
         });
 
@@ -884,7 +831,6 @@ impl Gui {
                     .on_disabled_hover_text(disabled_hover_text);
                 if res.clicked() {
                     tx.event(EmulationEvent::InstantRewind);
-                    ui.close_menu();
                 };
             });
 
@@ -896,7 +842,6 @@ impl Gui {
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 tx.event(EmulationEvent::Reset(ResetKind::Soft));
-                ui.close_menu();
             };
 
             let button = Button::new("🔌 Power Cycle")
@@ -907,7 +852,6 @@ impl Gui {
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 tx.event(EmulationEvent::Reset(ResetKind::Hard));
-                ui.close_menu();
             };
         });
 
@@ -920,7 +864,6 @@ impl Gui {
                 let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::Screenshot);
-                    ui.close_menu();
                 };
 
                 let button_txt = if self.replay_recording {
@@ -936,7 +879,6 @@ impl Gui {
                     .on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::ReplayRecord(!self.replay_recording));
-                    ui.close_menu();
                 };
 
                 let button_txt = if self.audio_recording {
@@ -952,16 +894,12 @@ impl Gui {
                     .on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::AudioRecord(!self.audio_recording));
-                    ui.close_menu();
                 };
             });
         }
     }
 
     fn config_menu(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let tx = &self.tx;
 
         Preferences::zapper_checkbox(
@@ -1040,7 +978,6 @@ impl Gui {
             .shortcut_text(cfg.shortcut(Menu::Preferences));
         if ui.add(toggle).clicked() {
             self.preferences.set_open(preferences_open, &self.ctx);
-            ui.close_menu();
         }
 
         let mut keybinds_open = self.keybinds.open();
@@ -1049,15 +986,11 @@ impl Gui {
             .shortcut_text(cfg.shortcut(Menu::Keybinds));
         if ui.add(toggle).clicked() {
             self.keybinds.set_open(keybinds_open, &self.ctx);
-            ui.close_menu();
         };
     }
 
     fn window_menu(&mut self, ui: &mut Ui, cfg: &Config) {
         use Setting::*;
-
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
 
         let tx = &self.tx;
         let RendererConfig {
@@ -1106,18 +1039,7 @@ impl Gui {
     }
 
     fn debug_menu(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let tx = &self.tx;
-
-        #[cfg(feature = "profiling")]
-        {
-            let mut profile = puffin::are_scopes_on();
-            ui.toggle_value(&mut profile, "Profiler")
-                .on_hover_text("Toggle the Puffin profiling window");
-            puffin::set_scopes_on(profile);
-        }
 
         let mut perf_stats_open = self.perf_stats_open;
         let toggle = ToggleValue::new(&mut perf_stats_open, "🛠 Performance Stats")
@@ -1128,7 +1050,6 @@ impl Gui {
         if res.clicked() {
             self.perf_stats_open = perf_stats_open;
             tx.event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
-            ui.close_menu();
         }
 
         let mut gui_settings_open = self.gui_settings_open.load(Ordering::Acquire);
@@ -1137,7 +1058,6 @@ impl Gui {
         if res.clicked() {
             self.gui_settings_open
                 .store(gui_settings_open, Ordering::Release);
-            ui.close_menu();
         }
 
         #[cfg(debug_assertions)]
@@ -1150,7 +1070,6 @@ impl Gui {
             if res.clicked() {
                 self.gui_inspection_open
                     .store(gui_inspection_open, Ordering::Release);
-                ui.close_menu();
             }
 
             let mut gui_memory_open = self.gui_memory_open.load(Ordering::Acquire);
@@ -1159,13 +1078,9 @@ impl Gui {
             if res.clicked() {
                 self.gui_memory_open
                     .store(gui_memory_open, Ordering::Release);
-                ui.close_menu();
             }
 
-            let res = ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
-            if res.clicked() {
-                ui.close_menu();
-            }
+            ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
 
             #[cfg(target_arch = "wasm32")]
             if ui.button("❗Test panic!").clicked() {
@@ -1179,13 +1094,9 @@ impl Gui {
             let debugger_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Cpu));
             let toggle = ToggleValue::new(&mut self.debugger_open, "🚧 Debugger")
                 .shortcut_text(debugger_shortcut);
-            let res = ui
-                .add(toggle)
+            ui.add(toggle)
                 .on_hover_text("Toggle the Debugger.")
                 .on_disabled_hover_text("Not yet implemented.");
-            if res.clicked() {
-                ui.close_menu();
-            }
         });
 
         let ppu_viewer_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Ppu));
@@ -1195,20 +1106,15 @@ impl Gui {
         let res = ui.add(toggle).on_hover_text("Toggle the PPU Viewer.");
         if res.clicked() {
             self.ppu_viewer.set_open(open, &self.ctx);
-            ui.close_menu();
         }
 
         ui.add_enabled_ui(false, |ui| {
             let apu_mixer_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Apu));
             let toggle = ToggleValue::new(&mut self.apu_mixer_open, "🎼 APU Mixer")
                 .shortcut_text(apu_mixer_shortcut);
-            let res = ui
-                .add(toggle)
+            ui.add(toggle)
                 .on_hover_text("Toggle the APU Mixer.")
                 .on_disabled_hover_text("Not yet implemented.");
-            if res.clicked() {
-                ui.close_menu();
-            }
         });
 
         ui.separator();
@@ -1267,9 +1173,6 @@ impl Gui {
     }
 
     fn nes_frame(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config, gamepads: &Gamepads) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.add_enabled_ui(enabled, |ui| {
             let tx = &self.tx;
 
@@ -1426,9 +1329,6 @@ impl Gui {
     }
 
     fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
         grid.show(ui, |ui| {
             ui.ctx().request_repaint_after(Duration::from_secs(1));
@@ -1585,21 +1485,14 @@ impl Gui {
     }
 
     fn help_menu(&mut self, ui: &mut Ui) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         if self.version.requires_updates() && ui.button("🌐 Check for Updates...").clicked() {
             let notify_latest = true;
             self.version.check_for_updates(&self.tx, notify_latest);
-            ui.close_menu();
         }
         ui.toggle_value(&mut self.about_open, "ℹ About");
     }
 
     fn about(&mut self, ui: &mut Ui, enabled: bool) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.add_enabled_ui(enabled, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                 let image = Image::new(include_image!("../../../assets/tetanes_icon.png"))

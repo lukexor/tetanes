@@ -49,8 +49,5 @@ fn main() -> anyhow::Result<()> {
         eprintln!("failed to initialize logging: {err:?}");
     }
 
-    #[cfg(feature = "profiling")]
-    puffin::set_scopes_on(true);
-
     Nes::run(load_config()?)
 }

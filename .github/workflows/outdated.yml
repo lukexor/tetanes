@@ -28,4 +28,13 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/install@cargo-outdated
-      - run: cargo outdated -e --exit-code 1
+      - run: |
+          # gilrs and sysinfo currently conflict over objc2-core-foundation
+          # accesskit is blocked by egui upgrading it
+          # criterion is blocked by pprof upgrading it
+          cargo outdated -e -d 1 --exit-code 1 \
+            --ignore gilrs \
+            --ignore sysinfo \
+            --ignore accesskit \
+            --ignore accesskit_winit \
+            --ignore criterion

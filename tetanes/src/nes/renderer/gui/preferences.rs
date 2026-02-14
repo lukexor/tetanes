@@ -99,9 +99,6 @@ impl Preferences {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
 
@@ -513,9 +510,6 @@ impl Preferences {
 
 impl State {
     fn ui(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.add_enabled_ui(enabled, |ui| {
             ui.set_min_height(ui.available_height());
 
@@ -564,9 +558,6 @@ impl State {
     }
 
     fn emulation_tab(&mut self, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let EmulationConfig {
             mut auto_save,
             auto_save_interval,
@@ -763,9 +754,6 @@ impl State {
     }
 
     fn audio_tab(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let AudioConfig {
             latency,
             mut buffer_size,
@@ -860,9 +848,6 @@ impl State {
     }
 
     fn video_tab(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let RendererConfig {
             always_on_top,
             fullscreen,
@@ -925,9 +910,6 @@ impl State {
     }
 
     fn input_tab(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let DeckConfig {
             mut concurrent_dpad,
             zapper,

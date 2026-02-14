@@ -115,9 +115,6 @@ impl Video {
 
     /// Applies the given filter to the given video buffer and returns the result.
     pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match self.filter {
             VideoFilter::Pixellate => Self::decode_buffer(buffer, &mut self.frame),
             VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, &mut self.frame),
@@ -128,9 +125,6 @@ impl Video {
 
     /// Applies the given filter to the given video buffer by coping into the provided buffer.
     pub fn apply_filter_into(&self, buffer: &[u16], frame_number: u32, output: &mut [u8]) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         match self.filter {
             VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
             VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),

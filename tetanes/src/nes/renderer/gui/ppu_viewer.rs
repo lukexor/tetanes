@@ -9,7 +9,7 @@ use crate::nes::{
 use egui::{
     CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Pos2, Rect,
     ScrollArea, Sense, SidePanel, Slider, StrokeKind, TopBottomPanel, Ui, Vec2, ViewportClass,
-    ViewportId, show_tooltip_at_pointer,
+    ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
@@ -340,9 +340,6 @@ impl PpuViewer {
             return;
         }
 
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         let open = Arc::clone(&self.open);
         let state = Arc::clone(&self.state);
 
@@ -386,9 +383,6 @@ impl State {
     }
 
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
         ui.add_enabled_ui(enabled, |ui| {
             TopBottomPanel::top("ppu_viewer_menubar").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -631,7 +625,7 @@ impl State {
             3.0,
         );
 
-        show_tooltip_at_pointer(ui.ctx(), res.layer_id, res.id, |ui| {
+        res.clone().on_hover_ui_at_pointer(|ui| {
             self.nametable_tile(ui, "nametable_tile_hover", Some(offset));
         });
         if res.clicked() {
@@ -945,7 +939,7 @@ impl State {
             3.0,
         );
 
-        show_tooltip_at_pointer(ui.ctx(), res.layer_id, res.id, |ui| {
+        res.clone().on_hover_ui_at_pointer(|ui| {
             self.pattern_tables_tile(ui, "pattern_tables_tile_hover", Some(offset));
         });
         if res.clicked() {
@@ -1133,7 +1127,7 @@ impl State {
         let sprite_index = (offset.x / 8.0) as usize + (offset.y / 8.0) as usize * 8;
         let sprite = self.oam.sprites.get(sprite_index);
         if sprite.is_some() {
-            show_tooltip_at_pointer(ui.ctx(), res.layer_id, res.id, |ui| {
+            res.clone().on_hover_ui_at_pointer(|ui| {
                 self.oam_tile(ui, "oam_hover", Some(offset));
             });
             if res.clicked() {
@@ -1169,7 +1163,7 @@ impl State {
         if let Some(index) = sprite_index {
             let offset = Vec2::new((index % 8) as f32, (index / 8) as f32) * 8.0;
 
-            show_tooltip_at_pointer(ui.ctx(), res.layer_id, res.id, |ui| {
+            res.clone().on_hover_ui_at_pointer(|ui| {
                 self.oam_tile(ui, "oam_hover", Some(offset));
             });
             if res.clicked() {
@@ -1282,7 +1276,7 @@ impl State {
             3.0,
         );
 
-        show_tooltip_at_pointer(ui.ctx(), res.layer_id, res.id, |ui| {
+        res.clone().on_hover_ui_at_pointer(|ui| {
             self.palette(ui, "palette_hover", Some(offset));
         });
         if res.clicked() {

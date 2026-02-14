@@ -483,13 +483,13 @@ impl Cpu {
 
     // Interrupt flag functions
 
-    /// Clear [`InterruptFlags`] flags for the given bits.
+    /// Clear [`IrqFlags`] flags for the given bits.
     #[inline(always)]
     fn clear_irq_flags(&mut self, flags: IrqFlags) {
         self.irq_flags &= !flags;
     }
 
-    /// Returns `true` if the [`InterruptFlags`] register is set.
+    /// Returns `true` if the [`IrqFlags`] register is set.
     #[inline(always)]
     fn irq_flags(&self, flags: IrqFlags) -> bool {
         (self.irq_flags & flags).bits() == flags.bits()

@@ -95,7 +95,7 @@ impl Resources {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -115,7 +115,7 @@ impl Resources {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shader pipeline layout"),
             bind_group_layouts: &[uniform_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -140,7 +140,7 @@ impl Resources {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
