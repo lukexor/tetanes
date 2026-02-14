@@ -9,6 +9,7 @@ on:
 permissions:
   pull-requests: write
   contents: write
+  id-token: write
 
 env:
   # Unnecessary for CI and just pollutes cache
@@ -23,6 +24,7 @@ jobs:
   release-pr:
     name: Release PR
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'lukexor' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -39,4 +41,3 @@ jobs:
         env:
           # Required to trigger post-release workflows
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
