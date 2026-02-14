@@ -7,6 +7,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/lukexor/tetanes/compare/0.12.2..0.13.0) - 2026-02-14
+
+### 🐛 Bug Fixes
+
+
+- Change cycle to u32 to improve 32-bit platforms like wasm - ([86f597c](https://github.com/lukexor/tetanes/commit/86f597c3c1422040e8f98ac4dfb29f3a2ffdc81f))
+- Add hours and minutes to run time - ([4b5f6e6](https://github.com/lukexor/tetanes/commit/4b5f6e6fcec20e053e2ca736e1e4eec09d35803f))
+- Fixed closing secondary windows - ([81b0e81](https://github.com/lukexor/tetanes/commit/81b0e81bae07d6dd6b459fbbb79550aa45c1e7b1))
+- Fixed linux link spelling and small html loader issue - ([637385d](https://github.com/lukexor/tetanes/commit/637385d7ccbb157204bd3d90a311abc8d438a60e))
+
+### ⚡ Performance
+
+
+- Cpu opcode refactor - ([8916097](https://github.com/lukexor/tetanes/commit/8916097c39ee18828d9fd7bf70185a19eaf8e098))
+
+### 🎨 Styling
+
+
+- Fix nightly lints - ([40cd6e4](https://github.com/lukexor/tetanes/commit/40cd6e4520a1915f4b18537e14b160d11c4eda36))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Updated deps - ([ccb7463](https://github.com/lukexor/tetanes/commit/ccb7463c98be1e35fe7e6a47c2df9d76796ee349))
+- Update deps - ([782dc21](https://github.com/lukexor/tetanes/commit/782dc213f25f34cc47af0c2f71cdf9bfd44ae28b))
+- Try to shore up CD builds/uploads - ([96d3193](https://github.com/lukexor/tetanes/commit/96d3193aebefded818cff7bf6bd00bade1341a7f))
+
+
 ## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-04-05
 
 ### ⛰️  Features
