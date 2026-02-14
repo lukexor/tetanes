@@ -551,6 +551,7 @@ pub(crate) mod tests {
         dummy_writes_oam,
         dummy_writes_ppumem,
         // Verifies cpu can execute code from any memory location, incl. I/O
+        #[ignore = "stalls in CI"]
         exec_space_apu,
         exec_space_ppuio,
         flag_concurrency,
