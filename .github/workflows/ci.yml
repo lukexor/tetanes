@@ -29,7 +29,7 @@ jobs:
     name: Check format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
@@ -45,7 +45,7 @@ jobs:
     name: Lint Web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
@@ -65,7 +65,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
@@ -89,7 +89,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
         toolchain: [nightly, stable, 1.85]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
@@ -103,31 +103,32 @@ jobs:
         run: |
           cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --keep-going -- -D warnings
 
-  test-tetanes:
-    name: Test TetaNES
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-      - uses: Swatinem/rust-cache@v2
-      - run: |
-          sudo apt update
-          sudo apt install -y libudev-dev libasound2-dev
-      - run: |
-          cargo nextest run --locked -p tetanes --all-features --no-fail-fast --no-tests warn
+  # No tests currently
+  # test-tetanes:
+  #   name: Test TetaNES
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #       with:
+  #         fetch-depth: 0
+  #     - uses: dtolnay/rust-toolchain@master
+  #       with:
+  #         toolchain: nightly
+  #     - uses: taiki-e/install-action@v2
+  #       with:
+  #         tool: cargo-nextest
+  #     - uses: Swatinem/rust-cache@v2
+  #     - run: |
+  #         sudo apt update
+  #         sudo apt install -y libudev-dev libasound2-dev
+  #     - run: |
+  #         cargo nextest run --locked -p tetanes --all-features --profile ci
 
   test-tetanes-core:
     name: Test TetaNES Core
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
@@ -138,13 +139,13 @@ jobs:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
       - run: |
-          cargo nextest run --locked -p tetanes-core --all-features --no-fail-fast
+          cargo nextest run --locked -p tetanes-core --all-features --profile ci
 
   docs-web:
     name: Docs Web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -163,7 +164,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
