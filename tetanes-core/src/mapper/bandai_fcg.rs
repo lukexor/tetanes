@@ -343,7 +343,7 @@ impl MapWrite for BandaiFCG {
 }
 
 impl Clock for BandaiFCG {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         if let Some(barcode_reader) = &mut self.barcode_reader {
             barcode_reader.clock();
         }
@@ -355,9 +355,6 @@ impl Clock for BandaiFCG {
                 Cpu::set_irq(Irq::MAPPER);
             }
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
-            1
-        } else {
-            0
         }
     }
 }
@@ -573,9 +570,8 @@ impl BarcodeReader {
 }
 
 impl Clock for BarcodeReader {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         self.master_clock += 1;
-        1
     }
 }
 

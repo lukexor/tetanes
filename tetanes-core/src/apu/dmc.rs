@@ -42,10 +42,10 @@ impl Default for Dmc {
 }
 
 impl Dmc {
-    const PERIOD_TABLE_NTSC: [u64; 16] = [
+    const PERIOD_TABLE_NTSC: [u16; 16] = [
         428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
     ];
-    const PERIOD_TABLE_PAL: [u64; 16] = [
+    const PERIOD_TABLE_PAL: [u16; 16] = [
         398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50,
     ];
 
@@ -81,12 +81,11 @@ impl Dmc {
     }
 
     #[must_use]
-    pub fn irq_pending_in(&self, cycles_to_run: u64) -> bool {
+    pub fn irq_pending_in(&self, cycles_to_run: u32) -> bool {
         if self.irq_enabled && self.bytes_remaining > 0 {
-            let cycles_to_empty = (u64::from(self.bits_remaining)
-                + u64::from(self.bytes_remaining - 1) * 8)
+            let cycles_to_empty = (u16::from(self.bits_remaining) + (self.bytes_remaining - 1) * 8)
                 * self.timer.period;
-            cycles_to_run >= cycles_to_empty
+            cycles_to_run >= u32::from(cycles_to_empty)
         } else {
             false
         }
@@ -129,7 +128,7 @@ impl Dmc {
         }
     }
 
-    const fn period(region: NesRegion, val: u8) -> u64 {
+    const fn period(region: NesRegion, val: u8) -> u16 {
         let index = (val & 0x0F) as usize;
         match region {
             NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy => {
@@ -165,7 +164,7 @@ impl Dmc {
     }
 
     /// $4015 WRITE
-    pub fn set_enabled(&mut self, enabled: bool, cycle: u64) {
+    pub fn set_enabled(&mut self, enabled: bool, cycle: u32) {
         if !enabled {
             self.bytes_remaining = 0;
             self.should_clock = false;
@@ -199,7 +198,7 @@ impl Sample for Dmc {
 }
 
 impl TimerCycle for Dmc {
-    fn cycle(&self) -> u64 {
+    fn cycle(&self) -> u32 {
         self.timer.cycle
     }
 }
@@ -209,8 +208,8 @@ impl Clock for Dmc {
     //                            |
     //                            v
     // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
-    fn clock(&mut self) -> u64 {
-        if self.timer.clock() > 0 {
+    fn clock(&mut self) {
+        if self.timer.tick() {
             if !self.silence {
                 // Update output level but clamp to 0..=127 range
                 if self.shift & 0x01 == 0x01 {
@@ -240,9 +239,6 @@ impl Clock for Dmc {
                     }
                 }
             }
-            1
-        } else {
-            0
         }
     }
 }

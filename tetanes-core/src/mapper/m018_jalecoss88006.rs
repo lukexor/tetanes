@@ -217,7 +217,7 @@ impl Reset for JalecoSs88006 {
 }
 
 impl Clock for JalecoSs88006 {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         if self.regs.irq_enabled {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
             let counter = self.irq_counter & irq_mask;
@@ -226,9 +226,6 @@ impl Clock for JalecoSs88006 {
             }
             self.irq_counter =
                 (self.irq_counter & !irq_mask) | (counter.wrapping_sub(1) & irq_mask);
-            1
-        } else {
-            0
         }
     }
 }

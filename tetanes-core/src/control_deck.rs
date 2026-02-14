@@ -217,10 +217,10 @@ pub struct ControlDeck {
     auto_detect_region: bool,
     /// Remaining CPU cycles to execute used to clock a given number of seconds.
     cycles_remaining: f32,
-    /// Emulated frame speed ranging from 0.25 to 2.0.
-    frame_speed: f32,
+    /// Emulated frame speed step ranging from 1 (0.25 speed) to 8 (2.0).
+    frame_speed_step: u16,
     /// Accumulated frame speed to account for slower 1x speeds.
-    frame_accumulator: f32,
+    frame_accumulator: u16,
     /// NES CPU.
     cpu: Cpu,
 }
@@ -270,8 +270,8 @@ impl ControlDeck {
             mapper_revisions: cfg.mapper_revisions,
             auto_detect_region: cfg.region.is_auto(),
             cycles_remaining: 0.0,
-            frame_speed: 1.0,
-            frame_accumulator: 0.0,
+            frame_speed_step: 4,
+            frame_accumulator: 0,
             cpu,
         }
     }
@@ -627,32 +627,61 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_instr(&mut self) -> Result<u64> {
+    pub fn clock_instr(&mut self) -> Result<()> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
-        let cycles = self.clock();
+        self.clock();
         if self.cpu_corrupted() {
             self.running = false;
             return Err(Error::CpuCorrupted);
         }
-        Ok(cycles)
+        Ok(())
     }
 
-    /// Steps the control deck the number of seconds.
+    /// Steps the control deck the given number of seconds.
     ///
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_seconds(&mut self, seconds: f32) -> Result<u64> {
+    pub fn clock_seconds(&mut self, seconds: f32) -> Result<u32> {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
-            let cycles = self.clock_instr()?;
+            let start_cycles = self.cpu.cycle;
+            self.clock_instr()?;
+            let cycles = self.cpu.cycle - start_cycles;
             total_cycles += cycles;
             self.cycles_remaining -= cycles as f32;
         }
         Ok(total_cycles)
+    }
+
+    /// Steps the control deck the given  number of seconds, calling `handle_audito` with audio
+    /// samples and `handle_frame` with the `frame_buffer` if a frame is completed.
+    ///
+    /// # Errors
+    ///
+    /// If CPU encounters an invalid opcode, then an error is returned.
+    pub fn clock_seconds_output(
+        &mut self,
+        seconds: f32,
+        handle_audio: impl FnOnce(&[f32]),
+        handle_frame: impl FnOnce(&[u8]),
+    ) -> Result<()> {
+        let frame = self.frame_number();
+        self.clock_seconds(seconds)?;
+        let audio = self.cpu.bus.audio_samples();
+        handle_audio(audio);
+        self.cpu.bus.clear_audio_samples();
+        if frame != self.frame_number() {
+            let frame = self.video.apply_filter(
+                self.cpu.bus.ppu.frame_buffer(),
+                self.cpu.bus.ppu.frame_number(),
+            );
+            handle_frame(frame);
+        }
+        Ok(())
     }
 
     /// Steps the control deck an entire frame.
@@ -660,31 +689,30 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame(&mut self) -> Result<u64> {
+    pub fn clock_frame(&mut self) -> Result<()> {
         // Frames that aren't multiples of the default render 1 more/less frames
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
         // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-        self.frame_accumulator += self.frame_speed;
+        self.frame_accumulator += self.frame_speed_step;
         let mut frames_to_clock = 0;
-        while self.frame_accumulator >= 1.0 {
-            self.frame_accumulator -= 1.0;
+        while self.frame_accumulator >= 4 {
+            self.frame_accumulator -= 4;
             frames_to_clock += 1;
         }
 
-        let mut total_cycles = 0;
         for _ in 0..frames_to_clock {
             let frame = self.frame_number();
             while frame == self.frame_number() {
-                total_cycles += self.clock_instr()?;
+                self.clock_instr()?;
             }
         }
         self.cpu.bus.apu.clock_flush();
 
-        Ok(total_cycles)
+        Ok(())
     }
 
-    /// Steps the control deck an entire frame, calling `handle_output` with the `cycles`, `frame_buffer` and
+    /// Steps the control deck an entire frame, calling `handle_output` with the `frame_buffer` and
     /// `audio_samples` for that frame.
     ///
     /// # Errors
@@ -692,15 +720,15 @@ impl ControlDeck {
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame_output<T>(
         &mut self,
-        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
     ) -> Result<T> {
-        let cycles = self.clock_frame()?;
+        self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
             self.cpu.bus.ppu.frame_number(),
         );
         let audio = self.cpu.bus.audio_samples();
-        let res = handle_output(cycles, frame, audio);
+        let res = handle_output(frame, audio);
         self.cpu.bus.clear_audio_samples();
         Ok(res)
     }
@@ -715,8 +743,8 @@ impl ControlDeck {
         &mut self,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<u64> {
-        let cycles = self.clock_frame()?;
+    ) -> Result<()> {
+        self.clock_frame()?;
         let frame = self.video.apply_filter(
             self.cpu.bus.ppu.frame_buffer(),
             self.cpu.bus.ppu.frame_number(),
@@ -725,7 +753,7 @@ impl ControlDeck {
         let audio = self.cpu.bus.audio_samples();
         audio_samples.copy_from_slice(&audio[..audio_samples.len()]);
         self.clear_audio_samples();
-        Ok(cycles)
+        Ok(())
     }
 
     /// Steps the control deck an entire frame with run-ahead frames to reduce input lag.
@@ -736,7 +764,7 @@ impl ControlDeck {
     pub fn clock_frame_ahead<T>(
         &mut self,
         run_ahead: usize,
-        handle_output: impl FnOnce(u64, &[u8], &[f32]) -> T,
+        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
     ) -> Result<T> {
         if run_ahead == 0 {
             return self.clock_frame_output(handle_output);
@@ -780,7 +808,7 @@ impl ControlDeck {
         run_ahead: usize,
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
-    ) -> Result<u64> {
+    ) -> Result<()> {
         if run_ahead == 0 {
             return self.clock_frame_into(frame_buffer, audio_samples);
         }
@@ -800,7 +828,7 @@ impl ControlDeck {
 
         // Output the future frame/audio
         self.clear_audio_samples();
-        let cycles = self.clock_frame_into(frame_buffer, audio_samples)?;
+        self.clock_frame_into(frame_buffer, audio_samples)?;
 
         // Restore back to current frame
         let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
@@ -808,7 +836,7 @@ impl ControlDeck {
         state.bus.ppu.frame.buffer = frame;
         self.load_cpu(state);
 
-        Ok(cycles)
+        Ok(())
     }
 
     /// Steps the control deck a single scanline.
@@ -816,13 +844,12 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_scanline(&mut self) -> Result<u64> {
-        let mut total_cycles = 0;
+    pub fn clock_scanline(&mut self) -> Result<()> {
         let current_scanline = self.cpu.bus.ppu.scanline;
         while current_scanline == self.cpu.bus.ppu.scanline {
-            total_cycles += self.clock_instr()?;
+            self.clock_instr()?;
         }
-        Ok(total_cycles)
+        Ok(())
     }
 
     /// Returns whether the CPU is corrupted or not which means it encounted an invalid/unhandled
@@ -964,7 +991,7 @@ impl ControlDeck {
     /// Set the emulation speed.
     #[inline]
     pub fn set_frame_speed(&mut self, speed: f32) {
-        self.frame_speed = speed;
+        self.frame_speed_step = (speed * 4.0) as u16;
         self.cpu.bus.apu.set_frame_speed(speed);
     }
 
@@ -1020,7 +1047,7 @@ impl ControlDeck {
 
 impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         self.cpu.clock()
     }
 }

@@ -152,18 +152,14 @@ impl OnBusWrite for SunsoftFme7 {}
 impl Reset for SunsoftFme7 {}
 
 impl Clock for SunsoftFme7 {
-    fn clock(&mut self) -> u64 {
-        let cycles = if self.regs.irq_counter_enabled {
+    fn clock(&mut self) {
+        if self.regs.irq_counter_enabled {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
             if self.regs.irq_counter == 0xFFFF && self.regs.irq_enabled {
                 Cpu::set_irq(Irq::MAPPER);
             }
-            1
-        } else {
-            0
-        };
+        }
         self.audio.clock();
-        cycles
     }
 }
 
@@ -279,7 +275,7 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         if self.clock_timer == 0 {
             self.clock_timer = 1;
             for channel in 0..3 {
@@ -294,9 +290,7 @@ impl Clock for Audio {
                 .filter(|&channel| self.square_enabled(channel) && self.steps[channel] < 0x08)
                 .map(|channel| self.volume(channel) as f32)
                 .sum();
-            return 1;
         }
         self.clock_timer -= 1;
-        0
     }
 }

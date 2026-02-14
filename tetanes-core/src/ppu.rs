@@ -77,9 +77,9 @@ pub trait Registers {
 #[repr(C)]
 pub struct Ppu {
     /// Master clock.
-    pub master_clock: u64,
+    pub master_clock: u32,
     /// Master clock divider.
-    pub clock_divider: u64,
+    pub clock_divider: u32,
     /// (0, 340) cycles per scanline.
     pub cycle: u32,
     /// (0, 261) NTSC or (0, 311) PAL/Dendy scanlines per frame.
@@ -90,6 +90,7 @@ pub struct Ppu {
     pub prerender_scanline: u32,
     /// Scanline that Sprite Evaluation for PAL starts on.
     pub pal_spr_eval_scanline: u32,
+    pub open_bus: u8,
 
     /// $2001 PPUMASK (write-only).
     pub mask: Mask,
@@ -153,8 +154,6 @@ pub struct Ppu {
     pub reset_signal: bool,
     pub emulate_warmup: bool,
 
-    pub open_bus: u8,
-
     // Don't save debug state
     #[serde(skip)]
     pub debugger: PpuDebugger,
@@ -210,9 +209,9 @@ impl Ppu {
     pub const VBLANK_SCANLINE_DENDY: u32 = 291;
 
     // Clock
-    pub const CLOCK_DIVIDER_NTSC: u64 = 4;
-    pub const CLOCK_DIVIDER_PAL: u64 = 5;
-    pub const CLOCK_DIVIDER_DENDY: u64 = Self::CLOCK_DIVIDER_PAL;
+    pub const CLOCK_DIVIDER_NTSC: u32 = 4;
+    pub const CLOCK_DIVIDER_PAL: u32 = 5;
+    pub const CLOCK_DIVIDER_DENDY: u32 = Self::CLOCK_DIVIDER_PAL;
 
     pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
 
@@ -252,13 +251,12 @@ impl Ppu {
             vblank_scanline: 0,
             prerender_scanline: 0,
             pal_spr_eval_scanline: 0,
-            skip_rendering: false,
+            open_bus: 0x00,
 
-            scroll: Scroll::new(),
             mask: Mask::new(region),
-            ctrl: Ctrl::new(),
-            status: Status::new(),
+            scroll: Scroll::new(),
             bus: Bus::new(ram_state),
+            ctrl: Ctrl::new(),
 
             prev_palette: 0x00,
             curr_palette: 0x00,
@@ -269,10 +267,12 @@ impl Ppu {
             tile_hi: 0x00,
             tile_addr: 0x0000,
 
+            status: Status::new(),
+
+            oam_fetch: 0x00,
+            oamaddr: 0x0000,
             oamaddr_lo: 0x00,
             oamaddr_hi: 0x00,
-            oamaddr: 0x0000,
-            oam_fetch: 0x00,
             oam_eval_done: false,
             secondary_oamaddr: 0x0000,
             overflow_count: 0,
@@ -291,10 +291,9 @@ impl Ppu {
             frame: Frame::new(),
 
             region,
+            skip_rendering: false,
             reset_signal: false,
             emulate_warmup: false,
-
-            open_bus: 0x00,
 
             debugger: Default::default(),
         };
@@ -1377,7 +1376,7 @@ impl Registers for Ppu {
 }
 
 impl Clock for Ppu {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         if self.cycle < Self::CYCLE_END {
             self.cycle += 1;
             self.tick();
@@ -1407,19 +1406,15 @@ impl Clock for Ppu {
         if self.scanline == self.debugger.scanline && self.cycle == self.debugger.cycle {
             (*self.debugger.callback)(self.clone_state());
         }
-
-        1
     }
 }
 
 impl ClockTo for Ppu {
-    fn clock_to(&mut self, clock: u64) -> u64 {
-        let mut cycles = 0;
+    fn clock_to(&mut self, clock: u32) {
         while self.master_clock + self.clock_divider <= clock {
-            cycles += self.clock();
+            self.clock();
             self.master_clock += self.clock_divider;
         }
-        cycles
     }
 }
 

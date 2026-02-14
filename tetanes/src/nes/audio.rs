@@ -551,14 +551,6 @@ impl Mixer {
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
-                if consumer.occupied_len() < out.len() {
-                    trace!(
-                        "audio underrun: {} < {}",
-                        consumer.occupied_len(),
-                        out.len()
-                    );
-                }
-
                 for (sample, value) in out
                     .iter_mut()
                     .zip(consumer.pop_iter().chain(iter::repeat(0.0)))

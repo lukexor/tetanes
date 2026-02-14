@@ -158,18 +158,14 @@ pub trait Reset {
 /// Trait for types that can be clocked.
 #[enum_dispatch(Mapper)]
 pub trait Clock {
-    /// Clock component a single time, returning the number of cycles clocked.
-    fn clock(&mut self) -> u64 {
-        0
-    }
+    /// Clock component once.
+    fn clock(&mut self) {}
 }
 
 /// Trait for types that can clock to a target cycle.
 pub trait ClockTo {
-    /// Clock component to the given master cycle, returning the number of cycles clocked.
-    fn clock_to(&mut self, _cycle: u64) -> u64 {
-        0
-    }
+    /// Clock component to the given master_cycle.
+    fn clock_to(&mut self, _master_cycle: u32) {}
 }
 
 /// Trait for types that can output `f32` audio samples.

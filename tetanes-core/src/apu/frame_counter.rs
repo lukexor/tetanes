@@ -15,13 +15,13 @@ use tracing::trace;
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct FrameCounter {
     pub region: NesRegion,
-    pub step_cycles: [u64; 6],
+    pub step_cycles: [u32; 6],
     pub step: usize,
     pub mode: u8,
     pub write_buffer: Option<u8>,
     pub write_delay: u8,
     pub block_counter: u8,
-    pub cycle: u64,
+    pub cycle: u32,
     pub inhibit_irq: bool, // Set by $4017 D6
 }
 
@@ -35,10 +35,10 @@ pub enum FrameType {
 }
 
 impl FrameCounter {
-    const STEP4_CYCLES_NTSC: [u64; 6] = [7457, 14913, 22371, 29828, 29829, 29830];
-    const STEP5_CYCLES_NTSC: [u64; 6] = [7457, 14913, 22371, 29829, 37281, 37282];
-    const STEP4_CYCLES_PAL: [u64; 6] = [8313, 16627, 24939, 33252, 33253, 33254];
-    const STEP5_CYCLES_PAL: [u64; 6] = [8313, 16627, 24939, 33253, 41565, 41566];
+    const STEP4_CYCLES_NTSC: [u32; 6] = [7457, 14913, 22371, 29828, 29829, 29830];
+    const STEP5_CYCLES_NTSC: [u32; 6] = [7457, 14913, 22371, 29829, 37281, 37282];
+    const STEP4_CYCLES_PAL: [u32; 6] = [8313, 16627, 24939, 33252, 33253, 33254];
+    const STEP5_CYCLES_PAL: [u32; 6] = [8313, 16627, 24939, 33253, 41565, 41566];
 
     const FRAME_TYPE: [FrameType; 6] = [
         FrameType::Quarter,
@@ -70,7 +70,7 @@ impl FrameCounter {
         self.step_cycles = Self::step_cycles(self.mode, region);
     }
 
-    const fn step_cycles(mode: u8, region: NesRegion) -> [u64; 6] {
+    const fn step_cycles(mode: u8, region: NesRegion) -> [u32; 6] {
         match (mode, region) {
             (0, NesRegion::Auto | NesRegion::Ntsc | NesRegion::Dendy) => Self::STEP4_CYCLES_NTSC,
             (0, NesRegion::Pal) => Self::STEP4_CYCLES_PAL,
@@ -80,7 +80,7 @@ impl FrameCounter {
     }
 
     /// On write to $4017
-    pub fn write(&mut self, val: u8, cycle: u64) {
+    pub fn write(&mut self, val: u8, cycle: u32) {
         self.write_buffer = Some(val);
         // Writes occurring on odd clocks are delayed
         self.write_delay = if cycle & 0x01 == 0x01 { 4 } else { 3 };
@@ -92,7 +92,7 @@ impl FrameCounter {
         }
     }
 
-    pub const fn should_clock(&mut self, cycles: u64) -> bool {
+    pub const fn should_clock(&mut self, cycles: u32) -> bool {
         self.block_counter > 0
             || self.write_buffer.is_some()
             || (self.cycle + cycles) >= (self.step_cycles[self.step] - 1)
@@ -109,7 +109,7 @@ impl FrameCounter {
     // - - - - - -     (interrupt flag never set)
     // - l - - l -     96 Hz
     // e e e - e -     192 Hz
-    pub fn clock_with(&mut self, cycles: u64, mut on_clock: impl FnMut(FrameType)) -> u64 {
+    pub fn clock_with(&mut self, cycles: u32, mut on_clock: impl FnMut(FrameType)) -> u32 {
         let mut cycles_ran = 0;
         let step_cycles = self.step_cycles[self.step];
         if self.cycle + cycles >= step_cycles {

@@ -30,6 +30,7 @@
       data-bin="tetanes"
       data-initializer="initializer.js"
       data-wasm-opt="4"
+      data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int"
       data-no-import
     />
   </head>
@@ -48,7 +49,7 @@
 
     <div id="wrapper">
       <h2 id="loading-status">
-        <span class="loader" />
+        <span class="loader"></span>
         Loading...
       </h2>
       <canvas id="frame" width="880" height="696"></canvas>

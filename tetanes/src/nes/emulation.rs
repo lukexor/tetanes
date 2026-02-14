@@ -886,8 +886,8 @@ impl State {
         let last_clock_duration = self.last_clock_time.elapsed();
         self.last_clock_time = Instant::now();
         self.clock_time_accumulator += last_clock_duration.as_secs_f32();
-        if self.clock_time_accumulator > 0.020 {
-            self.clock_time_accumulator = 0.020;
+        if self.clock_time_accumulator > 0.02 {
+            self.clock_time_accumulator = 0.02;
         }
 
         // If any frames are still pending, request a redraw
@@ -920,7 +920,7 @@ impl State {
             let run_ahead = if self.speed > 1.0 { 0 } else { self.run_ahead };
             let res =
                 self.control_deck
-                    .clock_frame_ahead(run_ahead, |_, frame_buffer, audio_samples| {
+                    .clock_frame_ahead(run_ahead, |frame_buffer, audio_samples| {
                         self.audio.process(audio_samples);
                         match self.frame_tx.try_send_ref() {
                             Ok(mut frame) => {

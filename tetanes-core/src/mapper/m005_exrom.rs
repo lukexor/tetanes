@@ -1028,7 +1028,7 @@ impl Reset for Exrom {
 }
 
 impl Clock for Exrom {
-    fn clock(&mut self) -> u64 {
+    fn clock(&mut self) {
         if self.ppu_status.reading {
             self.ppu_status.idle_count = 0;
         } else {
@@ -1056,7 +1056,6 @@ impl Clock for Exrom {
         self.pulse2.length.reload();
 
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
-        1
     }
 }
 

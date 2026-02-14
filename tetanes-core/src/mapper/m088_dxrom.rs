@@ -110,8 +110,8 @@ impl Reset for Dxrom {
     }
 }
 impl Clock for Dxrom {
-    fn clock(&mut self) -> u64 {
-        self.inner.clock()
+    fn clock(&mut self) {
+        self.inner.clock();
     }
 }
 impl Regional for Dxrom {

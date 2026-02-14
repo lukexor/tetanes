@@ -87,9 +87,9 @@ pub trait ApuRegisters {
 #[must_use]
 pub struct Apu {
     pub frame_counter: FrameCounter,
-    pub master_cycle: u64,
-    pub cpu_cycle: u64,
-    pub cycle: u64,
+    pub master_cycle: u32,
+    pub cpu_cycle: u32,
+    pub cycle: u32,
     pub clock_rate: f32,
     pub region: NesRegion,
     pub pulse1: Pulse,
@@ -115,7 +115,7 @@ impl Apu {
     pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
     // 5 APU channels + 1 Mapper channel
     pub const MAX_CHANNEL_COUNT: usize = 6;
-    pub const CYCLE_SIZE: u64 = 10_000;
+    pub const CYCLE_SIZE: u32 = 10_000;
 
     /// Create a new APU instance.
     pub fn new(region: NesRegion) -> Self {
@@ -242,20 +242,18 @@ impl Apu {
         }
     }
 
-    pub fn clock_lazy(&mut self) -> u64 {
+    pub fn clock_lazy(&mut self) {
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
         self.master_cycle += 1;
         if self.master_cycle == Self::CYCLE_SIZE - 1 {
-            self.clock_flush()
+            self.clock_flush();
         } else if self.should_clock() {
-            self.clock_to(self.master_cycle)
-        } else {
-            0
+            self.clock_to(self.master_cycle);
         }
     }
 
-    pub fn clock_flush(&mut self) -> u64 {
-        let cycles = self.clock_to(self.master_cycle);
+    pub fn clock_flush(&mut self) {
+        self.clock_to(self.master_cycle);
 
         self.process_outputs();
 
@@ -267,8 +265,6 @@ impl Apu {
         self.triangle.timer.cycle = 0;
         self.noise.timer.cycle = 0;
         self.dmc.timer.cycle = 0;
-
-        cycles
     }
 
     fn should_clock(&mut self) -> bool {
@@ -282,8 +278,8 @@ impl Apu {
         self.frame_counter.should_clock(cycles) || self.dmc.irq_pending_in(cycles)
     }
 
-    fn channel_clock_to(&mut self, channel: Channel, cycle: u64) {
-        fn clock_to<T>(instance: &mut T, cycle: u64, offset: usize, outputs: &mut [f32])
+    fn channel_clock_to(&mut self, channel: Channel, cycle: u32) {
+        fn clock_to<T>(instance: &mut T, cycle: u32, offset: usize, outputs: &mut [f32])
         where
             T: Clock + TimerCycle + Sample,
         {
@@ -308,7 +304,7 @@ impl Apu {
 }
 
 impl ClockTo for Apu {
-    fn clock_to(&mut self, cycle: u64) -> u64 {
+    fn clock_to(&mut self, cycle: u32) {
         self.master_cycle = cycle;
 
         let cycles = self.master_cycle - self.cycle;
@@ -348,8 +344,6 @@ impl ClockTo for Apu {
             self.channel_clock_to(Channel::Noise, self.cycle);
             self.channel_clock_to(Channel::Dmc, self.cycle);
         }
-
-        cycles
     }
 }
 

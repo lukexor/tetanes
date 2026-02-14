@@ -343,21 +343,16 @@ impl Reset for Namco163 {
 }
 
 impl Clock for Namco163 {
-    fn clock(&mut self) -> u64 {
-        let cycles =
-            if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
-                self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
-                if self.regs.irq_counter & 0x7FFF == 0x7FFF {
-                    Cpu::set_irq(Irq::MAPPER);
-                }
-                1
-            } else {
-                0
-            };
+    fn clock(&mut self) {
+        if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
+            self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
+            if self.regs.irq_counter & 0x7FFF == 0x7FFF {
+                Cpu::set_irq(Irq::MAPPER);
+            }
+        }
         if self.board == Board::Namco163 {
             self.audio.clock();
         }
-        cycles
     }
 }
 
@@ -569,20 +564,18 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) -> u64 {
-        if self.disabled {
-            return 0;
-        }
-        self.update_counter += 1;
-        if self.update_counter == 15 {
-            self.update_counter = 0;
-            self.update_channel();
+    fn clock(&mut self) {
+        if !self.disabled {
+            self.update_counter += 1;
+            if self.update_counter == 15 {
+                self.update_counter = 0;
+                self.update_channel();
 
-            self.current_channel -= 1;
-            if self.current_channel < 7 - self.channel_count() as i8 {
-                self.current_channel = 7;
+                self.current_channel -= 1;
+                if self.current_channel < 7 - self.channel_count() as i8 {
+                    self.current_channel = 7;
+                }
             }
         }
-        1
     }
 }

@@ -91,32 +91,24 @@ bitflags! {
     }
 }
 
-/// Every cycle is either a read or a write.
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct Cycle {
-    start: u64,
-    end: u64,
-}
-
 /// The Central Processing Unit status and registers
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
 #[repr(C)]
 pub struct Cpu {
-    pub cycle: u64, // total number of cycles ran
-    pub master_clock: u64,
-    // start/end cycle counts for reads
-    pub read_cycles: Cycle,
-    // start/end cycle counts for writes
-    pub write_cycles: Cycle,
+    pub cycle: u32, // total number of cycles ran
+    pub master_clock: u32,
+    // start/end cycle counts for reads/writes
+    pub start_cycles: u8,
+    pub end_cycles: u8,
     pub pc: u16,             // program counter
     pub operand: u16,        // opcode operand
     pub addr_mode: AddrMode, // Addressing mode
-    pub status: Status,      // Status Registers
+    pub sp: u8,              // stack pointer - stack is at $0100-$01FF
     pub acc: u8,             // accumulator
     pub x: u8,               // x register
     pub y: u8,               // y register
-    pub sp: u8,              // stack pointer - stack is at $0100-$01FF
+    pub status: Status,      // Status Registers
     pub irq_flags: IrqFlags,
     pub bus: Bus,
     #[serde(skip)]
@@ -135,7 +127,7 @@ impl Cpu {
     // Represents CPU/PPU alignment and would range from 1..=ppu.clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
-    const PPU_OFFSET: u64 = 1;
+    const PPU_OFFSET: u32 = 1;
 
     const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
     const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
@@ -149,16 +141,16 @@ impl Cpu {
         let mut cpu = Self {
             cycle: 0,
             master_clock: 0,
-            read_cycles: Cycle::default(),
-            write_cycles: Cycle::default(),
+            start_cycles: 6,
+            end_cycles: 6,
             pc: 0x0000,
             operand: 0,
             addr_mode: AddrMode::default(),
-            status: Self::POWER_ON_STATUS,
+            sp: 0x00,
             acc: 0x00,
             x: 0x00,
             y: 0x00,
-            sp: 0x00,
+            status: Self::POWER_ON_STATUS,
             irq_flags: IrqFlags::default(),
             bus,
             corrupted: false,
@@ -334,6 +326,9 @@ impl Cpu {
         if nmi {
             self.clear_irq_flags(IrqFlags::NMI);
             self.pc = self.read_word(Self::NMI_VECTOR);
+            self.bus.ppu.clock_to(self.master_clock);
+            self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
+            self.bus.ppu.master_clock = 0;
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
@@ -385,18 +380,18 @@ impl Cpu {
 
     /// Start a CPU cycle.
     #[inline(always)]
-    fn start_cycle(&mut self, increment: u64) {
-        self.master_clock = self.master_clock.wrapping_add(increment);
-        self.cycle += 1;
-        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
+    fn start_cycle(&mut self, increment: u8) {
+        self.master_clock += u32::from(increment);
+        self.cycle = self.cycle.wrapping_add(1);
+        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
         self.bus.clock();
     }
 
     /// End a CPU cycle.
     #[inline(always)]
-    fn end_cycle(&mut self, increment: u64) {
-        self.master_clock = self.master_clock.wrapping_add(increment);
-        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
+    fn end_cycle(&mut self, increment: u8) {
+        self.master_clock += u32::from(increment);
+        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
 
         self.handle_interrupts();
     }
@@ -410,7 +405,7 @@ impl Cpu {
         } else {
             Self::clear_dma_dummy_read();
         }
-        self.start_cycle(self.read_cycles.start);
+        self.start_cycle(self.start_cycles - 1);
     }
 
     /// Handle a direct-memory access (DMA) request.
@@ -419,9 +414,9 @@ impl Cpu {
     fn handle_dma(&mut self, addr: u16) {
         trace!("Starting DMA - CYC:{}", self.cycle);
 
-        self.start_cycle(self.read_cycles.start);
+        self.start_cycle(self.start_cycles - 1);
         self.bus.read(addr);
-        self.end_cycle(self.read_cycles.end);
+        self.end_cycle(self.start_cycles + 1);
         Self::clear_dma_halt();
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
@@ -441,14 +436,14 @@ impl Cpu {
                         "Loaded DMC DMA byte. ${dma_addr:04X}: {read_val} - CYC:{}",
                         self.cycle
                     );
-                    self.end_cycle(self.read_cycles.end);
+                    self.end_cycle(self.start_cycles + 1);
                     self.bus.apu.dmc.load_buffer(read_val);
                     Self::clear_dma(Dma::DMC);
                 } else if oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
                     self.start_dma_cycle();
                     read_val = self.bus.read(Self::dma_oam_addr() + oam_offset);
-                    self.end_cycle(self.read_cycles.end);
+                    self.end_cycle(self.start_cycles + 1);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
@@ -459,13 +454,13 @@ impl Cpu {
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
                     }
-                    self.end_cycle(self.read_cycles.end);
+                    self.end_cycle(self.start_cycles + 1);
                 }
             } else if oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.start_dma_cycle();
                 self.bus.write(0x2004, read_val);
-                self.end_cycle(self.read_cycles.end);
+                self.end_cycle(self.start_cycles + 1);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
                     Self::clear_dma(Dma::OAM);
@@ -476,7 +471,7 @@ impl Cpu {
                 if !skip_dummy_reads {
                     self.bus.read(addr); // throw away
                 }
-                self.end_cycle(self.read_cycles.end);
+                self.end_cycle(self.start_cycles + 1);
             }
         }
     }
@@ -864,9 +859,7 @@ impl Cpu {
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction.
-    fn clock(&mut self) -> u64 {
-        let start_cycle = self.cycle;
-
+    fn clock(&mut self) {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
@@ -882,8 +875,6 @@ impl Clock for Cpu {
         {
             self.irq();
         }
-
-        self.cycle - start_cycle
     }
 }
 
@@ -894,9 +885,9 @@ impl Read for Cpu {
             self.handle_dma(addr);
         }
 
-        self.start_cycle(self.read_cycles.start);
+        self.start_cycle(self.start_cycles - 1);
         let val = self.bus.read(addr);
-        self.end_cycle(self.read_cycles.end);
+        self.end_cycle(self.end_cycles + 1);
         val
     }
 
@@ -908,9 +899,9 @@ impl Read for Cpu {
 impl Write for Cpu {
     #[inline(always)]
     fn write(&mut self, addr: u16, val: u8) {
-        self.start_cycle(self.write_cycles.start);
+        self.start_cycle(self.start_cycles + 1);
         self.bus.write(addr, val);
-        self.end_cycle(self.write_cycles.end);
+        self.end_cycle(self.end_cycles - 1);
     }
 }
 
@@ -926,14 +917,8 @@ impl Regional for Cpu {
             NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
             NesRegion::Dendy => (7, 8),                  // DENDY_MASTER_CLOCK_DIVIDER / 2
         };
-        self.read_cycles = Cycle {
-            start: start_cycles - 1,
-            end: end_cycles + 1,
-        };
-        self.write_cycles = Cycle {
-            start: end_cycles + 1,
-            end: end_cycles - 1,
-        };
+        self.start_cycles = start_cycles;
+        self.end_cycles = end_cycles;
         self.bus.set_region(region);
     }
 }
@@ -984,8 +969,8 @@ impl Reset for Cpu {
         // * <https://www.nesdev.org/wiki/CPU_interrupts>
         // * <http://archive.6502.org/datasheets/synertek_programming_manual.pdf>
         for _ in 0..7 {
-            self.start_cycle(self.read_cycles.start);
-            self.end_cycle(self.read_cycles.end);
+            self.start_cycle(self.start_cycles - 1);
+            self.end_cycle(self.start_cycles + 1);
         }
     }
 }
@@ -1035,7 +1020,7 @@ mod tests {
             cpu.reset(ResetKind::Hard);
             cpu.bus.write(0x0000, instr_ref.opcode);
             cpu.clock();
-            let cpu_cyc = u64::from(7 + instr_ref.cycles + extra_cycle);
+            let cpu_cyc = u32::from(7 + instr_ref.cycles + extra_cycle);
             assert_eq!(
                 cpu.cycle, cpu_cyc,
                 "cpu ${:02X} {:?} #{:?}",
