@@ -7,6 +7,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/lukexor/tetanes/compare/0.12.2..0.13.0) - 2026-02-14
+
+### 🐛 Bug Fixes
+
+
+- Change cycle to u32 to improve 32-bit platforms like wasm - ([86f597c](https://github.com/lukexor/tetanes/commit/86f597c3c1422040e8f98ac4dfb29f3a2ffdc81f))
+- Fixed turbo - ([5f149c3](https://github.com/lukexor/tetanes/commit/5f149c3be9eaa74bd5583dd41daf4cbae2cbf0a9))
+- Ignore header bytes 14/15. closed #430 - ([8ff2bd9](https://github.com/lukexor/tetanes/commit/8ff2bd96d055c5a2551e44deb69c8a5e1c5b191e))
+- Fixed memory methods to allow working with &[u8] - ([6c2cf4a](https://github.com/lukexor/tetanes/commit/6c2cf4aa33e5fa7ba3c903c775b6ecfcf47f059d))
+
+### ⚡ Performance
+
+
+- Cpu opcode refactor - ([8916097](https://github.com/lukexor/tetanes/commit/8916097c39ee18828d9fd7bf70185a19eaf8e098))
+- Convert Vec<u8> to Box<[u8]> for ~2.5% gain - ([6f34112](https://github.com/lukexor/tetanes/commit/6f34112aa193499ed69115fe8f70774bbe6e4a74))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Updated deps - ([ccb7463](https://github.com/lukexor/tetanes/commit/ccb7463c98be1e35fe7e6a47c2df9d76796ee349))
+- Update deps - ([782dc21](https://github.com/lukexor/tetanes/commit/782dc213f25f34cc47af0c2f71cdf9bfd44ae28b))
+
+
 ## [0.12.2](https://github.com/lukexor/tetanes/compare/0.12.1..0.12.2) - 2025-04-05
 
 ### 🐛 Bug Fixes
