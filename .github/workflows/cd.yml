@@ -54,7 +54,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -77,7 +77,7 @@ jobs:
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -99,7 +99,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -111,7 +111,7 @@ jobs:
           tool: cargo-make
       - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -134,7 +134,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -147,7 +147,7 @@ jobs:
       - if: startsWith(matrix.target, 'x86_64')
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -163,7 +163,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
@@ -175,7 +175,7 @@ jobs:
           tool: cargo-make,trunk
       - run: |
           time cargo make build-artifacts -- --target wasm32-unknown-unknown
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: wasm32-unknown-unknown-artifacts
           path: tetanes/dist/
@@ -186,7 +186,7 @@ jobs:
     if: |
       always() && contains(needs.*.result, 'success')
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
@@ -201,7 +201,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           repository: "lukexor/homebrew-formulae"
           token: ${{ secrets.REPOS }}
@@ -219,7 +219,7 @@ jobs:
             sed "s/%aarch64_SHA%/${aarch64_SHA}/g" \
             > Casks/tetanes.rb
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-      - uses: stefanzweifel/git-auto-commit-action@v6
+      - uses: stefanzweifel/git-auto-commit-action@v7
         with:
           file_pattern: "*.rb"
           commit_message: Version Bump v${{ steps.commit.outputs.version }}

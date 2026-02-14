@@ -1,0 +1,4 @@
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 4 }
+test-threads = 1
