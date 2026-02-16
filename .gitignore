@@ -2,6 +2,7 @@ tmp/
 test_results*
 target/
 .DS_Store
+!assets/macos/.DS_Store
 logs/
 dist/
 .direnv
