@@ -313,6 +313,8 @@ impl Build {
         )?;
         cmd_spawn_wait(Command::new("hdiutil").arg("attach").arg(&dmg_path))?;
 
+        let _ = cmd_status(Command::new("mdutil").args(["-i", "off"]).arg(&volume));
+
         let app_dir = volume.join(&app_name);
         create_dir_all(app_dir.join("Contents/MacOS"))?;
         create_dir_all(app_dir.join("Contents/Resources"))?;
@@ -404,7 +406,22 @@ impl Build {
             [&app_name],
         )?;
 
-        cmd_spawn_wait(Command::new("hdiutil").arg("detach").arg(&volume))?;
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        if let Err(err) = cmd_spawn_wait(
+            Command::new("hdiutil")
+                .args(["detach", "-force"])
+                .arg(&volume),
+        ) {
+            eprintln!("first detach failed, retrying: {err:?}");
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            cmd_spawn_wait(
+                Command::new("hdiutil")
+                    .args(["detach", "-force"])
+                    .arg(&volume),
+            )?;
+        }
+
         cmd_spawn_wait(
             Command::new("hdiutil")
                 .args(["convert", "-format", "UDBZ", "-o"])
