@@ -41,7 +41,7 @@ jobs:
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
       || inputs.tag)
-      && (!inputs.os || inputs.os == 'linux')
+      && (inputs.os == 'all' || inputs.os == 'linux')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -62,7 +62,7 @@ jobs:
         with:
           crate: cross
           git: https://github.com/cross-rs/cross
-          commit: 19be834
+          commit: 19bc73f
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make,cargo-deb
@@ -87,7 +87,7 @@ jobs:
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
       || inputs.tag)
-      && (!inputs.os || inputs.os == 'macos')
+      && (inputs.os == 'all' || inputs.os == 'macos')
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -121,7 +121,7 @@ jobs:
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
       || inputs.tag)
-      && (!inputs.os || inputs.os == 'windows')
+      && (inputs.os == 'all' || inputs.os == 'windows')
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -157,7 +157,7 @@ jobs:
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
       || inputs.tag)
-      && (!inputs.os || inputs.os == 'web')
+      && (inputs.os == 'all' || inputs.os == 'web')
     runs-on: ubuntu-latest
     defaults:
       run:
