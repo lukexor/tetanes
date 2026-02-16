@@ -335,6 +335,7 @@ impl Build {
             "assets/macos/background.png",
             volume.join(".Picture/background.png"),
         )?;
+        copy("assets/macos/.DS_Store", volume.join(".DS_Store"))?;
         copy(
             &self.bin_path,
             app_dir.join("Contents/MacOS").join(self.bin_name),
@@ -343,45 +344,6 @@ impl Build {
         symlink("/Applications", volume.join("Applications"))?;
 
         println!("configuring app bundle window...");
-
-        let configure_bundle_script = format!(
-            r#"
-        tell application "Finder"
-            set f to POSIX file ("{volume}" as string) as alias
-            tell folder f
-                open
-                    tell container window
-                        set toolbar visible to false
-                        set statusbar visible to false
-                        set current view to icon view
-                        delay 1 -- sync
-                        set the bounds to {{0, 0, 720, 524}}
-                    end tell
-                    delay 1 -- sync
-                    set icon size of the icon view options of container window to 120
-                    set arrangement of the icon view options of container window to not arranged
-                    set position of item ".Picture" to {{800, 320}}
-                    set position of item ".fseventsd" to {{800, 320}}
-                    set position of item "{app_name}" to {{150, 300}}
-                close
-                set position of item "Applications" to {{425, 300}}
-                open
-                    set background picture of the icon view options of container window to file "background.png" of folder ".Picture"
-                    set the bounds of the container window to {{0, 0, 600, 524}}
-                    update without registering applications
-                    delay 1 -- sync
-                close
-            end tell
-            delay 1 -- sync
-        end tell
-    "#,
-            volume = volume.display()
-        );
-        cmd_spawn_wait(
-            Command::new("osascript")
-                .arg("-e")
-                .arg(&configure_bundle_script),
-        )?;
 
         let app_bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
         cmd_spawn_wait(
