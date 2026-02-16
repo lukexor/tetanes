@@ -139,7 +139,7 @@ web-sys = { workspace = true, features = [
 ] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-zip = { version = "7.4", default-features = false, features = ["deflate"] }
+zip = { version = "8.0", default-features = false, features = ["deflate"] }
 
 [package.metadata.deb]
 extended-description = """
