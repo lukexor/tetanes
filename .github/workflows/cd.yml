@@ -220,6 +220,7 @@ jobs:
           pattern: "wasm32-unknown-unknown-artifacts"
       - id: commit
         run: |
+          rm -f web/public/tetanes-web/*
           tar -xzf artifacts/*.tar.gz -C web/public/tetanes-web/
           VERSION=${RELEASE_TAG#"tetanes-v"}
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -245,8 +246,8 @@ jobs:
           merge-multiple: true
       - id: commit
         run: |
-          x86_64_SHA=$(cat aritfactss/*x86_64*txt | awk '{ print $1 }')
-          aarch64_SHA=$(cat artifacts/*aarch64*txt | awk '{ print $1 }')
+          x86_64_SHA=$(cat artifacts/*-x86_64-apple-darwin.tar.gz-sha256.txt | awk '{ print $1 }')
+          aarch64_SHA=$(cat artifacts/*-aarch64-apple-darwin.tar.gz-sha256.txt | awk '{ print $1 }')
           VERSION=${RELEASE_TAG#"tetanes-v"}
           cat tetanes.rb.tmpl | \
             sed "s/%VERSION%/${VERSION}/g" | \
