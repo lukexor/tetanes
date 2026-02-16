@@ -41,7 +41,6 @@ chrono = { version = "0.4", default-features = false, features = [
   "std",
   "clock",
 ] }
-cpal = "0.17"
 crossbeam = "0.8"
 dirs.workspace = true
 egui = { version = "0.33", default-features = false, features = [
@@ -84,6 +83,7 @@ arboard = { version = "3.4", default-features = false, features = [
   "windows-sys",
 ] }
 clap.workspace = true
+cpal = "0.17"
 ctrlc = { version = "3.5", features = ["termination"] }
 egui = { version = "0.33", default-features = false, features = ["accesskit"] }
 pollster = "0.4"

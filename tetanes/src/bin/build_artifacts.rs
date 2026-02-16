@@ -153,7 +153,7 @@ impl Build {
             cfg_if! {
                 if #[cfg(target_os = "windows")] {
                     cmd_output(Command::new("powershell")
-                        .arg("-Command")
+                        .args(["-Command", "$ErrorActionPreference = 'Stop';"])
                         .arg(format!("Get-FileHash -Algorithm SHA256 {} | select-object -ExpandProperty Hash", file.display())))?
                 } else {
                     cmd_output(Command::new("shasum")
@@ -469,6 +469,7 @@ impl Build {
 
         cmd_spawn_wait(Command::new("powershell").args([
             "-Command",
+            "$ErrorActionPreference = 'Stop';",
             "Compress-Archive",
             "-Force",
             "-Path",

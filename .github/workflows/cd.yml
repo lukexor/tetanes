@@ -58,6 +58,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
       - uses: baptiste0928/cargo-install@v3
         with:
           crate: cross
@@ -77,7 +78,8 @@ jobs:
         run: |
           export CROSS_CONTAINER_IN_CONTAINER=true
           time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
-      - uses: actions/upload-artifact@v6
+      - if: success()
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -103,6 +105,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
@@ -111,7 +114,8 @@ jobs:
           tool: cargo-make
       - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v6
+      - if: success()
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -138,6 +142,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
@@ -147,7 +152,8 @@ jobs:
       - if: startsWith(matrix.target, 'x86_64')
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v6
+      - if: success()
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -168,12 +174,14 @@ jobs:
         with:
           toolchain: nightly
           targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make,trunk
       - run: |
           time cargo make build-artifacts -- --target wasm32-unknown-unknown
-      - uses: actions/upload-artifact@v6
+      - if: success()
+        uses: actions/upload-artifact@v6
         with:
           name: wasm32-unknown-unknown-artifacts
           path: tetanes/dist/
