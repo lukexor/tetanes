@@ -7,10 +7,7 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
-        OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper, Mirroring},
     mem::{Banks, Memory},
 };
 use serde::{Deserialize, Serialize};
@@ -231,17 +228,7 @@ impl BandaiFCG {
     }
 }
 
-impl Mirrored for BandaiFCG {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for BandaiFCG {
+impl Map for BandaiFCG {
     // Mapper 016
     //
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
@@ -312,9 +299,7 @@ impl MapRead for BandaiFCG {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for BandaiFCG {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -339,6 +324,14 @@ impl MapWrite for BandaiFCG {
             }
             _ => MappedWrite::Bus,
         }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 }
 
@@ -381,8 +374,6 @@ impl Sram for BandaiFCG {
     }
 }
 
-impl OnBusRead for BandaiFCG {}
-impl OnBusWrite for BandaiFCG {}
 impl Regional for BandaiFCG {}
 impl Reset for BandaiFCG {}
 

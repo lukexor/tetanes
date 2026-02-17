@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -37,13 +35,7 @@ impl Bnrom {
     }
 }
 
-impl Mirrored for Bnrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-}
-
-impl MapRead for Bnrom {
+impl Map for Bnrom {
     // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -54,9 +46,7 @@ impl MapRead for Bnrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Bnrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => return MappedWrite::ChrRam(addr.into(), val),
@@ -66,10 +56,12 @@ impl MapWrite for Bnrom {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
 }
 
-impl OnBusRead for Bnrom {}
-impl OnBusWrite for Bnrom {}
 impl Reset for Bnrom {}
 impl Clock for Bnrom {}
 impl Regional for Bnrom {}

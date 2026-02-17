@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -59,17 +57,7 @@ impl Bf909x {
     }
 }
 
-impl Mirrored for Bf909x {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Bf909x {
+impl Map for Bf909x {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM Banks
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
@@ -81,9 +69,7 @@ impl MapRead for Bf909x {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Bf909x {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
@@ -106,10 +92,16 @@ impl MapWrite for Bf909x {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Bf909x {}
-impl OnBusWrite for Bf909x {}
 impl Reset for Bf909x {}
 impl Clock for Bf909x {}
 impl Regional for Bf909x {}

@@ -2,7 +2,7 @@
 
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
-    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusWrite},
+    mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
 };
@@ -231,7 +231,7 @@ impl Write for Bus {
             }
             _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
-        self.mapper.on_bus_write(addr, val, BusKind::Ppu);
+        self.mapper.bus_write(addr, val, BusKind::Ppu);
         self.open_bus = val;
     }
 }

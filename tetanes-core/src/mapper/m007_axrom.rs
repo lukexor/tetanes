@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -38,17 +36,7 @@ impl Axrom {
     }
 }
 
-impl Mirrored for Axrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Axrom {
+impl Map for Axrom {
     // PPU $0000..=$1FFF 8K CHR-RAM Bank Fixed
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -59,9 +47,7 @@ impl MapRead for Axrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Axrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
@@ -77,10 +63,16 @@ impl MapWrite for Axrom {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Axrom {}
-impl OnBusWrite for Axrom {}
 impl Reset for Axrom {}
 impl Clock for Axrom {}
 impl Regional for Axrom {}

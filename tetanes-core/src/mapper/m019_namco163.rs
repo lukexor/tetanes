@@ -7,9 +7,7 @@ use crate::{
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::{BankAccess, Banks, ConstArray, Memory},
     ppu::Mirroring,
 };
@@ -148,13 +146,7 @@ impl Namco163 {
     }
 }
 
-impl Mirrored for Namco163 {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-}
-
-impl MapRead for Namco163 {
+impl Map for Namco163 {
     // PPU $0000..=$03FF 1K CHR Bank 1 Switchable
     // PPU $0400..=$07FF 1K CHR Bank 2 Switchable
     // PPU $0800..=$0BFF 1K CHR Bank 3 Switchable
@@ -221,9 +213,7 @@ impl MapRead for Namco163 {
             },
         }
     }
-}
 
-impl MapWrite for Namco163 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x3EFF => {
@@ -324,6 +314,10 @@ impl MapWrite for Namco163 {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
 }
 
 impl Reset for Namco163 {
@@ -356,8 +350,6 @@ impl Clock for Namco163 {
     }
 }
 
-impl OnBusRead for Namco163 {}
-impl OnBusWrite for Namco163 {}
 impl Regional for Namco163 {}
 
 impl Sram for Namco163 {

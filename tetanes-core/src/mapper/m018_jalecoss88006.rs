@@ -6,9 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::{BankAccess, Banks},
     ppu::Mirroring,
 };
@@ -99,17 +97,7 @@ impl JalecoSs88006 {
     }
 }
 
-impl Mirrored for JalecoSs88006 {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for JalecoSs88006 {
+impl Map for JalecoSs88006 {
     // PPU $0000..=$03FF: 1K CHR Bank 1 Switchable
     // PPU $0400..=$07FF: 1K CHR Bank 2 Switchable
     // PPU $0800..=$0BFF: 1K CHR Bank 3 Switchable
@@ -135,9 +123,7 @@ impl MapRead for JalecoSs88006 {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for JalecoSs88006 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
@@ -205,6 +191,14 @@ impl MapWrite for JalecoSs88006 {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
 impl Reset for JalecoSs88006 {
@@ -230,7 +224,5 @@ impl Clock for JalecoSs88006 {
     }
 }
 
-impl OnBusRead for JalecoSs88006 {}
-impl OnBusWrite for JalecoSs88006 {}
 impl Regional for JalecoSs88006 {}
 impl Sram for JalecoSs88006 {}

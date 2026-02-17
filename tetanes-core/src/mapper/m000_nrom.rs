@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -40,17 +38,7 @@ impl Nrom {
     }
 }
 
-impl Mirrored for Nrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Nrom {
+impl Map for Nrom {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM Bank
     // CPU $6000..=$7FFF 2K or 4K PRG-RAM Family Basic only. 8K is provided by default.
     // CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
@@ -68,9 +56,7 @@ impl MapRead for Nrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Nrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
@@ -78,10 +64,16 @@ impl MapWrite for Nrom {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Nrom {}
-impl OnBusWrite for Nrom {}
 impl Reset for Nrom {}
 impl Clock for Nrom {}
 impl Regional for Nrom {}

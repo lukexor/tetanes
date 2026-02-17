@@ -7,10 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
     fs,
-    mapper::{
-        self, BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead,
-        OnBusWrite, Txrom,
-    },
+    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper, Txrom},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -50,29 +47,7 @@ impl Dxrom {
     }
 }
 
-impl Mirrored for Dxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.inner.mirroring()
-    }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {
-        // Mirroring is hardwired
-    }
-}
-
-impl OnBusRead for Dxrom {
-    fn on_bus_read(&mut self, addr: u16, kind: BusKind) {
-        self.inner.on_bus_read(addr, kind)
-    }
-}
-
-impl OnBusWrite for Dxrom {
-    fn on_bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        self.inner.on_bus_write(addr, val, kind)
-    }
-}
-
-impl MapRead for Dxrom {
+impl Map for Dxrom {
     // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
@@ -92,9 +67,7 @@ impl MapRead for Dxrom {
     fn map_peek(&self, addr: u16) -> MappedRead {
         self.inner.map_peek(addr)
     }
-}
 
-impl MapWrite for Dxrom {
     fn map_write(&mut self, mut addr: u16, mut val: u8) -> MappedWrite {
         // Apply register mask
         addr &= 0xE001;
@@ -103,6 +76,22 @@ impl MapWrite for Dxrom {
             val &= 0x3F;
         }
         self.inner.map_write(addr, val)
+    }
+
+    fn bus_read(&mut self, addr: u16, kind: BusKind) {
+        self.inner.bus_read(addr, kind)
+    }
+
+    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
+        self.inner.bus_write(addr, val, kind)
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.inner.mirroring()
+    }
+
+    fn set_mirroring(&mut self, _mirroring: Mirroring) {
+        // Mirroring is hardwired
     }
 }
 

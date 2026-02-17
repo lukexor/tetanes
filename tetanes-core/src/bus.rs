@@ -10,7 +10,7 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, OnBusRead, OnBusWrite},
+    mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
@@ -208,7 +208,7 @@ impl Read for Bus {
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.ppu.bus.mapper.on_bus_read(addr, BusKind::Cpu);
+        self.ppu.bus.mapper.bus_read(addr, BusKind::Cpu);
         val
     }
 
@@ -288,7 +288,7 @@ impl Write for Bus {
             _ => (),
         }
         self.open_bus = val;
-        self.ppu.bus.mapper.on_bus_write(addr, val, BusKind::Cpu);
+        self.ppu.bus.mapper.bus_write(addr, val, BusKind::Cpu);
     }
 }
 
