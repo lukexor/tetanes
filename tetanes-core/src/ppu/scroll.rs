@@ -18,8 +18,8 @@ pub struct Scroll {
     pub v: u16,            // Subject to ADDR_MIRROR
     pub t: u16,            // Temporary v - Also the addr of top-left onscreen tile
     pub write_latch: bool, // 1st or 2nd write toggle
-    delay_v_cycles: u32,
-    delay_v: u16,
+    pub delay_v_cycles: u32,
+    pub delay_v: u16,
 }
 
 impl Scroll {
@@ -88,6 +88,7 @@ impl Scroll {
     // Writes to PPUSCROLL affect v and t
     // 1st write writes X
     // 2nd write writes Y
+    #[inline]
     pub fn write(&mut self, val: u8) {
         let val = u16::from(val);
         let lo_5_bit_mask: u16 = 0x1F;
@@ -120,6 +121,7 @@ impl Scroll {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
+    #[inline]
     pub fn write_addr(&mut self, val: u8) {
         if self.write_latch {
             // Write lo address on second write

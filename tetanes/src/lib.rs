@@ -5,9 +5,11 @@
 )]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-pub mod error;
 pub mod logging;
 pub mod nes;
-pub mod platform;
-pub mod sys;
-pub mod thread;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod opts;
+
+pub(crate) mod platform;
+pub(crate) mod sys;
+pub(crate) mod thread;

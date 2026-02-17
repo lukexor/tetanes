@@ -3,18 +3,16 @@ use egui::{TextureId, Vec2, load::SizedTexture};
 
 #[derive(Debug)]
 #[must_use]
-pub struct Texture {
-    pub label: Option<&'static str>,
-    pub id: TextureId,
-    pub texture: wgpu::Texture,
-    pub size: Vec2,
-    pub output_size: Vec2,
-    pub view: wgpu::TextureView,
-    pub aspect_ratio: f32,
+pub(crate) struct Texture {
+    pub(crate) label: Option<&'static str>,
+    pub(crate) id: TextureId,
+    pub(crate) texture: wgpu::Texture,
+    pub(crate) size: Vec2,
+    pub(crate) output_size: Vec2,
 }
 
 impl Texture {
-    pub fn new(
+    pub(crate) fn new(
         render_state: &mut RenderState,
         size: Vec2,
         aspect_ratio: f32,
@@ -63,25 +61,29 @@ impl Texture {
                 x: size.x * aspect_ratio,
                 y: size.y,
             },
-            view,
-            aspect_ratio,
             id,
         }
     }
 
-    pub fn resize(&mut self, render_state: &mut RenderState, size: Vec2, aspect_ratio: f32) {
+    pub(crate) fn resize(&mut self, render_state: &mut RenderState, size: Vec2, aspect_ratio: f32) {
         *self = Self::new(render_state, size, aspect_ratio, self.label);
     }
 
-    pub fn sized(&self) -> SizedTexture {
+    pub(crate) fn sized(&self) -> SizedTexture {
         SizedTexture::new(self.id, self.output_size)
     }
 
-    pub fn update(&self, queue: &wgpu::Queue, bytes: &[u8]) {
+    pub(crate) fn update(&self, queue: &wgpu::Queue, bytes: &[u8]) {
         self.update_partial(queue, bytes, Vec2::ZERO, self.size);
     }
 
-    pub fn update_partial(&self, queue: &wgpu::Queue, bytes: &[u8], origin: Vec2, size: Vec2) {
+    pub(crate) fn update_partial(
+        &self,
+        queue: &wgpu::Queue,
+        bytes: &[u8],
+        origin: Vec2,
+        size: Vec2,
+    ) {
         let size = wgpu::Extent3d {
             width: size.x as u32,
             height: size.y as u32,

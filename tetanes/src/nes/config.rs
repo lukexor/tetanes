@@ -2,7 +2,6 @@ use crate::nes::{
     action::Action,
     input::{ActionBindings, Gamepads, Input},
     renderer::shader::Shader,
-    rom::HOMEBREW_ROMS,
 };
 use anyhow::Context;
 use egui::ahash::HashSet;
@@ -15,7 +14,6 @@ use tetanes_core::{
     action::Action as DeckAction, common::NesRegion, control_deck::Config as DeckConfig, fs,
     input::Player, ppu::Ppu, time::Duration,
 };
-use tracing::{error, info};
 use uuid::Uuid;
 
 /// The maximum number of recent ROM entries to keep.
@@ -24,10 +22,10 @@ const MAX_RECENT_ROMS: usize = 10;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
-pub struct AudioConfig {
-    pub enabled: bool,
-    pub buffer_size: usize,
-    pub latency: Duration,
+pub(crate) struct AudioConfig {
+    pub(crate) enabled: bool,
+    pub(crate) buffer_size: usize,
+    pub(crate) latency: Duration,
 }
 
 impl Default for AudioConfig {
@@ -52,17 +50,17 @@ impl Default for AudioConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
-pub struct EmulationConfig {
-    pub auto_load: bool,
-    pub auto_save: bool,
-    pub auto_save_interval: Duration,
-    pub rewind: bool,
-    pub rewind_seconds: u32,
-    pub rewind_interval: u32,
-    pub run_ahead: usize,
-    pub save_slot: u8,
-    pub speed: f32,
-    pub threaded: bool,
+pub(crate) struct EmulationConfig {
+    pub(crate) auto_load: bool,
+    pub(crate) auto_save: bool,
+    pub(crate) auto_save_interval: Duration,
+    pub(crate) rewind: bool,
+    pub(crate) rewind_seconds: u32,
+    pub(crate) rewind_interval: u32,
+    pub(crate) run_ahead: usize,
+    pub(crate) save_slot: u8,
+    pub(crate) speed: f32,
+    pub(crate) threaded: bool,
 }
 
 impl Default for EmulationConfig {
@@ -91,7 +89,7 @@ impl Default for EmulationConfig {
 /// Recently loaded ROM.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum RecentRom {
+pub(crate) enum RecentRom {
     /// Path to a local file.
     Path(PathBuf),
     /// Included Homebrew title.
@@ -100,7 +98,7 @@ pub enum RecentRom {
 
 impl RecentRom {
     /// Return the name or title of this ROM.
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         match self {
             RecentRom::Path(path) => fs::filename(path).split('.').next().unwrap_or("??"),
             RecentRom::Homebrew { name } => name,
@@ -111,22 +109,22 @@ impl RecentRom {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
-pub struct RendererConfig {
-    pub fullscreen: bool,
-    pub always_on_top: bool,
-    pub hide_overscan: bool,
-    pub scale: f32,
-    pub zoom: f32,
-    pub recent_roms: VecDeque<RecentRom>,
-    pub roms_path: Option<PathBuf>,
-    pub show_perf_stats: bool,
-    pub show_messages: bool,
-    pub show_menubar: bool,
-    pub embed_viewports: bool,
-    pub dark_theme: bool,
-    pub shader: Shader,
+pub(crate) struct RendererConfig {
+    pub(crate) fullscreen: bool,
+    pub(crate) always_on_top: bool,
+    pub(crate) hide_overscan: bool,
+    pub(crate) scale: f32,
+    pub(crate) zoom: f32,
+    pub(crate) recent_roms: VecDeque<RecentRom>,
+    pub(crate) roms_path: Option<PathBuf>,
+    pub(crate) show_perf_stats: bool,
+    pub(crate) show_messages: bool,
+    pub(crate) show_menubar: bool,
+    pub(crate) embed_viewports: bool,
+    pub(crate) dark_theme: bool,
+    pub(crate) shader: Shader,
     #[serde(default)]
-    pub show_updates: bool,
+    pub(crate) show_updates: bool,
 }
 
 impl Default for RendererConfig {
@@ -153,13 +151,13 @@ impl Default for RendererConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
-pub struct InputConfig {
-    pub action_bindings: Vec<ActionBindings>,
-    pub gamepad_assignments: [(Player, Option<Uuid>); 4],
+pub(crate) struct InputConfig {
+    pub(crate) action_bindings: Vec<ActionBindings>,
+    pub(crate) gamepad_assignments: [(Player, Option<Uuid>); 4],
     #[serde(skip)]
-    pub shortcuts: BTreeMap<Action, ActionBindings>,
+    pub(crate) shortcuts: BTreeMap<Action, ActionBindings>,
     #[serde(skip)]
-    pub joypads: [BTreeMap<Action, ActionBindings>; 4],
+    pub(crate) joypads: [BTreeMap<Action, ActionBindings>; 4],
 }
 
 impl Default for InputConfig {
@@ -177,15 +175,18 @@ impl Default for InputConfig {
             action_bindings,
             shortcuts,
             joypads,
-            gamepad_assignments: std::array::from_fn(|i| {
-                (Player::try_from(i).expect("valid player assignment"), None)
-            }),
+            gamepad_assignments: [
+                (Player::One, None),
+                (Player::Two, None),
+                (Player::Three, None),
+                (Player::Four, None),
+            ],
         }
     }
 }
 
 impl InputConfig {
-    pub fn set_binding(&mut self, action: Action, input: Input, binding: usize) {
+    pub(crate) fn set_binding(&mut self, action: Action, input: Input, binding: usize) {
         // Clear existing binding, if any
         self.clear_binding(input);
 
@@ -217,7 +218,7 @@ impl InputConfig {
             });
     }
 
-    pub fn clear_binding(&mut self, input: Input) {
+    pub(crate) fn clear_binding(&mut self, input: Input) {
         for bind in &mut self.action_bindings {
             if let Some((binding, existing_input)) = bind
                 .bindings
@@ -238,7 +239,7 @@ impl InputConfig {
         }
     }
 
-    pub fn update_gamepad_assignments(&mut self, gamepads: &Gamepads) {
+    pub(crate) fn update_gamepad_assignments(&mut self, gamepads: &Gamepads) {
         let assigned = self
             .gamepad_assignments
             .iter()
@@ -263,33 +264,33 @@ impl InputConfig {
         }
     }
 
-    pub fn next_gamepad_unassigned(&mut self) -> Option<Player> {
+    pub(crate) fn next_gamepad_unassigned(&mut self) -> Option<Player> {
         self.gamepad_assignments
             .iter()
             .find(|(_, u)| u.is_none())
             .map(|(player, _)| *player)
     }
 
-    pub const fn gamepad_assigned_to(&self, player: Player) -> Option<Uuid> {
+    pub(crate) const fn gamepad_assigned_to(&self, player: Player) -> Option<Uuid> {
         self.gamepad_assignments[player as usize].1
     }
 
-    pub fn gamepad_assignment(&self, uuid: &Uuid) -> Option<Player> {
+    pub(crate) fn gamepad_assignment(&self, uuid: &Uuid) -> Option<Player> {
         self.gamepad_assignments
             .iter()
             .find(|(_, u)| u.as_ref().is_some_and(|u| u == uuid))
             .map(|(player, _)| *player)
     }
 
-    pub const fn assign_gamepad(&mut self, player: Player, uuid: Uuid) {
+    pub(crate) const fn assign_gamepad(&mut self, player: Player, uuid: Uuid) {
         self.gamepad_assignments[player as usize].1 = Some(uuid);
     }
 
-    pub fn unassign_gamepad(&mut self, player: Player) -> Option<Uuid> {
+    pub(crate) fn unassign_gamepad(&mut self, player: Player) -> Option<Uuid> {
         std::mem::take(&mut self.gamepad_assignments[player as usize].1)
     }
 
-    pub fn unassign_gamepad_name(&mut self, uuid: &Uuid) -> Option<Player> {
+    pub(crate) fn unassign_gamepad_name(&mut self, uuid: &Uuid) -> Option<Player> {
         if let Some((player, uuid)) = self
             .gamepad_assignments
             .iter_mut()
@@ -313,21 +314,21 @@ impl InputConfig {
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
 pub struct Config {
-    pub deck: DeckConfig,
-    pub emulation: EmulationConfig,
-    pub audio: AudioConfig,
-    pub renderer: RendererConfig,
-    pub input: InputConfig,
+    pub(crate) deck: DeckConfig,
+    pub(crate) emulation: EmulationConfig,
+    pub(crate) audio: AudioConfig,
+    pub(crate) renderer: RendererConfig,
+    pub(crate) input: InputConfig,
 }
 
 impl Config {
-    pub const SAVE_DIR: &'static str = "save";
-    pub const SAVE_EXTENSION: &'static str = "sav";
-    pub const WINDOW_TITLE: &'static str = "TetaNES";
-    pub const FILENAME: &'static str = "config.json";
+    pub(crate) const SAVE_DIR: &'static str = "save";
+    pub(crate) const SAVE_EXTENSION: &'static str = "sav";
+    pub(crate) const WINDOW_TITLE: &'static str = "TetaNES";
+    pub(crate) const FILENAME: &'static str = "config.json";
 
     #[must_use]
-    pub fn default_config_dir() -> PathBuf {
+    pub(crate) fn default_config_dir() -> PathBuf {
         dirs::config_local_dir().map_or_else(
             || PathBuf::from("config"),
             |dir| dir.join(DeckConfig::BASE_DIR),
@@ -335,7 +336,7 @@ impl Config {
     }
 
     #[must_use]
-    pub fn default_data_dir() -> PathBuf {
+    pub(crate) fn default_data_dir() -> PathBuf {
         dirs::data_local_dir().map_or_else(
             || PathBuf::from("data"),
             |dir| dir.join(DeckConfig::BASE_DIR),
@@ -343,7 +344,7 @@ impl Config {
     }
 
     #[must_use]
-    pub fn default_picture_dir() -> PathBuf {
+    pub(crate) fn default_picture_dir() -> PathBuf {
         dirs::picture_dir().map_or_else(
             || PathBuf::from("pictures"),
             |dir| dir.join(DeckConfig::BASE_DIR),
@@ -351,7 +352,7 @@ impl Config {
     }
 
     #[must_use]
-    pub fn default_audio_dir() -> PathBuf {
+    pub(crate) fn default_audio_dir() -> PathBuf {
         dirs::audio_dir().map_or_else(
             || PathBuf::from("music"),
             |dir| dir.join(DeckConfig::BASE_DIR),
@@ -359,12 +360,12 @@ impl Config {
     }
 
     #[must_use]
-    pub fn config_path() -> PathBuf {
+    pub(crate) fn config_path() -> PathBuf {
         Self::default_config_dir().join(Self::FILENAME)
     }
 
     #[must_use]
-    pub fn save_path(name: &str, slot: u8) -> PathBuf {
+    pub(crate) fn save_path(name: &str, slot: u8) -> PathBuf {
         Self::default_data_dir()
             .join(Self::SAVE_DIR)
             .join(name)
@@ -372,11 +373,7 @@ impl Config {
             .with_extension(Self::SAVE_EXTENSION)
     }
 
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    pub fn save(&self) -> anyhow::Result<()> {
+    pub(crate) fn save(&self) -> anyhow::Result<()> {
         let path = Config::config_path();
         let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
 
@@ -389,17 +386,19 @@ impl Config {
         let path = path.unwrap_or_else(Config::config_path);
 
         let mut config = if fs::exists(&path) {
-            info!("Loading saved configuration");
+            tracing::info!("Loading saved configuration");
             fs::load_raw(&path)
                 .context("failed to load config")
                 .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
                 .with_context(|| format!("failed to parse {path:?}"))
                 .unwrap_or_else(|err| {
-                    error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
+                    tracing::error!(
+                        "Invalid config: {path:?}, reverting to defaults. Error: {err:?}",
+                    );
                     Self::default()
                 })
         } else {
-            info!("Loading default configuration");
+            tracing::info!("Loading default configuration");
             Self::default()
         };
 
@@ -412,7 +411,7 @@ impl Config {
         }
 
         // Only keep recent Homebrew ROMs that are still available.
-        let homebrew_roms = HOMEBREW_ROMS
+        let homebrew_roms = super::rom::HOMEBREW_ROMS
             .iter()
             .map(|rom| rom.name)
             .collect::<HashSet<_>>();
@@ -424,12 +423,12 @@ impl Config {
         config
     }
 
-    pub fn increment_speed(&mut self) -> f32 {
+    pub(crate) fn increment_speed(&mut self) -> f32 {
         self.emulation.speed = self.next_increment_speed();
         self.emulation.speed
     }
 
-    pub fn next_increment_speed(&self) -> f32 {
+    pub(crate) fn next_increment_speed(&self) -> f32 {
         if self.emulation.speed <= 1.75 {
             self.emulation.speed + 0.25
         } else {
@@ -437,12 +436,12 @@ impl Config {
         }
     }
 
-    pub fn decrement_speed(&mut self) -> f32 {
+    pub(crate) fn decrement_speed(&mut self) -> f32 {
         self.emulation.speed = self.next_decrement_speed();
         self.emulation.speed
     }
 
-    pub fn next_decrement_speed(&self) -> f32 {
+    pub(crate) fn next_decrement_speed(&self) -> f32 {
         if self.emulation.speed >= 0.50 {
             self.emulation.speed - 0.25
         } else {
@@ -450,12 +449,12 @@ impl Config {
         }
     }
 
-    pub fn increment_scale(&mut self) -> f32 {
+    pub(crate) fn increment_scale(&mut self) -> f32 {
         self.renderer.scale = self.next_increment_scale();
         self.renderer.scale
     }
 
-    pub fn next_increment_scale(&self) -> f32 {
+    pub(crate) fn next_increment_scale(&self) -> f32 {
         if self.renderer.scale <= 4.0 {
             self.renderer.scale + 1.0
         } else {
@@ -463,12 +462,12 @@ impl Config {
         }
     }
 
-    pub fn decrement_scale(&mut self) -> f32 {
+    pub(crate) fn decrement_scale(&mut self) -> f32 {
         self.renderer.scale = self.next_decrement_scale();
         self.renderer.scale
     }
 
-    pub fn next_decrement_scale(&self) -> f32 {
+    pub(crate) fn next_decrement_scale(&self) -> f32 {
         if self.renderer.scale >= 2.0 {
             self.renderer.scale - 1.0
         } else {
@@ -477,12 +476,12 @@ impl Config {
     }
 
     #[must_use]
-    pub fn window_size(&self, aspect_ratio: f32) -> egui::Vec2 {
+    pub(crate) fn window_size(&self, aspect_ratio: f32) -> egui::Vec2 {
         self.window_size_for_scale(aspect_ratio, self.renderer.scale)
     }
 
     #[must_use]
-    pub fn window_size_for_scale(&self, aspect_ratio: f32, scale: f32) -> egui::Vec2 {
+    pub(crate) fn window_size_for_scale(&self, aspect_ratio: f32, scale: f32) -> egui::Vec2 {
         let texture_size = self.texture_size();
         egui::Vec2::new(
             (scale * aspect_ratio * texture_size.x).ceil(),
@@ -491,7 +490,7 @@ impl Config {
     }
 
     #[must_use]
-    pub const fn texture_size(&self) -> egui::Vec2 {
+    pub(crate) const fn texture_size(&self) -> egui::Vec2 {
         let width = Ppu::WIDTH;
         let height = if self.renderer.hide_overscan {
             Ppu::HEIGHT - 16
@@ -501,7 +500,7 @@ impl Config {
         egui::Vec2::new(width as f32, height as f32)
     }
 
-    pub fn shortcut(&self, action: impl Into<Action>) -> String {
+    pub(crate) fn shortcut(&self, action: impl Into<Action>) -> String {
         let action = action.into();
         self.input
             .shortcuts
@@ -512,7 +511,7 @@ impl Config {
             .unwrap_or_default()
     }
 
-    pub fn action_input(&self, action: impl Into<Action>) -> Option<Input> {
+    pub(crate) fn action_input(&self, action: impl Into<Action>) -> Option<Input> {
         let action = action.into();
         self.input
             .shortcuts
@@ -529,7 +528,7 @@ impl Config {
     }
 
     // Add a recently loaded ROM.
-    pub fn add_recent_rom(&mut self, rom: RecentRom) {
+    pub(crate) fn add_recent_rom(&mut self, rom: RecentRom) {
         self.renderer.recent_roms.retain(|r| r != &rom);
         self.renderer.recent_roms.push_front(rom);
         if self.renderer.recent_roms.len() > MAX_RECENT_ROMS {
@@ -539,7 +538,7 @@ impl Config {
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum FrameRate {
+pub(crate) enum FrameRate {
     X50,
     X59,
     #[default]
@@ -547,10 +546,7 @@ pub enum FrameRate {
 }
 
 impl FrameRate {
-    pub const MIN: Self = Self::X50;
-    pub const MAX: Self = Self::X60;
-
-    pub fn duration(&self) -> Duration {
+    pub(crate) fn duration(&self) -> Duration {
         Duration::from_secs_f32(f32::from(self).recip())
     }
 }

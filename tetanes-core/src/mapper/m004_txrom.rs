@@ -7,7 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -53,7 +53,8 @@ pub struct Regs {
     pub irq_counter: u8,
     pub irq_enabled: bool,
     pub irq_reload: bool,
-    pub last_clock: u16,
+    pub master_clock: u32,
+    pub a12_low_clock: u32,
 }
 
 /// `TxROM`/`MMC3` (Mapper 004).
@@ -168,34 +169,22 @@ impl Txrom {
         // Allow mappers to override chr banks with `set_chr_banks`
         if !matches!(self.mapper_num, 76 | 88) {
             self.update_chr_banks();
-        };
+        }
     }
 
-    pub fn clock_irq(&mut self, addr: u16) {
-        if addr < 0x2000 {
-            let next_clock = (addr >> 12) & 1;
-            let (last, next) = if self.revision == Revision::Acc {
-                (1, 0)
-            } else {
-                (0, 1)
-            };
-            if self.regs.last_clock == last && next_clock == next {
-                let counter = self.regs.irq_counter;
-                if counter == 0 || self.regs.irq_reload {
-                    self.regs.irq_counter = self.regs.irq_latch;
-                } else {
-                    self.regs.irq_counter -= 1;
-                }
-                if (counter & 0x01 == 0x01 || self.revision == Revision::BC || self.regs.irq_reload)
-                    && self.regs.irq_counter == 0
-                    && self.regs.irq_enabled
-                {
-                    Cpu::set_irq(Irq::MAPPER);
-                }
-                self.regs.irq_reload = false;
-            }
-            self.regs.last_clock = next_clock;
+    const fn is_a12_rising_edge(&mut self, addr: u16) -> bool {
+        if addr & 0x1000 > 0 {
+            // NOTE: This is technical 3 falling edges of M2 - but because the mapper doesn't have
+            // direct access to the CPUs clock, and is clocked after the PPU runs and calls this
+            // method, we're off by 1
+            let is_rising_edge = self.regs.a12_low_clock > 0
+                && self.regs.master_clock.wrapping_sub(self.regs.a12_low_clock) >= 4;
+            self.regs.a12_low_clock = 0;
+            return is_rising_edge;
+        } else if self.regs.a12_low_clock == 0 {
+            self.regs.a12_low_clock = self.regs.master_clock;
         }
+        false
     }
 }
 
@@ -215,7 +204,6 @@ impl Map for Txrom {
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
 
     fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.clock_irq(addr);
         self.map_peek(addr)
     }
 
@@ -301,17 +289,27 @@ impl Map for Txrom {
         }
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
-        }
-    }
+    fn update_vram_addr(&mut self, addr: u16) {
+        // Clock on PPU A12 rising edge
+        if self.is_a12_rising_edge(addr) {
+            let counter = self.regs.irq_counter;
+            if self.regs.irq_counter == 0 || self.regs.irq_reload {
+                self.regs.irq_counter = self.regs.irq_latch;
+            } else {
+                self.regs.irq_counter -= 1;
+            }
 
-    fn bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
+            if self.revision == Revision::A {
+                if (counter > 0 || self.regs.irq_reload)
+                    && self.regs.irq_counter == 0
+                    && self.regs.irq_enabled
+                {
+                    Cpu::set_irq(Irq::MAPPER);
+                }
+            } else if self.regs.irq_counter == 0 && self.regs.irq_enabled {
+                Cpu::set_irq(Irq::MAPPER);
+            }
+            self.regs.irq_reload = false;
         }
     }
 
@@ -331,6 +329,11 @@ impl Reset for Txrom {
     }
 }
 
-impl Clock for Txrom {}
+impl Clock for Txrom {
+    fn clock(&mut self) {
+        self.regs.master_clock = self.regs.master_clock.wrapping_add(1);
+    }
+}
+
 impl Regional for Txrom {}
 impl Sram for Txrom {}

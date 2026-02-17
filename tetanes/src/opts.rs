@@ -1,6 +1,6 @@
+use crate::nes::Config;
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
-use tetanes::nes::config::Config;
 use tetanes_core::genie::GenieCode;
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub(crate) struct NesRegion(tetanes_core::common::NesRegion);
 impl ValueEnum for NesRegion {
     fn value_variants<'a>() -> &'a [Self] {
         use tetanes_core::common::NesRegion::*;
-        &[Self(Ntsc), Self(Pal), Self(Dendy)]
+        &[Self(Auto), Self(Ntsc), Self(Pal), Self(Dendy)]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
@@ -70,7 +70,7 @@ pub struct Opts {
     /// Disable multi-threaded.
     #[arg(long)]
     pub(crate) no_threaded: bool,
-    /// Choose power-up RAM state. [default: "all-zeros"]
+    /// Choose power-up RAM state. [default: "random"]
     #[arg(short = 'm', long, value_enum)]
     pub(crate) ram_state: Option<RamState>,
     /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
@@ -152,10 +152,7 @@ impl Opts {
 
         cfg.audio.enabled = !self.silent && cfg.audio.enabled;
 
-        cfg.renderer.roms_path = self
-            .path
-            .or(cfg.renderer.roms_path)
-            .and_then(|path| path.canonicalize().ok());
+        cfg.renderer.roms_path = self.path.or(cfg.renderer.roms_path);
         cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
 
         Ok(cfg)

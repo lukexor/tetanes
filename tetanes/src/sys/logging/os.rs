@@ -13,7 +13,7 @@ pub struct Log {
     _guard: WorkerGuard,
 }
 
-pub fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
+pub(crate) fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
 where
     S: SubscriberExt + for<'a> LookupSpan<'a> + Sync + Send,
 {
@@ -42,12 +42,12 @@ where
                 .with_thread_names(true)
                 .with_writer(file_writer),
         )
+        // Make console output easier to parse - more details can be found in the file log
         .with(
             fmt::layer()
                 .compact()
                 .with_line_number(true)
-                .with_thread_ids(true)
-                .with_thread_names(true)
+                .without_time()
                 .with_writer(std::io::stderr),
         );
 

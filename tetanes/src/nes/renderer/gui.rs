@@ -52,12 +52,12 @@ use tracing::{error, info, warn};
 use winit::event::WindowEvent;
 
 mod keybinds;
-pub mod lib;
+pub(crate) mod lib;
 mod ppu_viewer;
 mod preferences;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum Menu {
+pub(crate) enum Menu {
     About,
     Keybinds,
     PerfStats,
@@ -66,7 +66,7 @@ pub enum Menu {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum MessageType {
+pub(crate) enum MessageType {
     Info,
     Warn,
     Error,
@@ -74,15 +74,15 @@ pub enum MessageType {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Gui {
+pub(crate) struct Gui {
     ctx: Context,
     initialized: bool,
     title: String,
     tx: NesEventProxy,
-    pub nes_texture: Texture,
+    pub(crate) nes_texture: Texture,
     corrupted_cpu_instr: Option<InstrRef>,
-    pub run_state: RunState,
-    pub menu_height: f32,
+    pub(crate) run_state: RunState,
+    pub(crate) menu_height: f32,
     nes_frame: Rect,
     about_open: bool,
     gui_settings_open: Arc<AtomicBool>,
@@ -93,7 +93,7 @@ pub struct Gui {
     perf_stats_open: bool,
     update_window_open: bool,
     version: Version,
-    pub keybinds: Keybinds,
+    pub(crate) keybinds: Keybinds,
     preferences: Preferences,
     debugger_open: bool,
     ppu_viewer: PpuViewer,
@@ -103,12 +103,13 @@ pub struct Gui {
     audio_recording: bool,
     frame_stats: FrameStats,
     messages: Vec<(MessageType, String, Instant)>,
-    pub loaded_rom: Option<LoadedRom>,
+    pub(crate) loaded_rom: Option<LoadedRom>,
     about_homebrew_rom_open: Option<RomAsset>,
     start: Instant,
     sys: System,
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     enable_auto_update: bool,
+    // Extra state is required so that toggling it off doesn't immediately close the update window
     dont_show_updates: bool,
 }
 
@@ -118,7 +119,7 @@ impl Gui {
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
 
     /// Create a `Gui` instance.
-    pub fn new(
+    pub(crate) fn new(
         ctx: Context,
         tx: NesEventProxy,
         render_state: &mut RenderState,
@@ -170,7 +171,7 @@ impl Gui {
         }
     }
 
-    pub fn on_window_event(&mut self, event: &WindowEvent) -> Response {
+    pub(crate) fn on_window_event(&mut self, event: &WindowEvent) -> Response {
         match event {
             WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
                 if self.keybinds.wants_input() =>
@@ -180,12 +181,40 @@ impl Gui {
                     ..Default::default()
                 }
             }
-            _ => Response::default(),
+            WindowEvent::ActivationTokenDone { .. }
+            | WindowEvent::Resized(_)
+            | WindowEvent::Moved(_)
+            | WindowEvent::CloseRequested
+            | WindowEvent::Destroyed
+            | WindowEvent::DroppedFile(_)
+            | WindowEvent::HoveredFile(_)
+            | WindowEvent::HoveredFileCancelled
+            | WindowEvent::Focused(_)
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Ime(_)
+            | WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::PinchGesture { .. }
+            | WindowEvent::PanGesture { .. }
+            | WindowEvent::DoubleTapGesture { .. }
+            | WindowEvent::RotationGesture { .. }
+            | WindowEvent::TouchpadPressure { .. }
+            | WindowEvent::AxisMotion { .. }
+            | WindowEvent::Touch(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+            | WindowEvent::ThemeChanged(_)
+            | WindowEvent::Occluded(_)
+            | WindowEvent::RedrawRequested => Response::default(),
         }
     }
 
-    pub fn on_event(&mut self, queue: &wgpu::Queue, event: &mut NesEvent) {
+    pub(crate) fn on_event(&mut self, queue: &wgpu::Queue, event: &mut NesEvent) {
         match event {
+            #[cfg(not(target_arch = "wasm32"))]
             NesEvent::Ui(UiEvent::UpdateAvailable(version)) => {
                 self.version.set_latest(version.clone());
                 self.update_window_open = true;
@@ -205,7 +234,26 @@ impl Gui {
                 EmulationEvent::RunState(mode) => {
                     self.run_state = *mode;
                 }
-                _ => (),
+                EmulationEvent::AddDebugger(_)
+                | EmulationEvent::RemoveDebugger(_)
+                | EmulationEvent::DebugStep(_)
+                | EmulationEvent::InstantRewind
+                | EmulationEvent::Joypad(_)
+                | EmulationEvent::LoadReplayPath(_)
+                | EmulationEvent::LoadRom(_)
+                | EmulationEvent::LoadRomPath(_)
+                | EmulationEvent::LoadState(_)
+                | EmulationEvent::Reset(_)
+                | EmulationEvent::RequestFrame
+                | EmulationEvent::Rewinding(_)
+                | EmulationEvent::SaveState(_)
+                | EmulationEvent::ShowFrameStats(_)
+                | EmulationEvent::Screenshot
+                | EmulationEvent::UnloadRom
+                | EmulationEvent::ZapperAim(_)
+                | EmulationEvent::ZapperTrigger => (),
+                #[cfg(target_arch = "wasm32")]
+                EmulationEvent::LoadReplay(_) => (),
             },
             NesEvent::Renderer(event) => match event {
                 RendererEvent::FrameStats(stats) => {
@@ -244,17 +292,23 @@ impl Gui {
                     Menu::PpuViewer => self.ppu_viewer.toggle_open(&self.ctx),
                     Menu::Preferences => self.preferences.toggle_open(&self.ctx),
                 },
-                _ => (),
+                RendererEvent::ResizeTexture
+                | RendererEvent::ResourcesReady
+                | RendererEvent::RequestRedraw { .. } => (),
+                #[cfg(target_arch = "wasm32")]
+                RendererEvent::ViewportResized => (),
             },
             NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());
             }
-            _ => (),
+            NesEvent::Config(_) | NesEvent::Ui(_) => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { .. } => (),
         }
     }
 
-    pub fn add_message<S>(&mut self, ty: MessageType, text: S)
+    pub(crate) fn add_message<S>(&mut self, ty: MessageType, text: S)
     where
         S: Into<String>,
     {
@@ -268,11 +322,11 @@ impl Gui {
             .push((ty, text, Instant::now() + Self::MSG_TIMEOUT));
     }
 
-    pub fn loaded_region(&self) -> Option<NesRegion> {
+    pub(crate) fn loaded_region(&self) -> Option<NesRegion> {
         self.loaded_rom.as_ref().map(|rom| rom.region)
     }
 
-    pub fn aspect_ratio(&self, cfg: &Config) -> f32 {
+    pub(crate) fn aspect_ratio(&self, cfg: &Config) -> f32 {
         let region = cfg
             .deck
             .region
@@ -284,7 +338,7 @@ impl Gui {
     }
 
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
+    pub(crate) fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
         if !self.initialized {
             self.initialize(ctx, cfg);
         }
@@ -349,19 +403,6 @@ impl Gui {
     }
 
     fn initialize(&mut self, ctx: &Context, cfg: &Config) {
-        let theme = if cfg.renderer.dark_theme {
-            Self::dark_theme()
-        } else {
-            Self::light_theme()
-        };
-        ctx.set_visuals(theme);
-        ctx.style_mut(|ctx| {
-            let scroll = &mut ctx.spacing.scroll;
-            scroll.floating = false;
-            scroll.foreground_color = false;
-            scroll.bar_width = 8.0;
-        });
-
         const FONT: (&str, &[u8]) = (
             "pixeloid-sans",
             include_bytes!("../../../assets/pixeloid-sans.ttf"),
@@ -374,6 +415,19 @@ impl Gui {
             "pixeloid-mono",
             include_bytes!("../../../assets/pixeloid-mono.ttf"),
         );
+
+        let theme = if cfg.renderer.dark_theme {
+            Self::dark_theme()
+        } else {
+            Self::light_theme()
+        };
+        ctx.set_visuals(theme);
+        ctx.style_mut(|ctx| {
+            let scroll = &mut ctx.spacing.scroll;
+            scroll.floating = false;
+            scroll.foreground_color = false;
+            scroll.bar_width = 8.0;
+        });
 
         egui_extras::install_image_loaders(ctx);
 
@@ -619,7 +673,7 @@ impl Gui {
         });
     }
 
-    pub fn toggle_dark_mode_button(tx: &NesEventProxy, ui: &mut Ui) {
+    pub(crate) fn toggle_dark_mode_button(tx: &NesEventProxy, ui: &mut Ui) {
         if ui.ctx().style().visuals.dark_mode {
             let button = Button::new("☀").frame(false);
             let res = ui.add(button).on_hover_text("Switch to light mode");
@@ -729,7 +783,7 @@ impl Gui {
                     .on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::SaveState(cfg.emulation.save_slot));
-                };
+                }
 
                 let button =
                     Button::new("⎗ Load State").shortcut_text(cfg.shortcut(DeckAction::LoadState));
@@ -760,7 +814,7 @@ impl Gui {
             let button = Button::new("⎆ Quit").shortcut_text(cfg.shortcut(UiAction::Quit));
             if ui.add(button).clicked() {
                 tx.event(UiEvent::Terminate);
-            };
+            }
         }
     }
 
@@ -801,7 +855,7 @@ impl Gui {
                     RunState::ManuallyPaused | RunState::AutoPaused => RunState::Running,
                 };
                 tx.event(EmulationEvent::RunState(self.run_state));
-            };
+            }
         });
 
         let button = Button::new(if cfg.audio.enabled {
@@ -812,7 +866,7 @@ impl Gui {
         .shortcut_text(cfg.shortcut(Setting::ToggleAudio));
         if ui.add(button).clicked() {
             tx.event(ConfigEvent::AudioEnabled(!cfg.audio.enabled));
-        };
+        }
 
         ui.separator();
 
@@ -831,7 +885,7 @@ impl Gui {
                     .on_disabled_hover_text(disabled_hover_text);
                 if res.clicked() {
                     tx.event(EmulationEvent::InstantRewind);
-                };
+                }
             });
 
             let button = Button::new("🔃 Reset")
@@ -842,7 +896,7 @@ impl Gui {
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 tx.event(EmulationEvent::Reset(ResetKind::Soft));
-            };
+            }
 
             let button = Button::new("🔌 Power Cycle")
                 .shortcut_text(cfg.shortcut(DeckAction::Reset(ResetKind::Hard)));
@@ -852,7 +906,7 @@ impl Gui {
                 .on_disabled_hover_text(Self::NO_ROM_LOADED);
             if res.clicked() {
                 tx.event(EmulationEvent::Reset(ResetKind::Hard));
-            };
+            }
         });
 
         if feature!(Filesystem) {
@@ -864,7 +918,7 @@ impl Gui {
                 let res = ui.add(button).on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::Screenshot);
-                };
+                }
 
                 let button_txt = if self.replay_recording {
                     "⏹ Stop Replay Recording"
@@ -879,7 +933,7 @@ impl Gui {
                     .on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::ReplayRecord(!self.replay_recording));
-                };
+                }
 
                 let button_txt = if self.audio_recording {
                     "⏹ Stop Audio Recording"
@@ -894,7 +948,7 @@ impl Gui {
                     .on_disabled_hover_text(Self::NO_ROM_LOADED);
                 if res.clicked() {
                     tx.event(EmulationEvent::AudioRecord(!self.audio_recording));
-                };
+                }
             });
         }
     }
@@ -986,7 +1040,7 @@ impl Gui {
             .shortcut_text(cfg.shortcut(Menu::Keybinds));
         if ui.add(toggle).clicked() {
             self.keybinds.set_open(keybinds_open, &self.ctx);
-        };
+        }
     }
 
     fn window_menu(&mut self, ui: &mut Ui, cfg: &Config) {
@@ -1083,6 +1137,7 @@ impl Gui {
             ui.toggle_value(&mut self.viewport_info_open, "ℹ Viewport Info");
 
             #[cfg(target_arch = "wasm32")]
+            #[allow(clippy::panic, reason = "manual test")]
             if ui.button("❗Test panic!").clicked() {
                 panic!("panic test");
             }
@@ -1397,14 +1452,15 @@ impl Gui {
             ui.end_row();
 
             if let Some(stats) = self.sys.stats() {
+                const fn bytes_to_mb(bytes: u64) -> u64 {
+                    bytes / 0x10_0000
+                }
+
                 let cpu_color = |cpu| match cpu {
                     cpu if cpu <= 25.0 => good_color,
                     cpu if cpu <= 50.0 => warn_color,
                     _ => bad_color,
                 };
-                const fn bytes_to_mb(bytes: u64) -> u64 {
-                    bytes / 0x100000
-                }
 
                 ui.label("");
                 ui.end_row();
@@ -1570,7 +1626,11 @@ impl Gui {
                 MessageType::Warn => ("⚠", visuals.warn_fg_color),
                 MessageType::Error => ("❗", visuals.error_fg_color),
             };
-            ui.colored_label(color, format!("{icon} {message}"));
+            ui.horizontal(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.colored_label(color, icon);
+                ui.colored_label(color, message);
+            });
         }
     }
 
@@ -1588,7 +1648,7 @@ impl Gui {
         }
     }
 
-    pub fn dark_theme() -> egui::Visuals {
+    pub(crate) fn dark_theme() -> egui::Visuals {
         Visuals {
             dark_mode: true,
             widgets: egui::style::Widgets {
@@ -1659,7 +1719,7 @@ impl Gui {
         }
     }
 
-    pub fn light_theme() -> egui::Visuals {
+    pub(crate) fn light_theme() -> egui::Visuals {
         egui::Visuals {
             dark_mode: false,
             widgets: egui::style::Widgets {

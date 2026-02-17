@@ -26,7 +26,7 @@ impl Uxrom {
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
-        };
+        }
         let mut uxrom = Self {
             mirroring: cart.mirroring(),
             prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,

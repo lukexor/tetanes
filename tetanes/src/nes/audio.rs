@@ -17,7 +17,7 @@ type SampleConsumer = CachingCons<SampleRb>;
 /// Represents the state of the audio stream.
 #[derive(Debug)]
 #[must_use]
-pub enum State {
+pub(crate) enum State {
     /// Audio is disabled.
     Disabled,
     /// No audio output device was found or no devices found to support desired configuration.
@@ -28,22 +28,13 @@ pub enum State {
     Stopped,
 }
 
-#[derive(Debug)]
 #[must_use]
-pub enum CallbackMsg {
-    NewSamples,
-    UpdateResampleRatio(f32),
-    Enable(bool),
-    Record(bool),
-}
-
-#[must_use]
-pub struct Audio {
-    pub enabled: bool,
-    pub sample_rate: f32,
-    pub latency: Duration,
-    pub buffer_size: usize,
-    pub host: cpal::Host,
+pub(crate) struct Audio {
+    enabled: bool,
+    pub(crate) sample_rate: f32,
+    pub(crate) latency: Duration,
+    buffer_size: usize,
+    host: cpal::Host,
     output: Option<Output>,
 }
 
@@ -65,7 +56,12 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio device fails to be opened.
-    pub fn new(enabled: bool, mut sample_rate: f32, latency: Duration, buffer_size: usize) -> Self {
+    pub(crate) fn new(
+        enabled: bool,
+        mut sample_rate: f32,
+        latency: Duration,
+        buffer_size: usize,
+    ) -> Self {
         let host = cpal::default_host();
         let output = Output::create(&host, sample_rate, latency, buffer_size);
         if let Some(output) = &output {
@@ -88,7 +84,7 @@ impl Audio {
     }
 
     /// Whether the audio mixer is currently enabled.
-    pub fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.enabled
             && self
                 .output
@@ -98,13 +94,13 @@ impl Audio {
     }
 
     /// Returns the current audio device, if any.
-    pub fn device(&self) -> Option<&cpal::Device> {
+    pub(crate) fn device(&self) -> Option<&cpal::Device> {
         self.output.as_ref().map(|output| &output.device)
     }
 
     /// Set whether the audio mixer is enabled. Returns [`State`] representing the state of
     /// the audio stream as a result of being enabled/disabled.
-    pub fn set_enabled(&mut self, enabled: bool) -> anyhow::Result<State> {
+    pub(crate) fn set_enabled(&mut self, enabled: bool) -> anyhow::Result<State> {
         self.enabled = enabled;
         if self.enabled {
             self.start()
@@ -114,7 +110,7 @@ impl Audio {
     }
 
     /// Processes generated audio samples.
-    pub fn process(&mut self, samples: &[f32]) {
+    pub(crate) fn process(&mut self, samples: &[f32]) {
         if let Some(mixer) = &mut self
             .output
             .as_mut()
@@ -124,17 +120,9 @@ impl Audio {
         }
     }
 
-    /// Returns the number of audio channels.
-    #[must_use]
-    pub fn channels(&self) -> u16 {
-        self.output
-            .as_ref()
-            .map_or(0, |output| output.config.channels)
-    }
-
     /// Returns the `Duration` of audio queued for playback.
     #[must_use]
-    pub fn queued_time(&self) -> Duration {
+    pub(crate) fn queued_time(&self) -> Duration {
         self.output
             .as_ref()
             .and_then(|output| output.mixer.as_ref())
@@ -147,7 +135,7 @@ impl Audio {
 
     /// Pause or resume the audio output stream. If `paused` is false and the stream is not started
     /// yet, it will be started.
-    pub fn pause(&mut self, paused: bool) {
+    pub(crate) fn pause(&mut self, paused: bool) {
         if let Some(mixer) = &mut self
             .output
             .as_mut()
@@ -164,29 +152,22 @@ impl Audio {
         self.start()
     }
 
-    /// Set the output sample rate that the audio device uses. Requires restarting the audio stream
-    /// and so may fail.
-    pub fn set_sample_rate(&mut self, sample_rate: f32) -> anyhow::Result<State> {
-        self.sample_rate = sample_rate;
-        self.recreate_output()
-    }
-
     /// Set the buffer size used by the audio device for playback. Requires restarting the audio
     /// stream and so may fail.
-    pub fn set_buffer_size(&mut self, buffer_size: usize) -> anyhow::Result<State> {
+    pub(crate) fn set_buffer_size(&mut self, buffer_size: usize) -> anyhow::Result<State> {
         self.buffer_size = buffer_size;
         self.recreate_output()
     }
 
     /// Set the latency used by the audio device for playback. Requires restarting the audio
     /// stream and so may fail.
-    pub fn set_latency(&mut self, latency: Duration) -> anyhow::Result<State> {
+    pub(crate) fn set_latency(&mut self, latency: Duration) -> anyhow::Result<State> {
         self.latency = latency;
         self.recreate_output()
     }
 
     /// Whether the mixer is currently recording samples to a file.
-    pub fn is_recording(&self) -> bool {
+    pub(crate) fn is_recording(&self) -> bool {
         self.output
             .as_ref()
             .and_then(|output| output.mixer.as_ref())
@@ -194,7 +175,7 @@ impl Audio {
     }
 
     /// Start recording audio to a file.
-    pub fn start_recording(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn start_recording(&mut self) -> anyhow::Result<()> {
         if let Some(mixer) = &mut self
             .output
             .as_mut()
@@ -207,7 +188,7 @@ impl Audio {
     }
 
     /// Stop recording audio to a file.
-    pub fn stop_recording(&mut self) -> anyhow::Result<Option<PathBuf>> {
+    pub(crate) fn stop_recording(&mut self) -> anyhow::Result<Option<PathBuf>> {
         self.output
             .as_mut()
             .and_then(|output| output.mixer.as_mut())
@@ -219,7 +200,7 @@ impl Audio {
     /// # Errors
     ///
     /// Returns an error if the audio stream could not be started.
-    pub fn start(&mut self) -> anyhow::Result<State> {
+    pub(crate) fn start(&mut self) -> anyhow::Result<State> {
         if self.enabled {
             if let Some(output) = &mut self.output {
                 output.start()?;
@@ -233,7 +214,7 @@ impl Audio {
     }
 
     /// Stop the audio output stream.
-    pub fn stop(&mut self) -> State {
+    pub(crate) fn stop(&mut self) -> State {
         if let Some(output) = &mut self.output {
             output.stop();
             State::Stopped
@@ -241,40 +222,10 @@ impl Audio {
             State::NoOutputDevice
         }
     }
-
-    /// Returns a list of available hosts for the current platform.
-    pub fn available_hosts(&self) -> Vec<cpal::HostId> {
-        cpal::available_hosts()
-    }
-
-    /// Returns an iterator over the audio devices available to the host on the system. If no
-    /// devices are available, `None` is returned.
-    ///
-    /// # Errors
-    ///
-    /// If the device is no longer valid (i.e. has been disconnected), an error is returned.
-    pub fn available_devices(&self) -> anyhow::Result<cpal::Devices> {
-        Ok(self.host.devices()?)
-    }
-
-    /// Return an iterator over supported device configurations. If no devices are available, `None` is
-    /// returned.
-    ///
-    /// # Errors
-    ///
-    /// If the device is no longer valid (i.e. has been disconnected), an error is returned.
-    pub fn supported_configs(&self) -> Option<anyhow::Result<cpal::SupportedOutputConfigs>> {
-        self.output.as_ref().map(|output| {
-            output
-                .device
-                .supported_output_configs()
-                .context("failed to get supported configurations")
-        })
-    }
 }
 
 #[must_use]
-struct Output {
+pub(crate) struct Output {
     device: cpal::Device,
     config: cpal::StreamConfig,
     sample_format: cpal::SampleFormat,
@@ -303,13 +254,11 @@ impl Output {
             warn!("no available audio devices found");
             return None;
         };
+
+        let desc = device.description();
         debug!(
             "device name: {}",
-            device
-                .description()
-                .as_ref()
-                .map(|desc| desc.name())
-                .unwrap_or("unknown")
+            desc.as_ref().map(|desc| desc.name()).unwrap_or("unknown")
         );
         let (config, sample_format) = match Self::choose_config(&device, sample_rate, buffer_size) {
             Ok(config) => config,
@@ -462,7 +411,9 @@ impl Mixer {
             SampleFormat::U64 => Self::make_stream::<u64>(device, config, consumer),
             SampleFormat::F32 => Self::make_stream::<f32>(device, config, consumer),
             SampleFormat::F64 => Self::make_stream::<f64>(device, config, consumer),
-            sample_format => Err(anyhow!("Unsupported sample format {sample_format}")),
+            SampleFormat::I24 | SampleFormat::U24 | _ => {
+                Err(anyhow!("Unsupported sample format {sample_format}"))
+            }
         }?;
         stream.play()?;
 

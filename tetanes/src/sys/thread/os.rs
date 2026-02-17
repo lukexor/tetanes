@@ -2,7 +2,7 @@ use std::{future::Future, thread};
 use tetanes_core::time::{Duration, Instant};
 
 /// Spawn a future to be run until completion.
-pub fn spawn_impl<F>(future: F)
+pub(crate) fn spawn_impl<F>(future: F)
 where
     F: Future<Output = ()> + 'static,
 {
@@ -11,7 +11,7 @@ where
 
 /// Blocks unless or until the current thread's token is made available or
 /// the specified duration has been reached (may wake spuriously).
-pub fn park_timeout_impl(dur: Duration) {
+pub(crate) fn park_timeout_impl(dur: Duration) {
     let beginning_park = Instant::now();
     let mut timeout_remaining = dur;
     loop {
@@ -25,7 +25,7 @@ pub fn park_timeout_impl(dur: Duration) {
 }
 
 /// Sleeps the current thread for the specified duration.
-pub async fn sleep_impl(dur: Duration) {
+pub(crate) async fn sleep_impl(dur: Duration) {
     // TODO: Async is a lie and is only required to allow the web impl to be non-blocking
     thread::sleep(dur);
 }

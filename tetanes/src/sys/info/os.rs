@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{ProcessRefreshKind, RefreshKind};
 
 #[derive(Debug)]
-pub struct System {
+pub(crate) struct System {
     sys: Option<sysinfo::System>,
     updated: Instant,
 }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use std::{
     env,
@@ -15,7 +16,7 @@ fn main() -> anyhow::Result<()> {
     if path.is_dir() {
         let paths: Vec<PathBuf> = path
             .read_dir()
-            .unwrap_or_else(|err| panic!("unable read directory {path:?}: {err}"))
+            .with_context(|| format!("unable read directory {path:?}"))?
             .filter_map(Result::ok)
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .map(|f| f.path())

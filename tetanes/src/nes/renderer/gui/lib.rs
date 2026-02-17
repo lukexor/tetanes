@@ -6,8 +6,8 @@ use crate::nes::{
     },
 };
 use egui::{
-    Checkbox, Context, KeyboardShortcut, Pos2, Rect, Response, Sense, TextStyle, TextWrapMode, Ui,
-    Widget, WidgetText,
+    Checkbox, KeyboardShortcut, Pos2, Rect, Response, Sense, TextStyle, TextWrapMode, Ui, Widget,
+    WidgetText,
 };
 use std::ops::{Deref, DerefMut};
 use tetanes_core::ppu::Ppu;
@@ -15,19 +15,19 @@ use winit::{event::ElementState, window::Window};
 
 #[derive(Debug, Copy, Clone)]
 #[must_use]
-pub struct ViewportOptions {
-    pub enabled: bool,
-    pub always_on_top: bool,
+pub(crate) struct ViewportOptions {
+    pub(crate) enabled: bool,
+    pub(crate) always_on_top: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum ShowShortcut {
+pub(crate) enum ShowShortcut {
     Yes,
     No,
 }
 
 impl ShowShortcut {
-    pub fn then<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+    pub(crate) fn then<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
         match self {
             Self::Yes => Some(f()),
             Self::No => None,
@@ -35,7 +35,7 @@ impl ShowShortcut {
     }
 }
 
-pub trait ShortcutText<'a>
+pub(crate) trait ShortcutText<'a>
 where
     Self: Sized + 'a,
 {
@@ -48,7 +48,7 @@ where
     }
 }
 
-pub fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
+pub(crate) fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
     let width = Ppu::WIDTH as f32;
     let height = Ppu::HEIGHT as f32;
     // Normalize x/y to 0..=1 and scale to PPU dimensions
@@ -57,7 +57,7 @@ pub fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
     ((0.0..width).contains(&x) && (0.0..height).contains(&y)).then_some(Pos2::new(x, y))
 }
 
-pub fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) -> bool {
+pub(crate) fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) -> bool {
     ui.input_mut(|i| match input {
         Input::Key(keycode, modifier_state) => key_from_keycode(keycode).is_some_and(|key| {
             let modifiers = modifiers_from_modifiers_state(modifier_state);
@@ -83,7 +83,7 @@ pub fn input_down(ui: &mut Ui, gamepads: &Gamepads, cfg: &Config, input: Input) 
 }
 
 #[must_use]
-pub struct ShortcutWidget<'a, T> {
+pub(crate) struct ShortcutWidget<'a, T> {
     inner: T,
     shortcut_text: WidgetText,
     phantom: std::marker::PhantomData<&'a ()>,
@@ -143,13 +143,13 @@ where
 }
 
 #[must_use]
-pub struct ToggleValue<'a> {
+pub(crate) struct ToggleValue<'a> {
     selected: &'a mut bool,
     text: WidgetText,
 }
 
 impl<'a> ToggleValue<'a> {
-    pub fn new(selected: &'a mut bool, text: impl Into<WidgetText>) -> Self {
+    pub(crate) fn new(selected: &'a mut bool, text: impl Into<WidgetText>) -> Self {
         Self {
             selected,
             text: text.into(),
@@ -169,14 +169,18 @@ impl Widget for ToggleValue<'_> {
 }
 
 #[must_use]
-pub struct RadioValue<'a, T> {
+pub(crate) struct RadioValue<'a, T> {
     current_value: &'a mut T,
     alternative: T,
     text: WidgetText,
 }
 
 impl<'a, T: PartialEq> RadioValue<'a, T> {
-    pub fn new(current_value: &'a mut T, alternative: T, text: impl Into<WidgetText>) -> Self {
+    pub(crate) fn new(
+        current_value: &'a mut T,
+        alternative: T,
+        text: impl Into<WidgetText>,
+    ) -> Self {
         Self {
             current_value,
             alternative,
@@ -215,33 +219,18 @@ impl TryFrom<Input> for KeyboardShortcut {
     }
 }
 
-pub fn screen_center(ctx: &Context) -> Option<Pos2> {
-    ctx.input(|i| {
-        let outer_rect = i.viewport().outer_rect?;
-        let size = outer_rect.size();
-        let monitor_size = i.viewport().monitor_size?;
-        if 1.0 < monitor_size.x && 1.0 < monitor_size.y {
-            let x = (monitor_size.x - size.x) / 2.0;
-            let y = (monitor_size.y - size.y) / 2.0;
-            Some(Pos2::new(x, y))
-        } else {
-            None
-        }
-    })
-}
-
-pub fn screen_size_in_pixels(window: &Window) -> egui::Vec2 {
+pub(crate) fn screen_size_in_pixels(window: &Window) -> egui::Vec2 {
     let size = window.inner_size();
     egui::vec2(size.width as f32, size.height as f32)
 }
 
-pub fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
+pub(crate) fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
     let native_pixels_per_point = window.scale_factor() as f32;
     let egui_zoom_factor = egui_ctx.zoom_factor();
     egui_zoom_factor * native_pixels_per_point
 }
 
-pub fn inner_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
+pub(crate) fn inner_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
     let inner_pos_px = window.inner_position().ok()?;
     let inner_pos_px = egui::pos2(inner_pos_px.x as f32, inner_pos_px.y as f32);
 
@@ -253,7 +242,7 @@ pub fn inner_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<eg
     Some(inner_rect_px / pixels_per_point)
 }
 
-pub fn outer_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
+pub(crate) fn outer_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<egui::Rect> {
     let outer_pos_px = window.outer_position().ok()?;
     let outer_pos_px = egui::pos2(outer_pos_px.x as f32, outer_pos_px.y as f32);
 
@@ -265,7 +254,7 @@ pub fn outer_rect_in_points(window: &Window, pixels_per_point: f32) -> Option<eg
     Some(outer_rect_px / pixels_per_point)
 }
 
-pub fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
+pub(crate) fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
     if icon.is_empty() {
         None
     } else {
@@ -280,7 +269,7 @@ pub fn to_winit_icon(icon: &egui::IconData) -> Option<winit::window::Icon> {
 }
 
 /// An animated dashed rectangle.
-pub fn animated_dashed_rect(
+pub(crate) fn animated_dashed_rect(
     ui: &mut Ui,
     rect: Rect,
     stroke: impl Into<egui::Stroke>,

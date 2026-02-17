@@ -1,22 +1,23 @@
 use crate::sys::platform;
 use std::path::{Path, PathBuf};
 
-pub use platform::*;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use platform::*;
 
 /// Trait for any type requiring platform-specific initialization.
-pub trait Initialize {
+pub(crate) trait Initialize {
     /// Initialize type.
     fn initialize(&mut self) -> anyhow::Result<()>;
 }
 
 /// Extension trait for any builder that provides platform-specific behavior.
-pub trait BuilderExt {
+pub(crate) trait BuilderExt {
     /// Sets platform-specific options.
     fn with_platform(self, title: &str) -> Self;
 }
 
 /// Method for platforms supporting opening a file dialog.
-pub fn open_file_dialog(
+pub(crate) fn open_file_dialog(
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
@@ -26,16 +27,15 @@ pub fn open_file_dialog(
 }
 
 /// Speak the given text out loud for platforms that support it.
-#[allow(clippy::missing_const_for_fn)]
-pub fn speak_text(text: &str) {
+pub(crate) fn speak_text(text: &str) {
     platform::speak_text_impl(text);
 }
 
-pub mod renderer {
+pub(crate) mod renderer {
     use super::*;
     use crate::nes::{config::Config, event::Response, renderer::Renderer};
 
-    pub fn constrain_window_to_viewport(
+    pub(crate) fn constrain_window_to_viewport(
         renderer: &Renderer,
         desired_window_width: f32,
         cfg: &Config,
@@ -47,9 +47,8 @@ pub mod renderer {
 /// Platform-specific feature capabilities.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
-pub enum Feature {
+pub(crate) enum Feature {
     AbortOnExit,
-    Blocking,
     ConstrainedViewport,
     ConsumePaste,
     Filesystem,
@@ -67,7 +66,7 @@ macro_rules! feature {
         match $feature {
             // Wasm should never be able to exit
             AbortOnExit => cfg!(target_arch = "wasm32"),
-            Blocking | Filesystem | OsViewports => {
+            Filesystem | OsViewports => {
                 cfg!(not(target_arch = "wasm32"))
             }
             ConstrainedViewport | ConsumePaste | ScreenReader => {

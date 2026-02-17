@@ -7,7 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
     fs,
-    mapper::{self, BusKind, Dxrom88, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{self, Dxrom88, Map, MappedRead, MappedWrite, Mapper},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -56,12 +56,8 @@ impl Map for Dxrom {
         self.inner.map_write(addr, val)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        self.inner.bus_write(addr, val, kind)
-    }
-
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        self.inner.bus_read(addr, kind)
+    fn update_vram_addr(&mut self, addr: u16) {
+        self.inner.update_vram_addr(addr)
     }
 
     fn mirroring(&self) -> Mirroring {

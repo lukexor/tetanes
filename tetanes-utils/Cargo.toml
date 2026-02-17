@@ -19,6 +19,9 @@ name = "generate_db"
 test = false
 bench = false
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true

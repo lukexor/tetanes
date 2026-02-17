@@ -18,7 +18,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 #[derive(Debug)]
 #[must_use]
-pub struct Surface {
+pub(crate) struct Surface {
     inner: wgpu::Surface<'static>,
     shader_resources: Option<shader::Resources>,
     width: u32,
@@ -26,7 +26,7 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub fn new(
+    pub(crate) fn new(
         instance: &wgpu::Instance,
         window: Arc<Window>,
         size: PhysicalSize<u32>,
@@ -89,7 +89,7 @@ impl Deref for Surface {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Painter {
+pub(crate) struct Painter {
     instance: wgpu::Instance,
     render_state: Option<RenderState>,
     surfaces: ViewportIdMap<Surface>,
@@ -116,11 +116,11 @@ impl Default for Painter {
 }
 
 impl Painter {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn set_shader(&mut self, shader: Shader) {
+    pub(crate) fn set_shader(&mut self, shader: Shader) {
         if let Some(render_state) = &mut self.render_state {
             render_state.shader = shader;
             for surface in self.surfaces.values_mut() {
@@ -134,7 +134,7 @@ impl Painter {
         }
     }
 
-    pub async fn set_window(
+    pub(crate) async fn set_window(
         &mut self,
         viewport_id: ViewportId,
         window: Option<Arc<Window>>,
@@ -167,7 +167,7 @@ impl Painter {
         Ok(())
     }
 
-    pub fn paint(
+    pub(crate) fn paint(
         &mut self,
         viewport_id: ViewportId,
         pixels_per_point: f32,
@@ -190,9 +190,9 @@ impl Painter {
 
         // Upload all resources for the GPU.
 
-        let size_in_pixels = [surface.width, surface.height];
+        let screen_size = [surface.width, surface.height];
         let screen_descriptor = ScreenDescriptor {
-            size_in_pixels,
+            screen_size,
             pixels_per_point,
         };
 
@@ -260,12 +260,12 @@ impl Painter {
                 multiview_mask: None,
             });
 
-            render_pass.set_scissor_rect(0, 0, size_in_pixels[0], size_in_pixels[1]);
+            render_pass.set_scissor_rect(0, 0, screen_size[0], screen_size[1]);
             render_pass.set_viewport(
                 0.0,
                 0.0,
-                size_in_pixels[0] as f32,
-                size_in_pixels[1] as f32,
+                screen_size[0] as f32,
+                screen_size[1] as f32,
                 0.0,
                 1.0,
             );
@@ -284,15 +284,15 @@ impl Painter {
         output_frame.present();
     }
 
-    pub const fn render_state(&self) -> Option<&RenderState> {
+    pub(crate) const fn render_state(&self) -> Option<&RenderState> {
         self.render_state.as_ref()
     }
 
-    pub const fn render_state_mut(&mut self) -> Option<&mut RenderState> {
+    pub(crate) const fn render_state_mut(&mut self) -> Option<&mut RenderState> {
         self.render_state.as_mut()
     }
 
-    pub fn on_window_resized(&mut self, viewport_id: ViewportId, width: u32, height: u32) {
+    pub(crate) fn on_window_resized(&mut self, viewport_id: ViewportId, width: u32, height: u32) {
         if let (Some(width), Some(height)) = (NonZeroU32::new(width), NonZeroU32::new(height))
             && let Some(surface) = self.surfaces.get_mut(&viewport_id)
             && let Some(render_state) = &mut self.render_state
@@ -301,11 +301,11 @@ impl Painter {
         }
     }
 
-    pub fn retain_surfaces(&mut self, viewport_ids: &ViewportIdSet) {
+    pub(crate) fn retain_surfaces(&mut self, viewport_ids: &ViewportIdSet) {
         self.surfaces.retain(|id, _| viewport_ids.contains(id));
     }
 
-    pub fn destroy(&mut self) {
+    pub(crate) fn destroy(&mut self) {
         self.surfaces.clear();
         let _ = self.render_state.take();
     }
@@ -321,10 +321,10 @@ struct SlicedBuffer {
 
 #[derive(Debug)]
 #[must_use]
-pub struct RenderState {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub format: wgpu::TextureFormat,
+pub(crate) struct RenderState {
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+    pub(crate) format: wgpu::TextureFormat,
 
     pipeline: wgpu::RenderPipeline,
 
@@ -351,6 +351,11 @@ impl RenderState {
         instance: &wgpu::Instance,
         surface: &wgpu::Surface<'_>,
     ) -> anyhow::Result<Self> {
+        const INDEX_BUFFER_START_CAPACITY: wgpu::BufferAddress =
+            (std::mem::size_of::<u32>() * 1024 * 3) as _;
+        const VERTEX_BUFFER_START_CAPACITY: wgpu::BufferAddress =
+            (std::mem::size_of::<Vertex>() * 1024) as _;
+
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -531,11 +536,6 @@ impl RenderState {
             }
         );
 
-        const INDEX_BUFFER_START_CAPACITY: wgpu::BufferAddress =
-            (std::mem::size_of::<u32>() * 1024 * 3) as _;
-        const VERTEX_BUFFER_START_CAPACITY: wgpu::BufferAddress =
-            (std::mem::size_of::<Vertex>() * 1024) as _;
-
         let index_buffer = SlicedBuffer {
             buffer: Self::create_index_buffer(&device, INDEX_BUFFER_START_CAPACITY),
             slices: Vec::with_capacity(64),
@@ -570,11 +570,11 @@ impl RenderState {
         })
     }
 
-    pub fn max_texture_side(&self) -> u32 {
+    pub(crate) fn max_texture_side(&self) -> u32 {
         self.device.limits().max_texture_dimension_2d
     }
 
-    pub fn register_texture(
+    pub(crate) fn register_texture(
         &mut self,
         label: Option<&str>,
         view: &wgpu::TextureView,
@@ -646,7 +646,11 @@ impl RenderState {
         );
     }
 
-    pub fn update_texture(&mut self, id: epaint::TextureId, image_delta: &epaint::ImageDelta) {
+    pub(crate) fn update_texture(
+        &mut self,
+        id: epaint::TextureId,
+        image_delta: &epaint::ImageDelta,
+    ) {
         let width = image_delta.image.width() as u32;
         let height = image_delta.image.height() as u32;
 
@@ -658,7 +662,7 @@ impl RenderState {
 
         let data_color32 = match &image_delta.image {
             epaint::ImageData::Color(image) => {
-                assert_eq!(
+                debug_assert_eq!(
                     width as usize * height as usize,
                     image.pixels.len(),
                     "Mismatch between texture size and texel count"
@@ -686,21 +690,18 @@ impl RenderState {
             );
         };
 
-        if let Some(pos) = image_delta.pos {
+        if let Some(pos) = image_delta.pos &&
             // update the existing texture
-            let (texture, _bind_group) = self
+            let Some((Some(texture), _bind_group)) = self
                 .textures
                 .get(&id)
-                .expect("Tried to update a texture that has not been allocated yet.");
+        {
             let origin = wgpu::Origin3d {
                 x: pos[0] as u32,
                 y: pos[1] as u32,
                 z: 0,
             };
-            queue_write_data_to_texture(
-                texture.as_ref().expect("Tried to update user texture."),
-                origin,
-            );
+            queue_write_data_to_texture(texture, origin);
         } else {
             // allocate a new texture
             // Use same label for all resources associated with this texture id (no point in retyping the type)
@@ -741,18 +742,19 @@ impl RenderState {
             let origin = wgpu::Origin3d::ZERO;
             queue_write_data_to_texture(&texture, origin);
             self.textures.insert(id, (Some(texture), bind_group));
-        };
+        }
     }
 
-    pub fn update_buffers(
+    pub(crate) fn update_buffers(
         &mut self,
         paint_jobs: &[epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
     ) {
-        let screen_size_in_points = screen_descriptor.screen_size_in_points();
-
         let uniform_buffer_content = UniformBuffer {
-            screen_size_in_points,
+            screen_size: [
+                screen_descriptor.screen_size[0] as f32,
+                screen_descriptor.screen_size[1] as f32,
+            ],
             _padding: Default::default(),
         };
         if uniform_buffer_content != self.previous_uniform_buffer_content {
@@ -775,14 +777,14 @@ impl RenderState {
                 }
             });
 
-        if index_count > 0 {
+        let required_index_buffer_size = (std::mem::size_of::<u32>() * index_count) as u64;
+        if let Some(required_index_buffer_size) = NonZeroU64::new(required_index_buffer_size) {
             self.index_buffer.slices.clear();
 
-            let required_index_buffer_size = (std::mem::size_of::<u32>() * index_count) as u64;
-            if self.index_buffer.capacity < required_index_buffer_size {
+            if self.index_buffer.capacity < required_index_buffer_size.get() {
                 // Resize index buffer if needed.
                 self.index_buffer.capacity =
-                    (self.index_buffer.capacity * 2).at_least(required_index_buffer_size);
+                    (self.index_buffer.capacity * 2).at_least(required_index_buffer_size.get());
                 self.index_buffer.buffer =
                     Self::create_index_buffer(&self.device, self.index_buffer.capacity);
             }
@@ -790,15 +792,16 @@ impl RenderState {
             let index_buffer_staging = self.queue.write_buffer_with(
                 &self.index_buffer.buffer,
                 0,
-                NonZeroU64::new(required_index_buffer_size).expect("valid index buffer size"),
+                required_index_buffer_size,
             );
 
             let Some(mut index_buffer_staging) = index_buffer_staging else {
-                panic!(
+                tracing::warn!(
                     "Failed to create staging buffer for index data. Index count: {index_count}. Required index buffer size: {required_index_buffer_size}. Actual size {} and capacity: {} (bytes)",
                     self.index_buffer.buffer.size(),
                     self.index_buffer.capacity
                 );
+                return;
             };
 
             let mut index_offset = 0;
@@ -814,14 +817,14 @@ impl RenderState {
             }
         }
 
-        if vertex_count > 0 {
+        let required_vertex_buffer_size = (std::mem::size_of::<Vertex>() * vertex_count) as u64;
+        if let Some(required_vertex_buffer_size) = NonZeroU64::new(required_vertex_buffer_size) {
             self.vertex_buffer.slices.clear();
 
-            let required_vertex_buffer_size = (std::mem::size_of::<Vertex>() * vertex_count) as u64;
-            if self.vertex_buffer.capacity < required_vertex_buffer_size {
+            if self.vertex_buffer.capacity < required_vertex_buffer_size.get() {
                 // Resize vertex buffer if needed.
                 self.vertex_buffer.capacity =
-                    (self.vertex_buffer.capacity * 2).at_least(required_vertex_buffer_size);
+                    (self.vertex_buffer.capacity * 2).at_least(required_vertex_buffer_size.get());
                 self.vertex_buffer.buffer =
                     Self::create_vertex_buffer(&self.device, self.vertex_buffer.capacity);
             }
@@ -829,15 +832,16 @@ impl RenderState {
             let vertex_buffer_staging = self.queue.write_buffer_with(
                 &self.vertex_buffer.buffer,
                 0,
-                NonZeroU64::new(required_vertex_buffer_size).expect("valid vertex buffer size"),
+                required_vertex_buffer_size,
             );
 
             let Some(mut vertex_buffer_staging) = vertex_buffer_staging else {
-                panic!(
+                tracing::warn!(
                     "Failed to create staging buffer for vertex data. Vertex count: {vertex_count}. Required vertex buffer size: {required_vertex_buffer_size}. Actual size {} and capacity: {} (bytes)",
                     self.vertex_buffer.buffer.size(),
                     self.vertex_buffer.capacity
                 );
+                return;
             };
 
             let mut vertex_offset = 0;
@@ -854,14 +858,14 @@ impl RenderState {
         }
     }
 
-    pub fn render<'rp>(
+    pub(crate) fn render<'rp>(
         &'rp self,
         render_pass: &mut wgpu::RenderPass<'rp>,
         paint_jobs: &'rp [epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
     ) {
         let pixels_per_point = screen_descriptor.pixels_per_point;
-        let size_in_pixels = screen_descriptor.size_in_pixels;
+        let size_in_pixels = screen_descriptor.screen_size;
 
         render_pass.set_scissor_rect(0, 0, size_in_pixels[0], size_in_pixels[1]);
         render_pass.set_viewport(
@@ -897,16 +901,10 @@ impl RenderState {
 
             render_pass.set_scissor_rect(rect.x, rect.y, rect.width, rect.height);
 
-            if let Primitive::Mesh(mesh) = primitive {
-                // These expects should be valid because update_buffers inserts a slice for every
-                // primitive
-                let index_buffer_slice = index_buffer_slices
-                    .next()
-                    .expect("valid index buffer slice");
-                let vertex_buffer_slice = vertex_buffer_slices
-                    .next()
-                    .expect("valid vertex buffer slice");
-
+            if let Primitive::Mesh(mesh) = primitive
+                && let (Some(index_buffer_slice), Some(vertex_buffer_slice)) =
+                    (index_buffer_slices.next(), vertex_buffer_slices.next())
+            {
                 if let Some((_texture, bind_group)) = self.textures.get(&mesh.texture_id) {
                     render_pass.set_bind_group(1, bind_group, &[]);
                     render_pass.set_index_buffer(
@@ -965,7 +963,7 @@ impl RenderState {
 #[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 struct UniformBuffer {
-    screen_size_in_points: [f32; 2],
+    screen_size: [f32; 2],
     // Uniform buffers need to be at least 16 bytes in WebGL.
     // See https://github.com/gfx-rs/wgpu/issues/2072
     _padding: [u32; 2],
@@ -973,27 +971,17 @@ struct UniformBuffer {
 
 impl PartialEq for UniformBuffer {
     fn eq(&self, other: &Self) -> bool {
-        self.screen_size_in_points == other.screen_size_in_points
+        self.screen_size == other.screen_size
     }
 }
 
 /// Information about the screen used for rendering.
-pub struct ScreenDescriptor {
+pub(crate) struct ScreenDescriptor {
     /// Size of the window in physical pixels.
-    pub size_in_pixels: [u32; 2],
+    pub(crate) screen_size: [u32; 2],
 
     /// HiDPI scale factor (pixels per point).
-    pub pixels_per_point: f32,
-}
-
-impl ScreenDescriptor {
-    /// size in "logical" points
-    fn screen_size_in_points(&self) -> [f32; 2] {
-        [
-            self.size_in_pixels[0] as f32 / self.pixels_per_point,
-            self.size_in_pixels[1] as f32 / self.pixels_per_point,
-        ]
-    }
+    pub(crate) pixels_per_point: f32,
 }
 
 /// A Rect in physical pixel space, used for setting clipping rectangles.

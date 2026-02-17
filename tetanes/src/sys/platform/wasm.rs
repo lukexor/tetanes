@@ -1,6 +1,3 @@
-// TODO: Remove. See: https://github.com/rustwasm/wasm-bindgen/issues/4283
-#![allow(unexpected_cfgs)]
-
 use crate::{
     nes::{
         Running,
@@ -32,11 +29,12 @@ const OS_OPTIONS: [(Os, Arch, &str); 5] = [
     (Os::Linux, Arch::X86_64, html_ids::LINUX_X86_LINK),
 ];
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
-pub struct System;
+pub(crate) struct System;
 
 /// Method for platforms supporting opening a file dialog.
-pub fn open_file_dialog_impl(
+pub(crate) fn open_file_dialog_impl(
     _title: impl Into<String>,
     _name: impl Into<String>,
     extensions: &[impl ToString],
@@ -67,7 +65,7 @@ pub fn open_file_dialog_impl(
 }
 
 /// Speak the given text out loud.
-pub fn speak_text_impl(text: &str) {
+pub(crate) fn speak_text_impl(text: &str) {
     if text.is_empty() {
         return;
     }
@@ -102,18 +100,8 @@ fn set_resize_handler(window: &web_sys::Window, tx: &NesEventProxy) {
     let on_resize = Closure::<dyn FnMut(_)>::new({
         let tx = tx.clone();
         move |_: web_sys::Event| {
-            if let Some(window) = web_sys::window() {
-                let width = window
-                    .inner_width()
-                    .ok()
-                    .and_then(|w| w.as_f64())
-                    .map_or(0.0, |w| w as f32);
-                let height = window
-                    .inner_height()
-                    .ok()
-                    .and_then(|h| h.as_f64())
-                    .map_or(0.0, |h| h as f32);
-                tx.event(RendererEvent::ViewportResized((width, height)));
+            if web_sys::window().is_some() {
+                tx.event(RendererEvent::ViewportResized);
             }
         }
     });
@@ -217,7 +205,7 @@ fn set_file_onchange_handlers(
     Ok(())
 }
 
-pub mod renderer {
+pub(crate) mod renderer {
     use super::*;
     use crate::nes::{
         config::Config,
@@ -229,7 +217,7 @@ pub mod renderer {
     use wasm_bindgen_futures::JsFuture;
     use winit::dpi::LogicalSize;
 
-    pub fn constrain_window_to_viewport_impl(
+    pub(crate) fn constrain_window_to_viewport_impl(
         renderer: &Renderer,
         desired_window_width: f32,
         cfg: &Config,
@@ -274,7 +262,7 @@ pub mod renderer {
         Response::default()
     }
 
-    pub fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> Response {
+    pub(crate) fn set_clipboard_text(state: &Rc<RefCell<State>>, text: String) -> Response {
         let State {
             viewports, focused, ..
         } = &mut *state.borrow_mut();
@@ -303,7 +291,7 @@ pub mod renderer {
         }
     }
 
-    pub fn process_input(
+    pub(crate) fn process_input(
         ctx: &egui::Context,
         state: &Rc<RefCell<State>>,
         gui: &Rc<RefCell<Gui>>,
@@ -406,7 +394,7 @@ pub mod renderer {
 enum Os {
     Unknown,
     Windows,
-    #[allow(clippy::enum_variant_names)]
+    #[allow(clippy::enum_variant_names, reason = "proper os name")]
     MacOs,
     Linux,
     Mobile,
@@ -418,7 +406,8 @@ impl std::fmt::Display for Os {
             Os::Windows => "Windows",
             Os::MacOs => "macOS",
             Os::Linux => "Linux",
-            _ => "Desktop",
+            Os::Mobile => "Mobile",
+            Os::Unknown => "Desktop",
         };
         write!(f, "{os}")
     }
@@ -543,7 +532,7 @@ async fn detect_user_platform() -> anyhow::Result<(Os, Arch)> {
             "Linux" => os = Os::Linux,
             _ => (),
         }
-    };
+    }
 
     Ok((os, arch))
 }
@@ -556,7 +545,9 @@ fn download_url_by_os(os: Os, arch: Arch) -> String {
         Os::MacOs => format!("{base_url}/{BIN_NAME}-{arch}.dmg"),
         Os::Windows => format!("{base_url}/{BIN_NAME}-{arch}.msi"),
         Os::Linux => format!("{base_url}/{BIN_NAME}-{arch}-unknown-linux-gnu.tar.gz"),
-        _ => format!("https://github.com/lukexor/tetanes/releases/tag/tetanes-v{VERSION}"),
+        Os::Mobile | Os::Unknown => {
+            format!("https://github.com/lukexor/tetanes/releases/tag/tetanes-v{VERSION}")
+        }
     }
 }
 
@@ -794,7 +785,7 @@ impl Initialize for Renderer {
     }
 }
 
-pub fn download_save_states() -> anyhow::Result<()> {
+pub(crate) fn download_save_states() -> anyhow::Result<()> {
     use crate::nes::config::Config;
     use anyhow::{Context, anyhow};
     use base64::Engine;
@@ -878,7 +869,7 @@ mod html_ids {
 }
 
 /// Gets the primary canvas element.
-pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
+pub(crate) fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
     web_sys::window()
         .and_then(|win| win.document())
         .and_then(|doc| doc.get_element_by_id(html_ids::CANVAS))
@@ -886,7 +877,7 @@ pub fn get_canvas() -> Option<web_sys::HtmlCanvasElement> {
 }
 
 /// Focuses the canvas element.
-pub fn focus_canvas() {
+pub(crate) fn focus_canvas() {
     if let Some(canvas) = get_canvas() {
         let _ = canvas.focus();
     }

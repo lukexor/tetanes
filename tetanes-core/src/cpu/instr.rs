@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// - <https://wiki.nesdev.org/w/index.php/6502_instructions>
 /// - <http://archive.6502.org/datasheets/rockwell_r650x_r651x.pdf>
 #[rustfmt::skip]
-#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms, reason = "more idiomatic for cpu instructions")]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum Instr {
@@ -27,7 +27,7 @@ pub enum Instr {
 
 /// CPU Addressing mode.
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms, reason = "more idiomatic for cpu addressing modes")]
 #[rustfmt::skip]
 #[must_use]
 pub enum AddrMode {
@@ -87,6 +87,10 @@ pub struct InstrRef {
 impl std::fmt::Display for InstrRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         let instr = self.instr;
+        #[allow(
+            clippy::wildcard_enum_match_arm,
+            reason = "only unofficial instructions are marked with a *"
+        )]
         let unofficial = match instr {
             Instr::HLT
             | Instr::ISB
@@ -792,8 +796,8 @@ impl Cpu {
     pub fn idy(&mut self, dummy_read: bool) -> u16 {
         let zero_addr = self.fetch_byte(); // Cycle 2
         let base_addr = {
-            let lo = self.read(u16::from(zero_addr)); // Cycle 4
-            let hi = self.read(u16::from(zero_addr.wrapping_add(1))); // Cycle 5
+            let lo = self.read(u16::from(zero_addr)); // Cycle 3
+            let hi = self.read(u16::from(zero_addr.wrapping_add(1))); // Cycle 4
             u16::from_le_bytes([lo, hi])
         };
 
@@ -895,9 +899,8 @@ impl Cpu {
     fn add(&mut self, val: u8) {
         let a = u16::from(self.acc);
         let val = u16::from(val);
-        let carry = u16::from(self.status_bit(Status::C));
+        let carry = u16::from(self.status_bits(Status::C));
         let res = a + val + carry;
-        self.set_zn_status(res as u8);
         self.status
             .set(Status::V, (a ^ val) & 0x80 == 0 && (a ^ res) & 0x80 != 0);
         self.status.set(Status::C, res > 0xFF);
@@ -1035,7 +1038,7 @@ impl Cpu {
     /// Utility function used by all ROL instructions
     #[inline(always)]
     pub fn rol(&mut self, val: u8) -> u8 {
-        let carry = self.status_bit(Status::C);
+        let carry = self.status_bits(Status::C);
         self.status.set(Status::C, (val & 0x80) > 0);
         let res = (val << 1) | carry;
         self.set_zn_status(res);
@@ -1060,7 +1063,7 @@ impl Cpu {
     /// Utility function used by all ROR instructions
     #[inline(always)]
     fn ror(&mut self, val: u8) -> u8 {
-        let carry = self.status_bit(Status::C);
+        let carry = self.status_bits(Status::C);
         self.status.set(Status::C, (val & 1) > 0);
         let res = (val >> 1) | (carry << 7);
         self.set_zn_status(res);
@@ -1448,7 +1451,8 @@ impl Cpu {
         // Freezes CPU by rewiding and re-executing the bad opcode.
         self.pc = self.pc.wrapping_sub(1);
         // Prevent IRQ/NMI
-        self.clear_irq_flags(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI);
+        self.irq_flags
+            .remove(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI);
 
         self.corrupted = true;
         let opcode = usize::from(self.peek(self.pc.wrapping_sub(1)));
@@ -1620,12 +1624,12 @@ impl Cpu {
     #[inline(always)]
     pub fn arr(&mut self) {
         let val = self.read_operand();
-        let carry = self.status_bit(Status::C);
+        let carry = self.status_bits(Status::C);
         self.set_acc(((self.acc & val) >> 1) | (carry << 7));
         self.status.set(Status::C, (self.acc & 0x40) > 0);
         self.status.set(
             Status::V,
-            (self.status_bit(Status::C) ^ (self.acc >> 5) & 0x01) > 0,
+            (self.status_bits(Status::C) ^ (self.acc >> 5) & 0x01) > 0,
         );
     }
 

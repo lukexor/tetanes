@@ -133,13 +133,14 @@ impl Video {
 
     /// Fills a fully rendered frame with RGB colors.
     pub fn decode_buffer(buffer: &[u16], output: &mut [u8]) {
-        for (color, pixels) in buffer.iter().zip(output.chunks_exact_mut(4)) {
-            let index = (*color as usize) * 3;
-            assert!(Ppu::NTSC_PALETTE.len() > index + 2);
-            assert!(pixels.len() > 2);
-            pixels[0] = Ppu::NTSC_PALETTE[index];
-            pixels[1] = Ppu::NTSC_PALETTE[index + 1];
-            pixels[2] = Ppu::NTSC_PALETTE[index + 2];
+        let (output, _) = output.as_chunks_mut::<4>();
+        for (color, pixels) in buffer.iter().zip(output) {
+            let index = ((*color as usize) & 0x1FF) * 3;
+            let rgb = &Ppu::NTSC_PALETTE[index..][..3];
+            pixels[0] = rgb[0];
+            pixels[1] = rgb[1];
+            pixels[2] = rgb[2];
+            // Alpha should always be 255
         }
     }
 
@@ -151,7 +152,8 @@ impl Video {
     /// See also: <https://wiki.nesdev.org/w/index.php/NTSC_video>
     pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         let mut prev_color = 0;
-        for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+        let (output, _) = output.as_chunks_mut::<4>();
+        for (idx, (color, pixels)) in buffer.iter().zip(output).enumerate() {
             let x = idx % 256;
             let rgba = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
@@ -164,7 +166,6 @@ impl Video {
                     [phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64]
             };
             prev_color = u32::from(*color);
-            assert!(pixels.len() > 2);
             pixels[0] = ((rgba >> 16) & 0xFF) as u8;
             pixels[1] = ((rgba >> 8) & 0xFF) as u8;
             pixels[2] = (rgba & 0xFF) as u8;

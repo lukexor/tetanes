@@ -1,11 +1,18 @@
+#![allow(clippy::expect_used, reason = "fine in a benchmark")]
+
+#[cfg(not(target_arch = "wasm32"))]
 use criterion::{Criterion, criterion_group, criterion_main};
+#[cfg(not(target_arch = "wasm32"))]
 use pprof::criterion::{Output, PProfProfiler};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{fs::File, hint::black_box, path::Path, time::Duration};
+#[cfg(not(target_arch = "wasm32"))]
 use tetanes_core::{
     control_deck::{Config, ControlDeck},
     mem::RamState,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
     let base_path = Path::new(env!("CARGO_MANIFEST_DIR"));
     let rom_path = base_path.join(rom_path);
@@ -23,6 +30,7 @@ fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn basic(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
     group.measurement_time(Duration::from_secs(60));
@@ -33,6 +41,7 @@ fn basic(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn stress(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
     group.measurement_time(Duration::from_secs(60));
@@ -43,9 +52,14 @@ fn stress(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 criterion_group!(
     name = benches;
     config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
     targets = basic, stress
 );
+#[cfg(not(target_arch = "wasm32"))]
 criterion_main!(benches);
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

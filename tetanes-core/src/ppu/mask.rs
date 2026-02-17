@@ -20,7 +20,7 @@ pub struct Mask {
     pub show_bg: bool,
     pub show_spr: bool,
     pub region: NesRegion,
-    bits: Bits,
+    pub bits: Bits,
 }
 
 bitflags! {
@@ -60,6 +60,7 @@ impl Mask {
         mask
     }
 
+    #[inline]
     pub fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
         self.grayscale = if self.bits.contains(Bits::GRAYSCALE) {

@@ -1,7 +1,7 @@
 use crate::sys::{SystemInfo, SystemStats};
 
 #[derive(Default, Debug)]
-pub struct System {}
+pub(crate) struct System {}
 
 impl SystemInfo for System {
     fn update(&mut self) {}

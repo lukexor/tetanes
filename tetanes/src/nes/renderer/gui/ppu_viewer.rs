@@ -158,14 +158,14 @@ impl Default for PaletteColor {
 
 #[derive(Debug)]
 #[must_use]
-pub struct PpuViewer {
-    pub id: ViewportId,
+pub(crate) struct PpuViewer {
+    pub(crate) id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Tab {
+pub(crate) enum Tab {
     #[default]
     Nametables,
     PatternTables,
@@ -174,9 +174,9 @@ pub enum Tab {
 }
 
 impl PpuViewer {
-    const TITLE: &'static str = "PPU Viewer";
+    const TITLE: &'static str = "TetaNES - PPU Viewer";
 
-    pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
+    pub(crate) fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
@@ -252,15 +252,15 @@ impl PpuViewer {
         }
     }
 
-    pub const fn id(&self) -> ViewportId {
+    pub(crate) const fn id(&self) -> ViewportId {
         self.id
     }
 
-    pub fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool, ctx: &Context) {
+    pub(crate) fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
         self.state.lock().update_debugger(self.open());
         if !self.open() {
@@ -268,7 +268,7 @@ impl PpuViewer {
         }
     }
 
-    pub fn toggle_open(&self, ctx: &Context) {
+    pub(crate) fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
@@ -278,7 +278,7 @@ impl PpuViewer {
         }
     }
 
-    pub fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
+    pub(crate) fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
         let mut state = self.state.lock();
         match state.tab {
             Tab::Nametables => {
@@ -335,7 +335,7 @@ impl PpuViewer {
         state.ppu = ppu;
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub(crate) fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
         if !self.open.load(Ordering::Relaxed) {
             return;
         }

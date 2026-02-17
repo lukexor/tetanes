@@ -39,22 +39,15 @@ macro_rules! action_binding {
     };
 }
 
-#[allow(unused_macro_rules)]
 macro_rules! shortcut_map {
     (@ $action:expr => $key:expr) => {
         action_binding!($action => ModifiersState::empty(), $key)
-    };
-    (@ $action:expr => $key1:expr; $key2:expr) => {
-        action_binding!($action => ModifiersState::empty(), $key1; ModifiersState::empty(), $key2)
     };
     (@ $action:expr => :$modifiers:expr, $key:expr) => {
         action_binding!($action => $modifiers, $key)
     };
     (@ $action:expr => :$modifiers1:expr, $key1:expr; $key2:expr) => {
         action_binding!($action => $modifiers1, $key1; ModifiersState::empty(), $key2)
-    };
-    (@ $action:expr => :$modifiers1:expr, $key1:expr; :$modifiers2:expr, $key2:expr) => {
-        action_binding!($action => $modifiers1, $key1; $modifiers2, $key2)
     };
     ($({ $action:expr => $(:$modifiers1:expr,) ?$key1:expr$(; $(:$modifiers2:expr,)? $key2:expr)? }),+$(,)?) => {
         vec![$(shortcut_map!(@ $action => $(:$modifiers1,)? $key1$(; $(:$modifiers2,)? $key2)?),)+]
@@ -84,7 +77,7 @@ macro_rules! mouse_map {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Input {
+pub(crate) enum Input {
     Key(KeyCode, ModifiersState),
     Mouse(MouseButton),
     Button(Player, gilrs::Button),
@@ -92,7 +85,7 @@ pub enum Input {
 }
 
 impl Input {
-    pub fn fmt(input: Input) -> String {
+    pub(crate) fn fmt(input: Input) -> String {
         use winit::{
             event::MouseButton,
             keyboard::{KeyCode, ModifiersState},
@@ -239,7 +232,78 @@ impl Input {
                     KeyCode::F33 => "F33",
                     KeyCode::F34 => "F34",
                     KeyCode::F35 => "F35",
-                    _ => "",
+                    KeyCode::IntlRo
+                    | KeyCode::IntlYen
+                    | KeyCode::AltLeft
+                    | KeyCode::AltRight
+                    | KeyCode::CapsLock
+                    | KeyCode::ContextMenu
+                    | KeyCode::ControlLeft
+                    | KeyCode::ControlRight
+                    | KeyCode::SuperLeft
+                    | KeyCode::SuperRight
+                    | KeyCode::ShiftLeft
+                    | KeyCode::ShiftRight
+                    | KeyCode::Convert
+                    | KeyCode::KanaMode
+                    | KeyCode::Lang1
+                    | KeyCode::Lang2
+                    | KeyCode::Lang3
+                    | KeyCode::Lang4
+                    | KeyCode::Lang5
+                    | KeyCode::NonConvert
+                    | KeyCode::NumLock
+                    | KeyCode::NumpadClear
+                    | KeyCode::NumpadClearEntry
+                    | KeyCode::NumpadMemoryAdd
+                    | KeyCode::NumpadMemoryClear
+                    | KeyCode::NumpadMemoryRecall
+                    | KeyCode::NumpadMemoryStore
+                    | KeyCode::NumpadMemorySubtract
+                    | KeyCode::FnLock
+                    | KeyCode::PrintScreen
+                    | KeyCode::ScrollLock
+                    | KeyCode::Pause
+                    | KeyCode::BrowserBack
+                    | KeyCode::BrowserFavorites
+                    | KeyCode::BrowserForward
+                    | KeyCode::BrowserHome
+                    | KeyCode::BrowserRefresh
+                    | KeyCode::BrowserSearch
+                    | KeyCode::BrowserStop
+                    | KeyCode::Eject
+                    | KeyCode::LaunchApp1
+                    | KeyCode::LaunchApp2
+                    | KeyCode::LaunchMail
+                    | KeyCode::MediaPlayPause
+                    | KeyCode::MediaSelect
+                    | KeyCode::MediaStop
+                    | KeyCode::MediaTrackNext
+                    | KeyCode::MediaTrackPrevious
+                    | KeyCode::Power
+                    | KeyCode::Sleep
+                    | KeyCode::AudioVolumeDown
+                    | KeyCode::AudioVolumeMute
+                    | KeyCode::AudioVolumeUp
+                    | KeyCode::WakeUp
+                    | KeyCode::Meta
+                    | KeyCode::Hyper
+                    | KeyCode::Turbo
+                    | KeyCode::Abort
+                    | KeyCode::Resume
+                    | KeyCode::Suspend
+                    | KeyCode::Again
+                    | KeyCode::Copy
+                    | KeyCode::Cut
+                    | KeyCode::Find
+                    | KeyCode::Open
+                    | KeyCode::Paste
+                    | KeyCode::Props
+                    | KeyCode::Select
+                    | KeyCode::Undo
+                    | KeyCode::Hiragana
+                    | KeyCode::Katakana
+                    | _ => "",
                 };
                 if !ch.is_empty() {
                     if !s.is_empty() {
@@ -265,26 +329,26 @@ impl Input {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AxisDirection {
+pub(crate) enum AxisDirection {
     Negative, // Left or Up
     Positive, // Right or Down
 }
 
-pub type Bindings = [Option<Input>; 3];
+pub(crate) type Bindings = [Option<Input>; 3];
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
-pub struct ActionBindings {
-    pub action: Action,
-    pub bindings: Bindings,
+pub(crate) struct ActionBindings {
+    pub(crate) action: Action,
+    pub(crate) bindings: Bindings,
 }
 
 impl ActionBindings {
-    pub const fn new(action: Action, bindings: Bindings) -> Self {
+    pub(crate) const fn new(action: Action, bindings: Bindings) -> Self {
         Self { action, bindings }
     }
 
-    pub fn empty(action: Action) -> Self {
+    pub(crate) fn empty(action: Action) -> Self {
         Self {
             action,
             bindings: Default::default(),
@@ -293,7 +357,7 @@ impl ActionBindings {
 }
 
 impl ActionBindings {
-    pub fn default_shortcuts() -> BTreeMap<Action, ActionBindings> {
+    pub(crate) fn default_shortcuts() -> BTreeMap<Action, ActionBindings> {
         use KeyCode::*;
         const SHIFT: ModifiersState = ModifiersState::SHIFT;
         const CONTROL: ModifiersState = ModifiersState::CONTROL;
@@ -362,7 +426,7 @@ impl ActionBindings {
         bindings
     }
 
-    pub fn default_player_bindings(player: Player) -> BTreeMap<Action, ActionBindings> {
+    pub(crate) fn default_player_bindings(player: Player) -> BTreeMap<Action, ActionBindings> {
         use KeyCode::*;
         use gilrs::{Axis, Button};
 
@@ -400,7 +464,7 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::Select) => KeyQ },
                 { (Player::One, JoypadBtn::Start) => KeyW },
             ),
-            _ => Vec::new(),
+            Player::Two | Player::Three | Player::Four => Vec::new(),
         };
 
         for (action, addtl_binding) in additional_bindings {
@@ -423,10 +487,10 @@ impl ActionBindings {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InputBindings(HashMap<Input, Action>);
+pub(crate) struct InputBindings(HashMap<Input, Action>);
 
 impl InputBindings {
-    pub fn from_input_config(cfg: &InputConfig) -> Self {
+    pub(crate) fn from_input_config(cfg: &InputConfig) -> Self {
         Self(
             cfg.action_bindings
                 .iter()
@@ -456,14 +520,14 @@ impl DerefMut for InputBindings {
 
 /// Represents gamepad input state.
 #[derive(Default, Debug)]
-pub struct Gamepads {
+pub(crate) struct Gamepads {
     connected: HashMap<gilrs::GamepadId, Uuid>,
     inner: Option<gilrs::Gilrs>,
     events: VecDeque<gilrs::Event>,
 }
 
 impl Gamepads {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut connected = HashMap::default();
         let mut gilrs = gilrs::Gilrs::new();
         let mut events = VecDeque::new();
@@ -488,7 +552,7 @@ impl Gamepads {
         }
     }
 
-    pub fn update_events(&mut self) {
+    pub(crate) fn update_events(&mut self) {
         if let Some(inner) = self.inner.as_mut() {
             while let Some(event) = inner.next_event() {
                 self.events.push_back(event);
@@ -496,7 +560,7 @@ impl Gamepads {
         }
     }
 
-    pub fn axis_state(value: f32) -> (Option<AxisDirection>, ElementState) {
+    pub(crate) fn axis_state(value: f32) -> (Option<AxisDirection>, ElementState) {
         let direction = if value >= 0.6 {
             Some(AxisDirection::Positive)
         } else if value <= -0.6 {
@@ -512,11 +576,11 @@ impl Gamepads {
         (direction, state)
     }
 
-    pub fn has_events(&self) -> bool {
+    pub(crate) fn has_events(&self) -> bool {
         !self.events.is_empty()
     }
 
-    pub fn input_from_event(
+    pub(crate) fn input_from_event(
         &self,
         event: &gilrs::Event,
         cfg: &Config,
@@ -544,24 +608,29 @@ impl Gamepads {
                         None
                     }
                 }
-                _ => None,
+                EventType::ButtonChanged(..)
+                | EventType::Connected
+                | EventType::Disconnected
+                | EventType::Dropped
+                | EventType::ForceFeedbackEffectCompleted
+                | _ => None,
             }
         } else {
             None
         }
     }
 
-    pub fn connected_gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
+    pub(crate) fn connected_gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
         self.inner
             .as_ref()
             .and_then(|inner| inner.connected_gamepad(id))
     }
 
-    pub fn gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
+    pub(crate) fn gamepad(&self, id: gilrs::GamepadId) -> Option<gilrs::Gamepad<'_>> {
         self.inner.as_ref().map(|inner| inner.gamepad(id))
     }
 
-    pub fn gamepad_by_uuid(&self, uuid: &Uuid) -> Option<gilrs::Gamepad<'_>> {
+    pub(crate) fn gamepad_by_uuid(&self, uuid: &Uuid) -> Option<gilrs::Gamepad<'_>> {
         self.inner.as_ref().and_then(|inner| {
             self.connected
                 .iter()
@@ -570,39 +639,39 @@ impl Gamepads {
         })
     }
 
-    pub fn gamepad_name_by_uuid(&self, uuid: &Uuid) -> Option<String> {
+    pub(crate) fn gamepad_name_by_uuid(&self, uuid: &Uuid) -> Option<String> {
         self.gamepad_by_uuid(uuid).map(|g| g.name().to_string())
     }
 
-    pub fn gamepad_uuid(&self, id: gilrs::GamepadId) -> Option<Uuid> {
+    pub(crate) fn gamepad_uuid(&self, id: gilrs::GamepadId) -> Option<Uuid> {
         self.connected_gamepad(id).map(|g| Self::create_uuid(&g))
     }
 
-    pub fn is_connected(&self, uuid: &Uuid) -> bool {
+    pub(crate) fn is_connected(&self, uuid: &Uuid) -> bool {
         self.gamepad_by_uuid(uuid).is_some()
     }
 
-    pub fn list(&self) -> Option<Peekable<gilrs::ConnectedGamepadsIterator<'_>>> {
+    pub(crate) fn list(&self) -> Option<Peekable<gilrs::ConnectedGamepadsIterator<'_>>> {
         self.inner.as_ref().map(|inner| inner.gamepads().peekable())
     }
 
-    pub fn connected_uuids(&self) -> impl Iterator<Item = &Uuid> {
+    pub(crate) fn connected_uuids(&self) -> impl Iterator<Item = &Uuid> {
         self.connected.values()
     }
 
-    pub fn events(&self) -> impl Iterator<Item = &gilrs::Event> {
+    pub(crate) fn events(&self) -> impl Iterator<Item = &gilrs::Event> {
         self.events.iter()
     }
 
-    pub fn next_event(&mut self) -> Option<gilrs::Event> {
+    pub(crate) fn next_event(&mut self) -> Option<gilrs::Event> {
         self.events.pop_back()
     }
 
-    pub fn clear_events(&mut self) {
+    pub(crate) fn clear_events(&mut self) {
         self.events.clear();
     }
 
-    pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
+    pub(crate) fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
         if let Some(gamepad) = self.connected_gamepad(gamepad_id) {
             let uuid = Self::create_uuid(&gamepad);
             tracing::debug!("gamepad connected: {} ({uuid})", gamepad.name());
@@ -610,7 +679,7 @@ impl Gamepads {
         }
     }
 
-    pub fn disconnect(&mut self, gamepad_id: gilrs::GamepadId) {
+    pub(crate) fn disconnect(&mut self, gamepad_id: gilrs::GamepadId) {
         if let Some(gamepad) = self.gamepad(gamepad_id) {
             let uuid = Self::create_uuid(&gamepad);
             tracing::debug!("gamepad disconnected: {} ({uuid})", gamepad.name());
@@ -618,7 +687,7 @@ impl Gamepads {
         self.connected.remove(&gamepad_id);
     }
 
-    pub fn create_uuid(gamepad: &gilrs::Gamepad<'_>) -> Uuid {
+    pub(crate) fn create_uuid(gamepad: &gilrs::Gamepad<'_>) -> Uuid {
         let uuid = Uuid::from_bytes(gamepad.uuid());
         if uuid != Uuid::nil() {
             return uuid;

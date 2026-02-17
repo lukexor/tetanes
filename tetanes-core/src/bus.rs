@@ -10,7 +10,7 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{Map, MappedRead, MappedWrite, Mapper},
     mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
@@ -73,12 +73,12 @@ impl Default for Bus {
 impl Bus {
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
-            wram: Memory::new_const(),
+            wram: Memory::new_const().with_ram_state(ram_state),
             ppu: Ppu::new(region, ram_state),
             apu: Apu::new(region),
             input: Input::new(region),
             genie_codes: HashMap::new(),
-            prg_rom: Memory::new(0),
+            prg_rom: Memory::empty(),
             prg_ram: Memory::empty(),
             prg_ram_protect: false,
             open_bus: 0x00,
@@ -105,7 +105,6 @@ impl Bus {
 
     #[must_use]
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn sram(&self) -> &[u8] {
         &self.prg_ram
     }
@@ -117,7 +116,6 @@ impl Bus {
 
     #[must_use]
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn wram(&self) -> &[u8] {
         self.wram.as_ref()
     }
@@ -150,7 +148,6 @@ impl Bus {
 
     #[must_use]
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn audio_samples(&self) -> &[f32] {
         &self.apu.audio_samples
     }
@@ -169,7 +166,28 @@ impl Clock for Bus {
             Mapper::Namco163(ref namco163) => namco163.output(),
             Mapper::Vrc6(ref vrc6) => vrc6.output(),
             Mapper::SunsoftFme7(ref sunsoft_fme7) => sunsoft_fme7.output(),
-            _ => 0.0,
+            Mapper::None(_)
+            | Mapper::Nrom(_)
+            | Mapper::Sxrom(_)
+            | Mapper::Uxrom(_)
+            | Mapper::Cnrom(_)
+            | Mapper::Txrom(_)
+            | Mapper::Axrom(_)
+            | Mapper::Pxrom(_)
+            | Mapper::Fxrom(_)
+            | Mapper::ColorDreams(_)
+            | Mapper::BandaiFCG(_)
+            | Mapper::JalecoSs88006(_)
+            | Mapper::Bnrom(_)
+            | Mapper::Nina001(_)
+            | Mapper::Gxrom(_)
+            | Mapper::Bf909x(_)
+            | Mapper::Dxrom76(_)
+            | Mapper::Nina003006(_)
+            | Mapper::Dxrom88(_)
+            | Mapper::Dxrom95(_)
+            | Mapper::Dxrom154(_)
+            | Mapper::Dxrom206(_) => 0.0,
         };
         self.apu.add_mapper_output(output);
         self.apu.clock_lazy();
@@ -192,7 +210,10 @@ impl Read for Bus {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    _ => self.open_bus,
+                    MappedRead::Bus
+                    | MappedRead::Chr(_)
+                    | MappedRead::CIRam(_)
+                    | MappedRead::ExRam(_) => self.open_bus,
                 };
                 self.genie_read(addr, val)
             }
@@ -208,7 +229,6 @@ impl Read for Bus {
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.ppu.bus.mapper.bus_read(addr, BusKind::Cpu);
         val
     }
 
@@ -220,7 +240,10 @@ impl Read for Bus {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    _ => self.open_bus,
+                    MappedRead::Bus
+                    | MappedRead::Chr(_)
+                    | MappedRead::CIRam(_)
+                    | MappedRead::ExRam(_) => self.open_bus,
                 };
                 self.genie_read(addr, val)
             }
@@ -251,7 +274,11 @@ impl Write for Bus {
                     }
                 }
                 MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                _ => (),
+                MappedWrite::None
+                | MappedWrite::Bus
+                | MappedWrite::ChrRam(..)
+                | MappedWrite::CIRam(..)
+                | MappedWrite::ExRam(..) => (),
             },
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
@@ -288,7 +315,6 @@ impl Write for Bus {
             _ => (),
         }
         self.open_bus = val;
-        self.ppu.bus.mapper.bus_write(addr, val, BusKind::Cpu);
     }
 }
 
@@ -308,8 +334,8 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
+            self.ram_state.fill(&mut **self.wram);
             self.ram_state.fill(&mut self.prg_ram);
-            self.ram_state.fill(&mut *self.wram);
         }
         self.ppu.reset(kind);
         self.apu.reset(kind);

@@ -4,7 +4,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::js_sys::{Function, Promise};
 
 /// Spawn a future to be run until completion.
-pub fn spawn_impl<F>(future: F)
+pub(crate) fn spawn_impl<F>(future: F)
 where
     F: Future<Output = ()> + 'static,
 {
@@ -12,11 +12,10 @@ where
 }
 
 /// Blocking, and thus parking is not allowed in wasm.
-#[allow(clippy::missing_const_for_fn)]
-pub fn park_timeout_impl(_dur: Duration) {}
+pub(crate) const fn park_timeout_impl(_dur: Duration) {}
 
 /// Sleeps the current thread for the specified duration.
-pub async fn sleep_impl(dur: Duration) {
+pub(crate) async fn sleep_impl(dur: Duration) {
     let mut cb = |resolve: Function, _reject: Function| {
         if let Some(window) = web_sys::window()
             && let Err(err) = window.set_timeout_with_callback_and_timeout_and_arguments_0(

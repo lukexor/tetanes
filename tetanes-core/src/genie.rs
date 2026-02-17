@@ -9,7 +9,7 @@ static GENIE_MAP: OnceLock<HashMap<char, u8>> = OnceLock::new();
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
-#[error("invalid genie code {code:?}. {kind}")]
+#[error("Invalid GENIE code {code}. {kind}")]
 pub struct Error {
     code: String,
     kind: ErrorKind,
@@ -31,9 +31,9 @@ impl Error {
 #[derive(Error, Debug, Copy, Clone)]
 #[must_use]
 pub enum ErrorKind {
-    #[error("length must be 6 or 8 characters. found `{0}`")]
+    #[error("Length must be 6 or 8 characters. found `{0}`")]
     InvalidLength(usize),
-    #[error("invalid character: `{0}`")]
+    #[error("Invalid character: `{0}`")]
     InvalidCharacter(char),
 }
 
@@ -127,7 +127,6 @@ impl GenieCode {
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn code(&self) -> &str {
         &self.code
     }

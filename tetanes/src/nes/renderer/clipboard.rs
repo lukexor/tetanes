@@ -1,13 +1,14 @@
+#[cfg_attr(target_arch = "wasm32", derive(Default))]
 #[must_use]
-pub struct Clipboard {
+pub(crate) struct Clipboard {
     #[cfg(not(target_arch = "wasm32"))]
     inner: Option<arboard::Clipboard>,
     /// Fallback.
     text: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for Clipboard {
-    #[allow(clippy::derivable_impls)]
     fn default() -> Self {
         Self {
             #[cfg(not(target_arch = "wasm32"))]
@@ -29,11 +30,7 @@ impl std::fmt::Debug for Clipboard {
 }
 
 impl Clipboard {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn get(&mut self) -> Option<String> {
+    pub(crate) fn get(&mut self) -> Option<String> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(inner) = self.inner.as_mut() {
             return inner
@@ -45,7 +42,7 @@ impl Clipboard {
         Some(self.text.clone())
     }
 
-    pub fn set(&mut self, text: impl Into<String>) {
+    pub(crate) fn set(&mut self, text: impl Into<String>) {
         let text = text.into();
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(inner) = self.inner.as_mut() {

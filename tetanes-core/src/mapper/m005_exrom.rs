@@ -12,7 +12,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::{Mirroring, Ppu, bus::PpuAddr},
 };
@@ -426,7 +426,7 @@ impl Exrom {
                 self.set_prg_bank_range(2, 2, banks[3]);
                 self.prg_rom_banks.set(3, banks[4] & Self::BANK_MASK);
             }
-        };
+        }
     }
 
     pub fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
@@ -511,7 +511,7 @@ impl Exrom {
                 self.chr_banks.set(6, hi | banks[6]);
                 self.chr_banks.set(7, hi | banks[7]);
             }
-        };
+        }
     }
 
     pub fn read_ex_ram(&self, addr: u16) -> u8 {
@@ -714,7 +714,7 @@ impl Map for Exrom {
                             self.regs.fill.tile
                         }),
                         // If nametable mode is not set, zero is read back
-                        _ => MappedRead::Data(0x00),
+                        Nametable::ExRam | Nametable::Fill => MappedRead::Data(0x00),
                     }
                 }
             }
@@ -795,7 +795,7 @@ impl Map for Exrom {
                     self.write_ex_ram(addr, val);
                     return MappedWrite::None;
                 }
-                _ => return MappedWrite::None,
+                Nametable::ExRam | Nametable::Fill => return MappedWrite::None,
             },
             0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
@@ -986,19 +986,17 @@ impl Map for Exrom {
         MappedWrite::Bus
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        if kind == BusKind::Cpu {
-            match addr {
-                0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
-                0x2001 => {
-                    self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
-                    if !self.ppu_status.rendering {
-                        self.irq_state.in_frame = false;
-                        self.irq_state.prev_addr = None;
-                    }
+    fn update_ppu_reg(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
+            0x2001 => {
+                self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
+                if !self.ppu_status.rendering {
+                    self.irq_state.in_frame = false;
+                    self.irq_state.prev_addr = None;
                 }
-                _ => (),
             }
+            _ => (),
         }
     }
 

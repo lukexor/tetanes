@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         );
         let mut games = path
             .read_dir()
-            .unwrap_or_else(|err| panic!("unable read directory {path:?}: {err}"))
+            .with_context(|| format!("unable read directory {path:?}"))?
             .filter_map(Result::ok)
             .filter(|f| f.path().extension() == Some(OsStr::new("nes")))
             .map(|f| f.path())
@@ -74,7 +74,8 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn apply_corrections(game: &mut Game) {
+#[allow(clippy::unreadable_literal, reason = "opaque crc values")]
+const fn apply_corrections(game: &mut Game) {
     match game.crc32 {
         // Mapper 210 games incorrectly marked as Mapper 19
         0x808606F0 | 0x81B7F1A8 | 0xC247CC80 | 0xC47946D => {

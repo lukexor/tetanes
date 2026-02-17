@@ -4,7 +4,7 @@ use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
     cpu::Cpu,
     debug::PpuDebugger,
-    mapper::{BusKind, Map, Mapper},
+    mapper::{Map, Mapper},
     mem::{ConstArray, RamState, Read, Write},
     ppu::{bus::Bus, frame::Frame},
 };
@@ -90,6 +90,9 @@ pub struct Ppu {
     pub prerender_scanline: u32,
     /// Scanline that Sprite Evaluation for PAL starts on.
     pub pal_spr_eval_scanline: u32,
+    pub pending_rendering_update: bool,
+    pub rendering_enabled: bool,
+    pub prev_rendering_enabled: bool,
     pub open_bus: u8,
 
     /// $2001 PPUMASK (write-only).
@@ -213,7 +216,8 @@ impl Ppu {
     pub const CLOCK_DIVIDER_PAL: u32 = 5;
     pub const CLOCK_DIVIDER_DENDY: u32 = Self::CLOCK_DIVIDER_PAL;
 
-    pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
+    // 64 base colors x 8 emphasis combinations (512) colors x 3 bytes (rgb) = 1536
+    pub const NTSC_PALETTE: &'static [u8; 1536] = include_bytes!("../ntscpalette.pal");
 
     /// NES PPU System Palette
     /// 64 total possible colors, though only 32 can be loaded at a time
@@ -251,6 +255,9 @@ impl Ppu {
             vblank_scanline: 0,
             prerender_scanline: 0,
             pal_spr_eval_scanline: 0,
+            pending_rendering_update: false,
+            rendering_enabled: false,
+            prev_rendering_enabled: false,
             open_bus: 0x00,
 
             mask: Mask::new(region),
@@ -572,16 +579,13 @@ impl Ppu {
 
 impl Ppu {
     #[inline(always)]
-    const fn increment_vram_addr(&mut self) {
-        // During rendering, v increments coarse X and coarse Y simultaneously
-        if self.mask.rendering_enabled
-            && (self.scanline == self.prerender_scanline
-                || self.scanline <= Self::VISIBLE_SCANLINE_END)
-        {
+    fn increment_vram_addr(&mut self) {
+        if self.scanline > Self::VISIBLE_SCANLINE_END || !self.rendering_enabled {
+            self.scroll.increment(self.ctrl.vram_increment);
+            self.bus.mapper.update_vram_addr(self.scroll.addr());
+        } else {
             self.scroll.increment_x();
             self.scroll.increment_y();
-        } else {
-            self.scroll.increment(self.ctrl.vram_increment);
         }
     }
 
@@ -589,14 +593,13 @@ impl Ppu {
         trace!("Start VBL - PPU:{:3},{:3}", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
+            self.bus.mapper.update_ppu_reg(0x2002, self.status.read());
             if self.ctrl.nmi_enabled {
                 Cpu::set_nmi();
                 trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
             }
         }
         self.prevent_vbl = false;
-        let val = self.peek_status();
-        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu);
     }
 
     fn stop_vblank(&mut self) {
@@ -607,11 +610,10 @@ impl Ppu {
         self.status.set_spr_zero_hit(false);
         self.status.set_spr_overflow(false);
         self.status.reset_in_vblank();
+        self.bus.mapper.update_ppu_reg(0x2002, self.status.read());
         self.reset_signal = false;
         Cpu::clear_nmi();
         self.open_bus = 0; // Clear open bus every frame
-        let val = self.peek_status();
-        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu);
     }
 
     /// Fetch BG nametable byte.
@@ -648,7 +650,7 @@ impl Ppu {
     #[inline]
     fn fetch_background(&mut self) {
         match self.cycle & 0x07 {
-            0 => {
+            0 if self.prev_rendering_enabled => {
                 // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
                 self.scroll.increment_x();
                 // 256, Increment Fine Y when we reach the end of the screen
@@ -907,7 +909,7 @@ impl Ppu {
                         && bg_color != 0
                         && x != 255
                         && self.spr_zero_visible
-                        && self.mask.rendering_enabled
+                        && self.rendering_enabled
                         && !self.status.spr_zero_hit
                     {
                         self.status.set_spr_zero_hit(true);
@@ -930,7 +932,7 @@ impl Ppu {
 
     #[inline]
     fn headless_sprite_zero_hit(&mut self) {
-        if !self.mask.rendering_enabled || !self.spr_zero_visible || self.status.spr_zero_hit {
+        if !self.rendering_enabled || !self.spr_zero_visible || self.status.spr_zero_hit {
             return;
         }
 
@@ -969,14 +971,14 @@ impl Ppu {
     #[inline]
     fn render_pixel(&mut self) {
         let addr = self.scroll.addr();
-        let color =
-            if self.mask.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START {
-                let palette = u16::from(self.pixel_palette());
-                self.bus
-                    .peek_palette(Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
-            } else {
-                self.bus.peek_palette(addr)
-            };
+        let color = if self.rendering_enabled || (addr & Self::PALETTE_START) != Self::PALETTE_START
+        {
+            let palette = u16::from(self.pixel_palette());
+            self.bus
+                .peek_palette(Self::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
+        } else {
+            self.bus.peek_palette(addr)
+        };
 
         self.frame.set_pixel(
             self.cycle - 1,
@@ -995,7 +997,7 @@ impl Ppu {
         let bg_fetch_cycle = bg_prefetch_cycle || visible_cycle;
         let visible_scanline = scanline <= Self::VISIBLE_SCANLINE_END;
 
-        if self.mask.rendering_enabled {
+        if self.rendering_enabled {
             let prerender_scanline = scanline == self.prerender_scanline;
             let render_scanline = prerender_scanline || visible_scanline;
 
@@ -1018,7 +1020,7 @@ impl Ppu {
                     // 257..=320
                     Self::SPR_FETCH_START..=Self::SPR_FETCH_END => {
                         // 257
-                        if cycle == Self::SPR_FETCH_START {
+                        if self.prev_rendering_enabled && cycle == Self::SPR_FETCH_START {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
@@ -1071,12 +1073,6 @@ impl Ppu {
             }
         }
 
-        if self.scroll.delayed_update() {
-            // MMC3 clocks using A12
-            let addr = self.scroll.addr();
-            self.bus.mapper.bus_read(addr, BusKind::Ppu);
-        }
-
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
         // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
         if visible_scanline && visible_cycle {
@@ -1123,6 +1119,7 @@ impl Registers for Ppu {
         if self.reset_signal && self.emulate_warmup {
             return;
         }
+        self.bus.mapper.update_ppu_reg(0x2000, val);
         self.ctrl.write(val);
         self.scroll.write_nametable_select(val);
 
@@ -1157,7 +1154,11 @@ impl Registers for Ppu {
         if self.reset_signal && self.emulate_warmup {
             return;
         }
+        self.bus.mapper.update_ppu_reg(0x2001, val);
         self.mask.write(val);
+        if self.rendering_enabled != self.mask.rendering_enabled {
+            self.pending_rendering_update = true;
+        }
     }
 
     // $2002 | R   | PPUSTATUS
@@ -1185,7 +1186,7 @@ impl Registers for Ppu {
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
-        self.bus.mapper.bus_write(0x2002, status, BusKind::Ppu);
+        self.bus.mapper.update_ppu_reg(0x2002, status);
         status
     }
 
@@ -1210,6 +1211,7 @@ impl Registers for Ppu {
     //       |     | colors, and other attributes of the sprites.
     #[inline(always)]
     fn write_oamaddr(&mut self, val: u8) {
+        self.bus.mapper.update_ppu_reg(0x2003, val);
         self.open_bus = val;
         self.oamaddr = val;
     }
@@ -1235,7 +1237,7 @@ impl Registers for Ppu {
     fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= Self::VISIBLE_SCANLINE_END
-            && self.mask.rendering_enabled
+            && self.rendering_enabled
             && matches!(self.cycle, Self::SPR_FETCH_START..=Self::SPR_FETCH_END)
         {
             self.secondary_oamdata[self.secondary_oamaddr as usize]
@@ -1251,7 +1253,7 @@ impl Registers for Ppu {
     //       |     | sprites.
     fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
-        if self.mask.rendering_enabled
+        if self.rendering_enabled
             && (self.scanline <= Self::VISIBLE_SCANLINE_END
                 || self.scanline == self.prerender_scanline
                 || (self.scanline >= self.pal_spr_eval_scanline && self.region.is_pal()))
@@ -1259,8 +1261,10 @@ impl Registers for Ppu {
             // https://www.nesdev.org/wiki/PPU_registers#OAMDATA
             // Writes to OAMDATA during rendering do not modify values, but do perform a glitch
             // increment of OAMADDR, bumping only the high 6 bits
+            self.bus.mapper.update_ppu_reg(0x2004, val);
             self.oamaddr = self.oamaddr.wrapping_add(4);
         } else {
+            self.bus.mapper.update_ppu_reg(0x2004, val);
             if self.oamaddr & 0x03 == 0x02 {
                 // Bits 2-4 of sprite attr (byte 2) are unimplemented and always read back as 0
                 val &= 0xE3;
@@ -1293,6 +1297,7 @@ impl Registers for Ppu {
         if self.reset_signal && self.emulate_warmup {
             return;
         }
+        self.bus.mapper.update_ppu_reg(0x2005, val);
         self.scroll.write(val);
     }
 
@@ -1303,21 +1308,19 @@ impl Registers for Ppu {
         if self.reset_signal && self.emulate_warmup {
             return;
         }
+        self.bus.mapper.update_ppu_reg(0x2006, val);
         self.scroll.write_addr(val);
-        // MMC3 clocks using A12
-        self.bus
-            .mapper
-            .bus_write(self.scroll.addr(), val, BusKind::Ppu);
     }
 
     // $2007 | RW  | PPUDATA
     fn read_data(&mut self) -> u8 {
         let addr = self.scroll.addr();
-        self.increment_vram_addr();
 
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in $0000 - $3EFF
+        self.bus.mapper.update_vram_addr(addr);
         let val = self.bus.read(addr);
+        self.increment_vram_addr();
         let val = if addr < Self::PALETTE_START {
             let buffer = self.vram_buffer;
             self.vram_buffer = val;
@@ -1332,8 +1335,7 @@ impl Registers for Ppu {
         };
 
         self.open_bus = val;
-        // MMC3 clocks using A12
-        self.bus.mapper.bus_read(self.scroll.addr(), BusKind::Ppu);
+        self.bus.mapper.update_ppu_reg(0x2007, val);
 
         trace!(
             "PPU $2007 read: {val:02X} - PPU:{:3},{:3}",
@@ -1360,16 +1362,16 @@ impl Registers for Ppu {
     fn write_data(&mut self, val: u8) {
         self.open_bus = val;
         let addr = self.scroll.addr();
+
         trace!(
             "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
             self.cycle, self.scanline
         );
-        self.increment_vram_addr();
-        self.bus.write(addr, val);
 
-        // MMC3 clocks using A12
-        let addr = self.scroll.addr();
-        self.bus.mapper.bus_write(addr, val, BusKind::Ppu);
+        self.bus.mapper.update_vram_addr(addr);
+        self.bus.mapper.update_ppu_reg(0x2007, val);
+        self.bus.write(addr, val);
+        self.increment_vram_addr();
     }
 }
 
@@ -1392,6 +1394,7 @@ impl Clock for Ppu {
             // Post-render line
             if self.scanline == self.vblank_scanline - 1 {
                 self.frame.increment();
+                self.bus.mapper.update_vram_addr(self.scroll.addr());
             } else if self.scanline > self.prerender_scanline {
                 // Wrap scanline back to 0
                 self.scanline = 0;
@@ -1399,6 +1402,28 @@ impl Clock for Ppu {
                 // shaking in Ninja Gaiden 3 stage 1 after beating boss)
                 self.spr_count = 0;
             }
+        }
+
+        // Rendering enabled flag is set with a 1 cycle delay (setting it at cycle N won't take
+        // effect until cycle N+2)
+        if self.pending_rendering_update {
+            self.pending_rendering_update = false;
+
+            if self.prev_rendering_enabled != self.rendering_enabled {
+                self.prev_rendering_enabled = self.rendering_enabled;
+            }
+
+            if self.rendering_enabled != self.mask.rendering_enabled {
+                self.rendering_enabled = self.mask.rendering_enabled;
+                self.pending_rendering_update = true;
+            }
+        }
+
+        if self.scroll.delayed_update()
+            && (self.scanline > Self::VISIBLE_SCANLINE_END || !self.rendering_enabled)
+        {
+            // MMC3 clocks using A12
+            self.bus.mapper.update_vram_addr(self.scroll.addr());
         }
 
         if self.scanline == self.debugger.scanline && self.cycle == self.debugger.cycle {
@@ -1738,6 +1763,8 @@ mod tests {
     fn sprite_zero_hit_headless_visible_cycle() {
         let mut ppu = Ppu::default();
         ppu.write_mask(0x18);
+        ppu.clock();
+
         ppu.skip_rendering = true;
         ppu.scanline = 0;
         ppu.cycle = 10;

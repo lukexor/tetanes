@@ -1,2 +1,2 @@
 cargo build
-find ../roms/ -name '*nes' -exec "$CARGO_TARGET_DIR"/debug/tetanes -c {} \;
+find ../roms/ -maxdepth 1 -name '*nes' -exec "$CARGO_TARGET_DIR"/debug/tetanes -c {} \;

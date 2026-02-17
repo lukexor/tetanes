@@ -23,7 +23,7 @@ use winit::{
 
 impl Renderer {
     /// Handle event.
-    pub fn on_event(&mut self, event: &mut NesEvent, cfg: &Config) {
+    pub(crate) fn on_event(&mut self, event: &mut NesEvent, cfg: &Config) {
         {
             let painter = self.painter.borrow();
             if let Some(render_state) = painter.render_state() {
@@ -33,7 +33,8 @@ impl Renderer {
 
         match event {
             NesEvent::Renderer(event) => match event {
-                RendererEvent::ViewportResized(_) => self.resize_window(cfg),
+                #[cfg(target_arch = "wasm32")]
+                RendererEvent::ViewportResized => self.resize_window(cfg),
                 RendererEvent::ResizeTexture => self.resize_texture = true,
                 RendererEvent::RomLoaded(_) => {
                     let state = self.state.borrow();
@@ -41,6 +42,8 @@ impl Renderer {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
                     }
+                    // Loading ROM may need to resize to different region
+                    self.resize_texture = true;
                 }
                 _ => (),
             },
@@ -77,7 +80,41 @@ impl Renderer {
                 ConfigEvent::Shader(shader) => {
                     self.painter.borrow_mut().set_shader(*shader);
                 }
-                _ => (),
+                ConfigEvent::ActionBindings(_)
+                | ConfigEvent::ActionBindingSet(_)
+                | ConfigEvent::ActionBindingClear(_)
+                | ConfigEvent::AlwaysOnTop(_)
+                | ConfigEvent::ApuChannelEnabled(_)
+                | ConfigEvent::ApuChannelsEnabled(_)
+                | ConfigEvent::AudioBuffer(_)
+                | ConfigEvent::AudioEnabled(_)
+                | ConfigEvent::AudioLatency(_)
+                | ConfigEvent::AutoLoad(_)
+                | ConfigEvent::AutoSave(_)
+                | ConfigEvent::AutoSaveInterval(_)
+                | ConfigEvent::ConcurrentDpad(_)
+                | ConfigEvent::EmulatePpuWarmup(_)
+                | ConfigEvent::FourPlayer(_)
+                | ConfigEvent::GamepadAssign(_)
+                | ConfigEvent::GamepadAssignments(_)
+                | ConfigEvent::GamepadUnassign(_)
+                | ConfigEvent::GenieCodeAdded(_)
+                | ConfigEvent::GenieCodeClear
+                | ConfigEvent::GenieCodeRemoved(_)
+                | ConfigEvent::MapperRevisions(_)
+                | ConfigEvent::RamState(_)
+                | ConfigEvent::RecentRomsClear
+                | ConfigEvent::RewindEnabled(_)
+                | ConfigEvent::RewindInterval(_)
+                | ConfigEvent::RewindSeconds(_)
+                | ConfigEvent::RunAhead(_)
+                | ConfigEvent::SaveSlot(_)
+                | ConfigEvent::ShowMenubar(_)
+                | ConfigEvent::ShowMessages(_)
+                | ConfigEvent::ShowUpdates(_)
+                | ConfigEvent::Speed(_)
+                | ConfigEvent::VideoFilter(_)
+                | ConfigEvent::ZapperConnected(_) => (),
             },
             #[cfg(not(target_arch = "wasm32"))]
             NesEvent::AccessKit { window_id, event } => {
@@ -101,7 +138,7 @@ impl Renderer {
                                 self.ctx.disable_accesskit();
                             }
                         }
-                    };
+                    }
                 }
             }
             _ => (),
@@ -109,7 +146,7 @@ impl Renderer {
     }
 
     /// Handle window event.
-    pub fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> Response {
+    pub(crate) fn on_window_event(&mut self, window_id: WindowId, event: &WindowEvent) -> Response {
         let Some(viewport_id) = self.viewport_id_for_window(window_id) else {
             return Response::default();
         };
@@ -202,8 +239,29 @@ impl Renderer {
                         SystemTheme::Dark
                     }));
             }
-            _ => (),
-        };
+            WindowEvent::ActivationTokenDone { .. }
+            | WindowEvent::Moved(_)
+            | WindowEvent::DroppedFile(_)
+            | WindowEvent::HoveredFile(_)
+            | WindowEvent::HoveredFileCancelled
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Ime(_)
+            | WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::PinchGesture { .. }
+            | WindowEvent::PanGesture { .. }
+            | WindowEvent::DoubleTapGesture { .. }
+            | WindowEvent::RotationGesture { .. }
+            | WindowEvent::TouchpadPressure { .. }
+            | WindowEvent::AxisMotion { .. }
+            | WindowEvent::Touch(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+            | WindowEvent::RedrawRequested => (),
+        }
 
         let res = match event {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -401,7 +459,7 @@ impl Renderer {
         }
     }
 
-    pub fn on_mouse_motion(&mut self, delta: (f64, f64)) {
+    pub(crate) fn on_mouse_motion(&mut self, delta: (f64, f64)) {
         let State {
             viewports, focused, ..
         } = &mut *self.state.borrow_mut();
@@ -632,7 +690,7 @@ impl Renderer {
     }
 
     /// Handle gamepad event updates.
-    pub fn on_gamepad_update(&self, gamepads: &Gamepads) -> Response {
+    pub(crate) fn on_gamepad_update(&self, gamepads: &Gamepads) -> Response {
         if self.gui.borrow().keybinds.wants_input() && gamepads.has_events() {
             Response {
                 consumed: true,
@@ -660,19 +718,19 @@ impl From<PointerButton> for Input {
     }
 }
 
-pub fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+pub(crate) fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
     keycode == egui::Key::Cut
         || (modifiers.command && keycode == egui::Key::X)
         || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Delete)
 }
 
-pub fn is_copy_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+pub(crate) fn is_copy_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
     keycode == egui::Key::Copy
         || (modifiers.command && keycode == egui::Key::C)
         || (cfg!(target_os = "windows") && modifiers.ctrl && keycode == egui::Key::Insert)
 }
 
-pub fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+pub(crate) fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
     keycode == egui::Key::Paste
         || (modifiers.command && keycode == egui::Key::V)
         || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Insert)
@@ -682,7 +740,7 @@ pub fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool 
 /// Ignore those.
 /// We also ignore '\r', '\n', '\t'.
 /// Newlines are handled by the `Key::Enter` event.
-pub const fn is_printable_char(chr: char) -> bool {
+pub(crate) const fn is_printable_char(chr: char) -> bool {
     let is_in_private_use_area = '\u{e000}' <= chr && chr <= '\u{f8ff}'
         || '\u{f0000}' <= chr && chr <= '\u{ffffd}'
         || '\u{100000}' <= chr && chr <= '\u{10fffd}';
@@ -690,7 +748,7 @@ pub const fn is_printable_char(chr: char) -> bool {
     !is_in_private_use_area && !chr.is_ascii_control()
 }
 
-pub fn key_from_winit_key(key: &winit::keyboard::Key) -> Option<egui::Key> {
+pub(crate) fn key_from_winit_key(key: &winit::keyboard::Key) -> Option<egui::Key> {
     match key {
         winit::keyboard::Key::Named(named_key) => key_from_named_key(*named_key),
         winit::keyboard::Key::Character(str) => egui::Key::from_name(str.as_str()),
@@ -698,7 +756,7 @@ pub fn key_from_winit_key(key: &winit::keyboard::Key) -> Option<egui::Key> {
     }
 }
 
-pub fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::Key> {
+pub(crate) fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::Key> {
     use egui::Key;
     use winit::keyboard::NamedKey;
 
@@ -758,14 +816,267 @@ pub fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::
         NamedKey::F33 => Key::F33,
         NamedKey::F34 => Key::F34,
         NamedKey::F35 => Key::F35,
-        _ => {
+        NamedKey::Alt
+        | NamedKey::AltGraph
+        | NamedKey::CapsLock
+        | NamedKey::Control
+        | NamedKey::Fn
+        | NamedKey::FnLock
+        | NamedKey::NumLock
+        | NamedKey::ScrollLock
+        | NamedKey::Shift
+        | NamedKey::Symbol
+        | NamedKey::SymbolLock
+        | NamedKey::Meta
+        | NamedKey::Hyper
+        | NamedKey::Super
+        | NamedKey::Clear
+        | NamedKey::CrSel
+        | NamedKey::EraseEof
+        | NamedKey::ExSel
+        | NamedKey::Redo
+        | NamedKey::Undo
+        | NamedKey::Accept
+        | NamedKey::Again
+        | NamedKey::Attn
+        | NamedKey::Cancel
+        | NamedKey::ContextMenu
+        | NamedKey::Execute
+        | NamedKey::Find
+        | NamedKey::Help
+        | NamedKey::Pause
+        | NamedKey::Play
+        | NamedKey::Props
+        | NamedKey::Select
+        | NamedKey::ZoomIn
+        | NamedKey::ZoomOut
+        | NamedKey::BrightnessDown
+        | NamedKey::BrightnessUp
+        | NamedKey::Eject
+        | NamedKey::LogOff
+        | NamedKey::Power
+        | NamedKey::PowerOff
+        | NamedKey::PrintScreen
+        | NamedKey::Hibernate
+        | NamedKey::Standby
+        | NamedKey::WakeUp
+        | NamedKey::AllCandidates
+        | NamedKey::Alphanumeric
+        | NamedKey::CodeInput
+        | NamedKey::Compose
+        | NamedKey::Convert
+        | NamedKey::FinalMode
+        | NamedKey::GroupFirst
+        | NamedKey::GroupLast
+        | NamedKey::GroupNext
+        | NamedKey::GroupPrevious
+        | NamedKey::ModeChange
+        | NamedKey::NextCandidate
+        | NamedKey::NonConvert
+        | NamedKey::PreviousCandidate
+        | NamedKey::Process
+        | NamedKey::SingleCandidate
+        | NamedKey::HangulMode
+        | NamedKey::HanjaMode
+        | NamedKey::JunjaMode
+        | NamedKey::Eisu
+        | NamedKey::Hankaku
+        | NamedKey::Hiragana
+        | NamedKey::HiraganaKatakana
+        | NamedKey::KanaMode
+        | NamedKey::KanjiMode
+        | NamedKey::Katakana
+        | NamedKey::Romaji
+        | NamedKey::Zenkaku
+        | NamedKey::ZenkakuHankaku
+        | NamedKey::Soft1
+        | NamedKey::Soft2
+        | NamedKey::Soft3
+        | NamedKey::Soft4
+        | NamedKey::ChannelDown
+        | NamedKey::ChannelUp
+        | NamedKey::Close
+        | NamedKey::MailForward
+        | NamedKey::MailReply
+        | NamedKey::MailSend
+        | NamedKey::MediaClose
+        | NamedKey::MediaFastForward
+        | NamedKey::MediaPause
+        | NamedKey::MediaPlay
+        | NamedKey::MediaPlayPause
+        | NamedKey::MediaRecord
+        | NamedKey::MediaRewind
+        | NamedKey::MediaStop
+        | NamedKey::MediaTrackNext
+        | NamedKey::MediaTrackPrevious
+        | NamedKey::New
+        | NamedKey::Open
+        | NamedKey::Print
+        | NamedKey::Save
+        | NamedKey::SpellCheck
+        | NamedKey::Key11
+        | NamedKey::Key12
+        | NamedKey::AudioBalanceLeft
+        | NamedKey::AudioBalanceRight
+        | NamedKey::AudioBassBoostDown
+        | NamedKey::AudioBassBoostToggle
+        | NamedKey::AudioBassBoostUp
+        | NamedKey::AudioFaderFront
+        | NamedKey::AudioFaderRear
+        | NamedKey::AudioSurroundModeNext
+        | NamedKey::AudioTrebleDown
+        | NamedKey::AudioTrebleUp
+        | NamedKey::AudioVolumeDown
+        | NamedKey::AudioVolumeUp
+        | NamedKey::AudioVolumeMute
+        | NamedKey::MicrophoneToggle
+        | NamedKey::MicrophoneVolumeDown
+        | NamedKey::MicrophoneVolumeUp
+        | NamedKey::MicrophoneVolumeMute
+        | NamedKey::SpeechCorrectionList
+        | NamedKey::SpeechInputToggle
+        | NamedKey::LaunchApplication1
+        | NamedKey::LaunchApplication2
+        | NamedKey::LaunchCalendar
+        | NamedKey::LaunchContacts
+        | NamedKey::LaunchMail
+        | NamedKey::LaunchMediaPlayer
+        | NamedKey::LaunchMusicPlayer
+        | NamedKey::LaunchPhone
+        | NamedKey::LaunchScreenSaver
+        | NamedKey::LaunchSpreadsheet
+        | NamedKey::LaunchWebBrowser
+        | NamedKey::LaunchWebCam
+        | NamedKey::LaunchWordProcessor
+        | NamedKey::BrowserBack
+        | NamedKey::BrowserFavorites
+        | NamedKey::BrowserForward
+        | NamedKey::BrowserHome
+        | NamedKey::BrowserRefresh
+        | NamedKey::BrowserSearch
+        | NamedKey::BrowserStop
+        | NamedKey::AppSwitch
+        | NamedKey::Call
+        | NamedKey::Camera
+        | NamedKey::CameraFocus
+        | NamedKey::EndCall
+        | NamedKey::GoBack
+        | NamedKey::GoHome
+        | NamedKey::HeadsetHook
+        | NamedKey::LastNumberRedial
+        | NamedKey::Notification
+        | NamedKey::MannerMode
+        | NamedKey::VoiceDial
+        | NamedKey::TV
+        | NamedKey::TV3DMode
+        | NamedKey::TVAntennaCable
+        | NamedKey::TVAudioDescription
+        | NamedKey::TVAudioDescriptionMixDown
+        | NamedKey::TVAudioDescriptionMixUp
+        | NamedKey::TVContentsMenu
+        | NamedKey::TVDataService
+        | NamedKey::TVInput
+        | NamedKey::TVInputComponent1
+        | NamedKey::TVInputComponent2
+        | NamedKey::TVInputComposite1
+        | NamedKey::TVInputComposite2
+        | NamedKey::TVInputHDMI1
+        | NamedKey::TVInputHDMI2
+        | NamedKey::TVInputHDMI3
+        | NamedKey::TVInputHDMI4
+        | NamedKey::TVInputVGA1
+        | NamedKey::TVMediaContext
+        | NamedKey::TVNetwork
+        | NamedKey::TVNumberEntry
+        | NamedKey::TVPower
+        | NamedKey::TVRadioService
+        | NamedKey::TVSatellite
+        | NamedKey::TVSatelliteBS
+        | NamedKey::TVSatelliteCS
+        | NamedKey::TVSatelliteToggle
+        | NamedKey::TVTerrestrialAnalog
+        | NamedKey::TVTerrestrialDigital
+        | NamedKey::TVTimer
+        | NamedKey::AVRInput
+        | NamedKey::AVRPower
+        | NamedKey::ColorF0Red
+        | NamedKey::ColorF1Green
+        | NamedKey::ColorF2Yellow
+        | NamedKey::ColorF3Blue
+        | NamedKey::ColorF4Grey
+        | NamedKey::ColorF5Brown
+        | NamedKey::ClosedCaptionToggle
+        | NamedKey::Dimmer
+        | NamedKey::DisplaySwap
+        | NamedKey::DVR
+        | NamedKey::Exit
+        | NamedKey::FavoriteClear0
+        | NamedKey::FavoriteClear1
+        | NamedKey::FavoriteClear2
+        | NamedKey::FavoriteClear3
+        | NamedKey::FavoriteRecall0
+        | NamedKey::FavoriteRecall1
+        | NamedKey::FavoriteRecall2
+        | NamedKey::FavoriteRecall3
+        | NamedKey::FavoriteStore0
+        | NamedKey::FavoriteStore1
+        | NamedKey::FavoriteStore2
+        | NamedKey::FavoriteStore3
+        | NamedKey::Guide
+        | NamedKey::GuideNextDay
+        | NamedKey::GuidePreviousDay
+        | NamedKey::Info
+        | NamedKey::InstantReplay
+        | NamedKey::Link
+        | NamedKey::ListProgram
+        | NamedKey::LiveContent
+        | NamedKey::Lock
+        | NamedKey::MediaApps
+        | NamedKey::MediaAudioTrack
+        | NamedKey::MediaLast
+        | NamedKey::MediaSkipBackward
+        | NamedKey::MediaSkipForward
+        | NamedKey::MediaStepBackward
+        | NamedKey::MediaStepForward
+        | NamedKey::MediaTopMenu
+        | NamedKey::NavigateIn
+        | NamedKey::NavigateNext
+        | NamedKey::NavigateOut
+        | NamedKey::NavigatePrevious
+        | NamedKey::NextFavoriteChannel
+        | NamedKey::NextUserProfile
+        | NamedKey::OnDemand
+        | NamedKey::Pairing
+        | NamedKey::PinPDown
+        | NamedKey::PinPMove
+        | NamedKey::PinPToggle
+        | NamedKey::PinPUp
+        | NamedKey::PlaySpeedDown
+        | NamedKey::PlaySpeedReset
+        | NamedKey::PlaySpeedUp
+        | NamedKey::RandomToggle
+        | NamedKey::RcLowBattery
+        | NamedKey::RecordSpeedNext
+        | NamedKey::RfBypass
+        | NamedKey::ScanChannelsToggle
+        | NamedKey::ScreenModeNext
+        | NamedKey::Settings
+        | NamedKey::SplitScreenToggle
+        | NamedKey::STBInput
+        | NamedKey::STBPower
+        | NamedKey::Subtitle
+        | NamedKey::Teletext
+        | NamedKey::VideoModeNext
+        | NamedKey::Wink
+        | NamedKey::ZoomToggle
+        | _ => {
             tracing::trace!("Unknown key: {named_key:?}");
             return None;
         }
     })
 }
 
-pub const fn key_from_keycode(keycode: KeyCode) -> Option<egui::Key> {
+pub(crate) const fn key_from_keycode(keycode: KeyCode) -> Option<egui::Key> {
     Some(match keycode {
         KeyCode::ArrowDown => egui::Key::ArrowDown,
         KeyCode::ArrowLeft => egui::Key::ArrowLeft,
@@ -875,13 +1186,94 @@ pub const fn key_from_keycode(keycode: KeyCode) -> Option<egui::Key> {
         KeyCode::F33 => egui::Key::F33,
         KeyCode::F34 => egui::Key::F34,
         KeyCode::F35 => egui::Key::F35,
-        _ => {
+        KeyCode::IntlBackslash
+        | KeyCode::IntlRo
+        | KeyCode::IntlYen
+        | KeyCode::Quote
+        | KeyCode::AltLeft
+        | KeyCode::AltRight
+        | KeyCode::CapsLock
+        | KeyCode::ContextMenu
+        | KeyCode::ControlLeft
+        | KeyCode::ControlRight
+        | KeyCode::SuperLeft
+        | KeyCode::SuperRight
+        | KeyCode::ShiftLeft
+        | KeyCode::ShiftRight
+        | KeyCode::Convert
+        | KeyCode::KanaMode
+        | KeyCode::Lang1
+        | KeyCode::Lang2
+        | KeyCode::Lang3
+        | KeyCode::Lang4
+        | KeyCode::Lang5
+        | KeyCode::NonConvert
+        | KeyCode::Help
+        | KeyCode::NumLock
+        | KeyCode::NumpadBackspace
+        | KeyCode::NumpadClear
+        | KeyCode::NumpadClearEntry
+        | KeyCode::NumpadComma
+        | KeyCode::NumpadDecimal
+        | KeyCode::NumpadEqual
+        | KeyCode::NumpadHash
+        | KeyCode::NumpadMemoryAdd
+        | KeyCode::NumpadMemoryClear
+        | KeyCode::NumpadMemoryRecall
+        | KeyCode::NumpadMemoryStore
+        | KeyCode::NumpadMemorySubtract
+        | KeyCode::NumpadMultiply
+        | KeyCode::NumpadParenLeft
+        | KeyCode::NumpadParenRight
+        | KeyCode::NumpadStar
+        | KeyCode::Fn
+        | KeyCode::FnLock
+        | KeyCode::PrintScreen
+        | KeyCode::ScrollLock
+        | KeyCode::Pause
+        | KeyCode::BrowserBack
+        | KeyCode::BrowserFavorites
+        | KeyCode::BrowserForward
+        | KeyCode::BrowserHome
+        | KeyCode::BrowserRefresh
+        | KeyCode::BrowserSearch
+        | KeyCode::BrowserStop
+        | KeyCode::Eject
+        | KeyCode::LaunchApp1
+        | KeyCode::LaunchApp2
+        | KeyCode::LaunchMail
+        | KeyCode::MediaPlayPause
+        | KeyCode::MediaSelect
+        | KeyCode::MediaStop
+        | KeyCode::MediaTrackNext
+        | KeyCode::MediaTrackPrevious
+        | KeyCode::Power
+        | KeyCode::Sleep
+        | KeyCode::AudioVolumeDown
+        | KeyCode::AudioVolumeMute
+        | KeyCode::AudioVolumeUp
+        | KeyCode::WakeUp
+        | KeyCode::Meta
+        | KeyCode::Hyper
+        | KeyCode::Turbo
+        | KeyCode::Abort
+        | KeyCode::Resume
+        | KeyCode::Suspend
+        | KeyCode::Again
+        | KeyCode::Find
+        | KeyCode::Open
+        | KeyCode::Props
+        | KeyCode::Select
+        | KeyCode::Undo
+        | KeyCode::Hiragana
+        | KeyCode::Katakana
+        | _ => {
             return None;
         }
     })
 }
 
-pub const fn keycode_from_key(key: egui::Key) -> Option<KeyCode> {
+pub(crate) const fn keycode_from_key(key: egui::Key) -> Option<KeyCode> {
     Some(match key {
         egui::Key::ArrowDown => KeyCode::ArrowDown,
         egui::Key::ArrowLeft => KeyCode::ArrowLeft,
@@ -990,12 +1382,19 @@ pub const fn keycode_from_key(key: egui::Key) -> Option<KeyCode> {
         egui::Key::F33 => KeyCode::F33,
         egui::Key::F34 => KeyCode::F34,
         egui::Key::F35 => KeyCode::F35,
-
-        _ => return None,
+        egui::Key::Colon
+        | egui::Key::Pipe
+        | egui::Key::Questionmark
+        | egui::Key::Exclamationmark
+        | egui::Key::OpenCurlyBracket
+        | egui::Key::CloseCurlyBracket
+        | egui::Key::Backtick
+        | egui::Key::Quote
+        | egui::Key::BrowserBack => return None,
     })
 }
 
-pub fn modifiers_from_modifiers_state(modifier_state: ModifiersState) -> egui::Modifiers {
+pub(crate) fn modifiers_from_modifiers_state(modifier_state: ModifiersState) -> egui::Modifiers {
     egui::Modifiers {
         alt: modifier_state.alt_key(),
         ctrl: modifier_state.control_key(),
@@ -1011,7 +1410,7 @@ pub fn modifiers_from_modifiers_state(modifier_state: ModifiersState) -> egui::M
     }
 }
 
-pub fn modifiers_state_from_modifiers(modifiers: egui::Modifiers) -> ModifiersState {
+pub(crate) fn modifiers_state_from_modifiers(modifiers: egui::Modifiers) -> ModifiersState {
     let mut modifiers_state = ModifiersState::empty();
     if modifiers.shift {
         modifiers_state |= ModifiersState::SHIFT;
@@ -1030,7 +1429,7 @@ pub fn modifiers_state_from_modifiers(modifiers: egui::Modifiers) -> ModifiersSt
     modifiers_state
 }
 
-pub const fn pointer_button_from_mouse(button: MouseButton) -> Option<PointerButton> {
+pub(crate) const fn pointer_button_from_mouse(button: MouseButton) -> Option<PointerButton> {
     Some(match button {
         MouseButton::Left => PointerButton::Primary,
         MouseButton::Right => PointerButton::Secondary,
@@ -1041,7 +1440,7 @@ pub const fn pointer_button_from_mouse(button: MouseButton) -> Option<PointerBut
     })
 }
 
-pub const fn mouse_button_from_pointer(button: PointerButton) -> MouseButton {
+pub(crate) const fn mouse_button_from_pointer(button: PointerButton) -> MouseButton {
     match button {
         PointerButton::Primary => MouseButton::Left,
         PointerButton::Secondary => MouseButton::Right,
@@ -1051,7 +1450,9 @@ pub const fn mouse_button_from_pointer(button: PointerButton) -> MouseButton {
     }
 }
 
-pub const fn translate_cursor(cursor_icon: egui::CursorIcon) -> Option<winit::window::CursorIcon> {
+pub(crate) const fn translate_cursor(
+    cursor_icon: egui::CursorIcon,
+) -> Option<winit::window::CursorIcon> {
     use egui::CursorIcon;
 
     match cursor_icon {

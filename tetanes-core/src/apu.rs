@@ -370,7 +370,9 @@ impl ApuRegisters for Apu {
                 trace!("APU $400C write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.noise.write_ctrl(val);
             }
-            _ => panic!("{channel:?} does not have a control register"),
+            Channel::Triangle | Channel::Dmc | Channel::Mapper => {
+                tracing::warn!("{channel:?} does not have a control register")
+            }
         }
         self.should_clock = true;
     }
@@ -387,7 +389,9 @@ impl ApuRegisters for Apu {
                 trace!("APU $4005 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.pulse2.write_sweep(val);
             }
-            _ => panic!("{channel:?} does not have a sweep register"),
+            Channel::Triangle | Channel::Noise | Channel::Dmc | Channel::Mapper => {
+                tracing::warn!("{channel:?} does not have a sweep register")
+            }
         }
     }
 
@@ -415,7 +419,7 @@ impl ApuRegisters for Apu {
                 trace!("APU $4010 write: ${val:02X} - CYC:{}", self.cpu_cycle);
                 self.dmc.write_timer(val);
             }
-            _ => panic!("{channel:?} does not have a timer_lo register"),
+            _ => tracing::warn!("{channel:?} does not have a timer_lo register"),
         }
     }
 
@@ -438,7 +442,9 @@ impl ApuRegisters for Apu {
                 self.triangle.write_timer_hi(val);
                 self.should_clock = self.triangle.length.enabled;
             }
-            _ => panic!("{channel:?} does not have a timer_hi register"),
+            Channel::Noise | Channel::Dmc | Channel::Mapper => {
+                tracing::warn!("{channel:?} does not have a timer_hi register")
+            }
         }
     }
 
@@ -460,7 +466,9 @@ impl ApuRegisters for Apu {
                 self.should_clock = self.noise.length.enabled;
             }
             Channel::Dmc => self.dmc.write_length(val),
-            _ => panic!("{channel:?} does not have a length register"),
+            Channel::Pulse1 | Channel::Pulse2 | Channel::Triangle | Channel::Mapper => {
+                tracing::warn!("{channel:?} does not have a length register")
+            }
         }
     }
 

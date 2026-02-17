@@ -91,13 +91,24 @@ impl Sample for Iir {
 }
 
 /// A finite impulse response (FIR) filter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fir {
     pub kernel: Vec<f32>,
     pub inputs: Vec<f32>,
     pub input_index: usize,
     pub kind: FilterKind,
+}
+
+impl std::fmt::Debug for Fir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fir")
+            .field("kernel_len", &self.kernel.len())
+            .field("inputs_len", &self.inputs.len())
+            .field("input_index", &self.input_index)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 impl Fir {

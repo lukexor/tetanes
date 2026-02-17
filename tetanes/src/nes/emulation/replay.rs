@@ -3,7 +3,6 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    io::Read,
     path::{Path, PathBuf},
 };
 use tetanes_core::{
@@ -15,10 +14,10 @@ use tracing::warn;
 use winit::event::ElementState;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct State((Cpu, Vec<ReplayFrame>));
+pub(crate) struct State((Cpu, Vec<ReplayFrame>));
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ReplayEvent {
+pub(crate) enum ReplayEvent {
     Joypad((Player, JoypadBtn, ElementState)),
     ZapperAim((u32, u32)),
     ZapperTrigger,
@@ -42,40 +41,64 @@ impl TryFrom<EmulationEvent> for ReplayEvent {
             EmulationEvent::Joypad(state) => Self::Joypad(state),
             EmulationEvent::ZapperAim(pos) => Self::ZapperAim(pos),
             EmulationEvent::ZapperTrigger => Self::ZapperTrigger,
-            _ => return Err(anyhow::anyhow!("invalid replay event: {event:?}")),
+            EmulationEvent::AddDebugger(_)
+            | EmulationEvent::RemoveDebugger(_)
+            | EmulationEvent::AudioRecord(_)
+            | EmulationEvent::CpuCorrupted { .. }
+            | EmulationEvent::DebugStep(_)
+            | EmulationEvent::InstantRewind
+            | EmulationEvent::LoadReplayPath(_)
+            | EmulationEvent::LoadRom(_)
+            | EmulationEvent::LoadRomPath(_)
+            | EmulationEvent::LoadState(_)
+            | EmulationEvent::RunState(_)
+            | EmulationEvent::ReplayRecord(_)
+            | EmulationEvent::Reset(_)
+            | EmulationEvent::RequestFrame
+            | EmulationEvent::Rewinding(_)
+            | EmulationEvent::SaveState(_)
+            | EmulationEvent::ShowFrameStats(_)
+            | EmulationEvent::Screenshot
+            | EmulationEvent::UnloadRom => {
+                return Err(anyhow::anyhow!("invalid replay event: {event:?}"));
+            }
+            #[cfg(target_arch = "wasm32")]
+            EmulationEvent::LoadReplay(_) => {
+                return Err(anyhow::anyhow!("invalid replay event: {event:?}"));
+            }
         })
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[must_use]
-pub struct ReplayFrame {
-    pub frame: u32,
-    pub event: ReplayEvent,
+pub(crate) struct ReplayFrame {
+    pub(crate) frame: u32,
+    pub(crate) event: ReplayEvent,
 }
 
 #[derive(Default, Debug)]
 #[must_use]
-pub struct Record {
-    pub start: Option<Cpu>,
-    pub events: Vec<ReplayFrame>,
+pub(crate) struct Record {
+    pub(crate) start: Option<Cpu>,
+    pub(crate) events: Vec<ReplayFrame>,
 }
 
 impl Record {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn start(&mut self, cpu: Cpu) {
+    pub(crate) fn start(&mut self, cpu: Cpu) {
         self.start = Some(cpu);
         self.events.clear();
     }
 
-    pub fn stop(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
+    pub(crate) fn stop(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
         self.save(name)
     }
 
-    pub fn push(&mut self, frame: u32, event: EmulationEvent) {
+    pub(crate) fn push(&mut self, frame: u32, event: EmulationEvent) {
         if self.start.is_some()
             && let Ok(event) = ReplayEvent::try_from(event)
         {
@@ -84,7 +107,7 @@ impl Record {
     }
 
     /// Saves the replay recording out to a file.
-    pub fn save(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
+    pub(crate) fn save(&mut self, name: &str) -> anyhow::Result<Option<PathBuf>> {
         let Some(start) = self.start.take() else {
             return Ok(None);
         };
@@ -111,17 +134,17 @@ impl Record {
 
 #[derive(Default, Debug)]
 #[must_use]
-pub struct Replay {
-    pub events: Vec<ReplayFrame>,
+pub(crate) struct Replay {
+    pub(crate) events: Vec<ReplayFrame>,
 }
 
 impl Replay {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Loads a replay recording file.
-    pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
+    pub(crate) fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
         let path = path.as_ref();
         let State((cpu, mut events)) = fs::load(path)?;
         events.reverse(); // So we can pop off the end
@@ -130,7 +153,8 @@ impl Replay {
     }
 
     /// Loads a replay from a reader.
-    pub fn load(&mut self, mut replay: impl Read) -> anyhow::Result<Cpu> {
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn load(&mut self, mut replay: impl std::io::Read) -> anyhow::Result<Cpu> {
         let mut events = Vec::new();
         replay.read_to_end(&mut events)?;
         let State((cpu, mut events)) = fs::load_bytes(&events)?;
@@ -139,7 +163,7 @@ impl Replay {
         Ok(cpu)
     }
 
-    pub fn next(&mut self, frame: u32) -> Option<EmulationEvent> {
+    pub(crate) fn next(&mut self, frame: u32) -> Option<EmulationEvent> {
         if let Some(event) = self.events.last() {
             match event.frame.cmp(&frame) {
                 Ordering::Less | Ordering::Equal => {

@@ -9,7 +9,7 @@ use tracing_web::{MakeWebConsoleWriter, performance_layer};
 
 pub struct Log;
 
-pub fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
+pub(crate) fn init_impl<S>(registry: S) -> anyhow::Result<(impl SubscriberInitExt, Log)>
 where
     S: SubscriberExt + for<'a> LookupSpan<'a> + Sync + Send,
 {

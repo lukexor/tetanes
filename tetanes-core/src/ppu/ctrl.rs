@@ -24,7 +24,7 @@ pub struct Ctrl {
     pub nmi_enabled: bool,
     pub nametable_addr: u16,
     pub vram_increment: u16,
-    bits: Bits,
+    pub bits: Bits,
 }
 
 bitflags! {
@@ -53,6 +53,8 @@ bitflags! {
         const SPR_HEIGHT = 0x20;
         const MASTER_SLAVE = 0x40;
         const NMI_ENABLE = 0x80;
+
+        const NAMETABLE_SELECT = Self::NAMETABLE1.bits() | Self::NAMETABLE2.bits();
     }
 }
 
@@ -63,6 +65,7 @@ impl Ctrl {
         ctrl
     }
 
+    #[inline]
     pub fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
         // 0x1000 or 0x0000
@@ -74,7 +77,7 @@ impl Ctrl {
         // 1 or 0
         self.master_slave = self.bits.contains(Bits::MASTER_SLAVE) as u8;
         self.nmi_enabled = self.bits.contains(Bits::NMI_ENABLE);
-        self.nametable_addr = match self.bits.bits() & 0b11 {
+        self.nametable_addr = match self.nametable_select() {
             0b00 => NAMETABLE1,
             0b01 => NAMETABLE2,
             0b10 => NAMETABLE3,
@@ -85,8 +88,9 @@ impl Ctrl {
         self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT) as u16 * 31 + 1
     }
 
+    #[inline(always)]
     pub const fn nametable_select(&self) -> u8 {
-        self.bits.bits() & 0b11
+        self.bits.intersection(Bits::NAMETABLE_SELECT).bits()
     }
 }
 

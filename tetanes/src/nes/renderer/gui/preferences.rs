@@ -30,7 +30,7 @@ use tetanes_core::{
 
 #[derive(Debug)]
 #[must_use]
-pub struct State {
+pub(crate) struct State {
     tx: NesEventProxy,
     tab: Tab,
     genie_entry: GenieEntry,
@@ -38,14 +38,14 @@ pub struct State {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Preferences {
-    pub id: ViewportId,
+pub(crate) struct Preferences {
+    pub(crate) id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Tab {
+pub(crate) enum Tab {
     #[default]
     Emulation,
     Audio,
@@ -54,15 +54,15 @@ pub enum Tab {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct GenieEntry {
+pub(crate) struct GenieEntry {
     code: String,
     error: Option<String>,
 }
 
 impl Preferences {
-    const TITLE: &'static str = "Preferences";
+    const TITLE: &'static str = "TetaNES - Preferences";
 
-    pub fn new(tx: NesEventProxy) -> Self {
+    pub(crate) fn new(tx: NesEventProxy) -> Self {
         Self {
             id: egui::ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
@@ -74,18 +74,18 @@ impl Preferences {
         }
     }
 
-    pub fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool, ctx: &Context) {
+    pub(crate) fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
         if !self.open() {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
 
-    pub fn toggle_open(&self, ctx: &Context) {
+    pub(crate) fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
@@ -94,7 +94,7 @@ impl Preferences {
         }
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config) {
+    pub(crate) fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config) {
         if !self.open() {
             return;
         }
@@ -124,11 +124,11 @@ impl Preferences {
         });
     }
 
-    pub fn show_genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
+    pub(crate) fn show_genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
         self.state.lock().genie_codes_entry(ui, cfg);
     }
 
-    pub fn genie_codes_list(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config, scroll: bool) {
+    pub(crate) fn genie_codes_list(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config, scroll: bool) {
         if !cfg.deck.genie_codes.is_empty() {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
@@ -166,7 +166,7 @@ impl Preferences {
         }
     }
 
-    pub fn save_slot_radio(
+    pub(crate) fn save_slot_radio(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut save_slot: u8,
@@ -199,7 +199,7 @@ impl Preferences {
         });
     }
 
-    pub fn speed_slider(tx: &NesEventProxy, ui: &mut Ui, mut speed: f32) {
+    pub(crate) fn speed_slider(tx: &NesEventProxy, ui: &mut Ui, mut speed: f32) {
         let slider = Slider::new(&mut speed, 0.25..=2.0)
             .step_by(0.25)
             .suffix("x");
@@ -211,7 +211,7 @@ impl Preferences {
         }
     }
 
-    pub fn run_ahead_slider(tx: &NesEventProxy, ui: &mut Ui, mut run_ahead: usize) {
+    pub(crate) fn run_ahead_slider(tx: &NesEventProxy, ui: &mut Ui, mut run_ahead: usize) {
         let slider = Slider::new(&mut run_ahead, 0..=4);
         let res = ui
             .add(slider)
@@ -221,7 +221,7 @@ impl Preferences {
         }
     }
 
-    pub fn rewind_checkbox(
+    pub(crate) fn rewind_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut rewind: bool,
@@ -239,7 +239,7 @@ impl Preferences {
         }
     }
 
-    pub fn zapper_checkbox(
+    pub(crate) fn zapper_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut zapper: bool,
@@ -257,7 +257,7 @@ impl Preferences {
         }
     }
 
-    pub fn overscan_checkbox(
+    pub(crate) fn overscan_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut hide_overscan: bool,
@@ -274,7 +274,7 @@ impl Preferences {
         }
     }
 
-    pub fn video_filter_radio(
+    pub(crate) fn video_filter_radio(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut filter: VideoFilter,
@@ -308,7 +308,7 @@ impl Preferences {
         }
     }
 
-    pub fn shader_radio(
+    pub(crate) fn shader_radio(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut shader: Shader,
@@ -339,7 +339,7 @@ impl Preferences {
         }
     }
 
-    pub fn four_player_radio(tx: &NesEventProxy, ui: &mut Ui, mut four_player: FourPlayer) {
+    pub(crate) fn four_player_radio(tx: &NesEventProxy, ui: &mut Ui, mut four_player: FourPlayer) {
         let previous_four_player = four_player;
         ui.radio_value(&mut four_player, FourPlayer::Disabled, "Disabled");
         ui.radio_value(&mut four_player, FourPlayer::FourScore, "Four Score")
@@ -351,7 +351,7 @@ impl Preferences {
         }
     }
 
-    pub fn nes_region_radio(tx: &NesEventProxy, ui: &mut Ui, mut region: NesRegion) {
+    pub(crate) fn nes_region_radio(tx: &NesEventProxy, ui: &mut Ui, mut region: NesRegion) {
         let previous_region = region;
         ui.radio_value(&mut region, NesRegion::Auto, "Auto")
             .on_hover_text("Auto-detect region based on loaded ROM.");
@@ -366,7 +366,7 @@ impl Preferences {
         }
     }
 
-    pub fn ram_state_radio(tx: &NesEventProxy, ui: &mut Ui, mut ram_state: RamState) {
+    pub(crate) fn ram_state_radio(tx: &NesEventProxy, ui: &mut Ui, mut ram_state: RamState) {
         let previous_ram_state = ram_state;
         ui.radio_value(&mut ram_state, RamState::AllZeros, "All 0x00")
             .on_hover_text("Clear startup RAM to all zeroes for predictable emulation.");
@@ -379,7 +379,7 @@ impl Preferences {
         }
     }
 
-    pub fn menubar_checkbox(
+    pub(crate) fn menubar_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut show_menubar: bool,
@@ -395,7 +395,7 @@ impl Preferences {
         }
     }
 
-    pub fn messages_checkbox(
+    pub(crate) fn messages_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut show_messages: bool,
@@ -414,7 +414,7 @@ impl Preferences {
         }
     }
 
-    pub fn screen_reader_checkbox(ui: &mut Ui, shortcut: impl Into<Option<String>>) {
+    pub(crate) fn screen_reader_checkbox(ui: &mut Ui, shortcut: impl Into<Option<String>>) {
         let shortcut = shortcut.into();
         // icon: document with text
         let icon = shortcut.as_ref().map(|_| "🔈 ").unwrap_or_default();
@@ -429,7 +429,7 @@ impl Preferences {
         }
     }
 
-    pub fn window_scale_radio(tx: &NesEventProxy, ui: &mut Ui, mut scale: f32) {
+    pub(crate) fn window_scale_radio(tx: &NesEventProxy, ui: &mut Ui, mut scale: f32) {
         let previous_scale = scale;
         ui.vertical(|ui| {
             ui.radio_value(&mut scale, 1.0, "1x");
@@ -445,7 +445,7 @@ impl Preferences {
         }
     }
 
-    pub fn fullscreen_checkbox(
+    pub(crate) fn fullscreen_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut fullscreen: bool,
@@ -461,7 +461,7 @@ impl Preferences {
         }
     }
 
-    pub fn embed_viewports_checkbox(
+    pub(crate) fn embed_viewports_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         cfg: &Config,
@@ -487,7 +487,7 @@ impl Preferences {
         }
     }
 
-    pub fn always_on_top_checkbox(
+    pub(crate) fn always_on_top_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
         mut always_on_top: bool,
@@ -930,7 +930,7 @@ impl State {
             });
     }
 
-    pub fn genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
+    pub(crate) fn genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {
         let tx = &self.tx;
         ui.vertical(|ui| {
             // desired_width below doesn't have the desired effect

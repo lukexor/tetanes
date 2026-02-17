@@ -244,12 +244,12 @@ impl Map for Mapper {
         impl_map!(self, map_write, addr, val)
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        impl_map!(self, bus_read, addr, kind)
+    fn update_vram_addr(&mut self, addr: u16) {
+        impl_map!(self, update_vram_addr, addr)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        impl_map!(self, bus_write, addr, val, kind)
+    fn update_ppu_reg(&mut self, addr: u16, val: u8) {
+        impl_map!(self, update_ppu_reg, addr, val)
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -354,13 +354,6 @@ pub enum MappedWrite {
     PrgRamProtect(bool),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[must_use]
-pub enum BusKind {
-    Cpu,
-    Ppu,
-}
-
 /// Trait implemented for all [`Mapper`]s.
 pub trait Map: Clock + Regional + Reset + Sram {
     /// Determine the [`MappedRead`] for the given address.
@@ -378,13 +371,11 @@ pub trait Map: Clock + Regional + Reset + Sram {
         MappedWrite::default()
     }
 
-    /// Simulates a read for the given bus at the given address for mappers that use bus reads for
-    /// timing.
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    /// Notifies mappers that the PPU VRAM address changed which is used for IRQ. timing.
+    fn update_vram_addr(&mut self, _addr: u16) {}
 
-    /// Simulates a write for the given bus at the given address for mappers that use bus writes for
-    /// timing.
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    /// Notifies mappers that a PPU register has changed which can be used for internal operations.
+    fn update_ppu_reg(&mut self, _addr: u16, _val: u8) {}
 
     /// Returns the current [`Mirroring`] mode.
     fn mirroring(&self) -> Mirroring {
@@ -408,9 +399,9 @@ impl Map for () {
         MappedWrite::default()
     }
 
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    fn update_vram_addr(&mut self, _addr: u16) {}
 
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    fn update_ppu_reg(&mut self, _addr: u16, _val: u8) {}
 
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()

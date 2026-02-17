@@ -29,7 +29,7 @@ impl Nrom {
         // we'll provide some.
         if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
-        };
+        }
         let nrom = Self {
             mirroring: cart.mirroring(),
             mirror_prg_rom: cart.prg_rom.len() <= 0x4000,

@@ -34,18 +34,18 @@ use thingbuf::mpsc::{blocking::Sender as BufSender, errors::TrySendError};
 use tracing::{debug, error, trace};
 use winit::event::ElementState;
 
-pub mod replay;
-pub mod rewind;
+pub(crate) mod replay;
+pub(crate) mod rewind;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[must_use]
-pub struct FrameStats {
-    pub timestamp: Instant,
-    pub fps: f32,
-    pub fps_min: f32,
-    pub frame_time: f32,
-    pub frame_time_max: f32,
-    pub frame_count: usize,
+pub(crate) struct FrameStats {
+    pub(crate) timestamp: Instant,
+    pub(crate) fps: f32,
+    pub(crate) fps_min: f32,
+    pub(crate) frame_time: f32,
+    pub(crate) frame_time_max: f32,
+    pub(crate) frame_count: usize,
 }
 
 impl Default for FrameStats {
@@ -62,14 +62,14 @@ impl Default for FrameStats {
 }
 
 impl FrameStats {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 }
 
 #[derive(Debug)]
 #[must_use]
-pub struct FrameTimeDiag {
+pub(crate) struct FrameTimeDiag {
     frame_count: usize,
     history: VecDeque<f32>,
     sum: f32,
@@ -193,13 +193,13 @@ impl Multi {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Emulation {
+pub(crate) struct Emulation {
     threads: Threads,
 }
 
 impl Emulation {
     /// Initializes the renderer in a platform-agnostic way.
-    pub fn new(
+    pub(crate) fn new(
         tx: NesEventProxy,
         frame_tx: BufSender<Frame, FrameRecycle>,
         cfg: &Config,
@@ -218,7 +218,7 @@ impl Emulation {
     }
 
     /// Handle event.
-    pub fn on_event(&mut self, event: &NesEvent) {
+    pub(crate) fn on_event(&mut self, event: &NesEvent) {
         match &mut self.threads {
             Threads::Single(single) => single.state.on_event(event),
             Threads::Multi(Multi { tx, handle }) => {
@@ -230,7 +230,7 @@ impl Emulation {
         }
     }
 
-    pub fn try_clock_frame(&mut self) {
+    pub(crate) fn try_clock_frame(&mut self) {
         match &mut self.threads {
             Threads::Single(single) => single.state.try_clock_frame(),
             // Multi-threaded emulation handles it's own clock timing and redraw requests
@@ -238,7 +238,7 @@ impl Emulation {
         }
     }
 
-    pub fn terminate(&mut self) {
+    pub(crate) fn terminate(&mut self) {
         match &mut self.threads {
             Threads::Single(_) => (),
             Threads::Multi(Multi { tx, handle }) => {
@@ -253,7 +253,7 @@ impl Emulation {
 
 #[derive(Debug)]
 #[must_use]
-pub struct State {
+pub(crate) struct State {
     tx: NesEventProxy,
     control_deck: ControlDeck,
     audio: Audio,
@@ -367,7 +367,7 @@ impl State {
                 instr: Cpu::INSTR_REF[usize::from(opcode)],
             });
         } else {
-            self.add_message(MessageType::Error, err);
+            self.tx.event(UiEvent::Error(err.to_string()));
         }
     }
 
@@ -380,7 +380,9 @@ impl State {
             }
             NesEvent::Emulation(event) => self.on_emulation_event(event),
             NesEvent::Config(event) => self.on_config_event(event),
-            _ => (),
+            NesEvent::Debug(_) | NesEvent::Renderer(_) | NesEvent::Ui(_) => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { .. } => (),
         }
     }
 
@@ -444,6 +446,7 @@ impl State {
                         .push(self.control_deck.frame_number(), event.clone());
                 }
             }
+            #[cfg(target_arch = "wasm32")]
             EmulationEvent::LoadReplay((name, replay)) => {
                 if self.control_deck.is_running() {
                     self.load_replay(name, &mut io::Cursor::new(replay));
@@ -599,7 +602,25 @@ impl State {
             ConfigEvent::ZapperConnected(connected) => {
                 self.control_deck.connect_zapper(*connected);
             }
-            _ => (),
+            ConfigEvent::ActionBindings(_)
+            | ConfigEvent::ActionBindingSet(_)
+            | ConfigEvent::ActionBindingClear(_)
+            | ConfigEvent::AlwaysOnTop(_)
+            | ConfigEvent::ApuChannelsEnabled(_)
+            | ConfigEvent::DarkTheme(_)
+            | ConfigEvent::EmbedViewports(_)
+            | ConfigEvent::Fullscreen(_)
+            | ConfigEvent::GamepadAssign(_)
+            | ConfigEvent::GamepadAssignments(_)
+            | ConfigEvent::GamepadUnassign(_)
+            | ConfigEvent::GenieCodeClear
+            | ConfigEvent::HideOverscan(_)
+            | ConfigEvent::RecentRomsClear
+            | ConfigEvent::Scale(_)
+            | ConfigEvent::Shader(_)
+            | ConfigEvent::ShowMenubar(_)
+            | ConfigEvent::ShowMessages(_)
+            | ConfigEvent::ShowUpdates(_) => (),
         }
     }
 
@@ -774,6 +795,7 @@ impl State {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
     fn load_replay(&mut self, name: &str, replay: &mut impl Read) {
         match self.replay.load(replay) {
             Ok(start) => self.on_load_replay(start, name),
