@@ -7,10 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{
-        self, BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead,
-        OnBusWrite,
-    },
+    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -202,35 +199,7 @@ impl Txrom {
     }
 }
 
-impl Mirrored for Txrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl OnBusRead for Txrom {
-    fn on_bus_read(&mut self, addr: u16, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
-        }
-    }
-}
-
-impl OnBusWrite for Txrom {
-    fn on_bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
-        }
-    }
-}
-
-impl MapRead for Txrom {
+impl Map for Txrom {
     // PPU $0000..=$07FF (or $1000..=$17FF) 2K CHR-ROM/RAM Bank 1 Switchable --+
     // PPU $0800..=$0FFF (or $1800..=$1FFF) 2K CHR-ROM/RAM Bank 2 Switchable --|-+
     // PPU $1000..=$13FF (or $0000..=$03FF) 1K CHR-ROM/RAM Bank 3 Switchable --+ |
@@ -261,9 +230,7 @@ impl MapRead for Txrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Txrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -332,6 +299,28 @@ impl MapWrite for Txrom {
             }
             _ => MappedWrite::Bus,
         }
+    }
+
+    fn bus_read(&mut self, addr: u16, kind: BusKind) {
+        // Clock on PPU A12
+        if kind == BusKind::Ppu {
+            self.clock_irq(addr);
+        }
+    }
+
+    fn bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
+        // Clock on PPU A12
+        if kind == BusKind::Ppu {
+            self.clock_irq(addr);
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
     }
 }
 

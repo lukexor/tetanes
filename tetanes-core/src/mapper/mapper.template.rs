@@ -6,8 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
     mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
-        OnBusWrite,
+        self, Map, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead, OnBusWrite,
     },
     mem::Banks,
 };

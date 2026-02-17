@@ -6,9 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -211,17 +209,7 @@ impl Sxrom {
     }
 }
 
-impl Mirrored for Sxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Sxrom {
+impl Map for Sxrom {
     // PPU $0000..=$1FFF 4K CHR-ROM/RAM Bank Switchable
     // CPU $6000..=$7FFF 8K PRG-RAM Bank (optional)
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
@@ -237,9 +225,7 @@ impl MapRead for Sxrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Sxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
@@ -323,6 +309,14 @@ impl MapWrite for Sxrom {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
 impl Reset for Sxrom {
@@ -346,8 +340,6 @@ impl Clock for Sxrom {
     }
 }
 
-impl OnBusRead for Sxrom {}
-impl OnBusWrite for Sxrom {}
 impl Regional for Sxrom {}
 impl Sram for Sxrom {}
 

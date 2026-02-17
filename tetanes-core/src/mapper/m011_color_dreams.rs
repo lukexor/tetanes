@@ -5,10 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
-        OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper, Mirroring},
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
@@ -39,17 +36,7 @@ impl ColorDreams {
     }
 }
 
-impl Mirrored for ColorDreams {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for ColorDreams {
+impl Map for ColorDreams {
     // PPU $0000..=$1FFF 8K switchable CHR-ROM bank
     // CPU $8000..=$FFFF 32K switchable PRG-ROM bank
 
@@ -60,9 +47,7 @@ impl MapRead for ColorDreams {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for ColorDreams {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks
@@ -72,10 +57,16 @@ impl MapWrite for ColorDreams {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for ColorDreams {}
-impl OnBusWrite for ColorDreams {}
 impl Reset for ColorDreams {}
 impl Clock for ColorDreams {}
 impl Regional for ColorDreams {}

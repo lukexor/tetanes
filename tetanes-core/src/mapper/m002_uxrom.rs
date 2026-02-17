@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -38,17 +36,7 @@ impl Uxrom {
     }
 }
 
-impl Mirrored for Uxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Uxrom {
+impl Map for Uxrom {
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM/CHR-RAM Bank
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
@@ -60,9 +48,7 @@ impl MapRead for Uxrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Uxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
@@ -73,10 +59,16 @@ impl MapWrite for Uxrom {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Uxrom {}
-impl OnBusWrite for Uxrom {}
 impl Reset for Uxrom {}
 impl Clock for Uxrom {}
 impl Regional for Uxrom {}

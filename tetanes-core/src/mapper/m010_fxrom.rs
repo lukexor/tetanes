@@ -5,10 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, Mirroring, OnBusRead,
-        OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper, Mirroring},
     mem::Banks,
 };
 use serde::{Deserialize, Serialize};
@@ -62,17 +59,7 @@ impl Fxrom {
     }
 }
 
-impl Mirrored for Fxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Fxrom {
+impl Map for Fxrom {
     // PPU $0000..=$0FFF Two 4K switchable CHR-ROM banks
     // PPU $1000..=$1FFF Two 4K switchable CHR-ROM banks
     // CPU $6000..=$7FFF 8K PRG-RAM bank
@@ -101,9 +88,7 @@ impl MapRead for Fxrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Fxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
@@ -127,6 +112,14 @@ impl MapWrite for Fxrom {
             _ => MappedWrite::Bus,
         }
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
 impl Reset for Fxrom {
@@ -137,8 +130,6 @@ impl Reset for Fxrom {
     }
 }
 
-impl OnBusRead for Fxrom {}
-impl OnBusWrite for Fxrom {}
 impl Clock for Fxrom {}
 impl Regional for Fxrom {}
 impl Sram for Fxrom {}

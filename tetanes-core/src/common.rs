@@ -1,8 +1,7 @@
 //! Common traits and constants.
 
-use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
+use std::{fmt::Write, path::Path};
 use thiserror::Error;
 
 /// Default directory for save states.
@@ -127,14 +126,14 @@ impl TryFrom<usize> for NesRegion {
 
 /// Trait for types that have different behavior depending on NES region.
 // NOTE: enum_dispatch requires absolute paths to types
-#[enum_dispatch(Mapper)]
 pub trait Regional {
     /// Return the current region.
-    fn region(&self) -> crate::common::NesRegion {
-        crate::common::NesRegion::Ntsc
+    fn region(&self) -> NesRegion {
+        NesRegion::Ntsc
     }
+
     /// Set the region.
-    fn set_region(&mut self, _region: crate::common::NesRegion) {}
+    fn set_region(&mut self, _region: NesRegion) {}
 }
 
 /// Type of reset for types that have different behavior for reset vs power cycling.
@@ -148,15 +147,12 @@ pub enum ResetKind {
 }
 
 /// Trait for types that can can be reset.
-#[enum_dispatch(Mapper)]
-// NOTE: enum_dispatch requires absolute paths to types
 pub trait Reset {
     /// Reset the component given the [`ResetKind`].
-    fn reset(&mut self, _kind: crate::common::ResetKind) {}
+    fn reset(&mut self, _kind: ResetKind) {}
 }
 
 /// Trait for types that can be clocked.
-#[enum_dispatch(Mapper)]
 pub trait Clock {
     /// Clock component once.
     fn clock(&mut self) {}
@@ -175,16 +171,14 @@ pub trait Sample {
 }
 
 /// Trait for types that can save RAM to disk.
-#[enum_dispatch(Mapper)]
-// NOTE: enum_dispatch requires absolute paths to types
 pub trait Sram {
     /// Save RAM to a given path.
-    fn save(&self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
+    fn save(&self, _path: impl AsRef<Path>) -> crate::fs::Result<()> {
         Ok(())
     }
 
     /// Load save RAM from a given path.
-    fn load(&mut self, _path: impl AsRef<std::path::Path>) -> crate::fs::Result<()> {
+    fn load(&mut self, _path: impl AsRef<Path>) -> crate::fs::Result<()> {
         Ok(())
     }
 }

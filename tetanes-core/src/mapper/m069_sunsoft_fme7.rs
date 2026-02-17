@@ -7,9 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -61,17 +59,7 @@ impl SunsoftFme7 {
     }
 }
 
-impl Mirrored for SunsoftFme7 {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for SunsoftFme7 {
+impl Map for SunsoftFme7 {
     // PPU $0000..=$03FF 1K CHR-ROM Bank 1 Switchable
     // PPU $0400..=$07FF 1K CHR-ROM Bank 2 Switchable
     // PPU $0800..=$0BFF 1K CHR-ROM Bank 3 Switchable
@@ -101,9 +89,7 @@ impl MapRead for SunsoftFme7 {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for SunsoftFme7 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
@@ -145,10 +131,16 @@ impl MapWrite for SunsoftFme7 {
         }
         MappedWrite::None
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for SunsoftFme7 {}
-impl OnBusWrite for SunsoftFme7 {}
 impl Reset for SunsoftFme7 {}
 
 impl Clock for SunsoftFme7 {

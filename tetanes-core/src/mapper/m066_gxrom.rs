@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -39,17 +37,7 @@ impl Gxrom {
     }
 }
 
-impl Mirrored for Gxrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Gxrom {
+impl Map for Gxrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
 
@@ -60,9 +48,7 @@ impl MapRead for Gxrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Gxrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, (val & Self::CHR_BANK_MASK).into());
@@ -71,10 +57,16 @@ impl MapWrite for Gxrom {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Gxrom {}
-impl OnBusWrite for Gxrom {}
 impl Reset for Gxrom {}
 impl Clock for Gxrom {}
 impl Regional for Gxrom {}

@@ -6,10 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-        vrc_irq::VrcIrq,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper, vrc_irq::VrcIrq},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -226,17 +223,7 @@ impl Vrc6 {
     }
 }
 
-impl Mirrored for Vrc6 {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Vrc6 {
+impl Map for Vrc6 {
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
     // PPU $0400..=$07FF 1K switchable CHR-ROM bank
     // PPU $0800..=$0BFF 1K switchable CHR-ROM bank
@@ -272,9 +259,7 @@ impl MapRead for Vrc6 {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Vrc6 {
     fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
         if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
@@ -329,6 +314,14 @@ impl MapWrite for Vrc6 {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
 impl Reset for Vrc6 {
@@ -345,8 +338,6 @@ impl Clock for Vrc6 {
     }
 }
 
-impl OnBusRead for Vrc6 {}
-impl OnBusWrite for Vrc6 {}
 impl Regional for Vrc6 {}
 impl Sram for Vrc6 {}
 

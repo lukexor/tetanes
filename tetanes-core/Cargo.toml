@@ -32,7 +32,6 @@ bincode.workspace = true
 bitflags = { version = "2.10", features = ["serde"] }
 cfg-if.workspace = true
 dirs.workspace = true
-enum_dispatch = "0.3"
 flate2 = "1.0"
 rand = "0.10"
 serde.workspace = true

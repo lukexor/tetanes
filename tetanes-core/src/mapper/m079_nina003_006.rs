@@ -5,9 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{
-        self, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead, OnBusWrite,
-    },
+    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
 };
@@ -38,17 +36,7 @@ impl Nina003006 {
     }
 }
 
-impl Mirrored for Nina003006 {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl MapRead for Nina003006 {
+impl Map for Nina003006 {
     // PPU $0000..=$1FFF 8K switchable CHR ROM bank
     // CPU $8000..=$FFFF 32K switchable PRG ROM bank
 
@@ -59,9 +47,7 @@ impl MapRead for Nina003006 {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Nina003006 {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         if matches!(addr, 0x0000..=0x1FFF) {
             // return MappedWrite::Chr(self.chr_banks.translate(addr), val);
@@ -82,10 +68,16 @@ impl MapWrite for Nina003006 {
         }
         MappedWrite::Bus
     }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
-impl OnBusRead for Nina003006 {}
-impl OnBusWrite for Nina003006 {}
 impl Reset for Nina003006 {}
 impl Clock for Nina003006 {}
 impl Regional for Nina003006 {}

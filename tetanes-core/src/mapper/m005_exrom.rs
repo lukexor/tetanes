@@ -12,10 +12,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{
-        self, BusKind, MapRead, MapWrite, MappedRead, MappedWrite, Mapper, Mirrored, OnBusRead,
-        OnBusWrite,
-    },
+    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::{Mirroring, Ppu, bus::PpuAddr},
 };
@@ -546,35 +543,7 @@ impl Exrom {
     }
 }
 
-impl Mirrored for Exrom {
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-    }
-}
-
-impl OnBusWrite for Exrom {
-    fn on_bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        if kind == BusKind::Cpu {
-            match addr {
-                0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
-                0x2001 => {
-                    self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
-                    if !self.ppu_status.rendering {
-                        self.irq_state.in_frame = false;
-                        self.irq_state.prev_addr = None;
-                    }
-                }
-                _ => (),
-            }
-        }
-    }
-}
-
-impl MapRead for Exrom {
+impl Map for Exrom {
     // CHR mode 0
     // PPU $0000..=$1FFF 8K switchable CHR bank
     //
@@ -814,9 +783,7 @@ impl MapRead for Exrom {
             _ => MappedRead::Bus,
         }
     }
-}
 
-impl MapWrite for Exrom {
     fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
         match addr {
             0x2000..=0x3EFF => match self.nametable_select(addr) {
@@ -1018,6 +985,30 @@ impl MapWrite for Exrom {
         }
         MappedWrite::Bus
     }
+
+    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
+        if kind == BusKind::Cpu {
+            match addr {
+                0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
+                0x2001 => {
+                    self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
+                    if !self.ppu_status.rendering {
+                        self.irq_state.in_frame = false;
+                        self.irq_state.prev_addr = None;
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+    }
 }
 
 impl Reset for Exrom {
@@ -1069,7 +1060,6 @@ impl Regional for Exrom {
     }
 }
 
-impl OnBusRead for Exrom {}
 impl Sram for Exrom {}
 
 impl Sample for Exrom {
