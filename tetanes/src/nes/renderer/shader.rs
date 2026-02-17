@@ -4,20 +4,14 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 #[must_use]
 #[error("failed to parse `VideoFilter`")]
-pub struct ParseShaderError;
+pub(crate) struct ParseShaderError;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum Shader {
+pub(crate) enum Shader {
     Default,
     #[default]
     CrtEasymode,
-}
-
-impl Shader {
-    pub const fn as_slice() -> &'static [Self] {
-        &[Self::Default, Self::CrtEasymode]
-    }
 }
 
 impl AsRef<str> for Shader {
@@ -43,14 +37,14 @@ impl TryFrom<usize> for Shader {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Resources {
-    pub view: wgpu::TextureView,
-    pub texture_bind_group: wgpu::BindGroup,
-    pub render_pipeline: wgpu::RenderPipeline,
+pub(crate) struct Resources {
+    pub(crate) view: wgpu::TextureView,
+    pub(crate) texture_bind_group: wgpu::BindGroup,
+    pub(crate) render_pipeline: wgpu::RenderPipeline,
 }
 
 impl Resources {
-    pub fn new(
+    pub(crate) fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         view: wgpu::TextureView,

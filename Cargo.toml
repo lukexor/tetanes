@@ -2,7 +2,7 @@
 # cargo-features = ["codegen-backend"]
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["tetanes", "tetanes-core", "tetanes-utils"]
 
 [workspace.package]
@@ -15,9 +15,32 @@ repository = "https://github.com/lukexor/tetanes.git"
 homepage = "https://lukeworks.tech/tetanes"
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
+# Groups
+cargo = "warn"
+complexity = "warn"
+perf = "warn"
+style = "warn"
+suspicious = "warn"
+# Overrides
+multiple_crate_versions = { level = "allow", priority = 1 } # Difficult to resolve
+# Additional
+allow_attributes_without_reason = "warn"
+expect_used = "warn"
+fallible_impl_from = "warn"
+fn_params_excessive_bools = "warn"
+# indexing_slicing = "warn"
+items_after_statements = "warn"
+large_futures = "warn"
 missing_const_for_fn = "warn"
-print_literal = "warn"
+missing_panics_doc = "warn"
+panic = "warn"
+partial_pub_fields = "warn"
+redundant_test_prefix = "warn"
+uninlined_format_args = "warn"
+unnecessary_semicolon = "warn"
+unreadable_literal = "warn"
+unwrap_used = "warn"
+wildcard_enum_match_arm = "warn"
 
 [workspace.lints.rust]
 future_incompatible = "warn"
@@ -25,6 +48,7 @@ nonstandard_style = "warn"
 rust_2018_compatibility = "warn"
 rust_2018_idioms = "warn"
 rust_2021_compatibility = "warn"
+rust_2024_compatibility = "warn"
 unused = "warn"
 
 [workspace.dependencies]
@@ -82,7 +106,7 @@ lto = true
 panic = "abort"
 strip = true
 
-[profile.flamegraph]
+[profile.release-dbg]
 inherits = "release"
 lto = "off"
 debug = true

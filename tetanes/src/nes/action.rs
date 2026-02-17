@@ -15,7 +15,7 @@ use tetanes_core::{
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Action {
+pub(crate) enum Action {
     Ui(Ui),
     Menu(Menu),
     Feature(Feature),
@@ -37,7 +37,7 @@ impl Ord for Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 112] = [
+    pub(crate) const BINDABLE: [Self; 112] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -164,11 +164,11 @@ impl Action {
         Self::Debug(Debug::Step(DebugStep::Frame)),
     ];
 
-    pub const fn is_joypad(&self) -> bool {
+    pub(crate) const fn is_joypad(&self) -> bool {
         matches!(self, Action::Deck(DeckAction::Joypad(_)))
     }
 
-    pub fn joypad_player(&self, player: Player) -> bool {
+    pub(crate) fn joypad_player(&self, player: Player) -> bool {
         matches!(self, Action::Deck(DeckAction::Joypad((p, _))) if p == &player)
     }
 }
@@ -469,7 +469,7 @@ impl From<Debug> for Action {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Ui {
+pub(crate) enum Ui {
     Quit,
     TogglePause,
     LoadRom,
@@ -478,7 +478,7 @@ pub enum Ui {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Feature {
+pub(crate) enum Feature {
     ToggleReplayRecording,
     ToggleAudioRecording,
     VisualRewind,
@@ -487,7 +487,7 @@ pub enum Feature {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Setting {
+pub(crate) enum Setting {
     ToggleFullscreen,
     ToggleEmbedViewports,
     ToggleAlwaysOnTop,
@@ -508,7 +508,7 @@ pub enum Setting {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum DebugKind {
+pub(crate) enum DebugKind {
     Cpu,
     Ppu,
     Apu,
@@ -516,7 +516,7 @@ pub enum DebugKind {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
-pub enum DebugStep {
+pub(crate) enum DebugStep {
     Into,
     Out,
     Over,
@@ -525,7 +525,7 @@ pub enum DebugStep {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Debug {
+pub(crate) enum Debug {
     Toggle(DebugKind),
     Step(DebugStep),
 }

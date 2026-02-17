@@ -31,7 +31,7 @@ use tetanes_core::{
     time::{Duration, Instant},
     video::VideoFilter,
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, trace};
 use uuid::Uuid;
 use winit::{
     application::ApplicationHandler,
@@ -43,35 +43,35 @@ use winit::{
 
 #[derive(Default, Debug, Copy, Clone)]
 #[must_use]
-pub struct Response {
-    pub consumed: bool,
-    pub repaint: bool,
+pub(crate) struct Response {
+    pub(crate) consumed: bool,
+    pub(crate) repaint: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct NesEventProxy(EventLoopProxy<NesEvent>);
+pub(crate) struct NesEventProxy(EventLoopProxy<NesEvent>);
 
 impl NesEventProxy {
-    pub fn new(event_loop: &EventLoop<NesEvent>) -> Self {
+    pub(crate) fn new(event_loop: &EventLoop<NesEvent>) -> Self {
         Self(event_loop.create_proxy())
     }
 
-    pub fn event(&self, event: impl Into<NesEvent>) {
+    pub(crate) fn event(&self, event: impl Into<NesEvent>) {
         let event = event.into();
         trace!("sending event: {event:?}");
-        if self.0.send_event(event).is_err() {
-            warn!("event loop closed");
-        }
+        // If this fails, it means we're exiting
+        let _ = self.0.send_event(event);
     }
 
-    pub const fn inner(&self) -> &EventLoopProxy<NesEvent> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) const fn inner(&self) -> &EventLoopProxy<NesEvent> {
         &self.0
     }
 }
 
 #[derive(Debug, Clone)]
 #[must_use]
-pub enum NesEvent {
+pub(crate) enum NesEvent {
     // For some reason accesskit_winit::Event isn't Clone
     #[cfg(not(target_arch = "wasm32"))]
     AccessKit {
@@ -87,7 +87,7 @@ pub enum NesEvent {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
-pub enum AccessKitWindowEvent {
+pub(crate) enum AccessKitWindowEvent {
     InitialTreeRequested,
     ActionRequested(accesskit::ActionRequest),
     AccessibilityDeactivated,
@@ -114,7 +114,7 @@ impl From<accesskit_winit::Event> for NesEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
-pub enum ConfigEvent {
+pub(crate) enum ConfigEvent {
     ActionBindings(Vec<ActionBindings>),
     ActionBindingSet((Action, Input, usize)),
     ActionBindingClear(Input),
@@ -167,7 +167,7 @@ impl From<ConfigEvent> for NesEvent {
 
 #[derive(Debug, Clone)]
 #[must_use]
-pub enum DebugEvent {
+pub(crate) enum DebugEvent {
     Ppu(Box<Ppu>),
 }
 
@@ -179,14 +179,17 @@ impl From<DebugEvent> for NesEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
-pub enum EmulationEvent {
+pub(crate) enum EmulationEvent {
     AddDebugger(Debugger),
     RemoveDebugger(Debugger),
     AudioRecord(bool),
-    CpuCorrupted { instr: InstrRef },
+    CpuCorrupted {
+        instr: InstrRef,
+    },
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
+    #[cfg(target_arch = "wasm32")]
     LoadReplay((String, ReplayData)),
     LoadReplayPath(PathBuf),
     LoadRom((String, RomData)),
@@ -201,7 +204,7 @@ pub enum EmulationEvent {
     ShowFrameStats(bool),
     Screenshot,
     UnloadRom,
-    ZapperAim((u32, u32)),
+    ZapperAim((u16, u16)),
     ZapperTrigger,
 }
 
@@ -213,14 +216,13 @@ impl From<EmulationEvent> for NesEvent {
 
 #[derive(Debug, Clone)]
 #[must_use]
-pub enum RendererEvent {
-    ViewportResized((f32, f32)),
+pub(crate) enum RendererEvent {
+    #[cfg(target_arch = "wasm32")]
+    ViewportResized,
     FrameStats(FrameStats),
     ShowMenubar(bool),
-    ToggleFullscreen,
     ReplayLoaded,
     ResizeTexture,
-    ResizeWindow,
     ResourcesReady,
     RequestRedraw {
         viewport_id: ViewportId,
@@ -239,12 +241,14 @@ impl From<RendererEvent> for NesEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
-pub enum UiEvent {
+pub(crate) enum UiEvent {
     Error(String),
     Message((MessageType, String)),
+    #[cfg(not(target_arch = "wasm32"))]
     UpdateAvailable(String),
     LoadRomDialog,
     LoadReplayDialog,
+    #[cfg(target_arch = "wasm32")]
     FileDialogCancelled,
     Terminate,
 }
@@ -255,15 +259,18 @@ impl From<UiEvent> for NesEvent {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 #[derive(Clone, PartialEq)]
-pub struct ReplayData(pub Vec<u8>);
+pub(crate) struct ReplayData(pub(crate) Vec<u8>);
 
+#[cfg(target_arch = "wasm32")]
 impl std::fmt::Debug for ReplayData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ReplayData({} bytes)", self.0.len())
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl AsRef<[u8]> for ReplayData {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -312,7 +319,13 @@ impl ApplicationHandler<NesEvent> for Nes {
                 }
             }
             NesEvent::Ui(UiEvent::Terminate) => event_loop.exit(),
-            _ => (),
+            NesEvent::Config(_)
+            | NesEvent::Debug(_)
+            | NesEvent::Emulation(_)
+            | NesEvent::Renderer(_)
+            | NesEvent::Ui(_) => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { .. } => (),
         }
 
         if let State::Running(state) = &mut self.state {
@@ -408,6 +421,7 @@ impl ApplicationHandler<NesEvent> for Nes {
 
         debug!("exiting");
 
+        #[allow(clippy::panic, reason = "AbortOnExit enables panic on exit")]
         if let State::Running(state) = &mut self.state {
             state.exiting(event_loop);
         } else if feature!(AbortOnExit) {
@@ -540,7 +554,9 @@ impl ApplicationHandler<NesEvent> for Running {
                     .add_recent_rom(RecentRom::Homebrew { name: name.clone() });
             }
             NesEvent::Ui(ref event) => self.on_ui_event(event),
-            _ => (),
+            NesEvent::Debug(_) | NesEvent::Emulation(_) | NesEvent::Renderer(_) => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { .. } => (),
         }
 
         // Only wake emulation of relevant events
@@ -655,7 +671,26 @@ impl ApplicationHandler<NesEvent> for Running {
                         self.event(EmulationEvent::LoadRomPath(path));
                     }
                 }
-                _ => (),
+                WindowEvent::ActivationTokenDone { .. }
+                | WindowEvent::Moved(_)
+                | WindowEvent::CloseRequested
+                | WindowEvent::Destroyed
+                | WindowEvent::HoveredFile(_)
+                | WindowEvent::HoveredFileCancelled
+                | WindowEvent::Ime(_)
+                | WindowEvent::CursorMoved { .. }
+                | WindowEvent::CursorEntered { .. }
+                | WindowEvent::CursorLeft { .. }
+                | WindowEvent::MouseWheel { .. }
+                | WindowEvent::PinchGesture { .. }
+                | WindowEvent::PanGesture { .. }
+                | WindowEvent::DoubleTapGesture { .. }
+                | WindowEvent::RotationGesture { .. }
+                | WindowEvent::TouchpadPressure { .. }
+                | WindowEvent::AxisMotion { .. }
+                | WindowEvent::Touch(_)
+                | WindowEvent::ScaleFactorChanged { .. }
+                | WindowEvent::ThemeChanged(_) => (),
             }
         }
     }
@@ -712,6 +747,7 @@ impl ApplicationHandler<NesEvent> for Running {
         self.emulation.terminate();
         self.renderer.destroy();
 
+        #[allow(clippy::panic, reason = "AbortOnExit enables panic on exit")]
         if feature!(AbortOnExit) {
             panic!("exited unexpectedly");
         }
@@ -737,7 +773,7 @@ impl Running {
         self.event(EmulationEvent::RunState(state));
     }
 
-    pub fn update_repaint_times(&mut self, event_loop: &ActiveEventLoop) {
+    pub(crate) fn update_repaint_times(&mut self, event_loop: &ActiveEventLoop) {
         let mut next_repaint_time = self.repaint_times.values().min().copied();
         self.repaint_times.retain(|window_id, when| {
             if *when > Instant::now() {
@@ -762,7 +798,7 @@ impl Running {
         }));
     }
 
-    pub fn on_ui_event(&mut self, event: &UiEvent) {
+    pub(crate) fn on_ui_event(&mut self, event: &UiEvent) {
         match event {
             UiEvent::Message((ty, msg)) => self.renderer.add_message(*ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err.clone())),
@@ -802,17 +838,20 @@ impl Running {
                     }
                 }
             }
+            UiEvent::Terminate => (),
+            #[cfg(target_arch = "wasm32")]
             UiEvent::FileDialogCancelled => {
                 if self.renderer.rom_loaded() && self.run_state().auto_paused() {
                     self.set_run_state(RunState::Running);
                 }
             }
-            UiEvent::UpdateAvailable(_) | UiEvent::Terminate => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            UiEvent::UpdateAvailable(_) => (),
         }
     }
 
     /// Trigger a custom event.
-    pub fn event(&mut self, event: impl Into<NesEvent>) {
+    pub(crate) fn event(&mut self, event: impl Into<NesEvent>) {
         let mut event = event.into();
         trace!("Nes event: {event:?}");
 
@@ -827,14 +866,37 @@ impl Running {
                     }
                 }
                 EmulationEvent::Reset(_) => self.set_run_state(RunState::Running),
-                _ => (),
+                EmulationEvent::AddDebugger(_)
+                | EmulationEvent::RemoveDebugger(_)
+                | EmulationEvent::AudioRecord(_)
+                | EmulationEvent::CpuCorrupted { .. }
+                | EmulationEvent::DebugStep(_)
+                | EmulationEvent::InstantRewind
+                | EmulationEvent::Joypad(_)
+                | EmulationEvent::LoadReplayPath(_)
+                | EmulationEvent::LoadRom(_)
+                | EmulationEvent::LoadState(_)
+                | EmulationEvent::RunState(_)
+                | EmulationEvent::ReplayRecord(_)
+                | EmulationEvent::RequestFrame
+                | EmulationEvent::Rewinding(_)
+                | EmulationEvent::SaveState(_)
+                | EmulationEvent::ShowFrameStats(_)
+                | EmulationEvent::Screenshot
+                | EmulationEvent::UnloadRom
+                | EmulationEvent::ZapperAim(_)
+                | EmulationEvent::ZapperTrigger => (),
+                #[cfg(target_arch = "wasm32")]
+                EmulationEvent::LoadReplay(_) => (),
             },
-            _ => (),
+            NesEvent::Config(_) | NesEvent::Debug(_) | NesEvent::Renderer(_) => (),
+            #[cfg(not(target_arch = "wasm32"))]
+            NesEvent::AccessKit { .. } => (),
         }
     }
 
     /// Handle gamepad event.
-    pub fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
+    pub(crate) fn on_gamepad_event(&mut self, window_id: WindowId, event: gilrs::Event) {
         use gilrs::EventType;
 
         // Connect first because we may not have a name set yet
@@ -919,13 +981,16 @@ impl Running {
                         );
                     }
                 }
-                _ => (),
+                EventType::ButtonChanged(..)
+                | EventType::Dropped
+                | EventType::ForceFeedbackEffectCompleted
+                | _ => (),
             }
         }
     }
 
     /// Handle user input mapped to key bindings.
-    pub fn on_input(
+    pub(crate) fn on_input(
         &mut self,
         window_id: WindowId,
         input: Input,
@@ -1028,7 +1093,10 @@ impl Running {
                             self.event(EmulationEvent::Rewinding(self.rewinding));
                         }
                     }
-                    _ => (),
+                    Feature::ToggleReplayRecording
+                    | Feature::ToggleAudioRecording
+                    | Feature::InstantRewind
+                    | Feature::TakeScreenshot => (),
                 },
                 Action::Setting(setting) => match setting {
                     Setting::ToggleFullscreen if released => {
@@ -1115,7 +1183,22 @@ impl Running {
                         self.cfg.renderer.shader = shader;
                         self.event(ConfigEvent::Shader(shader));
                     }
-                    _ => (),
+                    Setting::ToggleFullscreen
+                    | Setting::ToggleEmbedViewports
+                    | Setting::ToggleAlwaysOnTop
+                    | Setting::ToggleAudio
+                    | Setting::ToggleRewinding
+                    | Setting::ToggleOverscan
+                    | Setting::ToggleMenubar
+                    | Setting::ToggleMessages
+                    | Setting::ToggleScreenReader
+                    | Setting::ToggleFps
+                    | Setting::FastForward
+                    | Setting::IncrementScale
+                    | Setting::DecrementScale
+                    | Setting::IncrementSpeed
+                    | Setting::DecrementSpeed
+                    | Setting::SetShader(_) => (),
                 },
                 Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if released => {
@@ -1197,7 +1280,17 @@ impl Running {
                         self.cfg.deck.filter = filter;
                         self.event(ConfigEvent::VideoFilter(filter));
                     }
-                    _ => (),
+                    DeckAction::Reset(_)
+                    | DeckAction::Joypad(_)
+                    | DeckAction::ToggleZapperConnected
+                    | DeckAction::FourPlayer(_)
+                    | DeckAction::SetSaveSlot(_)
+                    | DeckAction::SaveState
+                    | DeckAction::LoadState
+                    | DeckAction::ToggleApuChannel(_)
+                    | DeckAction::MapperRevision(_)
+                    | DeckAction::SetNesRegion(_)
+                    | DeckAction::SetVideoFilter(_) => (),
                 },
                 Action::Debug(action) => match action {
                     Debug::Toggle(kind) if released => {
@@ -1213,9 +1306,9 @@ impl Running {
                     Debug::Step(step) if (released | repeat) && is_root_window => {
                         self.event(EmulationEvent::DebugStep(step));
                     }
-                    _ => (),
+                    Debug::Toggle(_) | Debug::Step(_) => (),
                 },
-                _ => (),
+                Action::Ui(_) | Action::Menu(_) | Action::Feature(_) => (),
             }
         }
     }

@@ -8,27 +8,27 @@ use tracing::error;
 
 #[derive(Default, Debug, Clone)]
 #[must_use]
-pub struct Frame {
-    pub buffer: Buffer,
-    pub state: Vec<u8>,
+pub(crate) struct Frame {
+    pub(crate) buffer: Buffer,
+    pub(crate) state: Vec<u8>,
 }
 
 #[derive(Default, Debug)]
 #[must_use]
-pub struct Rewind {
-    pub enabled: bool,
-    pub interval_counter: usize,
-    pub index: usize,
-    pub count: usize,
-    pub interval: usize,
-    pub seconds: usize,
-    pub frames: Vec<Option<Frame>>,
+pub(crate) struct Rewind {
+    pub(crate) enabled: bool,
+    pub(crate) interval_counter: usize,
+    pub(crate) index: usize,
+    pub(crate) count: usize,
+    pub(crate) interval: usize,
+    pub(crate) seconds: usize,
+    pub(crate) frames: Vec<Option<Frame>>,
 }
 
 impl Rewind {
     const TARGET_FPS: usize = 60;
 
-    pub fn new(enabled: bool, seconds: u32, interval: u32) -> Self {
+    pub(crate) fn new(enabled: bool, seconds: u32, interval: u32) -> Self {
         let interval = interval as usize;
         let seconds = seconds as usize;
         Self {
@@ -46,26 +46,26 @@ impl Rewind {
         Self::TARGET_FPS * seconds / interval
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
+    pub(crate) fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
             self.clear();
         }
     }
 
-    pub fn set_seconds(&mut self, seconds: u32) {
+    pub(crate) fn set_seconds(&mut self, seconds: u32) {
         self.seconds = seconds as usize;
         self.frames
             .resize(Self::frame_size(self.seconds, self.interval), None);
     }
 
-    pub fn set_interval(&mut self, interval: u32) {
+    pub(crate) fn set_interval(&mut self, interval: u32) {
         self.interval = interval as usize;
         self.frames
             .resize(Self::frame_size(self.seconds, self.interval), None);
     }
 
-    pub fn push(&mut self, cpu: &Cpu) -> Result<()> {
+    pub(crate) fn push(&mut self, cpu: &Cpu) -> Result<()> {
         if !self.enabled {
             return Ok(());
         }
@@ -90,7 +90,7 @@ impl Rewind {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Option<Cpu> {
+    pub(crate) fn pop(&mut self) -> Option<Cpu> {
         if !self.enabled {
             return None;
         }
@@ -98,7 +98,7 @@ impl Rewind {
             self.count -= 1;
             self.index -= 1;
             if self.index == 0 {
-                self.index = self.frames.len() - 1;
+                self.index = self.frames.len().saturating_sub(1);
             }
 
             let frame = self.frames[self.index].take()?;
@@ -116,7 +116,7 @@ impl Rewind {
         }
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.interval_counter = 0;
         self.index = 0;
         self.count = 0;
@@ -125,14 +125,14 @@ impl Rewind {
 }
 
 impl State {
-    pub fn rewind_disabled(&mut self) {
+    pub(crate) fn rewind_disabled(&mut self) {
         self.add_message(
             MessageType::Warn,
             "Rewind disabled. You can enable it in the Preferences menu.",
         );
     }
 
-    pub fn instant_rewind(&mut self) {
+    pub(crate) fn instant_rewind(&mut self) {
         if !self.rewind.enabled {
             return self.rewind_disabled();
         }

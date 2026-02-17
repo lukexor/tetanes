@@ -12,10 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Status {
-    pub spr_overflow: bool,
-    pub spr_zero_hit: bool,
-    pub in_vblank: bool,
-    bits: Bits,
+    pub bits: Bits,
 }
 
 bitflags! {
@@ -54,41 +51,56 @@ bitflags! {
 
 impl Status {
     pub fn new() -> Self {
-        let mut status = Self::default();
-        status.write(0);
-        status
+        Self::default()
     }
 
+    #[inline(always)]
     pub const fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
-        self.spr_overflow = self.bits.contains(Bits::SPR_ZERO_HIT);
-        self.spr_zero_hit = self.bits.contains(Bits::SPR_ZERO_HIT);
-        self.in_vblank = self.bits.contains(Bits::VBLANK_STARTED);
     }
 
+    #[inline(always)]
+    #[must_use]
+    pub const fn spr_overflow(&self) -> bool {
+        self.bits.contains(Bits::SPR_OVERFLOW)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn spr_zero_hit(&self) -> bool {
+        self.bits.contains(Bits::SPR_ZERO_HIT)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn in_vblank(&self) -> bool {
+        self.bits.contains(Bits::VBLANK_STARTED)
+    }
+
+    #[inline(always)]
     #[must_use]
     pub const fn read(&self) -> u8 {
         self.bits.bits()
     }
 
+    #[inline(always)]
     pub fn set_spr_overflow(&mut self, val: bool) {
         self.bits.set(Bits::SPR_OVERFLOW, val);
-        self.spr_overflow = val;
     }
 
+    #[inline(always)]
     pub fn set_spr_zero_hit(&mut self, val: bool) {
         self.bits.set(Bits::SPR_ZERO_HIT, val);
-        self.spr_zero_hit = val;
     }
 
+    #[inline(always)]
     pub fn set_in_vblank(&mut self, val: bool) {
         self.bits.set(Bits::VBLANK_STARTED, val);
-        self.in_vblank = val;
     }
 
+    #[inline(always)]
     pub fn reset_in_vblank(&mut self) {
         self.bits.remove(Bits::VBLANK_STARTED);
-        self.in_vblank = false;
     }
 }
 

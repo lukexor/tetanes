@@ -204,7 +204,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
             let _ = write!(line, " {byte:02X}");
         }
 
-        if line_len % 16 > 0 {
+        if !line_len.is_multiple_of(16) {
             let words_left = (16 - line_len) / 2;
             for _ in 0..3 * words_left {
                 line.push(' ');
@@ -271,9 +271,9 @@ pub(crate) mod tests {
 
     #[macro_export]
     macro_rules! test_roms {
-        ($mod:ident, $directory:expr, $( $(#[ignore = $reason:expr])? $test:ident ),* $(,)?) => {
+        ($mod:ident, $directory:expr, $( $(#[$meta:meta])* $test:ident ),* $(,)?) => {
             mod $mod {$(
-                $(#[ignore = $reason])?
+                $(#[$meta])*
                 #[test]
                 fn $test() -> anyhow::Result<()> {
                     $crate::common::tests::test_rom($directory, stringify!($test))
@@ -415,8 +415,8 @@ pub(crate) mod tests {
                     .with_extension("png");
 
                 ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(
-                    Ppu::WIDTH,
-                    Ppu::HEIGHT,
+                    u32::from(Ppu::WIDTH),
+                    u32::from(Ppu::HEIGHT),
                     deck.frame_buffer(),
                 )
                 .expect("valid frame")
@@ -952,15 +952,25 @@ pub(crate) mod tests {
         // 11 tests that verify a number of behaviors with the APU (including the frame counter)
         //
         // See: <https://forums.nesdev.org/viewtopic.php?f=3&t=11174>
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_1,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_2,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_3,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_4,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_5,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_6,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_7,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_8,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_9,
+        #[allow(clippy::redundant_test_prefix, reason = "actual name of the test rom")]
         test_10,
         // PAL APU tests
         //

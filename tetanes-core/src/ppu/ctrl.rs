@@ -16,15 +16,9 @@ const NAMETABLE4: u16 = 0x2C00;
 /// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
+#[repr(C)]
 pub struct Ctrl {
-    pub spr_select: u16,
-    pub bg_select: u16,
-    pub spr_height: u32,
-    pub master_slave: u8,
-    pub nmi_enabled: bool,
-    pub nametable_addr: u16,
-    pub vram_increment: u16,
-    bits: Bits,
+    pub bits: Bits,
 }
 
 bitflags! {
@@ -53,40 +47,78 @@ bitflags! {
         const SPR_HEIGHT = 0x20;
         const MASTER_SLAVE = 0x40;
         const NMI_ENABLE = 0x80;
+
+        const NAMETABLE_SELECT = Self::NAMETABLE1.bits() | Self::NAMETABLE2.bits();
     }
 }
 
 impl Ctrl {
     pub fn new() -> Self {
-        let mut ctrl = Self::default();
-        ctrl.write(0);
-        ctrl
+        Self::default()
     }
 
-    pub fn write(&mut self, val: u8) {
+    #[inline(always)]
+    pub const fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn spr_select(&self) -> u16 {
         // 0x1000 or 0x0000
-        self.spr_select = self.bits.contains(Bits::SPR_SELECT) as u16 * 0x1000;
+        u16::from(self.bits.contains(Bits::SPR_SELECT)) * 0x1000
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn bg_select(&self) -> u16 {
         // 0x1000 or 0x0000
-        self.bg_select = self.bits.contains(Bits::BG_SELECT) as u16 * 0x1000;
+        u16::from(self.bits.contains(Bits::BG_SELECT)) * 0x1000
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn spr_height(&self) -> u16 {
         // 16 or 8
-        self.spr_height = self.bits.contains(Bits::SPR_HEIGHT) as u32 * 8 + 8;
+        u16::from(self.bits.contains(Bits::SPR_HEIGHT)) * 8 + 8
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn master_slave(&self) -> u8 {
         // 1 or 0
-        self.master_slave = self.bits.contains(Bits::MASTER_SLAVE) as u8;
-        self.nmi_enabled = self.bits.contains(Bits::NMI_ENABLE);
-        self.nametable_addr = match self.bits.bits() & 0b11 {
+        u8::from(self.bits.contains(Bits::MASTER_SLAVE))
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn nmi_enabled(&self) -> bool {
+        self.bits.contains(Bits::NMI_ENABLE)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn nametable_addr(&self) -> u16 {
+        match self.nametable_select() {
             0b00 => NAMETABLE1,
             0b01 => NAMETABLE2,
             0b10 => NAMETABLE3,
             0b11 => NAMETABLE4,
             _ => unreachable!("impossible nametable_addr"),
-        };
-        // 32 or 1
-        self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT) as u16 * 31 + 1
+        }
     }
 
+    #[inline(always)]
+    #[must_use]
+    pub fn vram_increment(&self) -> u16 {
+        // 32 or 1
+        u16::from(self.bits.contains(Bits::VRAM_INCREMENT)) * 31 + 1
+    }
+
+    #[inline(always)]
+    #[must_use]
     pub const fn nametable_select(&self) -> u8 {
-        self.bits.bits() & 0b11
+        self.bits.intersection(Bits::NAMETABLE_SELECT).bits()
     }
 }
 

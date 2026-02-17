@@ -20,11 +20,8 @@
 use cfg_if::cfg_if;
 use tetanes::{
     logging,
-    nes::{Nes, config::Config},
+    nes::{Config, Nes},
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-mod opts;
 
 cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -33,9 +30,10 @@ cfg_if! {
         }
     } else {
         fn load_config() -> anyhow::Result<Config> {
+            use tetanes::opts::Opts;
             use clap::Parser;
 
-            let opts = opts::Opts::parse();
+            let opts = Opts::parse();
             tracing::debug!("CLI Options: {opts:?}");
 
             opts.load()

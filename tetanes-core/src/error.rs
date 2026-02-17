@@ -17,7 +17,7 @@ pub enum Error {
     InvalidSaveHeader { path: PathBuf, error: String },
     #[error("invalid configuration {value:?} for {field:?}")]
     InvalidConfig { field: &'static str, value: String },
-    #[error("{context}: {source:?}")]
+    #[error("{context}: {source}")]
     Io {
         context: String,
         source: std::io::Error,

@@ -470,21 +470,21 @@ pub struct Zapper {
     pub triggered: f32,
     pub trigger_release_delay: f32,
     #[serde(skip)] // Don't save zapper position
-    pub x: u32,
+    pub x: u16,
     #[serde(skip)] // Don't save zapper position
-    pub y: u32,
-    pub radius: u32,
+    pub y: u16,
+    pub radius: u16,
     pub connected: bool,
 }
 
 impl Zapper {
     #[must_use]
-    pub const fn x(&self) -> u32 {
+    pub const fn x(&self) -> u16 {
         self.x
     }
 
     #[must_use]
-    pub const fn y(&self) -> u32 {
+    pub const fn y(&self) -> u16 {
         self.y
     }
 
@@ -494,7 +494,7 @@ impl Zapper {
         }
     }
 
-    pub fn aim(&mut self, x: u32, y: u32) {
+    pub fn aim(&mut self, x: u16, y: u16) {
         if x != self.x || y != self.y {
             trace!("zapper aim: {x}, {y}");
         }

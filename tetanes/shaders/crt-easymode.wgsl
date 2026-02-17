@@ -84,10 +84,10 @@ const SCANLINE_BEAM_WIDTH_MIN = 1.5;
 const SCANLINE_BEAM_WIDTH_MAX = 1.5;
 const SCANLINE_BRIGHT_MIN = 0.35;
 const SCANLINE_BRIGHT_MAX = 0.65;
-const SCANLINE_CUTOFF = 400.0;
-const GAMMA_INPUT = 2.0;
-const GAMMA_OUTPUT = 1.8;
-const BRIGHT_BOOST = 1.2;
+const SCANLINE_CUTOFF = 2000.0;
+const GAMMA_INPUT = 2.4;
+const GAMMA_OUTPUT = 2.2;
+const BRIGHT_BOOST = 1.3;
 const DILATION = 1.0;
 
 // apply half-circle s-curve to distance for sharper (more pixelated) interpolation
@@ -122,6 +122,7 @@ fn get_color_matrix(co: vec2<f32>, dx: vec2<f32>) -> mat4x4<f32> {
     return mat4x4<f32>(tex2d(co - dx), tex2d(co), tex2d(co + dx), tex2d(co + 2.0 * dx));
 }
 
+const NES_HEIGHT = 240.0;
 
 @fragment
 fn fs_main(
@@ -152,11 +153,10 @@ fn fs_main(
     let bright = (max(col.r, max(col.g, col.b)) + luma) * 0.5;
     let scan_bright = clamp(bright, SCANLINE_BRIGHT_MIN, SCANLINE_BRIGHT_MAX);
     let scan_beam = clamp(bright * SCANLINE_BEAM_WIDTH_MAX, SCANLINE_BEAM_WIDTH_MIN, SCANLINE_BEAM_WIDTH_MAX);
-    var scan_weight = 1.0 - pow(cos(v_uv.y * 2.0 * PI * tex_dims.y) * 0.5 + 0.5, scan_beam) * SCANLINE_STRENGTH;
+    var scan_weight = 1.0 - pow(cos(v_uv.y * 2.0 * PI * NES_HEIGHT) * 0.5 + 0.5, scan_beam) * SCANLINE_STRENGTH;
 
-    let insize = tex_dims;
     let mask = 1.0 - MASK_STRENGTH;
-    let mod_fac = floor(v_uv * out.screen_size * tex_dims / (insize * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
+    let mod_fac = floor(v_uv * out.screen_size * tex_dims / (tex_dims * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
     let dot_no = i32(((mod_fac.x + (mod_fac.y % 2.0) * MASK_STAGGER) / MASK_DOT_WIDTH % 3.0));
 
     var mask_weight: vec3<f32>;
@@ -168,7 +168,7 @@ fn fs_main(
         mask_weight = vec3<f32>(mask, mask, 1.0);
     }
 
-    if insize.y >= SCANLINE_CUTOFF {
+    if tex_dims.y >= SCANLINE_CUTOFF {
         scan_weight = 1.0;
     }
 

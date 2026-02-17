@@ -11,7 +11,6 @@ use crate::{
 };
 use anyhow::Context;
 use cfg_if::cfg_if;
-use config::Config;
 use crossbeam::channel::Receiver;
 use egui::ahash::HashMap;
 use std::sync::{
@@ -26,15 +25,17 @@ use winit::{
     window::{Window, WindowId},
 };
 
-pub mod action;
-pub mod audio;
-pub mod config;
-pub mod emulation;
-pub mod event;
-pub mod input;
-pub mod renderer;
-pub mod rom;
-pub mod version;
+pub use config::Config;
+
+pub(crate) mod action;
+pub(crate) mod audio;
+pub(crate) mod config;
+pub(crate) mod emulation;
+pub(crate) mod event;
+pub(crate) mod input;
+pub(crate) mod renderer;
+pub(crate) mod rom;
+pub(crate) mod version;
 
 /// Represents all the NES Emulation state.
 #[derive(Debug)]
@@ -74,30 +75,26 @@ impl Default for State {
 }
 
 impl State {
-    pub const fn is_exiting(&self) -> bool {
+    pub(crate) const fn is_exiting(&self) -> bool {
         matches!(self, Self::Exiting)
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[must_use]
-pub enum RunState {
+pub(crate) enum RunState {
     Running,
     ManuallyPaused,
     AutoPaused,
 }
 
 impl RunState {
-    pub const fn paused(&self) -> bool {
+    pub(crate) const fn paused(&self) -> bool {
         matches!(self, Self::ManuallyPaused | Self::AutoPaused)
     }
 
-    pub const fn auto_paused(&self) -> bool {
+    pub(crate) const fn auto_paused(&self) -> bool {
         matches!(self, Self::AutoPaused)
-    }
-
-    pub const fn manually_paused(&self) -> bool {
-        matches!(self, Self::ManuallyPaused)
     }
 }
 
@@ -105,8 +102,6 @@ impl RunState {
 #[derive(Debug)]
 pub(crate) struct Running {
     pub(crate) cfg: Config,
-    // Only used by wasm currently
-    #[cfg_attr(target_arch = "wasm32", allow(unused))]
     pub(crate) tx: NesEventProxy,
     pub(crate) should_terminate: Arc<AtomicBool>,
     pub(crate) emulation: Emulation,
@@ -128,12 +123,14 @@ impl Nes {
     ///
     /// If event loop fails to build or run, then an error is returned.
     pub fn run(cfg: Config) -> anyhow::Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        use winit::platform::web::EventLoopExtWebSys;
+
         // Set up window, events and NES state
         let event_loop = EventLoop::<NesEvent>::with_user_event().build()?;
         let nes = Nes::new(cfg, &event_loop);
         cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
-                use winit::platform::web::EventLoopExtWebSys;
                 event_loop.spawn_app(nes);
             } else {
                 let mut nes = nes;
@@ -144,7 +141,7 @@ impl Nes {
     }
 
     /// Return whether the application should terminate.
-    pub fn should_terminate(&self) -> bool {
+    pub(crate) fn should_terminate(&self) -> bool {
         match &self.state {
             State::Suspended { should_terminate }
             | State::Pending {
@@ -156,7 +153,7 @@ impl Nes {
     }
 
     /// Create the NES instance.
-    pub fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
+    pub(crate) fn new(cfg: Config, event_loop: &EventLoop<NesEvent>) -> Self {
         let should_terminate = Arc::new(AtomicBool::new(false));
         #[cfg(not(target_arch = "wasm32"))]
         // Minor issue if this fails, but not enough to terminate the program

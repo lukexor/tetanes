@@ -160,10 +160,11 @@ impl BandaiFCG {
             self.chr_banks.set(bank, val.into());
         }
 
-        if let Some(eeprom) = &mut self.extra_eeprom {
-            if self.mapper_num == 157 && (addr & 0x0F) <= 3 {
-                eeprom.write_scl((val >> 3) & 0x01)
-            }
+        if let Some(eeprom) = &mut self.extra_eeprom
+            && self.mapper_num == 157
+            && (addr & 0x0F) <= 3
+        {
+            eeprom.write_scl((val >> 3) & 0x01)
         }
     }
 
@@ -422,8 +423,6 @@ impl BarcodeReader {
     }
 
     pub fn init(&mut self) {
-        self.insert_cycle = self.master_clock;
-
         static PREFIX_PARITY_TYPE: [[u8; 6]; 10] = [
             [8, 8, 8, 8, 8, 8],
             [8, 8, 0, 8, 0, 0],
@@ -476,10 +475,18 @@ impl BarcodeReader {
             [0, 0, 0, 8, 0, 8, 8],
         ];
 
+        self.insert_cycle = self.master_clock;
+
         let barcode = self.barcode();
         let mut codes = Vec::new();
         for ch in barcode.chars() {
-            codes.push(ch.to_digit(10).expect("valid barcode character") as usize);
+            match ch.to_digit(10) {
+                Some(digit) => codes.push(digit as usize),
+                None => {
+                    tracing::warn!("invalid barcode: {barcode}");
+                    return;
+                }
+            }
         }
 
         self.data.clear();
@@ -681,7 +688,7 @@ impl Eeprom {
                                 self.next_mode = EepromMode::Idle;
                             }
                         }
-                        _ => (),
+                        EepromMode::Idle | EepromMode::ChipAddr => (),
                     }
                 } else if scl < self.prev_scl {
                     // Clock fall
@@ -716,7 +723,7 @@ impl Eeprom {
                                 self.addr = (self.addr + 1) & 0x7F;
                             }
                         }
-                        _ => (),
+                        EepromMode::Idle | EepromMode::WaitAck | EepromMode::ChipAddr => (),
                     }
                 }
 
@@ -891,6 +898,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::unreadable_literal, reason = "barcodes")]
     fn bandai_fcg_barcode_formatting() {
         let mut reader = BarcodeReader::new();
         reader.input(4902425679235, 13);
@@ -902,6 +910,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unreadable_literal, reason = "barcodes")]
     fn bandai_fcg_ean13_checksum() {
         // EAN-13: first 12 digits -> checksum is 13th
         // 490242567923 -> check digit 5
@@ -918,6 +927,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unreadable_literal, reason = "barcodes")]
     fn bandai_fcg_ean13_structure() {
         let mut reader = BarcodeReader::new();
         reader.input(4902425679235, 13);
@@ -938,6 +948,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unreadable_literal, reason = "barcodes")]
     fn bandai_fcg_ean8_structure() {
         let mut reader = BarcodeReader::new();
         // Valid EAN-8: 12345670 (checksum 0)

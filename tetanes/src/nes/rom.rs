@@ -1,5 +1,5 @@
 #[derive(Clone, PartialEq)]
-pub struct RomData(pub Vec<u8>);
+pub(crate) struct RomData(pub(crate) Vec<u8>);
 
 impl std::fmt::Debug for RomData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -15,12 +15,12 @@ impl AsRef<[u8]> for RomData {
 
 #[derive(Copy, Clone)]
 #[must_use]
-pub struct RomAsset {
-    pub name: &'static str,
-    pub authors: &'static str,
-    pub description: &'static str,
-    pub source: &'static str,
-    pub data_fn: &'static dyn Fn() -> Vec<u8>,
+pub(crate) struct RomAsset {
+    pub(crate) name: &'static str,
+    pub(crate) authors: &'static str,
+    pub(crate) description: &'static str,
+    pub(crate) source: &'static str,
+    pub(crate) data_fn: &'static dyn Fn() -> Vec<u8>,
 }
 
 impl std::fmt::Debug for RomAsset {
@@ -35,7 +35,7 @@ impl std::fmt::Debug for RomAsset {
 }
 
 impl RomAsset {
-    pub const fn new(
+    pub(crate) const fn new(
         name: &'static str,
         authors: &'static str,
         description: &'static str,
@@ -51,7 +51,7 @@ impl RomAsset {
         }
     }
 
-    pub fn data(&self) -> RomData {
+    pub(crate) fn data(&self) -> RomData {
         RomData((self.data_fn)())
     }
 }
@@ -77,7 +77,7 @@ macro_rules! rom_assets {
     )*]};
 }
 
-pub const HOMEBREW_ROMS: [RomAsset; 18] = rom_assets!(
+pub(crate) const HOMEBREW_ROMS: [RomAsset; 18] = rom_assets!(
     (
         "Alter Ego",
         "alter_ego.nes",

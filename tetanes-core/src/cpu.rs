@@ -96,25 +96,42 @@ bitflags! {
 #[must_use]
 #[repr(C)]
 pub struct Cpu {
-    pub cycle: u32, // total number of cycles ran
+    /// Total number of cycles ran. Wraps around.
+    pub cycle: u32,
+    /// Total number of master cycles. Used to synchronize components. Resets on NMI.
     pub master_clock: u32,
-    // start/end cycle counts for reads/writes
+    /// Number of master clocks to cycle at the start of a read/write
     pub start_cycles: u8,
+    /// Number of master clocks to cycle at the end of a read/write
     pub end_cycles: u8,
-    pub pc: u16,             // program counter
-    pub operand: u16,        // opcode operand
-    pub addr_mode: AddrMode, // Addressing mode
-    pub sp: u8,              // stack pointer - stack is at $0100-$01FF
-    pub acc: u8,             // accumulator
-    pub x: u8,               // x register
-    pub y: u8,               // y register
-    pub status: Status,      // Status Registers
+    /// Program counter.
+    pub pc: u16,
+    /// Opcode operand.
+    pub operand: u16,
+    /// Addressing mode.
+    pub addr_mode: AddrMode,
+    // === 16 ===
+    /// Stack pointer register - stack is at $0100-$01FF.
+    pub sp: u8,
+    /// Accumulator register.
+    pub acc: u8,
+    /// X register.
+    pub x: u8,
+    /// Y register.
+    pub y: u8,
+    /// Status Registers.
+    pub status: Status,
+    /// IRQ flags.
     pub irq_flags: IrqFlags,
+    // === 24 ==
+    /// Data bus.
     pub bus: Bus,
-    #[serde(skip)]
-    pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
+    /// String cache for disassembly.
     #[serde(skip)]
     pub disasm: String,
+    // Encountering an invalid opcode corrupts CPU processing.
+    #[serde(skip)]
+    pub corrupted: bool,
 }
 
 impl Cpu {
@@ -153,8 +170,8 @@ impl Cpu {
             status: Self::POWER_ON_STATUS,
             irq_flags: IrqFlags::default(),
             bus,
-            corrupted: false,
             disasm: String::new(),
+            corrupted: false,
         };
         cpu.set_region(cpu.bus.region);
         cpu
@@ -166,10 +183,10 @@ impl Cpu {
         // already loaded ROM data if it's not provided
         if cpu.bus.prg_rom.is_empty() {
             cpu.bus.prg_rom = std::mem::take(&mut self.bus.prg_rom);
-        };
+        }
         if cpu.bus.ppu.bus.chr.is_empty() {
             cpu.bus.ppu.bus.chr = std::mem::take(&mut self.bus.ppu.bus.chr);
-        };
+        }
         // Doesn't make sense to load a debugger from a previous state
         cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
         *self = cpu;
@@ -319,12 +336,12 @@ impl Cpu {
         //
         // Set U and !B during push
         let status = ((self.status | Status::U) & !Status::B).bits();
-        let nmi = self.irq_flags(IrqFlags::NMI);
+        let nmi = self.irq_flags.intersects(IrqFlags::NMI);
         self.push_byte(status);
         self.status.set(Status::I, true);
 
         if nmi {
-            self.clear_irq_flags(IrqFlags::NMI);
+            self.irq_flags.remove(IrqFlags::NMI);
             self.pc = self.read_word(Self::NMI_VECTOR);
             self.bus.ppu.clock_to(self.master_clock);
             self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
@@ -373,7 +390,7 @@ impl Cpu {
         flags.set(IrqFlags::RUN_IRQ, run_irq);
 
         #[cfg(feature = "trace")]
-        if !flags.contains(IrqFlags::PREV_NMI_PENDING) && flags.contains(IrqFlags::RUN_IRQ) {
+        if !flags.contains(IrqFlags::PREV_RUN_IRQ) && flags.contains(IrqFlags::RUN_IRQ) {
             trace!("IRQs: {:?} - CYC:{}", irqs, self.cycle);
         }
     }
@@ -476,20 +493,6 @@ impl Cpu {
         }
     }
 
-    // Interrupt flag functions
-
-    /// Clear [`IrqFlags`] flags for the given bits.
-    #[inline(always)]
-    fn clear_irq_flags(&mut self, flags: IrqFlags) {
-        self.irq_flags &= !flags;
-    }
-
-    /// Returns `true` if the [`IrqFlags`] register is set.
-    #[inline(always)]
-    fn irq_flags(&self, flags: IrqFlags) -> bool {
-        (self.irq_flags & flags).bits() == flags.bits()
-    }
-
     // Status Register functions
 
     /// Set [`Status`] flags for the given bits.
@@ -500,7 +503,7 @@ impl Cpu {
 
     /// Returns the [`Status`] register as a byte.
     #[inline(always)]
-    const fn status_bit(&self, reg: Status) -> u8 {
+    const fn status_bits(&self, reg: Status) -> u8 {
         self.status.intersection(reg).bits()
     }
 
@@ -814,7 +817,7 @@ impl Cpu {
                     );
                 }
             }
-        };
+        }
         &self.disasm
     }
 
@@ -948,10 +951,10 @@ impl Reset for Cpu {
             }
         }
 
-        self.bus.reset(kind);
-        self.cycle = 0;
         self.master_clock = 0;
+        self.cycle = 0;
         self.irq_flags = IrqFlags::default();
+        self.bus.reset(kind);
         self.corrupted = false;
         Self::clear_nmi();
         Self::clear_irq(Irq::all());
@@ -994,13 +997,19 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom};
+    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom, mem::RamState};
 
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(Bus::default());
-        let mut cart = Cart::empty();
+        let mut cpu = Cpu::new(Bus {
+            ram_state: RamState::AllZeros,
+            ..Bus::default()
+        });
+        let mut cart = Cart {
+            ram_state: RamState::AllZeros,
+            ..Cart::empty()
+        };
         cart.mapper = Nrom::load(&mut cart).unwrap();
         cpu.bus.load_cart(cart);
         cpu.reset(ResetKind::Hard);
@@ -1009,6 +1018,10 @@ mod tests {
         assert_eq!(cpu.cycle, 14, "cpu after power + one clock");
 
         for instr_ref in Cpu::INSTR_REF.iter() {
+            #[allow(
+                clippy::wildcard_enum_match_arm,
+                reason = "only branch instructions have an extra cycle"
+            )]
             let extra_cycle = match instr_ref.instr {
                 BCC | BNE | BPL | BVC => 1,
                 _ => 0,

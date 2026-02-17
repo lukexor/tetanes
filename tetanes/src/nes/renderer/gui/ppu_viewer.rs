@@ -27,8 +27,8 @@ struct State {
     tx: NesEventProxy,
     tab: Tab,
     // TODO: persist in config
-    refresh_cycle: u32,
-    refresh_scanline: u32,
+    refresh_cycle: u16,
+    refresh_scanline: u16,
     show_refresh_lines: bool,
     show_dividers: bool,
     show_tile_grid: bool,
@@ -65,7 +65,8 @@ struct PatternTablesState {
 struct OamState {
     oam_pixels: Vec<u8>,
     sprite_pixels: Vec<u8>,
-    sprites: Vec<Sprite>,
+    // y, tile_addr, Sprite
+    sprites: Vec<(u8, u16, Sprite)>,
     oam_texture: Texture,
     sprites_texture: Texture,
     zoom: f32,
@@ -89,8 +90,8 @@ struct NametableTile {
     uv: Rect,
     col: u16,
     row: u16,
-    x: u32, // 0..=248
-    y: u32, // 0..=232
+    x: u16, // 0..=248
+    y: u16, // 0..=232
     nametable_addr: u16,
     tile_addr: u16,
     palette_index: u8,
@@ -158,14 +159,14 @@ impl Default for PaletteColor {
 
 #[derive(Debug)]
 #[must_use]
-pub struct PpuViewer {
-    pub id: ViewportId,
+pub(crate) struct PpuViewer {
+    pub(crate) id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Tab {
+pub(crate) enum Tab {
     #[default]
     Nametables,
     PatternTables,
@@ -174,9 +175,9 @@ pub enum Tab {
 }
 
 impl PpuViewer {
-    const TITLE: &'static str = "PPU Viewer";
+    const TITLE: &'static str = "TetaNES - PPU Viewer";
 
-    pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
+    pub(crate) fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
@@ -221,7 +222,7 @@ impl PpuViewer {
                     // 1 nametable with 4 color channels (RGBA)
                     sprite_pixels: vec![0x00; 4 * Ppu::SIZE],
                     // 64 sprites
-                    sprites: vec![Sprite::new(); 64],
+                    sprites: vec![(0, 0x00, Sprite::new()); 64],
                     oam_texture: Texture::new(
                         render_state,
                         Vec2::splat(64.0),
@@ -252,15 +253,15 @@ impl PpuViewer {
         }
     }
 
-    pub const fn id(&self) -> ViewportId {
+    pub(crate) const fn id(&self) -> ViewportId {
         self.id
     }
 
-    pub fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool, ctx: &Context) {
+    pub(crate) fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
         self.state.lock().update_debugger(self.open());
         if !self.open() {
@@ -268,7 +269,7 @@ impl PpuViewer {
         }
     }
 
-    pub fn toggle_open(&self, ctx: &Context) {
+    pub(crate) fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
@@ -278,7 +279,7 @@ impl PpuViewer {
         }
     }
 
-    pub fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
+    pub(crate) fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
         let mut state = self.state.lock();
         match state.tab {
             Tab::Nametables => {
@@ -335,7 +336,7 @@ impl PpuViewer {
         state.ppu = ppu;
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub(crate) fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
         if !self.open.load(Ordering::Relaxed) {
             return;
         }
@@ -654,7 +655,7 @@ impl State {
 
         let nametable_addr = base_nametable_addr + nametable_index;
         let tile_index = u16::from(self.ppu.bus.peek_ciram(nametable_addr));
-        let tile_addr = self.ppu.ctrl.bg_select + (tile_index << 4);
+        let tile_addr = self.ppu.ctrl.bg_select() + (tile_index << 4);
 
         let supertile = ((row & 0xFC) << 1) + (col >> 2);
         let attr_addr = base_attr_addr + supertile;
@@ -671,8 +672,8 @@ impl State {
             Vec2::splat(8.0) / texture_size,
         );
 
-        let x = (x as u32) % Ppu::WIDTH;
-        let y = (y as u32) % Ppu::HEIGHT;
+        let x = (x as u16) % Ppu::WIDTH;
+        let y = (y as u16) % Ppu::HEIGHT;
 
         NametableTile {
             index: tile_index,
@@ -803,18 +804,18 @@ impl State {
         let scroll_v = if use_scroll_t { scroll.t } else { scroll.v };
 
         let mut scroll_x = ((scroll_v & Scroll::COARSE_X_MASK) << 3)
-            | (((scroll_v & Scroll::NT_X_MASK) >> 10) * Ppu::WIDTH as u16);
+            | (((scroll_v & Scroll::NT_X_MASK) >> 10) * Ppu::WIDTH);
         let scroll_y = ((scroll_v & Scroll::COARSE_Y_MASK) >> 2)
-            | (((scroll_v & Scroll::NT_Y_MASK) >> 11) * Ppu::HEIGHT as u16)
+            | (((scroll_v & Scroll::NT_Y_MASK) >> 11) * Ppu::HEIGHT)
             | ((scroll_v & Scroll::FINE_Y_MASK) >> 12);
 
         if use_scroll_t {
-            scroll_x |= scroll.fine_x;
+            scroll_x |= scroll.fine_x();
         } else {
             // During rendering, subtract according to current cycle/scanline
             if cycle <= Ppu::VISIBLE_END {
                 if cycle >= 8 {
-                    scroll_x = scroll_x.saturating_sub((cycle & !0x07) as u16);
+                    scroll_x = scroll_x.saturating_sub(cycle & !0x07);
                 }
                 // Adjust for 2x increments at end of last scanline
                 scroll_x = scroll_x.saturating_sub(16);
@@ -824,7 +825,7 @@ impl State {
                     scroll_x = scroll_x.saturating_sub(8);
                 }
             }
-            scroll_x += scroll.fine_x;
+            scroll_x += scroll.fine_x();
         }
 
         // Scroll overlay
@@ -1083,10 +1084,10 @@ impl State {
                         let sprite_index =
                             (offset.x / 8.0) as usize + (offset.y / 8.0) as usize * 8;
                         let sprite = self.oam.sprites.get(sprite_index);
-                        if let Some(sprite) = sprite {
+                        if let Some((sprite_y, _, sprite)) = sprite {
                             let offset = Vec2::new(
-                                ((sprite.x as f32) / 8.0).floor() * 8.0,
-                                ((sprite.y as f32) / 8.0).floor() * 8.0,
+                                (f32::from(sprite.x) / 8.0).floor() * 8.0,
+                                (f32::from(*sprite_y) / 8.0).floor() * 8.0,
                             );
                             if offset.x < Ppu::WIDTH as f32 && offset.y < Ppu::HEIGHT as f32 {
                                 let selection = tile_selection(
@@ -1151,9 +1152,9 @@ impl State {
             3.0,
         );
 
-        let sprite_index = self.oam.sprites.iter().position(|sprite| {
-            let grid_x = sprite.x as f32 / 8.0;
-            let grid_y = sprite.y as f32 / 8.0;
+        let sprite_index = self.oam.sprites.iter().position(|(sprite_y, _, sprite)| {
+            let grid_x = f32::from(sprite.x) / 8.0;
+            let grid_y = f32::from(*sprite_y) / 8.0;
             let x_min = grid_x.floor() * 8.0;
             let x_max = grid_x.ceil() * 8.0;
             let y_min = grid_y.floor() * 8.0;
@@ -1225,7 +1226,7 @@ impl State {
         ChrTile {
             index,
             uv: tile_uv,
-            tile_addr: self.oam.sprites[index as usize].tile_addr,
+            tile_addr: self.oam.sprites[index as usize].1,
         }
     }
 

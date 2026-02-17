@@ -20,21 +20,21 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug)]
 #[must_use]
 pub enum Error {
-    #[error("invalid tetanes header: {0}")]
+    #[error("Invalid TetaNES header: {0}")]
     InvalidHeader(String),
-    #[error("failed to write tetanes header: {0:?}")]
+    #[error("Failed to write TetaNES header: {0:?}")]
     WriteHeaderFailed(std::io::Error),
-    #[error("failed to encode data: {0:?}")]
+    #[error("Failed to encode data: {0:?}")]
     EncodingFailed(std::io::Error),
-    #[error("failed to decode data: {0:?}")]
+    #[error("Failed to decode data: {0:?}")]
     DecodingFailed(std::io::Error),
-    #[error("failed to serialize data: {0:?}")]
+    #[error("Failed to serialize data: {0:?}")]
     SerializationFailed(String),
-    #[error("failed to deserialize data: {0:?}")]
+    #[error("Failed to deserialize data: {0:?}")]
     DeserializationFailed(String),
-    #[error("invalid path: {0:?}")]
+    #[error("Invalid path: {0:?}")]
     InvalidPath(PathBuf),
-    #[error("{context}: {source:?}")]
+    #[error("I/O Error: {context}. {source}")]
     Io {
         source: std::io::Error,
         context: String,
@@ -196,11 +196,12 @@ pub fn compute_combine_crc32(crc32: u32, data: &[u8]) -> u32 {
 }
 
 fn compute_crc32_buffer(crc32: u32, buffer: &[u8]) -> u32 {
-    buffer.iter().fold(crc32 ^ 0xFFFFFFFF, |crc32, byte| {
+    buffer.iter().fold(crc32 ^ 0xFFFF_FFFF, |crc32, byte| {
         (crc32 >> 8) ^ CRC_TABLE[((crc32 ^ *byte as u32) & 0xFF) as usize]
-    }) ^ 0xFFFFFFFF
+    }) ^ 0xFFFF_FFFF
 }
 
+#[allow(clippy::unreadable_literal, reason = "opaque crc values")]
 const CRC_TABLE: [u32; 256] = [
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
     0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
@@ -253,6 +254,6 @@ mod tests {
     #[test]
     fn crc32() {
         let s = "Lorem ipsum dolor sit amet, consectetur adipisicing elit";
-        assert_eq!(compute_crc32(s.as_bytes()), 0xb9b4cbd5);
+        assert_eq!(compute_crc32(s.as_bytes()), 0xB9B4_CBD5);
     }
 }

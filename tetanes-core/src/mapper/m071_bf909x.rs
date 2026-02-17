@@ -38,7 +38,7 @@ impl Bf909x {
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         if !cart.has_chr_rom() && cart.chr_ram.is_empty() {
             cart.add_chr_ram(Self::CHR_RAM_SIZE);
-        };
+        }
         let mut bf909x = Self {
             revision: if cart.submapper_num() == 1 {
                 Revision::Bf9097

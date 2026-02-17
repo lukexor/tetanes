@@ -8,7 +8,7 @@ mod fetcher {
 
     #[derive(Debug, Clone)]
     #[must_use]
-    pub struct Fetcher {
+    pub(crate) struct Fetcher {
         client: Option<Client>,
         rate_limit: Duration,
         last_request_time: Cell<Instant>,
@@ -39,7 +39,10 @@ mod fetcher {
                 .ok()
         }
 
-        pub fn update_available(&self, version: &'static str) -> anyhow::Result<Option<String>> {
+        pub(crate) fn update_available(
+            &self,
+            version: &'static str,
+        ) -> anyhow::Result<Option<String>> {
             #[derive(Debug, serde::Deserialize)]
             #[must_use]
             struct ApiError {
@@ -117,7 +120,7 @@ mod fetcher {
 
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct Version {
+pub(crate) struct Version {
     current: &'static str,
     latest: RefCell<String>,
 }
@@ -129,31 +132,32 @@ impl Default for Version {
 }
 
 impl Version {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             current: env!("CARGO_PKG_VERSION"),
             latest: RefCell::new(env!("CARGO_PKG_VERSION").to_string()),
         }
     }
 
-    pub const fn current(&self) -> &str {
+    pub(crate) const fn current(&self) -> &str {
         self.current
     }
 
-    pub fn latest(&self) -> String {
+    pub(crate) fn latest(&self) -> String {
         self.latest.borrow().clone()
     }
 
-    pub fn set_latest(&mut self, version: String) {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_latest(&mut self, version: String) {
         self.latest.replace(version);
     }
 
-    pub const fn requires_updates(&self) -> bool {
+    pub(crate) const fn requires_updates(&self) -> bool {
         cfg!(not(target_arch = "wasm32"))
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub const fn check_for_updates(
+    pub(crate) const fn check_for_updates(
         &mut self,
         _tx: &crate::nes::event::NesEventProxy,
         _notify_latest: bool,
@@ -161,7 +165,7 @@ impl Version {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn check_for_updates(
+    pub(crate) fn check_for_updates(
         &mut self,
         tx: &crate::nes::event::NesEventProxy,
         notify_latest: bool,
@@ -206,7 +210,7 @@ impl Version {
         }
     }
 
-    pub fn install_update_and_restart(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn install_update_and_restart(&mut self) -> anyhow::Result<()> {
         // TODO: Implement install/restart for each platform
         anyhow::bail!("not yet implemented");
     }

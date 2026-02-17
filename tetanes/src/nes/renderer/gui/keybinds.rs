@@ -18,7 +18,7 @@ use uuid::Uuid;
 use winit::event::ElementState;
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Tab {
+pub(crate) enum Tab {
     #[default]
     Shortcuts,
     Joypad(Player),
@@ -26,7 +26,7 @@ pub enum Tab {
 
 #[derive(Debug)]
 #[must_use]
-pub struct State {
+pub(crate) struct State {
     tx: NesEventProxy,
     tab: Tab,
     pending_input: Option<PendingInput>,
@@ -35,14 +35,14 @@ pub struct State {
 
 #[derive(Debug)]
 #[must_use]
-pub struct Keybinds {
-    pub id: ViewportId,
+pub(crate) struct Keybinds {
+    pub(crate) id: ViewportId,
     open: Arc<AtomicBool>,
     state: Arc<Mutex<State>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingInput {
+pub(crate) struct PendingInput {
     action: Action,
     input: Option<Input>,
     binding: usize,
@@ -51,23 +51,23 @@ pub struct PendingInput {
 
 #[derive(Debug)]
 #[must_use]
-pub struct GamepadState {
+pub(crate) struct GamepadState {
     input_events: Vec<(Input, ElementState)>,
     connected: Option<Vec<ConnectedGamepad>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 #[must_use]
-pub struct ConnectedGamepad {
+pub(crate) struct ConnectedGamepad {
     uuid: Uuid,
     name: String,
     assignment: Option<Player>,
 }
 
 impl Keybinds {
-    const TITLE: &'static str = "Keybinds";
+    const TITLE: &'static str = "TetaNES - Keybinds";
 
-    pub fn new(tx: NesEventProxy) -> Self {
+    pub(crate) fn new(tx: NesEventProxy) -> Self {
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
@@ -80,24 +80,24 @@ impl Keybinds {
         }
     }
 
-    pub fn wants_input(&self) -> bool {
+    pub(crate) fn wants_input(&self) -> bool {
         self.state.try_lock().is_some_and(|state| {
             state.pending_input.is_some() || state.gamepad_unassign_confirm.is_some()
         })
     }
 
-    pub fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.open.load(Ordering::Acquire)
     }
 
-    pub fn set_open(&self, open: bool, ctx: &Context) {
+    pub(crate) fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
         if !self.open() {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
 
-    pub fn toggle_open(&self, ctx: &Context) {
+    pub(crate) fn toggle_open(&self, ctx: &Context) {
         let _ = self
             .open
             .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
@@ -106,7 +106,13 @@ impl Keybinds {
         }
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config, gamepads: &Gamepads) {
+    pub(crate) fn show(
+        &mut self,
+        ctx: &Context,
+        opts: ViewportOptions,
+        cfg: Config,
+        gamepads: &Gamepads,
+    ) {
         if !self.open() {
             return;
         }
@@ -322,7 +328,7 @@ impl State {
         });
     }
 
-    pub fn show_set_keybind_window(
+    pub(crate) fn show_set_keybind_window(
         &mut self,
         ctx: &Context,
         cfg: &Config,
@@ -353,7 +359,7 @@ impl State {
         }
     }
 
-    pub fn set_keybind(
+    pub(crate) fn set_keybind(
         &mut self,
         ui: &mut Ui,
         cfg: &Config,
@@ -420,7 +426,24 @@ impl State {
                                 } => {
                                     return Some(Input::from(button));
                                 }
-                                _ => (),
+                                Event::Copy
+                                | Event::Cut
+                                | Event::Paste(_)
+                                | Event::Text(_)
+                                | Event::Key { .. }
+                                | Event::PointerMoved(_)
+                                | Event::MouseMoved(_)
+                                | Event::PointerButton { .. }
+                                | Event::PointerGone
+                                | Event::Zoom(_)
+                                | Event::Rotate(_)
+                                | Event::Ime(_)
+                                | Event::Touch { .. }
+                                | Event::MouseWheel { .. }
+                                | Event::WindowFocused(_)
+                                | Event::Screenshot { .. } => (),
+                                #[cfg(not(target_arch = "wasm32"))]
+                                Event::AccessKitActionRequest(_) => (),
                             }
                         }
                         for (input, state) in gamepad_events {

@@ -46,18 +46,18 @@ use winit::{
     window::{CursorGrabMode, Theme, Window, WindowButtons, WindowId},
 };
 
-pub mod clipboard;
-pub mod event;
-pub mod gui;
-pub mod painter;
-pub mod shader;
-pub mod texture;
+pub(crate) mod clipboard;
+pub(crate) mod event;
+pub(crate) mod gui;
+pub(crate) mod painter;
+pub(crate) mod shader;
+pub(crate) mod texture;
 
-pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
+pub(crate) const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
 
 #[derive(Debug)]
 #[must_use]
-pub struct FrameRecycle;
+pub(crate) struct FrameRecycle;
 
 impl Recycle<Frame> for FrameRecycle {
     fn new_element(&self) -> Frame {
@@ -68,7 +68,7 @@ impl Recycle<Frame> for FrameRecycle {
 }
 
 #[must_use]
-pub struct State {
+pub(crate) struct State {
     pub(crate) viewports: ViewportIdMap<Viewport>,
     viewport_from_window: HashMap<WindowId, ViewportId>,
     pub(crate) focused: Option<ViewportId>,
@@ -89,7 +89,7 @@ impl std::fmt::Debug for State {
 
 #[derive(Default)]
 #[must_use]
-pub struct Viewport {
+pub(crate) struct Viewport {
     pub(crate) ids: ViewportIdPair,
     class: ViewportClass,
     builder: ViewportBuilder,
@@ -124,7 +124,7 @@ impl std::fmt::Debug for Viewport {
 }
 
 #[must_use]
-pub struct Renderer {
+pub(crate) struct Renderer {
     pub(crate) state: Rc<RefCell<State>>,
     painter: Rc<RefCell<Painter>>,
     frame_rx: BufReceiver<Frame, FrameRecycle>,
@@ -159,7 +159,7 @@ impl std::fmt::Debug for Renderer {
 }
 
 #[must_use]
-pub struct Resources {
+pub(crate) struct Resources {
     pub(crate) ctx: egui::Context,
     pub(crate) window: Arc<Window>,
     pub(crate) painter: Painter,
@@ -175,7 +175,7 @@ impl std::fmt::Debug for Resources {
 
 impl Renderer {
     /// Initializes the renderer in a platform-agnostic way.
-    pub fn new(
+    pub(crate) fn new(
         _event_loop: &ActiveEventLoop,
         tx: NesEventProxy,
         resources: Resources,
@@ -281,7 +281,7 @@ impl Renderer {
         })
     }
 
-    pub fn destroy(&mut self) {
+    pub(crate) fn destroy(&mut self) {
         let State {
             viewports,
             viewport_from_window,
@@ -294,11 +294,11 @@ impl Renderer {
         self.painter.borrow_mut().destroy();
     }
 
-    pub fn root_window_id(&self) -> Option<WindowId> {
+    pub(crate) fn root_window_id(&self) -> Option<WindowId> {
         self.window_id_for_viewport(ViewportId::ROOT)
     }
 
-    pub fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {
+    pub(crate) fn window_id_for_viewport(&self, viewport_id: ViewportId) -> Option<WindowId> {
         let state = self.state.borrow();
         state
             .viewports
@@ -307,7 +307,7 @@ impl Renderer {
             .map(|window| window.id())
     }
 
-    pub fn viewport_id_for_window(&self, window_id: WindowId) -> Option<ViewportId> {
+    pub(crate) fn viewport_id_for_window(&self, window_id: WindowId) -> Option<ViewportId> {
         let state = self.state.borrow();
         state
             .viewport_from_window
@@ -315,17 +315,17 @@ impl Renderer {
             .and_then(|id| state.viewports.get(id).map(|viewport| viewport.ids.this))
     }
 
-    pub fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
+    pub(crate) fn root_viewport<R>(&self, reader: impl FnOnce(&Viewport) -> R) -> Option<R> {
         let state = self.state.borrow();
         state.viewports.get(&ViewportId::ROOT).map(reader)
     }
 
-    pub fn root_window(&self) -> Option<Arc<Window>> {
+    pub(crate) fn root_window(&self) -> Option<Arc<Window>> {
         self.root_viewport(|viewport| viewport.window.clone())
             .flatten()
     }
 
-    pub fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
+    pub(crate) fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
         let state = self.state.borrow();
         state.viewport_from_window.get(&window_id).and_then(|id| {
             state
@@ -335,11 +335,11 @@ impl Renderer {
         })
     }
 
-    pub fn window_size(&self, cfg: &Config) -> Vec2 {
+    pub(crate) fn window_size(&self, cfg: &Config) -> Vec2 {
         self.window_size_for_scale(cfg, cfg.renderer.scale)
     }
 
-    pub fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
+    pub(crate) fn window_size_for_scale(&self, cfg: &Config, scale: f32) -> Vec2 {
         let gui = self.gui.borrow();
         let aspect_ratio = gui.aspect_ratio(cfg);
         let mut window_size = cfg.window_size_for_scale(aspect_ratio, scale);
@@ -347,7 +347,8 @@ impl Renderer {
         window_size
     }
 
-    pub fn find_max_scale_for_width(&self, width: f32, cfg: &Config) -> f32 {
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn find_max_scale_for_width(&self, width: f32, cfg: &Config) -> f32 {
         let mut scale = cfg.renderer.scale;
         let mut size = self.window_size_for_scale(cfg, scale);
         while scale > 1.0 && size.x > width {
@@ -357,22 +358,22 @@ impl Renderer {
         scale
     }
 
-    pub fn all_viewports_occluded(&self) -> bool {
+    pub(crate) fn all_viewports_occluded(&self) -> bool {
         let state = self.state.borrow();
         state.viewports.values().all(|viewport| viewport.occluded)
     }
 
-    pub fn inner_size(&self) -> Option<PhysicalSize<u32>> {
-        self.root_window().map(|win| win.inner_size())
-    }
+    // pub(crate) fn inner_size(&self) -> Option<PhysicalSize<u32>> {
+    //     self.root_window().map(|win| win.inner_size())
+    // }
 
-    pub fn fullscreen(&self) -> bool {
+    pub(crate) fn fullscreen(&self) -> bool {
         self.root_window()
             .map(|win| win.fullscreen().is_some())
             .unwrap_or(false)
     }
 
-    pub fn set_fullscreen(&mut self, fullscreen: bool, embed_viewports: bool) {
+    pub(crate) fn set_fullscreen(&mut self, fullscreen: bool, embed_viewports: bool) {
         if feature!(OsViewports) {
             self.ctx.set_embed_viewports(fullscreen || embed_viewports);
         }
@@ -382,11 +383,11 @@ impl Renderer {
             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Fullscreen(fullscreen));
     }
 
-    pub fn set_embed_viewports(&mut self, embed: bool) {
+    pub(crate) fn set_embed_viewports(&mut self, embed: bool) {
         self.ctx.set_embed_viewports(embed);
     }
 
-    pub fn set_always_on_top(&mut self, always_on_top: bool) {
+    pub(crate) fn set_always_on_top(&mut self, always_on_top: bool) {
         let state = self.state.borrow();
         for viewport_id in state.viewports.keys() {
             self.ctx.send_viewport_cmd_to(
@@ -421,11 +422,11 @@ impl Renderer {
         }
     }
 
-    pub fn rom_loaded(&self) -> bool {
+    pub(crate) fn rom_loaded(&self) -> bool {
         self.gui.borrow().loaded_rom.is_some()
     }
 
-    pub fn add_message<S>(&mut self, ty: MessageType, text: S)
+    pub(crate) fn add_message<S>(&mut self, ty: MessageType, text: S)
     where
         S: Into<String>,
     {
@@ -433,14 +434,16 @@ impl Renderer {
         self.ctx.request_repaint();
     }
 
-    pub fn on_error(&mut self, err: anyhow::Error) {
+    pub(crate) fn on_error(&mut self, err: anyhow::Error) {
         error!("error: {err:?}");
-        self.tx
-            .event(EmulationEvent::RunState(RunState::AutoPaused));
+        if self.rom_loaded() && !self.gui.borrow().run_state.paused() {
+            self.tx
+                .event(EmulationEvent::RunState(RunState::AutoPaused));
+        }
         self.gui.borrow_mut().error = Some(err.to_string());
     }
 
-    pub fn load(ctx: &egui::Context, cfg: &Config) -> anyhow::Result<()> {
+    pub(crate) fn load(ctx: &egui::Context, cfg: &Config) -> anyhow::Result<()> {
         let path = Config::default_config_dir().join("gui.dat");
         if fs::exists(&path) {
             let data = fs::load_raw(path).context("failed to load gui memory")?;
@@ -458,7 +461,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn auto_save(&mut self, cfg: &Config) -> anyhow::Result<()> {
+    pub(crate) fn auto_save(&mut self, cfg: &Config) -> anyhow::Result<()> {
         let time_since_last_save = Instant::now() - self.last_save_time;
         if time_since_last_save > Duration::from_secs(10) {
             self.save(cfg)?;
@@ -466,7 +469,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn save(&mut self, cfg: &Config) -> anyhow::Result<()> {
+    pub(crate) fn save(&mut self, cfg: &Config) -> anyhow::Result<()> {
         cfg.save()?;
 
         let path = Config::default_config_dir().join("gui.dat");
@@ -487,7 +490,7 @@ impl Renderer {
     ///
     /// Returns an error if any resources can't be created correctly or `init_running` has already
     /// been called.
-    pub fn request_resources(
+    pub(crate) fn request_resources(
         event_loop: &ActiveEventLoop,
         tx: &NesEventProxy,
         cfg: &Config,
@@ -521,8 +524,12 @@ impl Renderer {
                 debug!("creating painter...");
                 match Self::create_painter(window).await {
                     Ok(painter) => {
-                        painter_tx.send(painter).expect("failed to send painter");
-                        event_tx.event(RendererEvent::ResourcesReady);
+                        if let Err(err) = painter_tx.send(painter) {
+                            error!("failed to send painter: {err:?}");
+                            event_tx.event(UiEvent::Terminate);
+                        } else {
+                            event_tx.event(RendererEvent::ResourcesReady);
+                        }
                     }
                     Err(err) => {
                         error!("failed to create painter: {err:?}");
@@ -535,7 +542,7 @@ impl Renderer {
         Ok((ctx, window, painter_rx))
     }
 
-    pub fn create_window(
+    pub(crate) fn create_window(
         ctx: &egui::Context,
         event_loop: &ActiveEventLoop,
         builder: ViewportBuilder,
@@ -645,7 +652,7 @@ impl Renderer {
         Ok(window)
     }
 
-    pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
+    pub(crate) async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
         // The window must be ready with a non-zero size before `Painter::set_window` is called,
         // otherwise the wgpu surface won't be configured correctly.
         let start = Instant::now();
@@ -669,7 +676,7 @@ impl Renderer {
         Ok(painter)
     }
 
-    pub fn recreate_window(&mut self, event_loop: &ActiveEventLoop) {
+    pub(crate) fn recreate_window(&mut self, event_loop: &ActiveEventLoop) {
         if self.ctx.embed_viewports() {
             return;
         }
@@ -701,7 +708,7 @@ impl Renderer {
         );
     }
 
-    pub fn drop_window(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn drop_window(&mut self) -> anyhow::Result<()> {
         if self.ctx.embed_viewports() {
             return Ok(());
         }
@@ -722,9 +729,10 @@ impl Renderer {
         viewport_id: ViewportId,
         window: Option<Arc<Window>>,
     ) {
-        // This is fine because we won't be yielding. Native platforms call `block_on` and
-        // wasm is single-threaded with `spawn_local` and runs on the next microtick.
-        #[allow(clippy::await_holding_refcell_ref)]
+        #[allow(
+            clippy::await_holding_refcell_ref,
+            reason = "the thread that owns Painter is single-threaded and this spawn is actually a blocking call"
+        )]
         thread::spawn(async move {
             if let Err(err) = painter.borrow_mut().set_window(viewport_id, window).await {
                 error!("failed to set painter window on viewport id {viewport_id:?}: {err:?}");
@@ -781,7 +789,10 @@ impl Renderer {
         }
     }
 
-    pub fn handle_platform_output(viewport: &mut Viewport, platform_output: egui::PlatformOutput) {
+    pub(crate) fn handle_platform_output(
+        viewport: &mut Viewport,
+        platform_output: egui::PlatformOutput,
+    ) {
         let egui::PlatformOutput {
             cursor_icon,
             commands,
@@ -1028,13 +1039,17 @@ impl Renderer {
                         tracing::warn!("{command:?}: {err}");
                     }
                 }
-                _ => (),
+                ViewportCommand::CancelClose
+                | ViewportCommand::Screenshot(_)
+                | ViewportCommand::RequestCut
+                | ViewportCommand::RequestCopy
+                | ViewportCommand::RequestPaste => (),
             }
         }
     }
 
     /// Request redraw.
-    pub fn redraw(
+    pub(crate) fn redraw(
         &mut self,
         window_id: WindowId,
         event_loop: &ActiveEventLoop,
@@ -1137,8 +1152,7 @@ impl Renderer {
             }
         }
 
-        // Mutated by accesskit below on platforms that support it
-        #[allow(unused_mut)]
+        #[allow(unused_mut, reason = "os requires mutating")]
         let mut output = self.ctx.run(raw_input, |ctx| {
             match &viewport_ui_cb {
                 Some(viewport_ui_cb) => viewport_ui_cb(ctx),
@@ -1224,9 +1238,6 @@ impl Renderer {
         if viewport_id == ViewportId::ROOT && self.resize_texture {
             tracing::debug!("resizing window and texture");
 
-            self.tx.event(EmulationEvent::RequestFrame);
-            self.resize_window(cfg);
-
             if let Some(render_state) = self.painter.borrow_mut().render_state_mut() {
                 let texture_size = cfg.texture_size();
                 let mut gui = self.gui.borrow_mut();
@@ -1234,6 +1245,10 @@ impl Renderer {
                 gui.nes_texture
                     .resize(render_state, texture_size, aspect_ratio);
             }
+
+            self.resize_window(cfg);
+            self.tx.event(EmulationEvent::RequestFrame);
+
             self.resize_texture = false;
         }
     }
@@ -1258,17 +1273,22 @@ impl Renderer {
             if let Some(window) = self.root_window() {
                 tracing::debug!("resizing window: {desired_window_size:?}");
 
-                let _ = window.request_inner_size(LogicalSize::new(
-                    desired_window_size.x,
-                    desired_window_size.y,
-                ));
+                if window
+                    .request_inner_size(LogicalSize::new(
+                        desired_window_size.x,
+                        desired_window_size.y,
+                    ))
+                    .is_some()
+                {
+                    tracing::warn!("unable to resize window");
+                }
             }
         }
     }
 }
 
 impl Viewport {
-    pub fn initialize_window(
+    pub(crate) fn initialize_window(
         &mut self,
         tx: NesEventProxy,
         event_loop: &ActiveEventLoop,
@@ -1309,7 +1329,7 @@ impl Viewport {
         }
     }
 
-    pub fn update_info(info: &mut ViewportInfo, ctx: &egui::Context, window: &Window) {
+    pub(crate) fn update_info(info: &mut ViewportInfo, ctx: &egui::Context, window: &Window) {
         let pixels_per_point = gui::lib::pixels_per_point(ctx, window);
         let has_position = window.is_minimized().is_none_or(|minimized| !minimized);
 

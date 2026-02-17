@@ -91,13 +91,24 @@ impl Sample for Iir {
 }
 
 /// A finite impulse response (FIR) filter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fir {
     pub kernel: Vec<f32>,
     pub inputs: Vec<f32>,
     pub input_index: usize,
     pub kind: FilterKind,
+}
+
+impl std::fmt::Debug for Fir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fir")
+            .field("kernel_len", &self.kernel.len())
+            .field("inputs_len", &self.inputs.len())
+            .field("input_index", &self.input_index)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 impl Fir {
@@ -222,10 +233,14 @@ impl SampledFilter {
 
 /// Represents a chain of filters for a given [`NesRegion`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct FilterChain {
-    pub region: NesRegion,
+    /// Delta time.
     pub dt: f32,
-    pub filters: Vec<SampledFilter>,
+    /// List of filters.
+    pub filters: Box<[SampledFilter]>,
+    /// NES Region.
+    pub region: NesRegion,
 }
 
 impl FilterChain {
@@ -271,7 +286,7 @@ impl FilterChain {
         Self {
             region,
             dt: 1.0 / clock_rate,
-            filters,
+            filters: filters.into(),
         }
     }
 }

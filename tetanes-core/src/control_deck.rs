@@ -35,34 +35,34 @@ pub enum Error {
     #[error(transparent)]
     Cart(#[from] cart::Error),
     /// Battery-backed RAM error.
-    #[error("sram error: {0:?}")]
+    #[error("SRAM error: {0:?}")]
     Sram(fs::Error),
     /// Save state error.
-    #[error("save state error: {0:?}")]
+    #[error("Save state error: {0:?}")]
     SaveState(fs::Error),
     /// When trying to load a save state that doesn't exist.
-    #[error("no save state found")]
+    #[error("No save state found")]
     NoSaveStateFound,
     /// Operational error indicating a ROM must be loaded first.
-    #[error("no rom is loaded")]
+    #[error("No ROM is loaded")]
     RomNotLoaded,
     /// CPU state is corrupted and emulation can't continue. Could be due to a bad ROM image or a
     /// corrupt save state.
-    #[error("cpu state is corrupted")]
+    #[error("CPU encountered invalid opcode")]
     CpuCorrupted,
     /// Invalid Game Genie code error.
     #[error(transparent)]
     InvalidGenieCode(#[from] genie::Error),
     /// Invalid file path.
-    #[error("invalid file path {0:?}")]
+    #[error("Invalid file path {0:?}")]
     InvalidFilePath(PathBuf),
-    #[error("unimplemented mapper `{0}`")]
-    UnimplementedMapper(u16),
+    #[error("`{0}` is not yet supported")]
+    UnimplementedMapper(&'static str),
     /// Filesystem error.
     #[error(transparent)]
     Fs(#[from] fs::Error),
     /// IO error.
-    #[error("{context}: {source:?}")]
+    #[error("I/O Error: {context}. {source}")]
     Io {
         context: String,
         source: std::io::Error,
@@ -172,7 +172,7 @@ impl Default for Config {
         Self {
             filter: VideoFilter::default(),
             region: NesRegion::Auto,
-            ram_state: RamState::Random,
+            ram_state: RamState::default(),
             four_player: FourPlayer::default(),
             zapper: false,
             genie_codes: vec![],
@@ -293,7 +293,7 @@ impl ControlDeck {
         self.unload_rom()?;
         let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
         if cart.mapper.is_none() {
-            return Err(Error::UnimplementedMapper(cart.mapper_num()));
+            return Err(Error::UnimplementedMapper(cart.mapper_board()));
         }
         let loaded_rom = LoadedRom {
             name: name.clone(),
@@ -539,7 +539,7 @@ impl ControlDeck {
     pub fn save_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
-        };
+        }
         let path = path.as_ref();
         fs::save(path, &self.cpu).map_err(Error::SaveState)
     }
@@ -552,7 +552,7 @@ impl ControlDeck {
     pub fn load_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
-        };
+        }
         let path = path.as_ref();
         if fs::exists(path) {
             fs::load::<Cpu>(path)
@@ -959,7 +959,7 @@ impl ControlDeck {
     /// Returns the current [`Zapper`](crate::input::Zapper) aim position.
     #[inline]
     #[must_use]
-    pub const fn zapper_pos(&self) -> (u32, u32) {
+    pub const fn zapper_pos(&self) -> (u16, u16) {
         let zapper = self.cpu.bus.input.zapper;
         (zapper.x(), zapper.y())
     }
@@ -972,7 +972,7 @@ impl ControlDeck {
 
     /// Aim [`Zapper`](crate::input::Zapper) gun.
     #[inline]
-    pub fn aim_zapper(&mut self, x: u32, y: u32) {
+    pub fn aim_zapper(&mut self, x: u16, y: u16) {
         self.cpu.bus.input.zapper.aim(x, y);
     }
 

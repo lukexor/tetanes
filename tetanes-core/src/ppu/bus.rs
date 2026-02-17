@@ -2,7 +2,7 @@
 
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
-    mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{Map, MappedRead, MappedWrite, Mapper},
     mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
 };
@@ -29,15 +29,25 @@ impl PpuAddr for u16 {
 #[must_use]
 #[repr(C)]
 pub struct Bus {
-    pub mapper: Mapper,
-    pub ciram: Memory<ConstArray<u8, 0x0800>>, // $2007 PPUDATA
+    /// Palette RAM.
     pub palette: Memory<ConstArray<u8, 32>>,
-    pub chr_ram: bool,
+    /// CHR-ROM or CHR-RAM.
     pub chr: Memory<Box<[u8]>>,
+    // === 64 : end of cache line ===
+    /// Whatever was last read or written to to the Bus.
+    pub open_bus: u8,
+    /// Whether `chr` is ROM or RAM.
+    pub chr_ram: bool,
+    /// RAM state for default RAM values on power/reset.
+    pub ram_state: RamState,
+    /// Loaded [`Mapper`].
+    pub mapper: Mapper,
+    // === 456 ===
+    /// Console-Internal RAM or VRAM.
+    pub ciram: Memory<Box<[u8]>>, // $2007 PPUDATA
+    /// External RAM.
     #[serde(skip)]
     pub exram: Memory<Box<[u8]>>,
-    pub open_bus: u8,
-    pub ram_state: RamState,
 }
 
 impl Default for Bus {
@@ -53,10 +63,13 @@ impl Bus {
     pub fn new(ram_state: RamState) -> Self {
         Self {
             mapper: Mapper::none(),
-            ciram: Memory::new_const().with_ram_state(ram_state),
-            palette: Memory::new_const().with_ram_state(ram_state),
+            // NOTE: PPU RAM is a bit more predictable at power on - games like Huge Insect don't
+            // properly initialize both nametables, which can result in garbage sprites when
+            // randomizing CIRAM.
+            ciram: Memory::new(Self::VRAM_SIZE),
+            palette: Memory::new_const(),
             chr_ram: false,
-            chr: Memory::new(0),
+            chr: Memory::empty(),
             exram: Memory::empty(),
             open_bus: 0x00,
             ram_state,
@@ -110,6 +123,7 @@ impl Bus {
     }
 
     pub fn read_ciram(&mut self, addr: u16) -> u8 {
+        self.mapper.update_vram_addr(addr);
         match self.mapper.map_read(addr) {
             MappedRead::Bus => self.ciram[Self::ciram_mirror(addr, self.mirroring())],
             MappedRead::CIRam(addr) => self.ciram[addr],
@@ -146,6 +160,7 @@ impl Bus {
     }
 
     pub fn read_chr(&mut self, addr: u16) -> u8 {
+        self.mapper.update_vram_addr(addr);
         let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
             addr
         } else {
@@ -164,7 +179,6 @@ impl Bus {
     }
 
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn peek_palette(&self, addr: u16) -> u8 {
         self.palette[self.palette_mirror(addr)]
     }
@@ -231,7 +245,6 @@ impl Write for Bus {
             }
             _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
-        self.mapper.bus_write(addr, val, BusKind::Ppu);
         self.open_bus = val;
     }
 }
@@ -249,7 +262,7 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         self.open_bus = 0x00;
-        if self.chr_ram {
+        if self.chr_ram && kind == ResetKind::Hard {
             self.ram_state.fill(&mut self.chr);
         }
         self.mapper.reset(kind);

@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use anyhow::Context;
 use cfg_if::cfg_if;
 use clap::Parser;
@@ -14,7 +12,7 @@ use std::{
 /// CLI options
 #[derive(Parser, Debug)]
 #[must_use]
-pub struct Args {
+struct Args {
     /// Target platform to build for. e.g. `x86_64-unknown-linux-gnu`.
     #[clap(long)]
     target: String,
@@ -106,7 +104,7 @@ impl Build {
             } else if target_arch.starts_with("wasm32") {
                 "wasm32"
             } else {
-                panic!("unsupported target_arch: {target_arch}")
+                anyhow::bail!("unsupported target_arch: {target_arch}");
             },
             target_arch,
             #[cfg(target_os = "linux")]
@@ -523,7 +521,7 @@ fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
 }
 
 /// Helper function to `symlink` and report contextual errors.
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     use std::os::unix::fs::symlink;
 
@@ -554,6 +552,7 @@ fn cmd_output(cmd: &mut Command) -> anyhow::Result<Output> {
 }
 
 /// Helper function to run [`Command`] with `status` while reporting contextual errors.
+#[cfg(target_os = "macos")]
 fn cmd_status(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     println!("running: {cmd:?}");
 

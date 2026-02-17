@@ -117,7 +117,7 @@ pub enum Mapper {
     /// `TxROM`/`MMC3` (Mapper 004)
     Txrom(Txrom),
     /// `ExROM`/`MMC5` (Mapper 5)
-    Exrom(Exrom),
+    Exrom(Box<Exrom>),
     /// `AxROM` (Mapper 007)
     Axrom(Axrom),
     /// `PxROM`/`MMC2` (Mapper 009)
@@ -131,9 +131,9 @@ pub enum Mapper {
     /// `Jaleco SS88006` (Mapper 018)
     JalecoSs88006(JalecoSs88006),
     /// `Namco163` (Mapper 019)
-    Namco163(Namco163),
+    Namco163(Box<Namco163>),
     /// `VRC6` (Mapper 024).
-    Vrc6(Vrc6),
+    Vrc6(Box<Vrc6>),
     /// `BNROM` (Mapper 034).
     Bnrom(Bnrom),
     /// `NINA-001` (Mapper 034).
@@ -141,7 +141,7 @@ pub enum Mapper {
     /// `GxROM` (Mapper 066).
     Gxrom(Gxrom),
     /// `Sunsoft FME7` (Mapper 069).
-    SunsoftFme7(SunsoftFme7),
+    SunsoftFme7(Box<SunsoftFme7>),
     /// `Bf909x` (Mapper 071).
     Bf909x(Bf909x),
     /// `DxROM`/`NAMCOT-3446` (Mapper 076).
@@ -159,15 +159,28 @@ pub enum Mapper {
 }
 
 macro_rules! impl_from_board {
-    ($($variant:ident($board:ty)),+$(,)?) => (
-        $(
-            impl From<$board> for Mapper {
-                fn from(board: $board) -> Self {
-                    Self::$variant(board)
-                }
+    (@impl $variant:ident, Box<$board:ty>) => {
+        impl From<$board> for Mapper {
+            fn from(board: $board) -> Self {
+                Self::$variant(Box::new(board))
             }
-        )+
-    )
+        }
+        impl From<Box<$board>> for Mapper {
+            fn from(board: Box<$board>) -> Self {
+                Self::$variant(board)
+            }
+        }
+    };
+    (@impl $variant:ident, $board:ident) => {  // ident, not ty
+        impl From<$board> for Mapper {
+            fn from(board: $board) -> Self {
+                Self::$variant(board)
+            }
+        }
+    };
+    ($($variant:ident($($tt:tt)+)),+ $(,)?) => {
+        $(impl_from_board!(@impl $variant, $($tt)+);)+
+    };
 }
 
 impl_from_board!(
@@ -176,19 +189,19 @@ impl_from_board!(
     Uxrom(Uxrom),
     Cnrom(Cnrom),
     Txrom(Txrom),
-    Exrom(Exrom),
+    Exrom(Box<Exrom>),
     Axrom(Axrom),
     Pxrom(Pxrom),
     Fxrom(Fxrom),
     ColorDreams(ColorDreams),
     BandaiFCG(BandaiFCG),
     JalecoSs88006(JalecoSs88006),
-    Namco163(Namco163),
-    Vrc6(Vrc6),
+    Namco163(Box<Namco163>),
+    Vrc6(Box<Vrc6>),
     Bnrom(Bnrom),
     Nina001(Nina001),
     Gxrom(Gxrom),
-    SunsoftFme7(SunsoftFme7),
+    SunsoftFme7(Box<SunsoftFme7>),
     Bf909x(Bf909x),
     Dxrom76(Dxrom76),
     Nina003006(Nina003006),
@@ -244,12 +257,12 @@ impl Map for Mapper {
         impl_map!(self, map_write, addr, val)
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        impl_map!(self, bus_read, addr, kind)
+    fn update_vram_addr(&mut self, addr: u16) {
+        impl_map!(self, update_vram_addr, addr)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        impl_map!(self, bus_write, addr, val, kind)
+    fn update_ppu_reg(&mut self, addr: u16, val: u8) {
+        impl_map!(self, update_ppu_reg, addr, val)
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -354,13 +367,6 @@ pub enum MappedWrite {
     PrgRamProtect(bool),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[must_use]
-pub enum BusKind {
-    Cpu,
-    Ppu,
-}
-
 /// Trait implemented for all [`Mapper`]s.
 pub trait Map: Clock + Regional + Reset + Sram {
     /// Determine the [`MappedRead`] for the given address.
@@ -378,13 +384,11 @@ pub trait Map: Clock + Regional + Reset + Sram {
         MappedWrite::default()
     }
 
-    /// Simulates a read for the given bus at the given address for mappers that use bus reads for
-    /// timing.
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    /// Notifies mappers that the PPU VRAM address changed which is used for IRQ. timing.
+    fn update_vram_addr(&mut self, _addr: u16) {}
 
-    /// Simulates a write for the given bus at the given address for mappers that use bus writes for
-    /// timing.
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    /// Notifies mappers that a PPU register has changed which can be used for internal operations.
+    fn update_ppu_reg(&mut self, _addr: u16, _val: u8) {}
 
     /// Returns the current [`Mirroring`] mode.
     fn mirroring(&self) -> Mirroring {
@@ -408,9 +412,9 @@ impl Map for () {
         MappedWrite::default()
     }
 
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    fn update_vram_addr(&mut self, _addr: u16) {}
 
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    fn update_ppu_reg(&mut self, _addr: u16, _val: u8) {}
 
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()

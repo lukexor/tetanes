@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 
-use crate::common::{NesRegion, Reset, ResetKind};
+use crate::common::{Clock, NesRegion, Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -11,16 +11,15 @@ use serde::{Deserialize, Serialize};
 /// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
+#[repr(C)]
 pub struct Mask {
+    /// Raw mask bits.
+    pub bits: Bits,
+    /// Rendering enabled is set with a 1 cycle delay (setting it at cycle N won't take effect
+    /// until cycle N+2)
+    pub delayed_bits: DelayedBits,
+    /// Cached as it's checked very often.
     pub rendering_enabled: bool,
-    pub grayscale: u8,
-    pub emphasis: u16,
-    pub show_left_bg: bool,
-    pub show_left_spr: bool,
-    pub show_bg: bool,
-    pub show_spr: bool,
-    pub region: NesRegion,
-    bits: Bits,
 }
 
 bitflags! {
@@ -48,32 +47,87 @@ bitflags! {
         const EMPHASIZE_GREEN = 0x40;
         const EMPHASIZE_BLUE = 0x80;
     }
+
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+    #[must_use]
+    pub struct DelayedBits: u8 {
+        const PREV_RENDERING_ENABLED = 0x01;
+        const REQUIRES_UPDATE = 0x02;
+    }
 }
 
 impl Mask {
-    pub fn new(region: NesRegion) -> Self {
-        let mut mask = Self {
-            region,
-            ..Default::default()
-        };
-        mask.write(0);
-        mask
+    pub fn new() -> Self {
+        Self::default()
     }
 
+    #[inline(always)]
     pub fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
-        self.grayscale = if self.bits.contains(Bits::GRAYSCALE) {
+        self.delayed_bits.set(
+            DelayedBits::REQUIRES_UPDATE,
+            self.rendering_enabled() != self.rendering_enabled_raw(),
+        );
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn grayscale(&self) -> u8 {
+        if self.bits.contains(Bits::GRAYSCALE) {
             0x30
         } else {
             0x3F
-        };
-        self.show_left_bg = self.bits.contains(Bits::SHOW_LEFT_BG);
-        self.show_left_spr = self.bits.contains(Bits::SHOW_LEFT_SPR);
-        self.show_bg = self.bits.contains(Bits::SHOW_BG);
-        self.show_spr = self.bits.contains(Bits::SHOW_SPR);
-        self.rendering_enabled = self.show_bg || self.show_spr;
-        self.emphasis = u16::from(
-            match self.region {
+        }
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn show_left_bg(&self) -> bool {
+        self.bits.contains(Bits::SHOW_LEFT_BG)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn show_left_spr(&self) -> bool {
+        self.bits.contains(Bits::SHOW_LEFT_SPR)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn show_bg(&self) -> bool {
+        self.bits.contains(Bits::SHOW_BG)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn show_spr(&self) -> bool {
+        self.bits.contains(Bits::SHOW_SPR)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn rendering_enabled_raw(&self) -> bool {
+        self.show_bg() || self.show_spr()
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn prev_rendering_enabled(&self) -> bool {
+        self.delayed_bits
+            .contains(DelayedBits::PREV_RENDERING_ENABLED)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn rendering_enabled(&self) -> bool {
+        self.rendering_enabled
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn emphasis(&self, region: NesRegion) -> u16 {
+        u16::from(
+            match region {
                 NesRegion::Auto | NesRegion::Ntsc => self.bits.intersection(
                     Bits::EMPHASIZE_RED | Bits::EMPHASIZE_GREEN | Bits::EMPHASIZE_BLUE,
                 ),
@@ -92,12 +146,28 @@ impl Mask {
                 }
             }
             .bits(),
-        ) << 1;
+        ) << 1
     }
+}
 
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.region = region;
-        self.write(self.bits.bits());
+impl Clock for Mask {
+    fn clock(&mut self) {
+        // Rendering enabled flag is set with a 1 cycle delay (setting it at cycle N won't take
+        // effect until cycle N+2)
+        if self.delayed_bits.contains(DelayedBits::REQUIRES_UPDATE) {
+            self.delayed_bits.remove(DelayedBits::REQUIRES_UPDATE);
+
+            let rendering_enabled = self.rendering_enabled();
+            self.delayed_bits
+                .set(DelayedBits::PREV_RENDERING_ENABLED, rendering_enabled);
+
+            let rendering_enabled_raw = self.rendering_enabled_raw();
+            self.rendering_enabled = rendering_enabled_raw;
+            self.delayed_bits.set(
+                DelayedBits::REQUIRES_UPDATE,
+                rendering_enabled != rendering_enabled_raw,
+            );
+        }
     }
 }
 

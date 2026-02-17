@@ -10,6 +10,7 @@ use std::ops::{Deref, DerefMut};
 /// PPU frame.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
+#[repr(transparent)]
 #[must_use]
 pub struct Buffer(Vec<u16>);
 
@@ -41,11 +42,11 @@ impl DerefMut for Buffer {
 /// PPU frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
+#[repr(C)]
 pub struct Frame {
-    pub count: u32,
-    pub is_odd: bool,
     #[serde(skip)]
     pub buffer: Buffer,
+    pub count: u32,
 }
 
 impl Default for Frame {
@@ -57,33 +58,37 @@ impl Default for Frame {
 impl Frame {
     pub fn new() -> Self {
         Self {
-            count: 0,
-            is_odd: false,
             buffer: Buffer::default(),
+            count: 0,
         }
     }
 
     #[inline(always)]
     pub const fn increment(&mut self) {
         self.count = self.count.wrapping_add(1);
-        self.is_odd = self.count & 0x01 == 0x01;
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn pixel(&self, x: u32, y: u32) -> u16 {
-        self.buffer[(x + (y << 8)) as usize]
+    pub const fn is_odd(&self) -> bool {
+        self.count & 0x01 == 0x01
     }
 
     #[inline(always)]
-    pub fn set_pixel(&mut self, x: u32, y: u32, color: u16) {
-        self.buffer[(x + (y << 8)) as usize] = color;
+    #[must_use]
+    pub fn pixel(&self, x: u16, y: u16) -> u16 {
+        self.buffer[usize::from(x) + (usize::from(y) << 8)]
+    }
+
+    #[inline(always)]
+    pub fn set_pixel(&mut self, x: u16, y: u16, color: u16) {
+        self.buffer[usize::from(x) + (usize::from(y) << 8)] = color;
     }
 
     #[must_use]
-    pub fn pixel_brightness(&self, x: u32, y: u32) -> u32 {
+    pub fn pixel_brightness(&self, x: u16, y: u16) -> u32 {
         let pixel = self.pixel(x, y);
-        let index = (pixel as usize) * 3;
+        let index = usize::from(pixel) * 3;
         let red = Ppu::NTSC_PALETTE[index];
         let green = Ppu::NTSC_PALETTE[index + 1];
         let blue = Ppu::NTSC_PALETTE[index + 2];
@@ -94,12 +99,6 @@ impl Frame {
     #[must_use]
     pub const fn number(&self) -> u32 {
         self.count
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub const fn is_odd(&self) -> bool {
-        self.is_odd
     }
 
     #[inline(always)]

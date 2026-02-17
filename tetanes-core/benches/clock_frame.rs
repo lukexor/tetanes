@@ -1,15 +1,22 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use pprof::criterion::{Output, PProfProfiler};
-use std::{fs::File, hint::black_box, path::Path, time::Duration};
-use tetanes_core::{
-    control_deck::{Config, ControlDeck},
-    mem::RamState,
-};
+#![allow(clippy::expect_used, reason = "fine in a benchmark")]
 
-fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
-    let base_path = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let rom_path = base_path.join(rom_path);
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::{fs::File, hint::black_box, path::Path, time::Duration};
+use tetanes_core::prelude::*;
+
+fn clock_frames(c: &mut Criterion) {
+    const FRAMES_TO_RUN: u32 = 600;
+
+    let rom_path = std::env::args()
+        .find(|arg| arg.ends_with(".nes"))
+        .map(|path| std::env::current_dir().expect("valid cwd").join(path))
+        .unwrap_or_else(|| {
+            let base_path = Path::new(env!("CARGO_MANIFEST_DIR"));
+            base_path.join("test_roms/spritecans.nes")
+        });
+    let rom_path = rom_path.canonicalize().expect("valid rom path");
     assert!(rom_path.exists(), "No test rom found for {rom_path:?}");
+
     let mut rom = File::open(&rom_path).expect("failed to open path");
     let mut deck = ControlDeck::with_config(Config {
         ram_state: RamState::AllZeros,
@@ -17,35 +24,24 @@ fn clock_frames(rom_path: impl AsRef<Path>, frames: u32) {
     });
     deck.load_rom(rom_path.to_string_lossy(), &mut rom)
         .expect("failed to load rom");
-    while deck.frame_number() < frames {
-        deck.clock_frame().expect("valid frame clock");
-        deck.clear_audio_samples();
-    }
-}
 
-fn basic(c: &mut Criterion) {
     let mut group = c.benchmark_group("nes");
-    group.measurement_time(Duration::from_secs(60));
-    group.sample_size(10);
-    group.bench_function("basic", |b| {
-        b.iter(|| clock_frames("test_roms/ppu/_240pee.nes", black_box(200)))
-    });
-    group.finish();
-}
-
-fn stress(c: &mut Criterion) {
-    let mut group = c.benchmark_group("nes");
-    group.measurement_time(Duration::from_secs(60));
-    group.sample_size(10);
-    group.bench_function("stress", |b| {
-        b.iter(|| clock_frames("test_roms/spritecans.nes", black_box(1000)));
+    group.measurement_time(Duration::from_secs(30));
+    group.bench_function("clock_frame", |b| {
+        deck.reset(ResetKind::Hard);
+        b.iter(|| {
+            while deck.frame_number() < FRAMES_TO_RUN {
+                black_box(deck.clock_frame()).expect("valid frame clock");
+                deck.clear_audio_samples();
+            }
+        });
     });
     group.finish();
 }
 
 criterion_group!(
     name = benches;
-    config = Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)));
-    targets = basic, stress
+    config = Criterion::default();
+    targets = clock_frames
 );
 criterion_main!(benches);

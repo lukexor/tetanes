@@ -19,7 +19,7 @@ use std::{
     path::Path,
 };
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
@@ -29,15 +29,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug)]
 #[must_use]
 pub enum Error {
-    #[error("invalid nes header (found: ${value:04X} at byte: {byte}). {message}")]
+    #[error("Invalid iNES/ROM 2.0 header (found: ${value:04X} at byte: {byte}). {message}")]
     InvalidHeader {
         byte: u8,
         value: u8,
         message: String,
     },
-    #[error("mapper: {0}")]
+    #[error("Invalid Mapper: {0}")]
     InvalidMapper(#[from] mapper::Error),
-    #[error("{context}: {source:?}")]
+    #[error("I/O Error: {context}. {source}")]
     Io {
         context: String,
         source: std::io::Error,
@@ -65,10 +65,10 @@ pub struct GameInfo {
 /// An NES cartridge.
 #[must_use]
 pub struct Cart {
-    name: String,
-    header: NesHeader,
-    region: NesRegion,
-    ram_state: RamState,
+    pub(crate) name: String,
+    pub(crate) header: NesHeader,
+    pub(crate) region: NesRegion,
+    pub(crate) ram_state: RamState,
     pub(crate) mapper: Mapper,
     pub(crate) chr_rom: Memory<Box<[u8]>>, // Character ROM
     pub(crate) chr_ram: Memory<Box<[u8]>>, // Character RAM
@@ -131,6 +131,14 @@ impl Cart {
         let header = NesHeader::load(&mut rom_data)?;
         debug!("{header:?}");
 
+        // Skip trainer if present (512 bytes between header and PRG data)
+        if header.flags & 0x04 == 0x04 {
+            let mut trainer = [0u8; 512];
+            rom_data
+                .read_exact(&mut trainer)
+                .map_err(|err| Error::io(err, "failed to skip trainer"))?;
+        }
+
         let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
         let mut prg_rom = Memory::new(prg_rom_len);
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
@@ -139,7 +147,7 @@ impl Cart {
                     byte: 4,
                     value: header.prg_rom_banks as u8,
                     message: format!(
-                        "expected `{}` prg-rom banks ({prg_rom_len} total bytes)",
+                        "Expected `{}` PRG-ROM banks ({prg_rom_len} total bytes)",
                         header.prg_rom_banks
                     ),
                 }
@@ -151,15 +159,16 @@ impl Cart {
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
         let prg_ram = Memory::new(prg_ram_size).with_ram_state(ram_state);
 
-        let mut chr_rom = Memory::new((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
+        let chr_rom_len = (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE;
+        let mut chr_rom = Memory::new(chr_rom_len);
         let chr_ram = if header.chr_rom_banks > 0 {
-            rom_data.read_exact(&mut chr_rom).map_err(|err| {
+            let chr_bytes_read = rom_data.read(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                     Error::InvalidHeader {
                         byte: 5,
                         value: header.chr_rom_banks as u8,
                         message: format!(
-                            "expected `{}` chr-rom banks ({prg_rom_len} total bytes)",
+                            "Expected `{}` CHR-ROM banks ({chr_rom_len} total bytes)",
                             header.chr_rom_banks
                         ),
                     }
@@ -167,6 +176,14 @@ impl Cart {
                     Error::io(err, "failed to read chr-rom")
                 }
             })?;
+            if chr_bytes_read != chr_rom_len {
+                warn!(
+                    "Expected `{}` CHR-ROM banks, found `{}`",
+                    header.chr_rom_banks,
+                    chr_bytes_read / CHR_ROM_BANK_SIZE,
+                );
+                chr_rom.truncate(chr_bytes_read);
+            }
             Memory::empty()
         } else {
             let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
@@ -247,49 +264,41 @@ impl Cart {
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_rom(&self) -> &[u8] {
         &self.chr_rom
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn chr_ram(&self) -> &[u8] {
         &self.chr_ram
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_rom(&self) -> &[u8] {
         &self.prg_rom
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn prg_ram(&self) -> &[u8] {
         &self.prg_ram
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_rom(&self) -> bool {
         !self.chr_rom.is_empty()
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_chr_ram(&self) -> bool {
         !self.chr_ram.is_empty()
     }
 
     #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn has_prg_ram(&self) -> bool {
         !self.prg_ram.is_empty()
     }
@@ -370,6 +379,7 @@ impl Cart {
         self.ex_ram = Memory::new(capacity).with_ram_state(self.ram_state);
     }
 
+    /// Determine header-defind RAM size.
     fn calculate_ram_size(value: u8) -> Result<usize> {
         if value > 0 {
             64usize
@@ -377,7 +387,7 @@ impl Cart {
                 .ok_or_else(|| Error::InvalidHeader {
                     byte: 11,
                     value,
-                    message: "header ram size larger than 64".to_string(),
+                    message: "RAM shift count is too large".to_string(),
                 })
         } else {
             Ok(0)
@@ -518,7 +528,7 @@ impl NesHeader {
                 Error::InvalidHeader {
                     byte: 0,
                     value: 0,
-                    message: "expected 16-byte header".to_string(),
+                    message: "Expected 16-byte header".to_string(),
                 }
             } else {
                 Error::io(err, "failed to read nes header")
@@ -530,21 +540,9 @@ impl NesHeader {
             return Err(Error::InvalidHeader {
                 byte: 0,
                 value: header[0],
-                message: "nes header signature not found".to_string(),
-            });
-        }
-        if (header[7] & 0x0C) == 0x04 {
-            return Err(Error::InvalidHeader {
-                byte: 7,
-                value: header[7],
-                message: "header is corrupted by `DiskDude!`. repair and try again".to_string(),
-            });
-        }
-        if (header[7] & 0x0C) == 0x0C {
-            return Err(Error::InvalidHeader {
-                byte: 7,
-                value: header[7],
-                message: "unrecognized header format. repair and try again".to_string(),
+                message:
+                    "ROM may be a headerless raw dump.\nAdd an iNES or NES 2.0 header and try again"
+                        .to_string(),
             });
         }
 
@@ -580,54 +578,35 @@ impl NesHeader {
                 return Err(Error::InvalidHeader {
                     byte: 10,
                     value: prg_ram_shift,
-                    message: "invalid prg-ram size in header".to_string(),
+                    message: "Invalid PRG-RAM shift count".to_string(),
                 });
             }
             if chr_ram_shift & 0x0F == 0x0F || chr_ram_shift & 0xF0 == 0xF0 {
                 return Err(Error::InvalidHeader {
                     byte: 11,
                     value: chr_ram_shift,
-                    message: "invalid chr-ram size in header".to_string(),
+                    message: "Invalid CHR-RAM shift count".to_string(),
                 });
             }
             if chr_ram_shift & 0xF0 == 0xF0 {
                 return Err(Error::InvalidHeader {
                     byte: 11,
                     value: chr_ram_shift,
-                    message: "battery-backed chr-ram is currently not supported".to_string(),
+                    message: "Battery-backed CHR-RAM is not supported".to_string(),
                 });
             }
             NesVariant::Nes2
         } else if header[7] & 0x0C == 0x04 {
-            // If D2..D3 of flag 7 == 1, then archaic iNES (supports bytes 0-7)
-            for (i, value) in header.iter().enumerate().take(16).skip(8) {
-                if *value > 0 {
-                    return Err(Error::InvalidHeader {
-                        byte: i as u8,
-                        value: *value,
-                        message: format!(
-                            "unrecogonized data found at header byte {i}. repair and try again"
-                        ),
-                    });
-                }
-            }
+            mapper_num = u16::from((header[6] & 0xF0) >> 4); // Only trust lower nibble
             NesVariant::ArchaicINes
-        } else if header[7] & 0x0C == 00 && header[12..=15].iter().all(|v| *v == 0) {
+        } else if header[7] & 0x0C == 0x00 && header[12..=15].iter().all(|v| *v == 0) {
             // If D2..D3 of flag 7 == 0 and bytes 12-15 are all 0, then iNES (supports bytes 0-9)
             NesVariant::INes
         } else {
-            // Else iNES 0.7 or archaic iNES (supports mapper high nibble)
+            mapper_num = u16::from((header[6] & 0xF0) >> 4); // Only trust lower nibble
+            // Else iNES 0.7 or archaic iNES
             NesVariant::INes07
         };
-
-        // Trainer
-        if flags & 0x04 == 0x04 {
-            return Err(Error::InvalidHeader {
-                byte: 6,
-                value: header[6],
-                message: "trained roms are currently not supported.".to_string(),
-            });
-        }
 
         Ok(Self {
             variant,

@@ -10,16 +10,14 @@ use serde::{Deserialize, Serialize};
 /// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSCROLL>
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+#[repr(C)]
 pub struct Scroll {
-    pub fine_x: u16,
-    pub coarse_x: u16,
-    pub fine_y: u16,
-    pub coarse_y: u16,
-    pub v: u16,            // Subject to ADDR_MIRROR
-    pub t: u16,            // Temporary v - Also the addr of top-left onscreen tile
+    pub v: u16, // Subject to ADDR_MIRROR
+    pub t: u16, // Temporary v - Also the addr of top-left onscreen tile
+    pub delay_v: u16,
+    pub fine_x: u8,
+    pub delay_v_cycles: u8,
     pub write_latch: bool, // 1st or 2nd write toggle
-    delay_v_cycles: u32,
-    delay_v: u16,
 }
 
 impl Scroll {
@@ -49,9 +47,6 @@ impl Scroll {
             v: 0x0000,
             t: 0x0000,
             fine_x: 0x00,
-            coarse_x: 0x00,
-            fine_y: 0x00,
-            coarse_y: 0x00,
             write_latch: false,
             delay_v_cycles: 0,
             delay_v: 0x0000,
@@ -88,21 +83,23 @@ impl Scroll {
     // Writes to PPUSCROLL affect v and t
     // 1st write writes X
     // 2nd write writes Y
+    #[inline]
     pub fn write(&mut self, val: u8) {
+        const FINE_RSHIFT: u8 = 3;
+        const LO_5_BIT_MASK: u16 = 0x1F;
+        const FINE_MASK: u16 = 0x07;
+        const COARSE_Y_LSHIFT: u8 = 5;
+        const FINE_Y_LSHIFT: u8 = 12;
+
         let val = u16::from(val);
-        let lo_5_bit_mask: u16 = 0x1F;
-        let fine_mask: u16 = 0x07;
-        let fine_rshift = 3;
         if self.write_latch {
             // Write Y on second write
             // lo 3 bits goes into fine y, remaining 5 bits go into t for coarse y
             // val: HGFEDCBA
             // t:   .CBA..HG FED.....
-            let coarse_y_lshift = 5;
-            let fine_y_lshift = 12;
             self.t = self.t & !(Self::FINE_Y_MASK | Self::COARSE_Y_MASK) // Empty Y
-                | (((val >> fine_rshift) & lo_5_bit_mask) << coarse_y_lshift) // Set coarse Y
-                | ((val & fine_mask) << fine_y_lshift); // Set fine Y
+                | (((val >> FINE_RSHIFT) & LO_5_BIT_MASK) << COARSE_Y_LSHIFT) // Set coarse Y
+                | ((val & FINE_MASK) << FINE_Y_LSHIFT); // Set fine Y
         } else {
             // Write X on first write
             // lo 3 bits goes into fine x, remaining 5 bits go into t for coarse x
@@ -110,8 +107,8 @@ impl Scroll {
             // t:   ........ ...HGFED
             // x:                 CBA
             self.t = self.t & !Self::COARSE_X_MASK // Empty coarse X
-                | ((val >> fine_rshift) & lo_5_bit_mask); // Set coarse X
-            self.fine_x = val & fine_mask; // Set fine X
+                | ((val >> FINE_RSHIFT) & LO_5_BIT_MASK); // Set coarse X
+            self.fine_x = (val & FINE_MASK) as u8; // Set fine X
         }
         self.write_latch = !self.write_latch;
     }
@@ -120,6 +117,7 @@ impl Scroll {
     // 1st write writes hi 6 bits
     // 2nd write writes lo 8 bits
     // Total size is a 14 bit addr
+    #[inline]
     pub fn write_addr(&mut self, val: u8) {
         if self.write_latch {
             // Write lo address on second write
@@ -147,15 +145,33 @@ impl Scroll {
     #[inline(always)]
     pub const fn set_v(&mut self, val: u16) {
         self.v = val;
-        self.coarse_x = self.v & Self::COARSE_X_MASK;
-        self.fine_y = self.v >> 12;
-        self.coarse_y = (self.v & Self::COARSE_Y_MASK) >> 5;
+    }
+
+    #[inline(always)]
+    pub const fn coarse_x(&self) -> u16 {
+        self.v & Self::COARSE_X_MASK
+    }
+
+    #[inline(always)]
+    pub const fn coarse_y(&self) -> u16 {
+        (self.v & Self::COARSE_Y_MASK) >> 5
+    }
+
+    #[inline(always)]
+    pub const fn fine_x(&self) -> u16 {
+        self.fine_x as u16
+    }
+
+    #[inline(always)]
+    pub const fn fine_y(&self) -> u16 {
+        self.v >> 12
     }
 
     // Delayed update for PPUADDR after 2 PPU cycles (based on Visual NES findings)
     // Returns true when it was updated so the PPU can inform mappers monitoring $2006 reads and
     // writes. e.g. MMC3 clocks using A12
-    #[inline]
+    #[inline(always)]
+    #[must_use]
     pub const fn delayed_update(&mut self) -> bool {
         if self.delay_v_cycles > 0 {
             self.delay_v_cycles -= 1;

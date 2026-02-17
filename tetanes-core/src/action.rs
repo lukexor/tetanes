@@ -27,7 +27,7 @@ pub enum Action {
     /// Toggle the [`Zapper`](crate::input::Zapper) connected state.
     ToggleZapperConnected,
     /// Update the [`Zapper`](crate::input::Zapper) aim position.
-    ZapperAim((u32, u32)),
+    ZapperAim((u16, u16)),
     /// Update the [`Zapper`](crate::input::Zapper) aim position to offscreen.
     ZapperAimOffscreen,
     /// Trigger the [`Zapper`](crate::input::Zapper) trigger.

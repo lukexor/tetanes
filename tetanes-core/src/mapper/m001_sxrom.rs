@@ -196,7 +196,7 @@ impl Sxrom {
             self.chr_banks.set(1, self.regs.chr1.into());
         } else {
             self.chr_banks.set(0, (self.regs.chr0 & 0x1E).into()); // ignore low bit
-            self.chr_banks.set(1, ((self.regs.chr1 & 0x1E) + 1).into()); // ignore low bit
+            self.chr_banks.set(1, ((self.regs.chr0 & 0x1E) + 1).into()); // ignore low bit
         }
     }
 
