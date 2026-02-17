@@ -79,6 +79,27 @@ args = [
   "taskset", "-c", "0", "cargo", "bench", "--profile", "perf", "--bench", "clock_frame", "${@}"
 ]
 
+[tasks.flamegraph]
+description = "Record a flamegraph of the clock_frame benchmark"
+category = "Development"
+command = "cargo"
+args = [
+  "flamegraph", "--profile", "perf", "--bench", "clock_frame",
+  "--output", "target/flamegraph.svg", "--", "${@}"
+]
+
+[tasks.perf-report]
+description = "Record and display a perf profile of the clock_frame benchmark"
+category = "Development"
+script = '''
+set -e
+BIN=$(cargo bench --profile perf --bench clock_frame --no-run --message-format=json 2>/dev/null \
+  | grep -o '"executable":"[^"]*clock_frame[^"]*"' | tail -1 | cut -d'"' -f4)
+echo "profiling $BIN"
+perf record -q --call-graph dwarf -o target/perf.data "$BIN" "${@}"
+perf report -i target/perf.data --no-children -g none --percent-limit 0.4 --stdio
+'''
+
 [tasks.test]
 description = "Test TetaNES"
 category = "Development"
