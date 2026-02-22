@@ -308,8 +308,8 @@ impl Regional for Bus {
 impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
+            self.ram_state.fill(&mut **self.wram);
             self.ram_state.fill(&mut self.prg_ram);
-            self.ram_state.fill(&mut *self.wram);
         }
         self.ppu.reset(kind);
         self.apu.reset(kind);

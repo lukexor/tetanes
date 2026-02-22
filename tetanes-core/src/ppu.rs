@@ -360,8 +360,8 @@ impl Ppu {
             bus: self.bus.clone(), // We actually want to clone CHR ROM
             curr_palette: self.curr_palette,
             secondary_oamaddr: self.secondary_oamaddr,
-            oamdata: self.oamdata.clone(),
-            secondary_oamdata: self.secondary_oamdata.clone(),
+            oamdata: self.oamdata,
+            secondary_oamdata: self.secondary_oamdata,
             sprites: self.sprites,
             region: self.region,
             ..Default::default()
