@@ -649,11 +649,13 @@ impl Ppu {
     fn fetch_background(&mut self) {
         match self.cycle & 0x07 {
             0 => {
-                // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-                self.scroll.increment_x();
-                // 256, Increment Fine Y when we reach the end of the screen
-                if self.cycle == Self::INC_Y {
-                    self.scroll.increment_y();
+                if self.mask.prev_rendering_enabled {
+                    // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
+                    self.scroll.increment_x();
+                    // 256, Increment Fine Y when we reach the end of the screen
+                    if self.cycle == Self::INC_Y {
+                        self.scroll.increment_y();
+                    }
                 }
             }
             1 => self.fetch_bg_nt_byte(),
@@ -1018,7 +1020,7 @@ impl Ppu {
                     // 257..=320
                     Self::SPR_FETCH_START..=Self::SPR_FETCH_END => {
                         // 257
-                        if cycle == Self::SPR_FETCH_START {
+                        if self.mask.prev_rendering_enabled && cycle == Self::SPR_FETCH_START {
                             // Copy X bits at the start of a new line since we're going to start writing
                             // new x values to t
                             self.scroll.copy_x();
@@ -1071,7 +1073,10 @@ impl Ppu {
             }
         }
 
-        if self.scroll.delayed_update() {
+        self.mask.clock();
+        if self.scroll.delayed_update()
+            && (self.scanline > Self::VISIBLE_SCANLINE_END || !self.mask.rendering_enabled)
+        {
             // MMC3 clocks using A12
             let addr = self.scroll.addr();
             self.bus.mapper.on_bus_read(addr, BusKind::Ppu);

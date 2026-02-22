@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 
-use crate::common::{NesRegion, Reset, ResetKind};
+use crate::common::{Clock, NesRegion, Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 #[must_use]
 pub struct Mask {
     pub rendering_enabled: bool,
+    pub prev_rendering_enabled: bool,
+    pub pending_rendering_update: bool,
     pub grayscale: u8,
     pub emphasis: u16,
     pub show_left_bg: bool,
@@ -71,7 +73,7 @@ impl Mask {
         self.show_left_spr = self.bits.contains(Bits::SHOW_LEFT_SPR);
         self.show_bg = self.bits.contains(Bits::SHOW_BG);
         self.show_spr = self.bits.contains(Bits::SHOW_SPR);
-        self.rendering_enabled = self.show_bg || self.show_spr;
+        self.pending_rendering_update = self.rendering_enabled != (self.show_bg || self.show_spr);
         self.emphasis = u16::from(
             match self.region {
                 NesRegion::Auto | NesRegion::Ntsc => self.bits.intersection(
@@ -105,5 +107,19 @@ impl Reset for Mask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
     fn reset(&mut self, _kind: ResetKind) {
         self.write(0);
+    }
+}
+
+impl Clock for Mask {
+    fn clock(&mut self) {
+        // Rendering enabled flag is set with a 1 cycle delay (setting it at cycle N won't take
+        // effect until cycle N+2)
+        if self.pending_rendering_update {
+            self.pending_rendering_update = false;
+
+            self.prev_rendering_enabled = self.rendering_enabled;
+            self.rendering_enabled = self.show_bg || self.show_spr;
+            self.pending_rendering_update = self.prev_rendering_enabled != self.rendering_enabled;
+        }
     }
 }
