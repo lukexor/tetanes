@@ -1,6 +1,6 @@
 [toolchain]
 # 2026-02-16 introduced linker errors
-channel = "nightly-2026-02-15"
+channel = "nightly"
 components = ["rustfmt", "clippy"]
 targets = ["wasm32-unknown-unknown"]
 profile = "default"
