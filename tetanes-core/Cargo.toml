@@ -49,8 +49,3 @@ anyhow.workspace = true
 image.workspace = true
 serde_json.workspace = true
 tracing-subscriber.workspace = true
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-# Blocked upgrading until pprof upgrades criterion
-criterion = { version = "0.5", features = ["html_reports"] }
-pprof = { version = "0.15", features = ["criterion", "flamegraph"] }

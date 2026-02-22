@@ -83,7 +83,8 @@ lto = true
 panic = "abort"
 strip = true
 
-[profile.flamegraph]
+# Profile to run performance profiling with debug symbols
+[profile.perf]
 inherits = "release"
 lto = "off"
 debug = true

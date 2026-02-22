@@ -61,8 +61,12 @@ args = ["build", "-p", "tetanes", "--profile", "dist", "${@}"]
 [tasks.bench]
 description = "Benchmark TetaNES"
 category = "Development"
-command = "cargo"
-args = ["bench", "--bench", "clock_frame", "${@}"]
+command = "perf"
+args = [
+  "stat", "-x,", "-e",
+  "cycles,instructions,cache-misses,cache-references,branch-misses,branches,L1-dcache-load-misses,L1-dcache-loads",
+  "taskset", "-c", "0", "cargo", "bench", "--bench", "clock_frame", "${@}"
+]
 
 [tasks.test]
 description = "Test TetaNES"
