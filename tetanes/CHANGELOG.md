@@ -7,6 +7,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.13.1) - 2026-02-22
+
+### 🐛 Bug Fixes
+
+
+- Fix PAL auto-detect aspect ratio. closes #457 - ([b096a6a](https://github.com/lukexor/tetanes/commit/b096a6a650860e70666d17a3884c8ea73dad343e))
+- Fixed base href - ([6c424bf](https://github.com/lukexor/tetanes/commit/6c424bfa666ea6dbbf575d4a14fac6018e754f71))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Switch macos to static .DS_Store - ([59389f6](https://github.com/lukexor/tetanes/commit/59389f6c6506d7d40ef9c8fd642536a95e8f9fe2))
+- Fix cd build - ([a822b23](https://github.com/lukexor/tetanes/commit/a822b23d6877c150af10d9af4c1f10e89607c226))
+- Harden macos cd - ([d989b3e](https://github.com/lukexor/tetanes/commit/d989b3eb1e66e8fc9951ac62f186f4937e51336d))
+- Fixed zip version - ([9e59d51](https://github.com/lukexor/tetanes/commit/9e59d5190952f2613586859ff72e7fba890d8b6e))
+
+
 ## [0.13.0](https://github.com/lukexor/tetanes/compare/0.12.2..0.13.0) - 2026-02-14
 
 ### 🐛 Bug Fixes
