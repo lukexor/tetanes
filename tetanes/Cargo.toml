@@ -137,7 +137,8 @@ web-sys = { workspace = true, features = [
   "SpeechSynthesisUtterance",
   "Window",
 ] }
-wasm-bindgen = "0.2"
+# Locked to web-sys required for glow 0.16
+wasm-bindgen = "=0.2.108"
 wasm-bindgen-futures = "0.4"
 zip = { version = "8.0", default-features = false, features = ["deflate"] }
 

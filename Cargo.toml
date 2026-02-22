@@ -58,7 +58,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 serde_json = "1.0"
 web-time = "1.0"
-web-sys = "0.3"
+# Locked to a non-API breaking change required for glow 0.16
+web-sys = "=0.3.85"
 
 [profile.dev]
 # `debug = false` Saves both compile time and WASM download times
