@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.13.1) - 2026-02-22
+
+### 🐛 Bug Fixes
+
+
+- Fix IRQ jitter when toggling rendering. closes #458 - ([d50b21d](https://github.com/lukexor/tetanes/commit/d50b21db7d90bcb08c7364c9d3b9c3b7d63eb3f5))
+- Fixed memory bounds panic. closes #456 - ([a355064](https://github.com/lukexor/tetanes/commit/a355064623bbbff43ffe39d166648f7913f88d3e))
+
+
 ## [0.13.0](https://github.com/lukexor/tetanes/compare/0.12.2..0.13.0) - 2026-02-14
 
 ### 🐛 Bug Fixes
