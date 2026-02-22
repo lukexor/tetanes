@@ -41,6 +41,8 @@ impl Renderer {
                         self.ctx
                             .send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Focus);
                     }
+                    // Loading ROM may need to resize to different region
+                    self.resize_texture = true;
                 }
                 _ => (),
             },
