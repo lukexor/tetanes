@@ -30,8 +30,7 @@ use std::{
     sync::Arc,
 };
 use tetanes_core::{
-    fs,
-    ppu::Ppu,
+    fs, ppu,
     time::{Duration, Instant},
     video::Frame,
 };
@@ -53,7 +52,7 @@ pub mod painter;
 pub mod shader;
 pub mod texture;
 
-pub const OVERSCAN_TRIM: usize = (4 * Ppu::WIDTH * 8) as usize;
+pub const OVERSCAN_TRIM: usize = (4 * ppu::size::WIDTH * 8) as usize;
 
 #[derive(Debug)]
 #[must_use]
@@ -502,7 +501,7 @@ impl Renderer {
             .with_active(true)
             .with_resizable(true)
             .with_inner_size(window_size)
-            .with_min_inner_size(Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32));
+            .with_min_inner_size(Vec2::new(ppu::size::WIDTH as f32, ppu::size::HEIGHT as f32));
         if cfg.renderer.always_on_top {
             builder = builder.with_always_on_top();
         }

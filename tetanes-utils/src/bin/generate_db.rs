@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     let path = opt
         .path
         .unwrap_or_else(|| env::current_dir().unwrap_or_default());
-    let header = "# CRC, Region, Mapper, PrgRomSize, ChrRomSize, ChrRamSize, PrgRamSize, Battery, Mirroring, SubMapper, Title";
+    let header = "# CRC, Region, Mapper, Sub-Mapper, ChrBanks, PrgRomBanks, PrgRamBanks, Battery, Mirroring, SubMapper, Title";
     if path.is_dir() {
         let mut db_txt_file = BufWriter::new(
             File::create(GAME_DB_TXT).with_context(|| format!("failed to open {GAME_DB_TXT}"))?,
@@ -98,6 +98,15 @@ fn apply_corrections(game: &mut Game) {
             game.mapper = 210;
             game.submapper = 2;
         }
+        0x5CAA3E61 => {
+            // Death Race: <https://www.nesdev.org/wiki/INES_Mapper_144>
+            game.mapper = 144;
+        }
+        0xD1691028 => {
+            // Devil Man: <https://www.nesdev.org/wiki/INES_Mapper_154>
+            game.mirroring = Mirroring::Horizontal;
+            game.mapper = 154;
+        }
         _ => (),
     }
 }
@@ -121,9 +130,9 @@ impl Game {
     fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Game> {
         let path = path.as_ref();
         let cart = Cart::from_path(path, RamState::default())?;
-        let mut crc32 = fs::compute_crc32(cart.prg_rom());
-        if cart.has_chr_rom() {
-            crc32 = fs::compute_combine_crc32(crc32, cart.chr_rom());
+        let mut crc32 = fs::compute_crc32(&cart.prg_rom);
+        if !cart.chr_rom.is_empty() {
+            crc32 = fs::compute_combine_crc32(crc32, &cart.chr_rom);
         }
         let filename = path.file_name().unwrap_or_default();
         let region = match filename.to_str() {
@@ -137,9 +146,10 @@ impl Game {
             None => NesRegion::Ntsc,
         };
 
-        let chr_banks = cart.chr_rom().len() / (8 * 1024);
-        let prg_rom_banks = cart.prg_ram().len() / (16 * 1024);
-        let prg_ram_banks = cart.prg_ram().len() / (16 * 1024);
+        let chr_size = cart.chr_size();
+        let chr_banks = chr_size / (8 * 1024);
+        let prg_rom_banks = cart.prg_rom_size / (16 * 1024);
+        let prg_ram_banks = cart.prg_ram_size / (16 * 1024);
         let mirroring = cart.mirroring();
 
         Ok(Game {

@@ -6,9 +6,9 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
-    mem::Banks,
-    ppu::Mirroring,
+    mapper::{self, Map, Mapper},
+    mem::{Banks, Memory},
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,14 +44,18 @@ pub struct Regs {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sxrom {
+    pub chr: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
+    pub chr_banks: Banks,
+    pub prg_ram_banks: Banks,
+    pub prg_rom_banks: Banks,
     pub regs: Regs,
+    pub has_chr_ram: bool,
     pub submapper_num: u8,
     pub mirroring: Mirroring,
     pub revision: Revision,
     pub prg_select: bool,
-    pub chr_banks: Banks,
-    pub prg_ram_banks: Banks,
-    pub prg_rom_banks: Banks,
 }
 
 impl Sxrom {
@@ -72,19 +76,25 @@ impl Sxrom {
     const PRG_BANK_MASK: u8 = 0x0F;
     const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
 
-    pub fn load(cart: &mut Cart, revision: Revision) -> Result<Mapper, mapper::Error> {
-        if !cart.has_prg_ram() {
-            cart.add_prg_ram(Self::PRG_RAM_SIZE);
-        }
-        let chr_len = if cart.has_chr_rom() {
-            cart.chr_rom.len()
-        } else {
-            if cart.chr_ram.is_empty() {
-                cart.add_chr_ram(Self::CHR_RAM_SIZE);
-            }
-            cart.chr_ram.len()
-        };
+    /// Load `Sxrom` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+        revision: Revision,
+    ) -> Result<Mapper, mapper::Error> {
+        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
+        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_RAM_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_ROM_WINDOW)?;
         let mut sxrom = Self {
+            prg_rom,
+            chr,
+            prg_ram,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
             regs: Regs {
                 write_just_occurred: 0x00,
                 write_buffer: 0x00,
@@ -98,13 +108,11 @@ impl Sxrom {
                 chr1: 0x00,
                 prg: 0x00,
             },
+            has_chr_ram,
             submapper_num: cart.submapper_num(),
             mirroring: Mirroring::SingleScreenA,
             revision,
-            prg_select: cart.prg_rom.len() == 0x80000,
-            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, Self::CHR_WINDOW)?,
-            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_ROM_WINDOW)?,
+            prg_select: cart.prg_rom_size == 0x80000,
         };
         sxrom.process_register_write(0x8000, Self::DEFAULT_PRG_MODE);
         sxrom.process_register_write(0xA000, 0x00);
@@ -129,15 +137,14 @@ impl Sxrom {
     }
 
     /// Process register write, extracting registers into flags.
-    fn process_register_write(&mut self, addr: u16, val: u8) {
+    const fn process_register_write(&mut self, addr: u16, val: u8) {
         match addr & 0xE000 {
             0x8000 => {
                 self.mirroring = match val & Self::MIRRORING_MASK {
-                    0 => Mirroring::SingleScreenA,
-                    1 => Mirroring::SingleScreenB,
-                    2 => Mirroring::Vertical,
-                    3 => Mirroring::Horizontal,
-                    _ => unreachable!("impossible mirroring mode"),
+                    0b00 => Mirroring::SingleScreenA,
+                    0b01 => Mirroring::SingleScreenB,
+                    0b10 => Mirroring::Vertical,
+                    _ => Mirroring::Horizontal,
                 };
                 self.regs.prg_bank_select = (val & Self::SLOT_SELECT_MASK) != 0;
                 self.regs.prg_mode = (val & Self::PRG_MODE_MASK) != 0;
@@ -155,7 +162,7 @@ impl Sxrom {
                 self.regs.prg = val & Self::PRG_BANK_MASK;
                 self.regs.prg_ram_disabled = (val & Self::PRG_RAM_DISABLED) != 0;
             }
-            _ => {}
+            _ => (),
         }
     }
 
@@ -200,6 +207,7 @@ impl Sxrom {
         }
     }
 
+    #[inline(always)]
     pub fn prg_ram_enabled(&self) -> bool {
         self.revision == Revision::A || !self.regs.prg_ram_disabled
     }
@@ -215,22 +223,44 @@ impl Map for Sxrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable or Fixed to First Bank
     // CPU $C000..=$FFFF 16K PRG-ROM Bank Fixed to Last Bank or Switchable
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x6000..=0x7FFF if self.prg_ram_enabled() => {
-                MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
-            }
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)],
+            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0x7FFF if self.prg_ram_enabled() => {
-                MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val)
+                self.prg_ram[self.prg_ram_banks.translate(addr)]
+            }
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
+        }
+    }
+
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
+        match addr {
+            0x0000..=0x1FFF if self.has_chr_ram => self.chr[self.chr_banks.translate(addr)] = val,
+            0x2000..=0x3EFF => ciram.write(addr, val, self.mirroring),
+            _ => (),
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    #[inline(always)]
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled() => {
+                self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
             }
             0x8000..=0xFFFF => {
                 // Writes data into a shift register. At every 5th
@@ -282,7 +312,7 @@ impl Map for Sxrom {
                 // +----- PRG-RAM chip enable (0: enabled; 1: disabled; ignored on MMC1A)
 
                 if self.regs.write_just_occurred > 0 {
-                    return MappedWrite::Bus;
+                    return;
                 }
                 self.regs.write_just_occurred = 2;
 
@@ -304,18 +334,15 @@ impl Map for Sxrom {
                         self.reset_buffer();
                     }
                 }
-                MappedWrite::Bus
             }
-            _ => MappedWrite::Bus,
+            _ => (),
         }
     }
 
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 

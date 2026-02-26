@@ -3,11 +3,12 @@
 //! <https://wiki.nesdev.org/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, Regional, Reset, Sram},
-    mem,
-    ppu::Mirroring,
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
+    fs, mem,
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 pub use bandai_fcg::BandaiFCG; // m016, m153, m157, m159
 pub use m000_nrom::Nrom;
@@ -28,13 +29,7 @@ pub use m034_nina001::Nina001;
 pub use m066_gxrom::Gxrom;
 pub use m069_sunsoft_fme7::SunsoftFme7;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
-pub use m076_dxrom::Dxrom as Dxrom76;
 pub use m079_nina003_006::Nina003006;
-pub use m088_dxrom::Dxrom as Dxrom88;
-pub use m095_dxrom::Dxrom as Dxrom95;
-pub use m154_dxrom::Dxrom as Dxrom154;
-pub use m206_dxrom::Dxrom as Dxrom206;
-use std::path::Path;
 
 pub mod bandai_fcg;
 pub mod m000_nrom;
@@ -55,12 +50,7 @@ pub mod m034_nina001;
 pub mod m066_gxrom;
 pub mod m069_sunsoft_fme7;
 pub mod m071_bf909x;
-pub mod m076_dxrom;
 pub mod m079_nina003_006;
-pub mod m088_dxrom;
-pub mod m095_dxrom;
-pub mod m154_dxrom;
-pub mod m206_dxrom;
 pub mod vrc_irq;
 
 /// Errors that mappers can return.
@@ -114,10 +104,10 @@ pub enum Mapper {
     Uxrom(Uxrom),
     /// `CNROM` (Mapper 003)
     Cnrom(Cnrom),
-    /// `TxROM`/`MMC3` (Mapper 004)
+    /// `TxROM`/`MMC3` (Mappers 004, 088, 095, 206)
     Txrom(Txrom),
     /// `ExROM`/`MMC5` (Mapper 5)
-    Exrom(Exrom),
+    Exrom(Box<Exrom>),
     /// `AxROM` (Mapper 007)
     Axrom(Axrom),
     /// `PxROM`/`MMC2` (Mapper 009)
@@ -127,13 +117,13 @@ pub enum Mapper {
     /// `Color Dreams` (Mapper 011)
     ColorDreams(ColorDreams),
     /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
-    BandaiFCG(BandaiFCG),
+    BandaiFCG(Box<BandaiFCG>),
     /// `Jaleco SS88006` (Mapper 018)
     JalecoSs88006(JalecoSs88006),
     /// `Namco163` (Mapper 019)
-    Namco163(Namco163),
+    Namco163(Box<Namco163>),
     /// `VRC6` (Mapper 024).
-    Vrc6(Vrc6),
+    Vrc6(Box<Vrc6>),
     /// `BNROM` (Mapper 034).
     Bnrom(Bnrom),
     /// `NINA-001` (Mapper 034).
@@ -144,30 +134,34 @@ pub enum Mapper {
     SunsoftFme7(SunsoftFme7),
     /// `Bf909x` (Mapper 071).
     Bf909x(Bf909x),
-    /// `DxROM`/`NAMCOT-3446` (Mapper 076).
-    Dxrom76(Dxrom76),
     /// `NINA-003`/`NINA-006` (Mapper 079).
     Nina003006(Nina003006),
-    /// `DxROM`/`Namco 108` (Mapper 088).
-    Dxrom88(Dxrom88),
-    /// `DxROM`/`NAMCOT-3425` (Mapper 095).
-    Dxrom95(Dxrom95),
-    /// `DxROM`/`NAMCOT-3453` (Mapper 154).
-    Dxrom154(Dxrom154),
-    /// `DxROM`/`Namco 108` (Mapper 206).
-    Dxrom206(Dxrom206),
 }
 
+/// Implement `From<T>` for `Mapper`.
 macro_rules! impl_from_board {
-    ($($variant:ident($board:ty)),+$(,)?) => (
-        $(
-            impl From<$board> for Mapper {
-                fn from(board: $board) -> Self {
-                    Self::$variant(board)
-                }
+    (@impl $variant:ident, $board:ident) => {
+        impl From<$board> for Mapper {
+            fn from(board: $board) -> Self {
+                Self::$variant(board)
             }
-        )+
-    )
+        }
+    };
+    (@impl $variant:ident, Box<$board:ident>) => {
+        impl From<$board> for Mapper {
+            fn from(board: $board) -> Self {
+                Self::$variant(Box::new(board))
+            }
+        }
+        impl From<Box<$board>> for Mapper {
+            fn from(board: Box<$board>) -> Self {
+                Self::$variant(board)
+            }
+        }
+    };
+    ($($variant:ident($($tt:tt)+)),+ $(,)?) => {
+        $(impl_from_board!(@impl $variant, $($tt)+);)+
+    };
 }
 
 impl_from_board!(
@@ -176,28 +170,24 @@ impl_from_board!(
     Uxrom(Uxrom),
     Cnrom(Cnrom),
     Txrom(Txrom),
-    Exrom(Exrom),
+    Exrom(Box<Exrom>),
     Axrom(Axrom),
     Pxrom(Pxrom),
     Fxrom(Fxrom),
     ColorDreams(ColorDreams),
-    BandaiFCG(BandaiFCG),
+    BandaiFCG(Box<BandaiFCG>),
     JalecoSs88006(JalecoSs88006),
-    Namco163(Namco163),
-    Vrc6(Vrc6),
+    Namco163(Box<Namco163>),
+    Vrc6(Box<Vrc6>),
     Bnrom(Bnrom),
     Nina001(Nina001),
     Gxrom(Gxrom),
     SunsoftFme7(SunsoftFme7),
     Bf909x(Bf909x),
-    Dxrom76(Dxrom76),
     Nina003006(Nina003006),
-    Dxrom88(Dxrom88),
-    Dxrom95(Dxrom95),
-    Dxrom154(Dxrom154),
-    Dxrom206(Dxrom206),
 );
 
+/// Implement `Map` function for all `Mapper` variants.
 macro_rules! impl_map {
     ($self:expr, $fn:ident$(,)? $($args:expr),*$(,)?) => {
         match $self {
@@ -221,83 +211,125 @@ macro_rules! impl_map {
             Mapper::Gxrom(m) => m.$fn($($args),*),
             Mapper::SunsoftFme7(m) => m.$fn($($args),*),
             Mapper::Bf909x(m) => m.$fn($($args),*),
-            Mapper::Dxrom76(m) => m.$fn($($args),*),
             Mapper::Nina003006(m) => m.$fn($($args),*),
-            Mapper::Dxrom88(m) => m.$fn($($args),*),
-            Mapper::Dxrom95(m) => m.$fn($($args),*),
-            Mapper::Dxrom154(m) => m.$fn($($args),*),
-            Mapper::Dxrom206(m) => m.$fn($($args),*),
         }
     };
 }
 
 impl Map for Mapper {
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        impl_map!(self, map_read, addr)
+    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
+        impl_map!(self, chr_read, addr, ciram)
     }
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
-        impl_map!(self, map_peek, addr)
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
+        impl_map!(self, chr_peek, addr, ciram)
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        impl_map!(self, map_write, addr, val)
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_read(&mut self, addr: u16) -> u8 {
+        impl_map!(self, prg_read, addr)
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        impl_map!(self, bus_read, addr, kind)
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
+        impl_map!(self, prg_peek, addr)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        impl_map!(self, bus_write, addr, val, kind)
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
+        impl_map!(self, chr_write, addr, val, ciram)
     }
 
+    /// Write a byte to PRG-RAM at a given address.
+    #[inline(always)]
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        impl_map!(self, prg_write, addr, val)
+    }
+
+    /// Synchronize a read from a PPU address.
+    fn ppu_read(&mut self, addr: u16) {
+        impl_map!(self, ppu_read, addr)
+    }
+
+    /// Synchronize a write to a PPU address.
+    fn ppu_write(&mut self, addr: u16, val: u8) {
+        impl_map!(self, ppu_write, addr, val)
+    }
+
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         impl_map!(self, mirroring)
     }
+}
 
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        impl_map!(self, set_mirroring, mirroring)
+impl Sample for Mapper {
+    /// Output a single audio sample.
+    #[inline]
+    fn output(&self) -> f32 {
+        match self {
+            Self::Exrom(exrom) => exrom.output(),
+            Self::Namco163(namco163) => namco163.output(),
+            Self::Vrc6(vrc6) => vrc6.output(),
+            Self::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.output(),
+            _ => 0.0,
+        }
     }
 }
 
 impl Reset for Mapper {
-    fn reset(&mut self, kind: crate::prelude::ResetKind) {
+    /// Reset the component given the [`ResetKind`].
+    fn reset(&mut self, kind: ResetKind) {
         impl_map!(self, reset, kind)
     }
 }
 
 impl Clock for Mapper {
+    /// Clock component once.
+    #[inline]
     fn clock(&mut self) {
         impl_map!(self, clock)
     }
 }
 
 impl Regional for Mapper {
-    fn region(&self) -> crate::prelude::NesRegion {
+    /// Return the current region.
+    fn region(&self) -> NesRegion {
         impl_map!(self, region)
     }
 
-    fn set_region(&mut self, region: crate::prelude::NesRegion) {
+    /// Set the region.
+    fn set_region(&mut self, region: NesRegion) {
         impl_map!(self, set_region, region)
     }
 }
 
 impl Sram for Mapper {
-    fn save(&self, path: impl AsRef<Path>) -> crate::fs::Result<()> {
+    /// Save RAM to a given path.
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         impl_map!(self, save, path)
     }
 
-    fn load(&mut self, path: impl AsRef<Path>) -> crate::fs::Result<()> {
+    /// Load save RAM from a given path.
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         impl_map!(self, load, path)
     }
 }
 
 impl Mapper {
+    /// An empty Mapper.
     pub const fn none() -> Self {
         Self::None(())
     }
 
+    /// Whether mapper is `None`.
     pub const fn is_none(&self) -> bool {
         matches!(self, Self::None(_))
     }
@@ -309,116 +341,71 @@ impl Default for Mapper {
     }
 }
 
-/// Type of read operation for an address for a given Mapper.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum MappedRead {
-    /// Defer to default data bus behavior for this read. Primarily used to read from
-    /// a mirrored Console-Internal RAM (i.e Nametable) address.
-    #[default]
-    Bus,
-    /// Read from a CHR ROM or RAM address.
-    Chr(usize),
-    /// Read from a non-mirrored Console-Internal RAM (i.e. Nameteable) address for Mappers that
-    /// support custom Nametable Mirroring.
-    CIRam(usize),
-    /// Read from an External RAM address for Mappers that support EXRAM.
-    ExRam(usize),
-    /// Read from a PRG ROM address.
-    PrgRom(usize),
-    /// Read from a PRG ROM address.
-    PrgRam(usize),
-    /// Provide data directly for this read (i.e. from an internal Mapper register).
-    Data(u8),
-}
-
-/// Type of write operation for an address for a given Mapper.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[must_use]
-pub enum MappedWrite {
-    /// Do nothing with this write.
-    None,
-    /// Defer to default data bus behavior for this write.
-    #[default]
-    Bus,
-    /// Write value to CHR RAM address.
-    ChrRam(usize, u8),
-    /// Write value to a non-mirrored Console-Internal RAM (i.e. Nametable) address for Mappers
-    /// that support custom Nametable Mirroring.
-    CIRam(usize, u8),
-    /// Write value to an External RAM address for Mappers that support EXRAM.
-    ExRam(usize, u8),
-    /// Write value to a PRG RAM address.
-    PrgRam(usize, u8),
-    /// Toggle PRG RAM write protection.
-    PrgRamProtect(bool),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[must_use]
-pub enum BusKind {
-    Cpu,
-    Ppu,
-}
-
 /// Trait implemented for all [`Mapper`]s.
 pub trait Map: Clock + Regional + Reset + Sram {
-    /// Determine the [`MappedRead`] for the given address.
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.map_peek(addr)
+    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
+        self.chr_peek(addr, ciram)
     }
 
-    /// Determine the [`MappedRead`] for the given address, but do not modify any internal state.
-    fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::default()
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    // `chr_peek` has to be implemented at read from CHR and CIRam.
+    fn chr_peek(&self, _addr: u16, _ciram: &CIRam) -> u8;
+
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    ///
+    /// Defaults to `prg_peek`.
+    #[inline(always)]
+    fn prg_read(&mut self, addr: u16) -> u8 {
+        self.prg_peek(addr)
     }
 
-    /// Determine the [`MappedWrite`] for the given address and value.
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::default()
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    // `prg_peek` has to be implemented to read PRG-ROM.
+    fn prg_peek(&self, _addr: u16) -> u8;
+
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    // `chr_write` has to be implemented at least to write to CIRam.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
+        if let 0x2000..=0x3EFF = addr {
+            ciram.write(addr, val, self.mirroring());
+        }
     }
 
-    /// Simulates a read for the given bus at the given address for mappers that use bus reads for
-    /// timing.
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, _addr: u16, _val: u8) {}
 
-    /// Simulates a write for the given bus at the given address for mappers that use bus writes for
-    /// timing.
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    /// Synchronize a read from a PPU address.
+    fn ppu_read(&mut self, _addr: u16) {}
+
+    /// Synchronize a write to a PPU address.
+    fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 
     /// Returns the current [`Mirroring`] mode.
-    fn mirroring(&self) -> Mirroring {
-        Mirroring::default()
-    }
-
-    /// Set the [`Mirroring`] mode.
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
+    // All mappers have mirroring, even if it's hard-wired.
+    fn mirroring(&self) -> Mirroring;
 }
 
 impl Map for () {
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.map_peek(addr)
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
+        match addr {
+            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring()),
+            _ => 0,
+        }
     }
 
-    fn map_peek(&self, _addr: u16) -> MappedRead {
-        MappedRead::default()
+    fn prg_peek(&self, _addr: u16) -> u8 {
+        0
     }
-
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
-        MappedWrite::default()
-    }
-
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
-
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
 
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()
     }
-
-    fn set_mirroring(&mut self, _mirroring: Mirroring) {}
 }
 
+impl Sample for () {}
 impl Reset for () {}
 impl Clock for () {}
 impl Regional for () {}

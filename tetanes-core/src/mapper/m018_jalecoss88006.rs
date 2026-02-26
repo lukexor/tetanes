@@ -6,9 +6,9 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
-    mem::{BankAccess, Banks},
-    ppu::Mirroring,
+    mapper::{self, Map, Mapper},
+    mem::{BankAccess, Banks, Memory},
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +53,9 @@ pub struct Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct JalecoSs88006 {
+    pub chr_rom: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub irq_counter: u16,
     pub mirroring: Mirroring,
@@ -68,17 +71,26 @@ impl JalecoSs88006 {
 
     const IRQ_MASKS: [u16; 4] = [0xFFFF, 0x0FFF, 0x00FF, 0x000F];
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        if !cart.has_prg_ram() {
-            cart.add_prg_ram(Self::PRG_RAM_SIZE);
-        }
+    /// Load `JalecoSs88006` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
+        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut jalecoss88006 = Self {
+            chr_rom,
+            prg_rom,
+            prg_ram,
             regs: Regs::default(),
             irq_counter: 0,
             mirroring: cart.mirroring(),
-            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
-            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
         };
         jalecoss88006
             .prg_rom_banks
@@ -113,22 +125,34 @@ impl Map for JalecoSs88006 {
     // CPU $C000..=$DFFF: 8K PRG-ROM Bank 3 Switchable
     // CPU $E000..=$FFFF: 8K PRG-ROM Bank 4 Fixed to last
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x6000..=0x7FFF if self.prg_ram_banks.readable(addr) => {
-                MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
-            }
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
+            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_banks.readable(addr) => {
+                self.prg_ram[self.prg_ram_banks.translate(addr)]
+            }
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, addr: u16, val: u8) {
         match addr {
             0x6000..=0x7FFF => {
                 if self.prg_ram_banks.writable(addr) {
-                    return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
+                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
                 }
             }
             _ => match addr & 0xF003 {
@@ -176,28 +200,26 @@ impl Map for JalecoSs88006 {
                         self.regs.irq_counter_size = 0;
                     }
                 }
-                0xF002 => self.set_mirroring(match val & 0x03 {
-                    0 => Mirroring::Horizontal,
-                    1 => Mirroring::Vertical,
-                    2 => Mirroring::SingleScreenA,
-                    3 => Mirroring::SingleScreenB,
-                    _ => unreachable!("invalid mirroring mode: ${val:02X}"),
-                }),
+                0xF002 => {
+                    self.mirroring = match val & 0x03 {
+                        0b00 => Mirroring::Horizontal,
+                        0b01 => Mirroring::Vertical,
+                        0b10 => Mirroring::SingleScreenA,
+                        _ => Mirroring::SingleScreenB,
+                    };
+                }
                 0xF003 => {
                     // TODO: Expansion audio
                 }
                 _ => (),
             },
         }
-        MappedWrite::Bus
     }
 
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 

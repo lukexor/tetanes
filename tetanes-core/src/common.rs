@@ -167,7 +167,9 @@ pub trait ClockTo {
 /// Trait for types that can output `f32` audio samples.
 pub trait Sample {
     /// Output a single audio sample.
-    fn output(&self) -> f32;
+    fn output(&self) -> f32 {
+        0.0
+    }
 }
 
 /// Trait for types that can save RAM to disk.
@@ -246,7 +248,7 @@ pub(crate) mod tests {
         control_deck::{Config, ControlDeck},
         input::Player,
         mem::RamState,
-        ppu::Ppu,
+        ppu::size,
         video::VideoFilter,
     };
     use anyhow::Context;
@@ -415,8 +417,8 @@ pub(crate) mod tests {
                     .with_extension("png");
 
                 ImageBuffer::<Rgba<u8>, &[u8]>::from_raw(
-                    Ppu::WIDTH,
-                    Ppu::HEIGHT,
+                    u32::from(size::WIDTH),
+                    u32::from(size::HEIGHT),
                     deck.frame_buffer(),
                 )
                 .expect("valid frame")

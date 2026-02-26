@@ -3,7 +3,7 @@
 use crate::{
     common::{Clock, NesRegion, Reset, ResetKind},
     cpu::Cpu,
-    ppu::Ppu,
+    ppu::{Ppu, size},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -470,34 +470,35 @@ pub struct Zapper {
     pub triggered: f32,
     pub trigger_release_delay: f32,
     #[serde(skip)] // Don't save zapper position
-    pub x: u32,
+    pub x: u16,
     #[serde(skip)] // Don't save zapper position
-    pub y: u32,
-    pub radius: u32,
+    pub y: u16,
+    pub radius: u16,
     pub connected: bool,
 }
 
 impl Zapper {
+    #[inline(always)]
     #[must_use]
-    pub const fn x(&self) -> u32 {
+    pub const fn x(&self) -> u16 {
         self.x
     }
 
+    #[inline(always)]
     #[must_use]
-    pub const fn y(&self) -> u32 {
+    pub const fn y(&self) -> u16 {
         self.y
     }
 
+    #[inline(always)]
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
             self.triggered = self.trigger_release_delay;
         }
     }
 
-    pub fn aim(&mut self, x: u32, y: u32) {
-        if x != self.x || y != self.y {
-            trace!("zapper aim: {x}, {y}");
-        }
+    #[inline(always)]
+    pub const fn aim(&mut self, x: u16, y: u16) {
         self.x = x;
         self.y = y;
     }
@@ -534,8 +535,8 @@ impl Zapper {
     }
 
     fn light_sense(&self, ppu: &Ppu) -> u8 {
-        let width = Ppu::WIDTH;
-        let height = Ppu::HEIGHT;
+        let width = size::WIDTH;
+        let height = size::HEIGHT;
         let scanline = ppu.scanline;
         let cycle = ppu.cycle;
         let min_y = self.y.saturating_sub(self.radius);

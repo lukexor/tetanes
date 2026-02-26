@@ -1,6 +1,6 @@
 //! Video output and filtering.
 
-use crate::ppu::Ppu;
+use crate::ppu::{self, Ppu};
 use serde::{Deserialize, Serialize};
 use std::{
     f64::consts::PI,
@@ -54,7 +54,7 @@ impl TryFrom<usize> for VideoFilter {
 pub struct Frame(Vec<u8>);
 
 impl Frame {
-    pub const SIZE: usize = Ppu::SIZE * 4;
+    pub const SIZE: usize = ppu::size::FRAME * 4;
 
     /// Allocate a new frame for video output.
     pub fn new() -> Self {

@@ -54,12 +54,12 @@ impl GenieCode {
     /// This function will return an error if the given code is not the correct format.
     pub fn new(code: String) -> Result<Self> {
         let hex = Self::parse(&code)?;
-        Ok(Self::from_raw(code, hex))
+        Ok(Self::from_raw(code, &hex))
     }
 
     /// Creates a new `GenieCode` instance from raw hex values. `GenieCode` may not be valid if
     /// `hex` is not the correct length. Use `GenieCode::parse` to validate the code.
-    pub fn from_raw(code: String, hex: Vec<u8>) -> Self {
+    pub fn from_raw(code: String, hex: &[u8]) -> Self {
         let addr = 0x8000
             + (((u16::from(hex[3]) & 7) << 12)
                 | ((u16::from(hex[5]) & 7) << 8)
@@ -108,11 +108,11 @@ impl GenieCode {
         ])
     }
 
-    pub fn parse(code: &str) -> Result<Vec<u8>> {
+    pub fn parse(code: &str) -> Result<Box<[u8]>> {
         if code.len() != 6 && code.len() != 8 {
             return Err(Error::new(code, ErrorKind::InvalidLength(code.len())));
         }
-        let mut hex: Vec<u8> = Vec::with_capacity(code.len());
+        let mut hex = Vec::with_capacity(code.len());
         for s in code.chars() {
             if let Some(h) = GENIE_MAP
                 .get_or_init(Self::generate_genie_map)
@@ -123,7 +123,7 @@ impl GenieCode {
                 return Err(Error::new(code, ErrorKind::InvalidCharacter(s)));
             }
         }
-        Ok(hex)
+        Ok(hex.into())
     }
 
     #[must_use]

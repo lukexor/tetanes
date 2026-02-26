@@ -60,7 +60,7 @@ pub struct GenieEntry {
 }
 
 impl Preferences {
-    const TITLE: &'static str = "Preferences";
+    const TITLE: &'static str = "TetaNES - Preferences";
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -973,7 +973,7 @@ impl State {
                     }
                     match GenieCode::parse(code) {
                         Ok(hex) => {
-                            let code = GenieCode::from_raw(code.to_string(), hex);
+                            let code = GenieCode::from_raw(code.to_string(), &hex);
                             if !cfg.deck.genie_codes.contains(&code) {
                                 tx.event(ConfigEvent::GenieCodeAdded(code));
                             }

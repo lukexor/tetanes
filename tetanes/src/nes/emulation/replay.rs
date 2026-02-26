@@ -20,7 +20,7 @@ pub struct State((Cpu, Vec<ReplayFrame>));
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ReplayEvent {
     Joypad((Player, JoypadBtn, ElementState)),
-    ZapperAim((u32, u32)),
+    ZapperAim((u16, u16)),
     ZapperTrigger,
 }
 

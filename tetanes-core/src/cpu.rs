@@ -162,14 +162,6 @@ impl Cpu {
 
     /// Load a CPU state.
     pub fn load(&mut self, mut cpu: Self) {
-        // Because we don't want to serialize the entire ROM in save states, extract out the
-        // already loaded ROM data if it's not provided
-        if cpu.bus.prg_rom.is_empty() {
-            cpu.bus.prg_rom = std::mem::take(&mut self.bus.prg_rom);
-        };
-        if cpu.bus.ppu.bus.chr.is_empty() {
-            cpu.bus.ppu.bus.chr = std::mem::take(&mut self.bus.ppu.bus.chr);
-        };
         // Doesn't make sense to load a debugger from a previous state
         cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
         *self = cpu;
@@ -326,9 +318,7 @@ impl Cpu {
         if nmi {
             self.clear_irq_flags(IrqFlags::NMI);
             self.pc = self.read_word(Self::NMI_VECTOR);
-            self.bus.ppu.clock_to(self.master_clock);
-            self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
-            self.bus.ppu.master_clock = 0;
+            self.clock_sync();
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
@@ -381,17 +371,17 @@ impl Cpu {
     /// Start a CPU cycle.
     #[inline(always)]
     fn start_cycle(&mut self, increment: u8) {
-        self.master_clock += u32::from(increment);
+        self.master_clock = self.master_clock.wrapping_add(u32::from(increment));
         self.cycle = self.cycle.wrapping_add(1);
-        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
-        self.bus.clock();
+        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
+        self.bus.cpu_clock();
     }
 
     /// End a CPU cycle.
     #[inline(always)]
     fn end_cycle(&mut self, increment: u8) {
-        self.master_clock += u32::from(increment);
-        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+        self.master_clock = self.master_clock.wrapping_add(u32::from(increment));
+        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
 
         self.handle_interrupts();
     }
@@ -819,6 +809,8 @@ impl Cpu {
     }
 
     /// Logs the disassembled instruction being executed.
+    #[cold]
+    #[inline(never)]
     pub fn trace_instr(&mut self) {
         let mut pc = self.pc;
         let status = self.status;
@@ -855,10 +847,20 @@ impl Cpu {
     const fn page_crossed(addr: u16, offset: i16) -> bool {
         ((addr as i16 + offset) as u16 & 0xFF00) != (addr & 0xFF00)
     }
+
+    /// Runs all componnets up to master clock, synchronizing them.
+    #[inline(always)]
+    pub fn clock_sync(&mut self) {
+        self.bus.ppu.clock_to(self.master_clock);
+        self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
+        self.bus.ppu.master_clock = 0;
+        self.bus.apu.clock_sync();
+    }
 }
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction.
+    #[inline(always)]
     fn clock(&mut self) {
         #[cfg(feature = "trace")]
         self.trace_instr();
@@ -994,14 +996,19 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom};
+    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom, mem::Memory};
 
     #[test]
     fn cycle_timing() {
         use super::*;
         let mut cpu = Cpu::new(Bus::default());
         let mut cart = Cart::empty();
-        cart.mapper = Nrom::load(&mut cart).unwrap();
+        cart.mapper = Nrom::load(
+            &cart,
+            Memory::new(cart.chr_rom_size),
+            Memory::new(cart.prg_rom_size),
+        )
+        .unwrap();
         cpu.bus.load_cart(cart);
         cpu.reset(ResetKind::Hard);
         cpu.clock();

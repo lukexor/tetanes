@@ -5,13 +5,13 @@
 use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
-    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::Cpu,
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
-    mem::{ConstArray, Memory, RamState, Read, Write},
+    mapper::{Map, Mapper},
+    mem::{ConstArray, RamState, Read, Write},
     ppu::{Ppu, Registers},
 };
 use serde::{Deserialize, Serialize};
@@ -50,17 +50,22 @@ use std::{collections::HashMap, path::Path};
 #[must_use]
 #[repr(C)]
 pub struct Bus {
-    pub wram: Memory<ConstArray<u8, 0x0800>>, // 2K NES Work Ram available to the CPU
+    /// Picture Processing Unit.
     pub ppu: Ppu,
+    /// Audio Processing Unit.
     pub apu: Apu,
+    /// Joypad and Zapper inputs.
     pub input: Input,
+    // 2K NES Work Ram available to the CPU.
+    pub wram: Box<ConstArray<u8, { size::WRAM }>>,
+    /// Game GENIE codes.
     pub genie_codes: HashMap<u16, GenieCode>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
+    /// Whatever was last read or written to to the Bus.
     pub open_bus: u8,
-    pub prg_ram_protect: bool,
+    /// RAM initialization state.
     #[serde(skip)]
     pub ram_state: RamState,
+    /// NES Region.
     pub region: NesRegion,
 }
 
@@ -70,17 +75,19 @@ impl Default for Bus {
     }
 }
 
+pub mod size {
+    // 2K NES Work Ram available to the CPU.
+    pub const WRAM: usize = 0x800;
+}
+
 impl Bus {
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
-            wram: Memory::new_const(),
-            ppu: Ppu::new(region, ram_state),
+            wram: Box::new(ConstArray::new()),
+            ppu: Ppu::new(region),
             apu: Apu::new(region),
             input: Input::new(region),
             genie_codes: HashMap::new(),
-            prg_rom: Memory::new(0),
-            prg_ram: Memory::empty(),
-            prg_ram_protect: false,
             open_bus: 0x00,
             ram_state,
             region,
@@ -88,14 +95,6 @@ impl Bus {
     }
 
     pub fn load_cart(&mut self, cart: Cart) {
-        self.prg_rom = cart.prg_rom;
-        self.load_sram(cart.prg_ram);
-        if cart.chr_ram.is_empty() {
-            self.ppu.bus.load_chr(cart.chr_rom, false);
-        } else {
-            self.ppu.bus.load_chr(cart.chr_ram, true);
-        }
-        self.ppu.bus.load_ex_ram(cart.ex_ram);
         self.ppu.load_mapper(cart.mapper);
     }
 
@@ -106,20 +105,8 @@ impl Bus {
     #[must_use]
     #[inline]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn sram(&self) -> &[u8] {
-        &self.prg_ram
-    }
-
-    #[inline]
-    pub fn load_sram(&mut self, sram: impl Into<Memory<Box<[u8]>>>) {
-        self.prg_ram = sram.into();
-    }
-
-    #[must_use]
-    #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn wram(&self) -> &[u8] {
-        self.wram.as_ref()
+    pub fn wram(&self) -> &[u8; size::WRAM] {
+        &self.wram
     }
 
     /// Add a Game Genie code to override memory reads/writes.
@@ -148,9 +135,8 @@ impl Bus {
             .map_or(val, |genie_code| genie_code.read(val))
     }
 
-    #[must_use]
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
+    #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         &self.apu.audio_samples
     }
@@ -159,41 +145,28 @@ impl Bus {
     pub fn clear_audio_samples(&mut self) {
         self.apu.audio_samples.clear();
     }
-}
 
-impl Clock for Bus {
-    fn clock(&mut self) {
-        self.ppu.bus.mapper.clock();
-        let output = match self.ppu.bus.mapper {
-            Mapper::Exrom(ref exrom) => exrom.output(),
-            Mapper::Namco163(ref namco163) => namco163.output(),
-            Mapper::Vrc6(ref vrc6) => vrc6.output(),
-            Mapper::SunsoftFme7(ref sunsoft_fme7) => sunsoft_fme7.output(),
-            _ => 0.0,
-        };
+    #[inline]
+    pub fn cpu_clock(&mut self) {
+        self.ppu.mapper.clock();
+        let output = self.ppu.mapper.output();
         self.apu.add_mapper_output(output);
         self.apu.clock_lazy();
         self.input.clock();
     }
 }
 
-impl ClockTo for Bus {
-    fn clock_to(&mut self, clock: u32) {
-        self.ppu.clock_to(clock);
-    }
-}
-
 impl Read for Bus {
     fn read(&mut self, addr: u16) -> u8 {
-        let val = match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
-            0x4020..=0xFFFF => {
-                let val = match self.ppu.bus.mapper.map_read(addr) {
-                    MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    _ => self.open_bus,
-                };
+        let addr = match addr {
+            0x0800..=0x1FFF => addr & 0x07FF,
+            0x2008..=0x3FFF => addr & 0x2007,
+            _ => addr,
+        };
+        self.open_bus = match addr {
+            0x0000..=0x07FF => self.wram[usize::from(addr)],
+            0x4100..=0xFFFF => {
+                let val = self.ppu.mapper.prg_read(addr);
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.read_status(),
@@ -203,25 +176,21 @@ impl Read for Bus {
             0x4016 => self.input.read(Player::One, &self.ppu),
             0x4017 => self.input.read(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
-            0x0800..=0x1FFF => self.read(addr & 0x07FF), // WRAM Mirrors
-            0x2008..=0x3FFF => self.read(addr & 0x2007), // Ppu Mirrors
             _ => self.open_bus,
         };
-        self.open_bus = val;
-        self.ppu.bus.mapper.bus_read(addr, BusKind::Cpu);
-        val
+        self.open_bus
     }
 
     fn peek(&self, addr: u16) -> u8 {
+        let addr = match addr {
+            0x0800..=0x1FFF => addr & 0x07FF,
+            0x2008..=0x3FFF => addr & 0x2007,
+            _ => addr,
+        };
         match addr {
-            0x0000..=0x07FF => self.wram[addr as usize],
-            0x4020..=0xFFFF => {
-                let val = match self.ppu.bus.mapper.map_peek(addr) {
-                    MappedRead::Data(val) => val,
-                    MappedRead::PrgRam(addr) => self.prg_ram[addr],
-                    MappedRead::PrgRom(addr) => self.prg_rom[addr],
-                    _ => self.open_bus,
-                };
+            0x0000..=0x07FF => self.wram[usize::from(addr)],
+            0x4100..=0xFFFF => {
+                let val = self.ppu.mapper.prg_peek(addr);
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.peek_status(),
@@ -231,8 +200,6 @@ impl Read for Bus {
             0x4016 => self.input.peek(Player::One, &self.ppu),
             0x4017 => self.input.peek(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
-            0x0800..=0x1FFF => self.peek(addr & 0x07FF), // WRAM Mirrors
-            0x2008..=0x3FFF => self.peek(addr & 0x2007), // Ppu Mirrors
             _ => self.open_bus,
         }
     }
@@ -240,19 +207,15 @@ impl Read for Bus {
 
 impl Write for Bus {
     fn write(&mut self, addr: u16, val: u8) {
+        self.open_bus = val;
+        let addr = match addr {
+            0x0800..=0x1FFF => addr & 0x07FF,
+            0x2008..=0x3FFF => addr & 0x2007,
+            _ => addr,
+        };
         match addr {
-            0x0000..=0x07FF => {
-                self.wram[addr as usize] = val;
-            }
-            0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val) {
-                MappedWrite::PrgRam(addr, val) => {
-                    if !self.prg_ram.is_empty() && !self.prg_ram_protect {
-                        self.prg_ram[addr] = val;
-                    }
-                }
-                MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
-                _ => (),
-            },
+            0x0000..=0x07FF => self.wram[usize::from(addr)] = val,
+            0x4100..=0xFFFF => self.ppu.mapper.prg_write(addr, val),
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
             0x2003 => self.ppu.write_oamaddr(val),
@@ -283,12 +246,8 @@ impl Write for Bus {
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
             0x2002 => self.ppu.open_bus = val,
-            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val), // WRAM Mirrors
-            0x2008..=0x3FFF => return self.write(addr & 0x2007, val), // Ppu Mirrors
             _ => (),
         }
-        self.open_bus = val;
-        self.ppu.bus.mapper.bus_write(addr, val, BusKind::Cpu);
     }
 }
 
@@ -309,7 +268,6 @@ impl Reset for Bus {
     fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
-            self.ram_state.fill(&mut self.prg_ram);
         }
         self.ppu.reset(kind);
         self.apu.reset(kind);
@@ -318,20 +276,22 @@ impl Reset for Bus {
 
 impl Sram for Bus {
     fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::save(path.as_ref(), self.sram())?;
-        self.ppu.bus.mapper.save(path)
+        self.ppu.mapper.save(path)
     }
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.load_sram(data))?;
-        self.ppu.bus.mapper.load(path)
+        self.ppu.mapper.load(path)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::mapper::{Cnrom, Nrom};
+    use crate::{
+        common::ClockTo,
+        mapper::{Cnrom, Nrom},
+        mem::Memory,
+    };
 
     #[test]
     fn load_cart_values() {
@@ -353,21 +313,21 @@ mod test {
         assert_eq!(bus.ppu.region(), expected_region, "ppu region");
         assert_eq!(bus.apu.region(), expected_region, "apu region");
         assert!(
-            matches!(bus.ppu.bus.mapper, Mapper::Nrom(_)),
+            matches!(bus.ppu.mapper, Mapper::Nrom(_)),
             "mapper is Nrom: {:?}",
-            bus.ppu.bus.mapper
+            bus.ppu.mapper
         );
-        assert_eq!(bus.ppu.bus.mirroring(), expected_mirroring, "mirroring");
+        assert_eq!(bus.ppu.mirroring(), expected_mirroring, "mirroring");
     }
 
     #[test]
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_rom = Memory::new(0x2000);
-        cart.chr_rom.fill(0x66);
+        let mut chr_rom = Memory::new(0x2000);
+        chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
-        cart.mapper = Cnrom::load(&mut cart).unwrap();
+        cart.mapper = Cnrom::load(&cart, chr_rom, Memory::new(0x4000)).unwrap();
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00);
@@ -394,9 +354,10 @@ mod test {
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.chr_ram = Memory::new(0x2000);
-        cart.chr_ram.fill(0x66);
-        cart.mapper = Nrom::load(&mut cart).unwrap();
+        cart.mapper = Nrom::load(&cart, Memory::empty(), Memory::new(cart.prg_rom_size)).unwrap();
+        if let Mapper::Nrom(nrom) = &mut cart.mapper {
+            nrom.chr.fill(0x66);
+        }
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00);
@@ -429,14 +390,15 @@ mod test {
     fn genie_codes() {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.prg_rom = Memory::new(0x8000);
-        cart.mapper = Nrom::load(&mut cart).unwrap();
+        let mut prg_rom = Memory::new(0x8000);
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts
         let addr = 0x9F41;
         let orig_value = 0x22; // 3 Hearts
         let new_value = 0x77; // 8 Hearts
-        cart.prg_rom[(addr & 0x7FFF) as usize] = orig_value;
+
+        prg_rom[(addr & 0x7FFF) as usize] = orig_value;
+        cart.mapper = Nrom::load(&cart, Memory::new(cart.chr_rom_size), prg_rom).unwrap();
 
         bus.load_cart(cart);
         bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
@@ -452,10 +414,10 @@ mod test {
     fn clock() {
         let mut bus = Bus::default();
 
-        bus.clock_to(12);
+        bus.ppu.clock_to(12);
         assert_eq!(bus.ppu.master_clock, 12, "ppu clock");
-        bus.clock();
-        assert_eq!(bus.apu.master_cycle, 1, "apu clock");
+        bus.cpu_clock();
+        assert_eq!(bus.apu.master_clock, 1, "apu clock");
     }
 
     #[test]

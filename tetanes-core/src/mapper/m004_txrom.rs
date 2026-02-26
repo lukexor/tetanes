@@ -7,9 +7,9 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
-    mem::Banks,
-    ppu::Mirroring,
+    mapper::{self, Map, Mapper},
+    mem::{Banks, Memory},
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -53,14 +53,20 @@ pub struct Regs {
     pub irq_counter: u8,
     pub irq_enabled: bool,
     pub irq_reload: bool,
-    pub last_clock: u16,
+    pub master_clock: u32,
+    pub a12_low_clock: u32,
 }
 
 /// `TxROM`/`MMC3` (Mapper 004).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Txrom {
+    pub chr: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
+    pub ex_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
+    pub has_chr_ram: bool,
     pub mirroring: Mirroring,
     pub mapper_num: u16,
     pub submapper_num: u8,
@@ -72,7 +78,8 @@ pub struct Txrom {
 
 impl Txrom {
     const PRG_WINDOW: usize = 8 * 1024;
-    pub(super) const CHR_WINDOW: usize = 1024;
+    const CHR_WINDOW: usize = 1024;
+    const CHR_WINDOW_76: usize = 2048;
 
     const FOUR_SCREEN_RAM_SIZE: usize = 4 * 1024;
     const PRG_RAM_SIZE: usize = 8 * 1024;
@@ -81,28 +88,36 @@ impl Txrom {
     const PRG_MODE_MASK: u8 = 0x40; // Bit 6 of bank select
     const CHR_INVERSION_MASK: u8 = 0x80; // Bit 7 of bank select
 
-    pub fn new(cart: &mut Cart, chr_window: usize) -> Result<Self, mapper::Error> {
-        cart.add_prg_ram(Self::PRG_RAM_SIZE);
-        if cart.mirroring() == Mirroring::FourScreen {
-            cart.add_exram(Self::FOUR_SCREEN_RAM_SIZE);
-        }
-        let chr_len = if cart.has_chr_rom() {
-            cart.chr_rom.len()
-        } else {
-            if cart.chr_ram.is_empty() {
-                cart.add_chr_ram(Self::CHR_RAM_SIZE);
-            }
-            cart.chr_ram.len()
-        };
+    /// Create `Txrom` from `Cart`.
+    pub fn new(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+        chr_window: usize,
+    ) -> Result<Self, mapper::Error> {
+        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
+        let prg_ram = Memory::with_ram_state(Self::PRG_RAM_SIZE, cart.ram_state);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr.len(), chr_window)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut txrom = Self {
+            chr,
+            prg_rom,
+            prg_ram,
+            ex_ram: if cart.mirroring() == Mirroring::FourScreen {
+                Memory::new(Self::FOUR_SCREEN_RAM_SIZE)
+            } else {
+                Memory::empty()
+            },
             regs: Regs::default(),
+            has_chr_ram,
             mirroring: cart.mirroring(),
             mapper_num: cart.mapper_num(),
             submapper_num: cart.submapper_num(),
             revision: Revision::BC, // TODO compare to known games
-            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, chr_window)?,
-            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
         };
         let last_bank = txrom.prg_rom_banks.last();
         txrom.prg_rom_banks.set(2, last_bank - 1);
@@ -110,8 +125,23 @@ impl Txrom {
         Ok(txrom)
     }
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        Ok(Self::new(cart, Self::CHR_WINDOW)?.into())
+    /// Load `Txrom` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
+        Ok(Self::new(
+            cart,
+            chr_rom,
+            prg_rom,
+            if cart.mapper_num() == 76 {
+                Self::CHR_WINDOW_76
+            } else {
+                Self::CHR_WINDOW
+            },
+        )?
+        .into())
     }
 
     pub const fn bank_register(&self, index: usize) -> u8 {
@@ -120,6 +150,20 @@ impl Txrom {
 
     pub const fn set_revision(&mut self, rev: Revision) {
         self.revision = rev;
+    }
+
+    #[inline]
+    const fn apply_prg_write_masks(&self, addr: &mut u16, val: &mut u8) {
+        // Redirects all 0x8000..=0xFFFF writes to 0x8000..=0x8001 as all other features do not
+        // exist for the corresponding mappers that call this
+        *addr &= 0x8001;
+        if *addr == 0x8000 {
+            // Disable CHR mode 1 and Prg mode 1
+            // PRG has the last two 8K banks fixed to the end.
+            // CHR assigns the left pattern table ($0000-$0FFF) two 2K banks, and the right pattern
+            // table ($1000-$1FFF) four 1K banks.
+            *val &= 0x3F;
+        }
     }
 
     pub fn update_prg_banks(&mut self) {
@@ -143,6 +187,29 @@ impl Txrom {
     }
 
     pub fn update_chr_banks(&mut self) {
+        match self.mapper_num {
+            76 => {
+                self.set_chr_banks(|banks, regs| {
+                    banks.set(0, regs[2] as usize);
+                    banks.set(1, regs[3] as usize);
+                    banks.set(2, regs[4] as usize);
+                    banks.set(3, regs[5] as usize);
+                });
+                return;
+            }
+            88 | 154 => {
+                self.set_chr_banks(|_, regs| {
+                    regs[0] &= 0x3F;
+                    regs[1] &= 0x3F;
+                    regs[2] |= 0x40;
+                    regs[3] |= 0x40;
+                    regs[4] |= 0x40;
+                    regs[5] |= 0x40;
+                });
+            }
+            _ => (),
+        }
+
         // 1: two 2K banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2K banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF
         let chr = self.regs.bank_values;
@@ -165,37 +232,22 @@ impl Txrom {
 
     pub fn update_banks(&mut self) {
         self.update_prg_banks();
-        // Allow mappers to override chr banks with `set_chr_banks`
-        if !matches!(self.mapper_num, 76 | 88) {
-            self.update_chr_banks();
-        };
+        self.update_chr_banks();
     }
 
-    pub fn clock_irq(&mut self, addr: u16) {
-        if addr < 0x2000 {
-            let next_clock = (addr >> 12) & 1;
-            let (last, next) = if self.revision == Revision::Acc {
-                (1, 0)
-            } else {
-                (0, 1)
-            };
-            if self.regs.last_clock == last && next_clock == next {
-                let counter = self.regs.irq_counter;
-                if counter == 0 || self.regs.irq_reload {
-                    self.regs.irq_counter = self.regs.irq_latch;
-                } else {
-                    self.regs.irq_counter -= 1;
-                }
-                if (counter & 0x01 == 0x01 || self.revision == Revision::BC || self.regs.irq_reload)
-                    && self.regs.irq_counter == 0
-                    && self.regs.irq_enabled
-                {
-                    Cpu::set_irq(Irq::MAPPER);
-                }
-                self.regs.irq_reload = false;
-            }
-            self.regs.last_clock = next_clock;
+    const fn is_a12_rising_edge(&mut self, addr: u16) -> bool {
+        if addr & 0x1000 > 0 {
+            // NOTE: This is technical 3 falling edges of M2 - but because the mapper doesn't have
+            // direct access to the CPUs clock, and is clocked after the PPU runs and calls this
+            // method, we're off by 1
+            let is_rising_edge = self.regs.a12_low_clock > 0
+                && self.regs.master_clock.wrapping_sub(self.regs.a12_low_clock) >= 4;
+            self.regs.a12_low_clock = 0;
+            return is_rising_edge;
+        } else if self.regs.a12_low_clock == 0 {
+            self.regs.a12_low_clock = self.regs.master_clock;
         }
+        false
     }
 }
 
@@ -214,30 +266,72 @@ impl Map for Txrom {
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.clock_irq(addr);
-        self.map_peek(addr)
+    /// Read a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
+        self.ppu_read(addr);
+        self.chr_peek(addr, ciram)
     }
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
-                MappedRead::ExRam((addr & 0x1FFF) as usize)
+            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)],
+            0x2000..=0x3EFF => {
+                if self.mirroring == Mirroring::FourScreen {
+                    self.ex_ram[usize::from(addr & 0x1FFF)]
+                } else {
+                    ciram.peek(addr, self.mirroring)
+                }
             }
-            0x6000..=0x7FFF => MappedRead::PrgRam(self.prg_ram_banks.translate(addr)),
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
-            0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
-                MappedWrite::ExRam((addr & 0x1FFF) as usize, val)
+            0x6000..=0x7FFF => self.prg_ram[self.prg_ram_banks.translate(addr)],
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
+        }
+    }
+
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
+        match addr {
+            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)] = val,
+            0x2000..=0x3EFF => {
+                if self.mirroring == Mirroring::FourScreen {
+                    self.ex_ram[usize::from(addr & 0x1FFF)] = val;
+                } else {
+                    ciram.write(addr, val, self.mirroring);
+                }
             }
-            0x6000..=0x7FFF => MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val),
+            _ => (),
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, mut addr: u16, mut val: u8) {
+        match self.mapper_num {
+            76 | 88 | 95 | 206 => self.apply_prg_write_masks(&mut addr, &mut val),
+            154 => {
+                self.mirroring = if val & 0x40 == 0x40 {
+                    Mirroring::SingleScreenB
+                } else {
+                    Mirroring::SingleScreenA
+                };
+                self.apply_prg_write_masks(&mut addr, &mut val);
+            }
+            _ => (),
+        }
+
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[self.prg_ram_banks.translate(addr)] = val,
             0x8000..=0xFFFF => {
                 //  7654 3210
                 // `CPMx xRRR`
@@ -274,11 +368,11 @@ impl Map for Txrom {
                     }
                     0xA000 => {
                         if self.mirroring != Mirroring::FourScreen {
-                            self.set_mirroring(match val & 0x01 {
-                                0 => Mirroring::Vertical,
-                                1 => Mirroring::Horizontal,
-                                _ => unreachable!("impossible mirroring"),
-                            });
+                            self.mirroring = if val & 0x01 == 0x01 {
+                                Mirroring::Horizontal
+                            } else {
+                                Mirroring::Vertical
+                            };
                             self.update_banks();
                         }
                     }
@@ -295,32 +389,49 @@ impl Map for Txrom {
                     0xE001 => self.regs.irq_enabled = true,
                     _ => unreachable!("impossible address"),
                 }
-                MappedWrite::Bus
             }
-            _ => MappedWrite::Bus,
+            _ => (),
+        }
+
+        if self.mapper_num == 95 && addr & 0x01 == 0x01 {
+            let nametable1 = (self.bank_register(0) >> 5) & 0x01;
+            let nametable2 = (self.bank_register(1) >> 5) & 0x01;
+            self.mirroring = match (nametable1, nametable2) {
+                (0, 0) => Mirroring::SingleScreenA,
+                (1, 1) => Mirroring::SingleScreenB,
+                _ => Mirroring::Horizontal,
+            };
         }
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
+    /// Synchronize a read from a PPU address.
+    fn ppu_read(&mut self, addr: u16) {
+        // Clock on PPU A12 rising edge
+        if self.is_a12_rising_edge(addr) {
+            let counter = self.regs.irq_counter;
+            if self.regs.irq_counter == 0 || self.regs.irq_reload {
+                self.regs.irq_counter = self.regs.irq_latch;
+            } else {
+                self.regs.irq_counter -= 1;
+            }
+            if self.revision == Revision::A {
+                if (counter > 0 || self.regs.irq_reload)
+                    && self.regs.irq_counter == 0
+                    && self.regs.irq_enabled
+                {
+                    Cpu::set_irq(Irq::MAPPER);
+                }
+            } else if self.regs.irq_counter == 0 && self.regs.irq_enabled {
+                Cpu::set_irq(Irq::MAPPER);
+            }
+            self.regs.irq_reload = false;
         }
     }
 
-    fn bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
-        // Clock on PPU A12
-        if kind == BusKind::Ppu {
-            self.clock_irq(addr);
-        }
-    }
-
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 
@@ -328,9 +439,15 @@ impl Reset for Txrom {
     fn reset(&mut self, _kind: ResetKind) {
         self.regs = Regs::default();
         self.update_banks();
+        self.update_chr_banks();
     }
 }
 
-impl Clock for Txrom {}
+impl Clock for Txrom {
+    fn clock(&mut self) {
+        self.regs.master_clock = self.regs.master_clock.wrapping_add(1);
+    }
+}
+
 impl Regional for Txrom {}
 impl Sram for Txrom {}

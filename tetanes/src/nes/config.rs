@@ -13,7 +13,7 @@ use std::{
 };
 use tetanes_core::{
     action::Action as DeckAction, common::NesRegion, control_deck::Config as DeckConfig, fs,
-    input::Player, ppu::Ppu, time::Duration,
+    input::Player, ppu, time::Duration,
 };
 use tracing::{error, info};
 use uuid::Uuid;
@@ -492,11 +492,11 @@ impl Config {
 
     #[must_use]
     pub const fn texture_size(&self) -> egui::Vec2 {
-        let width = Ppu::WIDTH;
+        let width = ppu::size::WIDTH;
         let height = if self.renderer.hide_overscan {
-            Ppu::HEIGHT - 16
+            ppu::size::HEIGHT - 16
         } else {
-            Ppu::HEIGHT
+            ppu::size::HEIGHT
         };
         egui::Vec2::new(width as f32, height as f32)
     }

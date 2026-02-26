@@ -12,17 +12,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Mask {
+    pub emphasis: u16,
+    pub grayscale: u8,
     pub rendering_enabled: bool,
     pub prev_rendering_enabled: bool,
     pub pending_rendering_update: bool,
-    pub grayscale: u8,
-    pub emphasis: u16,
     pub show_left_bg: bool,
     pub show_left_spr: bool,
     pub show_bg: bool,
     pub show_spr: bool,
+    pub bits: Bits,
     pub region: NesRegion,
-    bits: Bits,
 }
 
 bitflags! {
@@ -62,6 +62,7 @@ impl Mask {
         mask
     }
 
+    #[inline]
     pub fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
         self.grayscale = if self.bits.contains(Bits::GRAYSCALE) {
@@ -74,6 +75,10 @@ impl Mask {
         self.show_bg = self.bits.contains(Bits::SHOW_BG);
         self.show_spr = self.bits.contains(Bits::SHOW_SPR);
         self.pending_rendering_update = self.rendering_enabled != (self.show_bg || self.show_spr);
+        self.update_emphasis();
+    }
+
+    pub fn update_emphasis(&mut self) {
         self.emphasis = u16::from(
             match self.region {
                 NesRegion::Auto | NesRegion::Ntsc => self.bits.intersection(
@@ -97,9 +102,10 @@ impl Mask {
         ) << 1;
     }
 
+    #[inline]
     pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
-        self.write(self.bits.bits());
+        self.update_emphasis();
     }
 }
 

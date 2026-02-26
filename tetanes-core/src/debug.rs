@@ -16,16 +16,16 @@ impl From<PpuDebugger> for Debugger {
 #[derive(Clone)]
 #[must_use]
 pub struct PpuDebugger {
-    pub cycle: u32,
-    pub scanline: u32,
+    pub cycle: u16,
+    pub scanline: u16,
     pub callback: Arc<dyn Fn(Ppu) + Send + Sync + 'static>,
 }
 
 impl Default for PpuDebugger {
     fn default() -> Self {
         Self {
-            cycle: u32::MAX,
-            scanline: u32::MAX,
+            cycle: u16::MAX,
+            scanline: u16::MAX,
             callback: Arc::new(|_| {}),
         }
     }

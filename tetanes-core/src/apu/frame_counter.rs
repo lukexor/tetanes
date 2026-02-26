@@ -92,6 +92,7 @@ impl FrameCounter {
         }
     }
 
+    #[inline(always)]
     pub const fn should_clock(&mut self, cycles: u32) -> bool {
         self.block_counter > 0
             || self.write_buffer.is_some()

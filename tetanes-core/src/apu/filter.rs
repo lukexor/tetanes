@@ -94,8 +94,8 @@ impl Sample for Iir {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fir {
-    pub kernel: Vec<f32>,
-    pub inputs: Vec<f32>,
+    pub kernel: Box<[f32]>,
+    pub inputs: Box<[f32]>,
     pub input_index: usize,
     pub kind: FilterKind,
 }
@@ -104,7 +104,7 @@ impl Fir {
     pub fn low_pass(sample_rate: f32, cutoff: f32, window_size: usize) -> Self {
         Self {
             kernel: windowed_sinc_kernel(sample_rate, cutoff, window_size),
-            inputs: vec![0.0; window_size + 1],
+            inputs: vec![0.0; window_size + 1].into(),
             input_index: 0,
             kind: FilterKind::LowPass,
         }
@@ -123,16 +123,29 @@ impl Consume for Fir {
 
 impl Sample for Fir {
     fn output(&self) -> f32 {
-        self.kernel
-            .iter()
-            .zip(self.inputs.iter().cycle().skip(self.input_index))
-            .map(|(k, v)| k * v)
-            .sum()
+        let kernel = &self.kernel[..];
+        let inputs = &self.inputs[..];
+        let idx = self.input_index;
+
+        let mut sum = 0f32;
+
+        // input_index..inputs.len()
+        let end = (inputs.len() - idx).min(kernel.len());
+        for i in 0..end {
+            sum = kernel[i].mul_add(inputs[i + idx], sum);
+        }
+
+        // 0..input_index
+        for i in 0..idx {
+            sum = kernel[end + i].mul_add(inputs[i], sum);
+        }
+
+        sum
     }
 }
 
 /// Generate a windowed sinc kernel.
-pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -> Vec<f32> {
+pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -> Box<[f32]> {
     fn blackman_window(index: usize, window_size: usize) -> f32 {
         let i = index as f32;
         let m = window_size as f32;
@@ -150,7 +163,7 @@ pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -
         }
     }
 
-    fn normalize(input: Vec<f32>) -> Vec<f32> {
+    fn normalize(input: Box<[f32]>) -> Box<[f32]> {
         let sum: f32 = input.iter().sum();
         input.into_iter().map(|x| x / sum).collect()
     }
@@ -160,7 +173,7 @@ pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -
     for i in 0..=window_size {
         kernel.push(sinc(i, fc, window_size) * blackman_window(i, window_size));
     }
-    normalize(kernel)
+    normalize(kernel.into())
 }
 
 /// Represents a digital audio filter.
@@ -225,7 +238,7 @@ impl SampledFilter {
 pub struct FilterChain {
     pub region: NesRegion,
     pub dt: f32,
-    pub filters: Vec<SampledFilter>,
+    pub filters: [SampledFilter; 6],
 }
 
 impl FilterChain {
@@ -234,39 +247,40 @@ impl FilterChain {
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
         let intermediate_cutoff = output_rate * 0.4;
 
-        let mut filters = vec![
+        let filters = [
             SampledFilter::new(Iir::identity(), 1.0),
             SampledFilter::new(Iir::low_pass(clock_rate, intermediate_cutoff), clock_rate),
+            // first-order high-pass filter at 90 Hz
+            SampledFilter::new(
+                Iir::high_pass(intermediate_sample_rate, 90.0),
+                intermediate_sample_rate,
+            ),
+            // first-order high-pass filter at 440 Hz
+            SampledFilter::new(
+                Iir::high_pass(intermediate_sample_rate, 440.0),
+                intermediate_sample_rate,
+            ),
+            // first-order low-pass filter at 14 kHz
+            SampledFilter::new(
+                Iir::low_pass(intermediate_sample_rate, 14000.0),
+                intermediate_sample_rate,
+            ),
+            // TODO: Support famicom filter selection
+            // // first-order high-pass filter at 37 Hz
+            // filters.push(SampledFilter::new(
+            //     Iir::high_pass(intermediate_sample_rate, 37.0),
+            //     intermediate_sample_rate,
+            // ));
+            // high-quality low-pass filter
+            {
+                let window_size = 160;
+                let intermediate_cutoff = output_rate * 0.45;
+                SampledFilter::new(
+                    Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),
+                    intermediate_sample_rate,
+                )
+            },
         ];
-        // first-order high-pass filter at 90 Hz
-        filters.push(SampledFilter::new(
-            Iir::high_pass(intermediate_sample_rate, 90.0),
-            intermediate_sample_rate,
-        ));
-        // first-order high-pass filter at 440 Hz
-        filters.push(SampledFilter::new(
-            Iir::high_pass(intermediate_sample_rate, 440.0),
-            intermediate_sample_rate,
-        ));
-        // first-order low-pass filter at 14 kHz
-        filters.push(SampledFilter::new(
-            Iir::low_pass(intermediate_sample_rate, 14000.0),
-            intermediate_sample_rate,
-        ));
-        // TODO: Support famicom filter selection
-        // // first-order high-pass filter at 37 Hz
-        // filters.push(SampledFilter::new(
-        //     Iir::high_pass(intermediate_sample_rate, 37.0),
-        //     intermediate_sample_rate,
-        // ));
-
-        // high-quality low-pass filter
-        let window_size = 160;
-        let intermediate_cutoff = output_rate * 0.45;
-        filters.push(SampledFilter::new(
-            Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),
-            intermediate_sample_rate,
-        ));
 
         Self {
             region,

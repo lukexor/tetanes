@@ -4,10 +4,9 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Dxrom76, Dxrom88, Dxrom95,
-        Dxrom154, Dxrom206, Exrom, Fxrom, Gxrom, JalecoSs88006, Mapper, Mmc1Revision, Namco163,
-        Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
-        m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
+        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
+        JalecoSs88006, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom,
+        Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
     },
     mem::{Memory, RamState},
     ppu::Mirroring,
@@ -53,29 +52,22 @@ impl Error {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct GameInfo {
-    pub crc32: u32,
-    pub region: NesRegion,
-    pub mapper_num: u16,
-    pub submapper_num: u8,
-}
-
 /// An NES cartridge.
+#[derive(Debug)]
 #[must_use]
 pub struct Cart {
-    name: String,
-    header: NesHeader,
-    region: NesRegion,
-    ram_state: RamState,
-    pub(crate) mapper: Mapper,
-    pub(crate) chr_rom: Memory<Box<[u8]>>, // Character ROM
-    pub(crate) chr_ram: Memory<Box<[u8]>>, // Character RAM
-    pub(crate) prg_rom: Memory<Box<[u8]>>, // Program ROM
-    pub(crate) prg_ram: Memory<Box<[u8]>>, // Program RAM
-    pub(crate) ex_ram: Memory<Box<[u8]>>,  // Internal Extra RAM
-    pub(crate) game_info: Option<GameInfo>,
+    pub name: String,
+    pub header: NesHeader,
+    pub region: NesRegion,
+    pub ram_state: RamState,
+    pub mapper: Mapper,
+    pub chr_rom: Memory<Box<[u8]>>, // Character ROM
+    pub prg_rom: Memory<Box<[u8]>>, // Program ROM
+    pub chr_rom_size: usize,
+    pub chr_ram_size: usize,
+    pub prg_rom_size: usize,
+    pub prg_ram_size: usize,
+    pub game_info: Option<GameInfo>,
 }
 
 impl Default for Cart {
@@ -93,10 +85,11 @@ impl Cart {
             ram_state: RamState::default(),
             mapper: Mapper::none(),
             chr_rom: Memory::new(CHR_ROM_BANK_SIZE),
-            chr_ram: Memory::empty(),
             prg_rom: Memory::new(PRG_ROM_BANK_SIZE),
-            prg_ram: Memory::empty(),
-            ex_ram: Memory::empty(),
+            chr_rom_size: CHR_ROM_BANK_SIZE,
+            chr_ram_size: 0,
+            prg_rom_size: PRG_ROM_BANK_SIZE,
+            prg_ram_size: 0,
             game_info: None,
         }
     }
@@ -128,18 +121,18 @@ impl Cart {
         F: Read,
     {
         let name = name.to_string();
-        let header = NesHeader::load(&mut rom_data)?;
+        let mut header = NesHeader::load(&mut rom_data)?;
         debug!("{header:?}");
 
-        let prg_rom_len = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = Memory::new(prg_rom_len);
+        let prg_rom_size = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
+        let mut prg_rom = Memory::new(prg_rom_size);
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
             if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                 Error::InvalidHeader {
                     byte: 4,
                     value: header.prg_rom_banks as u8,
                     message: format!(
-                        "expected `{}` prg-rom banks ({prg_rom_len} total bytes)",
+                        "expected `{}` prg-rom banks ({prg_rom_size} total bytes)",
                         header.prg_rom_banks
                     ),
                 }
@@ -149,17 +142,17 @@ impl Cart {
         })?;
 
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
-        let prg_ram = Memory::new(prg_ram_size).with_ram_state(ram_state);
 
-        let mut chr_rom = Memory::new((header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE);
-        let chr_ram = if header.chr_rom_banks > 0 {
+        let chr_rom_size = (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE;
+        let mut chr_rom = Memory::new(chr_rom_size);
+        if chr_rom_size > 0 {
             rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                     Error::InvalidHeader {
                         byte: 5,
                         value: header.chr_rom_banks as u8,
                         message: format!(
-                            "expected `{}` chr-rom banks ({prg_rom_len} total bytes)",
+                            "expected `{}` chr-rom banks ({prg_rom_size} total bytes)",
                             header.chr_rom_banks
                         ),
                     }
@@ -167,13 +160,18 @@ impl Cart {
                     Error::io(err, "failed to read chr-rom")
                 }
             })?;
-            Memory::empty()
+        }
+
+        let chr_ram_size = if chr_rom_size > 0 {
+            0
         } else {
-            let chr_ram_size = Self::calculate_ram_size(header.chr_ram_shift)?;
-            Memory::new(chr_ram_size).with_ram_state(ram_state)
+            Self::calculate_ram_size(header.chr_ram_shift)?
         };
 
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);
+        if let Some(game_info) = &game_info {
+            header.mapper_num = game_info.mapper_num;
+        }
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
             match header.tv_mode {
                 1 => NesRegion::Pal,
@@ -196,47 +194,43 @@ impl Cart {
             region,
             ram_state,
             mapper: Mapper::none(),
-            chr_rom,
-            chr_ram,
-            prg_rom,
-            prg_ram,
-            ex_ram: Memory::empty(),
+            chr_rom: chr_rom.clone(),
+            prg_rom: prg_rom.clone(),
+            chr_rom_size,
+            chr_ram_size,
+            prg_rom_size,
+            prg_ram_size,
             game_info,
         };
         cart.mapper = match cart.header.mapper_num {
-            0 => Nrom::load(&mut cart)?,
-            1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
-            2 => Uxrom::load(&mut cart)?,
-            3 => Cnrom::load(&mut cart)?,
-            4 => Txrom::load(&mut cart)?,
-            5 => Exrom::load(&mut cart)?,
-            7 => Axrom::load(&mut cart)?,
-            9 => Pxrom::load(&mut cart)?,
-            10 => Fxrom::load(&mut cart)?,
-            11 => ColorDreams::load(&mut cart)?,
-            16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart)?,
-            18 => JalecoSs88006::load(&mut cart)?,
-            19 | 210 => Namco163::load(&mut cart)?,
-            24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
-            26 => Vrc6::load(&mut cart, Vrc6Revision::B)?,
+            0 => Nrom::load(&cart, chr_rom, prg_rom)?,
+            1 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::BC)?,
+            2 => Uxrom::load(&cart, chr_rom, prg_rom)?,
+            3 => Cnrom::load(&cart, chr_rom, prg_rom)?,
+            4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&cart, chr_rom, prg_rom)?,
+            5 => Exrom::load(&cart, chr_rom, prg_rom)?,
+            7 => Axrom::load(&cart, chr_rom, prg_rom)?,
+            9 => Pxrom::load(&cart, chr_rom, prg_rom)?,
+            10 => Fxrom::load(&cart, chr_rom, prg_rom)?,
+            11 | 144 => ColorDreams::load(&cart, chr_rom, prg_rom)?,
+            16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
+            18 => JalecoSs88006::load(&cart, chr_rom, prg_rom)?,
+            19 | 210 => Namco163::load(&cart, chr_rom, prg_rom)?,
+            24 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::A)?,
+            26 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::B)?,
             34 => {
                 // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
-                if cart.has_chr_rom() && cart.chr_rom.len() >= 0x4000 {
-                    Nina001::load(&mut cart)?
+                if chr_rom_size >= 0x4000 {
+                    Nina001::load(&cart, chr_rom, prg_rom)?
                 } else {
-                    Bnrom::load(&mut cart)?
+                    Bnrom::load(&cart, chr_rom, prg_rom)?
                 }
             }
-            66 => Gxrom::load(&mut cart)?,
-            69 => SunsoftFme7::load(&mut cart)?,
-            71 => Bf909x::load(&mut cart)?,
-            76 => Dxrom76::load(&mut cart)?,
-            79 | 113 | 146 => Nina003006::load(&mut cart)?,
-            88 => Dxrom88::load(&mut cart)?,
-            95 => Dxrom95::load(&mut cart)?,
-            154 => Dxrom154::load(&mut cart)?,
-            155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
-            206 => Dxrom206::load(&mut cart)?,
+            66 => Gxrom::load(&cart, chr_rom, prg_rom)?,
+            69 => SunsoftFme7::load(&cart, chr_rom, prg_rom)?,
+            71 => Bf909x::load(&cart, chr_rom, prg_rom)?,
+            79 | 113 | 146 => Nina003006::load(&cart, chr_rom, prg_rom)?,
+            155 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };
 
@@ -250,48 +244,6 @@ impl Cart {
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn chr_rom(&self) -> &[u8] {
-        &self.chr_rom
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn chr_ram(&self) -> &[u8] {
-        &self.chr_ram
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn prg_rom(&self) -> &[u8] {
-        &self.prg_rom
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn prg_ram(&self) -> &[u8] {
-        &self.prg_ram
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn has_chr_rom(&self) -> bool {
-        !self.chr_rom.is_empty()
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn has_chr_ram(&self) -> bool {
-        !self.chr_ram.is_empty()
-    }
-
-    #[must_use]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
-    pub fn has_prg_ram(&self) -> bool {
-        !self.prg_ram.is_empty()
     }
 
     #[must_use]
@@ -355,19 +307,65 @@ impl Cart {
         NesHeader::mapper_board(self.mapper_num())
     }
 
-    /// Allows mappers to add PRG-RAM.
-    pub(crate) fn add_prg_ram(&mut self, capacity: usize) {
-        self.prg_ram = Memory::new(capacity).with_ram_state(self.ram_state);
+    pub fn chr_size(&self) -> usize {
+        match &self.mapper {
+            Mapper::None(_) => 0,
+            Mapper::Nrom(nrom) => nrom.chr.len(),
+            Mapper::Sxrom(sxrom) => sxrom.chr.len(),
+            Mapper::Uxrom(uxrom) => uxrom.chr.len(),
+            Mapper::Cnrom(cnrom) => cnrom.chr_rom.len(),
+            Mapper::Txrom(txrom) => txrom.chr.len(),
+            Mapper::Exrom(exrom) => exrom.chr_rom.len(),
+            Mapper::Axrom(axrom) => axrom.chr.len(),
+            Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),
+            Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
+            Mapper::ColorDreams(color_dreams) => color_dreams.chr_rom.len(),
+            Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
+            Mapper::JalecoSs88006(jaleco_ss88006) => jaleco_ss88006.chr_rom.len(),
+            Mapper::Namco163(namco163) => namco163.chr_rom.len(),
+            Mapper::Vrc6(vrc6) => vrc6.chr_rom.len(),
+            Mapper::Bnrom(bnrom) => bnrom.chr.len(),
+            Mapper::Gxrom(gxrom) => gxrom.chr_rom.len(),
+            Mapper::Nina001(nina001) => nina001.chr_rom.len(),
+            Mapper::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.chr_rom.len(),
+            Mapper::Bf909x(bf909x) => bf909x.chr.len(),
+            Mapper::Nina003006(nina003006) => nina003006.chr_rom.len(),
+        }
     }
 
-    /// Allows mappers to add CHR-RAM.
-    pub(crate) fn add_chr_ram(&mut self, capacity: usize) {
-        self.chr_ram = Memory::new(capacity).with_ram_state(self.ram_state);
+    /// Returns CHR-RAM sized based on the Cart header, or defaults to given size.
+    pub(crate) fn chr_rom_or_ram(
+        &self,
+        chr_rom: Memory<Box<[u8]>>,
+        size: usize,
+    ) -> (Memory<Box<[u8]>>, bool) {
+        if chr_rom.is_empty() {
+            (
+                Memory::with_ram_state(
+                    if self.chr_ram_size > 0 {
+                        self.chr_ram_size
+                    } else {
+                        size
+                    },
+                    self.ram_state,
+                ),
+                true,
+            )
+        } else {
+            (chr_rom, false)
+        }
     }
 
-    /// Allows mappers to add EX-RAM.
-    pub(crate) fn add_exram(&mut self, capacity: usize) {
-        self.ex_ram = Memory::new(capacity).with_ram_state(self.ram_state);
+    /// Returns PRG-RAM sized based on the Cart header, or defaults to given size.
+    pub(crate) fn prg_ram_or_default(&self, size: usize) -> Memory<Box<[u8]>> {
+        Memory::with_ram_state(
+            if self.prg_ram_size > 0 {
+                self.prg_ram_size
+            } else {
+                size
+            },
+            self.ram_state,
+        )
     }
 
     fn calculate_ram_size(value: u8) -> Result<usize> {
@@ -427,37 +425,26 @@ impl std::fmt::Display for Cart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{} - {}, CHR-ROM: {}K, CHR-RAM: {}K, PRG-ROM: {}K, PRG-RAM: {}K, EX-RAM: {}K, Mirroring: {:?}, Battery: {}",
+            "{} - {}, CHR-ROM: {}K, CHR-RAM: {}K, PRG-ROM: {}K, PRG-RAM: {}K, Mirroring: {:?}, Battery: {}",
             self.name,
             self.mapper_board(),
-            self.chr_rom.len() / 0x0400,
-            self.chr_ram.len() / 0x0400,
-            self.prg_rom.len() / 0x0400,
-            self.prg_ram.len() / 0x0400,
-            self.ex_ram.len() / 0x0400,
+            self.chr_rom_size / 0x0400,
+            self.chr_ram_size / 0x0400,
+            self.prg_rom_size / 0x0400,
+            self.prg_ram_size / 0x0400,
             self.mirroring(),
             self.battery_backed(),
         )
     }
 }
 
-impl std::fmt::Debug for Cart {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        f.debug_struct("Cart")
-            .field("name", &self.name)
-            .field("header", &self.header)
-            .field("region", &self.region)
-            .field("ram_state", &self.ram_state)
-            .field("mapper", &self.mapper)
-            .field("mirroring", &self.mirroring())
-            .field("battery_backed", &self.battery_backed())
-            .field("chr_rom", &self.chr_rom)
-            .field("chr_ram", &self.chr_ram)
-            .field("prg_rom", &self.prg_rom)
-            .field("prg_ram", &self.prg_ram)
-            .field("ex_ram", &self.ex_ram)
-            .finish()
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[must_use]
+pub struct GameInfo {
+    pub crc32: u32,
+    pub region: NesRegion,
+    pub mapper_num: u16,
+    pub submapper_num: u8,
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]

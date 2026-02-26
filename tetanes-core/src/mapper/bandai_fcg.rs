@@ -7,8 +7,9 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper, Mirroring},
+    mapper::{self, Map, Mapper, Mirroring},
     mem::{Banks, Memory},
+    ppu::CIRam,
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
@@ -19,6 +20,7 @@ use std::{cmp::Ordering, path::Path};
 pub struct Regs {
     pub prg_page: u8,
     pub prg_bank_select: u8,
+    pub prg_ram_enabled: bool,
     pub chr_regs: [u8; 8],
     pub irq_latch: u8,
     pub irq_counter: u16,
@@ -41,11 +43,14 @@ pub enum MemoryOp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BandaiFCG {
+    pub chr: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
+    pub has_chr_ram: bool,
     pub mirroring: Mirroring,
     pub mapper_num: u16,
     pub submapper_num: u8,
-    pub has_chr_ram: bool,
     pub barcode_reader: Option<BarcodeReader>,
     pub standard_eeprom: Option<Eeprom>,
     pub extra_eeprom: Option<Eeprom>,
@@ -57,31 +62,40 @@ pub struct BandaiFCG {
 
 impl BandaiFCG {
     const PRG_WINDOW: usize = 16 * 1024;
+    const PRG_RAM_SIZE: usize = 8 * 1024; // Mapper 153
     const CHR_ROM_WINDOW: usize = 1024;
     const CHR_RAM_SIZE: usize = 8 * 1024;
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        let (chr_len, chr_window) = if cart.has_chr_rom() {
-            (cart.chr_rom.len(), Self::CHR_ROM_WINDOW)
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
+        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
+        let chr_window = if has_chr_ram {
+            Self::CHR_RAM_SIZE
         } else {
-            if cart.chr_ram.is_empty() {
-                cart.add_chr_ram(Self::CHR_RAM_SIZE);
-            }
-            (cart.chr_ram.len(), cart.chr_ram.len())
+            Self::CHR_ROM_WINDOW
         };
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr.len(), chr_window)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
+        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
         let mut bandai_fcg = Self {
+            chr,
+            prg_rom,
+            prg_ram,
             regs: Regs::default(),
+            has_chr_ram,
             mirroring: cart.mirroring(),
             mapper_num: cart.mapper_num(),
             submapper_num: cart.submapper_num(),
-            has_chr_ram: cart.has_chr_ram(),
             barcode_reader: None,
             standard_eeprom: None,
             extra_eeprom: None,
             sram_access: MemoryOp::default(),
             reg_access: MemoryOp::Write,
-            chr_banks: Banks::new(0x0000, 0x1FFF, chr_len, chr_window)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_rom_banks,
         };
 
         // Mapper 157 is used for Datach Joint ROM System boards
@@ -91,7 +105,7 @@ impl BandaiFCG {
             // CHR-ROM
 
             // Add a 256 byte serial EEPROM (24C02)
-            if matches!(bandai_fcg.submapper_num, 0 | 5) && cart.prg_ram().len() == 256 {
+            if matches!(bandai_fcg.submapper_num, 0 | 5) && bandai_fcg.prg_ram.len() == 256 {
                 // Connect a 256-byte EEPROM for iNES roms, and when submapper 5 + 256 bytes of
                 // save ram in header
                 bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C02));
@@ -108,7 +122,7 @@ impl BandaiFCG {
             //
             // The NES 2.0 header's PRG-NVRAM field will only denote whether the game cartridge has
             // an additional 128-byte serial EEPROM
-            if !cart.is_nes2() || cart.prg_ram().len() == 128 {
+            if !cart.is_nes2() || bandai_fcg.prg_ram.len() == 128 {
                 bandai_fcg.extra_eeprom = Some(Eeprom::new(EepromModel::X24C01));
             }
 
@@ -173,15 +187,13 @@ impl BandaiFCG {
             .set(0, (self.regs.prg_page | self.regs.prg_bank_select).into());
     }
 
-    fn write_mirroring(&mut self, val: u8) {
-        let mirroring = match val & 0x03 {
-            0 => Mirroring::Vertical,
-            1 => Mirroring::Horizontal,
-            2 => Mirroring::SingleScreenA,
-            3 => Mirroring::SingleScreenB,
-            _ => unreachable!("impossible mirroring mode"),
+    const fn write_mirroring(&mut self, val: u8) {
+        self.mirroring = match val & 0b11 {
+            0b00 => Mirroring::Vertical,
+            0b01 => Mirroring::Horizontal,
+            0b10 => Mirroring::SingleScreenA,
+            _ => Mirroring::SingleScreenB,
         };
-        self.set_mirroring(mirroring);
     }
 
     fn write_irq_ctrl(&mut self, val: u8) {
@@ -226,6 +238,11 @@ impl BandaiFCG {
             eeprom.write_sda(sda);
         }
     }
+
+    #[inline(always)]
+    pub const fn prg_ram_enabled(&self) -> bool {
+        self.mapper_num == 153 && self.regs.prg_ram_enabled
+    }
 }
 
 impl Map for BandaiFCG {
@@ -268,10 +285,22 @@ impl Map for BandaiFCG {
     // CPU $8000..=$BFFF 16K switchable PRG-ROM bank
     // CPU $C000..=$FFFF 16K PRG-ROM bank, fixed to the last bank
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
+        match addr {
+            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)],
+            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
+            _ => 0,
+        }
+    }
+
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_read(&mut self, addr: u16) -> u8 {
         if matches!(addr, 0x6000..=0x7FFF) {
             if !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite) {
-                return MappedRead::Data(0x00);
+                return 0;
             }
 
             let mut val = 0x00;
@@ -286,52 +315,62 @@ impl Map for BandaiFCG {
                 val |= eeprom.read() << 4;
             }
 
-            MappedRead::Data(val)
+            val
         } else {
-            self.map_peek(addr)
+            self.prg_peek(addr)
         }
     }
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram[usize::from(addr - 0x6000)],
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
         match addr {
-            0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
-            0x6000..=0xFFFF => {
-                match addr & 0x0F {
-                    0x00..=0x07 => self.write_chr_bank(addr, val),
-                    0x08 => self.write_prg_bank(val),
-                    0x09 => self.write_mirroring(val),
-                    0x0A => self.write_irq_ctrl(val),
-                    0x0B..=0x0C => self.write_irq_latch(addr, val),
-                    0x0D => {
-                        if self.mapper_num == 153 {
-                            return MappedWrite::PrgRamProtect((val & 0x20) != 0x20);
-                        } else if matches!(self.sram_access, MemoryOp::Write | MemoryOp::ReadWrite)
-                        {
-                            self.write_eeprom_ctrl(val);
-                        }
-                    }
-                    _ => (),
-                }
-                MappedWrite::None
+            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)] = val,
+            0x2000..=0x3EFF => ciram.write(addr, val, self.mirroring),
+            _ => (),
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    #[inline(always)]
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x6000..=0x7FFF if self.prg_ram_enabled() => {
+                self.prg_ram[usize::from(addr - 0x6000)] = val;
             }
-            _ => MappedWrite::Bus,
+            0x6000..=0xFFFF => match addr & 0x0F {
+                0x00..=0x07 => self.write_chr_bank(addr, val),
+                0x08 => self.write_prg_bank(val),
+                0x09 => self.write_mirroring(val),
+                0x0A => self.write_irq_ctrl(val),
+                0x0B..=0x0C => self.write_irq_latch(addr, val),
+                0x0D => {
+                    if self.mapper_num == 153 {
+                        self.regs.prg_ram_enabled = (val & 0x20) == 0x20;
+                    } else if matches!(self.sram_access, MemoryOp::Write | MemoryOp::ReadWrite) {
+                        self.write_eeprom_ctrl(val);
+                    }
+                }
+                _ => (),
+            },
+            _ => (),
         }
     }
 
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 
@@ -380,7 +419,7 @@ impl Reset for BandaiFCG {}
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BarcodeReader {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     master_clock: usize,
     insert_cycle: usize,
     new_barcode: u64,
@@ -388,9 +427,9 @@ pub struct BarcodeReader {
 }
 
 impl BarcodeReader {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            data: Vec::new(),
+            data: Default::default(),
             master_clock: 0,
             insert_cycle: 0,
             new_barcode: 0,
@@ -482,22 +521,17 @@ impl BarcodeReader {
             codes.push(ch.to_digit(10).expect("valid barcode character") as usize);
         }
 
-        self.data.clear();
+        let mut data = Vec::<u8>::with_capacity(256);
 
-        for _ in 0..33 {
-            self.data.push(8);
-        }
-
-        self.data.push(0);
-        self.data.push(8);
-        self.data.push(0);
+        data.extend([8; 33]);
+        data.extend([0, 8, 0]);
 
         let mut sum = 0;
         if barcode.len() == 13 {
             for i in 0..6 {
                 let odd = PREFIX_PARITY_TYPE[codes[0]][i] != 0;
                 for j in 0..7 {
-                    self.data.push(if odd {
+                    data.push(if odd {
                         DATA_LEFT_ODD[codes[i + 1]][j]
                     } else {
                         DATA_LEFT_EVEN[codes[i + 1]][j]
@@ -505,15 +539,11 @@ impl BarcodeReader {
                 }
             }
 
-            self.data.push(8);
-            self.data.push(0);
-            self.data.push(8);
-            self.data.push(0);
-            self.data.push(8);
+            data.extend([8, 0, 8, 0, 8]);
 
             for code in codes.iter().skip(7).take(5) {
-                for data in DATA_RIGHT[*code].iter().take(7) {
-                    self.data.push(*data);
+                for code_data in DATA_RIGHT[*code].iter().take(7) {
+                    data.push(*code_data);
                 }
             }
 
@@ -522,20 +552,16 @@ impl BarcodeReader {
             }
         } else {
             for code in codes.iter().take(4) {
-                for data in DATA_LEFT_ODD[*code].iter().take(7) {
-                    self.data.push(*data);
+                for code_data in DATA_LEFT_ODD[*code].iter().take(7) {
+                    data.push(*code_data);
                 }
             }
 
-            self.data.push(8);
-            self.data.push(0);
-            self.data.push(8);
-            self.data.push(0);
-            self.data.push(8);
+            data.extend([8, 0, 8, 0, 8]);
 
             for code in codes.iter().skip(4).take(3) {
-                for data in DATA_RIGHT[*code].iter().take(7) {
-                    self.data.push(*data);
+                for code_data in DATA_RIGHT[*code].iter().take(7) {
+                    data.push(*code_data);
                 }
             }
 
@@ -546,17 +572,14 @@ impl BarcodeReader {
 
         sum = (10 - (sum % 10)) % 10;
 
-        for data in DATA_RIGHT[sum].iter().take(7) {
-            self.data.push(*data);
+        for sum_data in DATA_RIGHT[sum].iter().take(7) {
+            data.push(*sum_data);
         }
 
-        self.data.push(0);
-        self.data.push(8);
-        self.data.push(0);
+        data.extend([0, 8, 0]);
+        data.extend([8; 32]);
 
-        for _ in 0..32 {
-            self.data.push(8);
-        }
+        self.data = data.into();
     }
 }
 

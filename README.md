@@ -269,6 +269,7 @@ Support for the following mappers is currently implemented or in development:
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;0.01%              |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;0.01%              |
 | 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;0.01%              |
+| 144 | Color Dreams          | Death Race                                 | 1                      | &lt;0.01%              |
 | 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;0.01%              |
 | 153 | Bandai FCG            | Famicom Jump II: Saikyou no 7-nin          | 1                      | &lt;0.01%              |
 | 154 | DxROM/Namco 108       | Devil Man                                  | 1                      | &lt;0.01%              |

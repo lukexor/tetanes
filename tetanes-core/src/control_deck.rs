@@ -175,7 +175,7 @@ impl Default for Config {
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
             zapper: false,
-            genie_codes: vec![],
+            genie_codes: Vec::new(),
             concurrent_dpad: false,
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
@@ -373,7 +373,7 @@ impl ControlDeck {
     /// Internal method to update the loaded ROM mapper revision when `mapper_revisions` is
     /// updated.
     const fn update_mapper_revisions(&mut self) {
-        match &mut self.cpu.bus.ppu.bus.mapper {
+        match &mut self.cpu.bus.ppu.mapper {
             Mapper::Txrom(mapper) => {
                 mapper.set_revision(self.mapper_revisions.mmc3);
             }
@@ -399,12 +399,7 @@ impl ControlDeck {
             | Mapper::Nina001(_)
             | Mapper::Gxrom(_)
             | Mapper::SunsoftFme7(_)
-            | Mapper::Dxrom76(_)
-            | Mapper::Nina003006(_)
-            | Mapper::Dxrom88(_)
-            | Mapper::Dxrom95(_)
-            | Mapper::Dxrom154(_)
-            | Mapper::Dxrom206(_) => (),
+            | Mapper::Nina003006(_) => (),
         }
     }
 
@@ -479,13 +474,6 @@ impl ControlDeck {
     #[must_use]
     pub fn wram(&self) -> &[u8] {
         self.cpu.bus.wram()
-    }
-
-    /// Returns the battery-backed Save RAM.
-    #[inline]
-    #[must_use]
-    pub fn sram(&self) -> &[u8] {
-        self.cpu.bus.sram()
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
@@ -567,6 +555,7 @@ impl ControlDeck {
     }
 
     /// Load the raw underlying frame buffer from the PPU for further processing.
+    #[inline]
     pub fn frame_buffer_raw(&mut self) -> &[u16] {
         self.cpu.bus.ppu.frame_buffer()
     }
@@ -596,14 +585,14 @@ impl ControlDeck {
     }
 
     /// Get the current frame number.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
         self.cpu.bus.ppu.frame_number()
     }
 
     /// Get audio samples.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.audio_samples()
@@ -628,9 +617,6 @@ impl ControlDeck {
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_instr(&mut self) -> Result<()> {
-        if !self.running {
-            return Err(Error::RomNotLoaded);
-        }
         self.clock();
         if self.cpu_corrupted() {
             self.running = false;
@@ -690,6 +676,10 @@ impl ControlDeck {
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame(&mut self) -> Result<()> {
+        if !self.running {
+            return Err(Error::RomNotLoaded);
+        }
+
         // Frames that aren't multiples of the default render 1 more/less frames
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
@@ -706,8 +696,8 @@ impl ControlDeck {
             while frame == self.frame_number() {
                 self.clock_instr()?;
             }
+            self.cpu.clock_sync();
         }
-        self.cpu.bus.apu.clock_flush();
 
         Ok(())
     }
@@ -845,6 +835,10 @@ impl ControlDeck {
     ///
     /// If CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<()> {
+        if !self.running {
+            return Err(Error::RomNotLoaded);
+        }
+
         let current_scanline = self.cpu.bus.ppu.scanline;
         while current_scanline == self.cpu.bus.ppu.scanline {
             self.clock_instr()?;
@@ -854,7 +848,8 @@ impl ControlDeck {
 
     /// Returns whether the CPU is corrupted or not which means it encounted an invalid/unhandled
     /// opcode and can't proceed executing the current ROM.
-    #[inline]
+    #[cold]
+    #[inline(always)]
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {
         self.cpu.corrupted
@@ -911,13 +906,13 @@ impl ControlDeck {
     /// Returns the current [`Mapper`] state.
     #[inline]
     pub const fn mapper(&self) -> &Mapper {
-        &self.cpu.bus.ppu.bus.mapper
+        &self.cpu.bus.ppu.mapper
     }
 
     /// Returns a mutable reference to the current [`Mapper`] state.
     #[inline]
     pub const fn mapper_mut(&mut self) -> &mut Mapper {
-        &mut self.cpu.bus.ppu.bus.mapper
+        &mut self.cpu.bus.ppu.mapper
     }
 
     /// Returns the current four player mode.
@@ -959,7 +954,7 @@ impl ControlDeck {
     /// Returns the current [`Zapper`](crate::input::Zapper) aim position.
     #[inline]
     #[must_use]
-    pub const fn zapper_pos(&self) -> (u32, u32) {
+    pub const fn zapper_pos(&self) -> (u16, u16) {
         let zapper = self.cpu.bus.input.zapper;
         (zapper.x(), zapper.y())
     }
@@ -972,7 +967,7 @@ impl ControlDeck {
 
     /// Aim [`Zapper`](crate::input::Zapper) gun.
     #[inline]
-    pub fn aim_zapper(&mut self, x: u32, y: u32) {
+    pub const fn aim_zapper(&mut self, x: u16, y: u16) {
         self.cpu.bus.input.zapper.aim(x, y);
     }
 
@@ -1047,6 +1042,7 @@ impl ControlDeck {
 
 impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
+    #[inline(always)]
     fn clock(&mut self) {
         self.cpu.clock()
     }

@@ -80,6 +80,7 @@ impl Dmc {
         self.force_silent = silent;
     }
 
+    #[cold]
     #[must_use]
     pub fn irq_pending_in(&self, cycles_to_run: u32) -> bool {
         if self.irq_enabled && self.bytes_remaining > 0 {
@@ -175,6 +176,7 @@ impl Dmc {
         }
     }
 
+    #[inline(always)]
     pub fn should_clock(&mut self) -> bool {
         if self.init > 0 {
             self.init -= 1;

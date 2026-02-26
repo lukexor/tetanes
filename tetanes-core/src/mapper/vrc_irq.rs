@@ -44,6 +44,7 @@ impl VrcIrq {
 }
 
 impl Clock for VrcIrq {
+    #[inline]
     fn clock(&mut self) {
         if self.enabled {
             self.prescalar_counter -= 3;

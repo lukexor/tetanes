@@ -12,9 +12,9 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::{Cpu, Irq},
-    mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
-    mem::Banks,
-    ppu::{Mirroring, Ppu, bus::PpuAddr},
+    mapper::{self, Map, Mapper},
+    mem::{Banks, Memory},
+    ppu::{self, CIRam, Mirroring, PpuAddr},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -84,16 +84,15 @@ impl ExRamMode {
         }
     }
 
-    pub fn set(&mut self, val: u8) {
-        let val = val & 0x03;
+    pub const fn set(&mut self, val: u8) {
+        let val = val & 0b11;
         self.bits = val;
         self.nametable = val <= 0b01;
         self.attr = val == 0b01;
         self.rw = match val {
             0b00 | 0b01 => ExRamRW::W,
             0b10 => ExRamRW::RW,
-            0b11 => ExRamRW::R,
-            _ => unreachable!("invalid exram_mode"),
+            _ => ExRamRW::R,
         };
     }
 }
@@ -131,12 +130,11 @@ impl NametableMapping {
     }
 
     pub fn set(&mut self, val: u8) {
-        let nametable = |val: u8| match val & 0x03 {
-            0 => Nametable::ScreenA,
-            1 => Nametable::ScreenB,
-            2 => Nametable::ExRam,
-            3 => Nametable::Fill,
-            _ => unreachable!("invalid Nametable value"),
+        let nametable = |val: u8| match val & 0b11 {
+            0b00 => Nametable::ScreenA,
+            0b01 => Nametable::ScreenB,
+            0b10 => Nametable::ExRam,
+            _ => Nametable::Fill,
         };
         self.mode = val;
         self.select = [
@@ -287,11 +285,14 @@ pub struct PpuStatus {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
+    pub chr_rom: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
+    pub ex_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub mirroring: Mirroring,
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
-    pub ex_ram: Vec<u8>,
     pub chr_banks: Banks,
     pub prg_ram_banks: Banks,
     pub prg_rom_banks: Banks,
@@ -351,10 +352,21 @@ impl Exrom {
     //     4, 4, 6, 6, 4, 4, 6, 6,
     // ];
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.add_prg_ram(Self::PRG_RAM_SIZE);
-
+    /// Load `Exrom` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
+        let prg_ram = Memory::with_ram_state(Self::PRG_RAM_SIZE, cart.ram_state);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0xFFFF, prg_ram.len(), Self::PRG_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut exrom = Self {
+            chr_rom,
+            prg_rom,
+            prg_ram,
+            ex_ram: Memory::new(Self::EXRAM_SIZE),
             regs: Regs::new(),
             mirroring: cart.mirroring(),
             irq_state: IrqState {
@@ -371,12 +383,9 @@ impl Exrom {
                 rendering: false,
                 scanline: 0x0000,
             },
-            // Cart provides an `add_ex_ram` method used by the PpuBus, but during reads from the
-            // PpuBus we need access to it for bank selection so we need to store it here instead.
-            ex_ram: vec![0x00; Self::EXRAM_SIZE],
-            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
-            prg_ram_banks: Banks::new(0x6000, 0xFFFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
             tile_cache: 0,
             last_chr_write: ChrBank::Spr,
             region: cart.region(),
@@ -441,21 +450,27 @@ impl Exrom {
 
     pub fn rom_select(&self, addr: u16) -> bool {
         let mode = self.regs.prg_mode;
-        if matches!(addr, 0x6000..=0x7FFF) {
-            false
-        } else if matches!(addr, 0xE000..=0xFFFF) || mode == PrgMode::Bank32k {
-            true
-        } else {
-            use PrgMode::{Bank8k, Bank16_8k, Bank16k};
-            let banks = self.regs.prg_banks;
-            let bank = match (addr, mode) {
-                (0x8000..=0x9FFF, Bank8k) => banks[1],
-                (0x8000..=0xBFFF, Bank16k | Bank16_8k) | (0xA000..=0xBFFF, Bank8k) => banks[2],
-                (0xC000..=0xDFFF, Bank8k | Bank16_8k) => banks[3],
-                (0xC000..=0xDFFF, Bank16k) => banks[4],
-                _ => 0x00,
-            };
-            bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK
+        match addr {
+            0x6000..=0x7FFF => false,
+            0xE000..=0xFFFF => true,
+            _ => {
+                if mode == PrgMode::Bank32k {
+                    true
+                } else {
+                    use PrgMode::{Bank8k, Bank16_8k, Bank16k};
+                    let banks = self.regs.prg_banks;
+                    let bank = match (addr, mode) {
+                        (0x8000..=0x9FFF, Bank8k) => banks[1],
+                        (0x8000..=0xBFFF, Bank16k | Bank16_8k) | (0xA000..=0xBFFF, Bank8k) => {
+                            banks[2]
+                        }
+                        (0xC000..=0xDFFF, Bank8k | Bank16_8k) => banks[3],
+                        (0xC000..=0xDFFF, Bank16k) => banks[4],
+                        _ => 0x00,
+                    };
+                    bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK
+                }
+            }
         }
     }
 
@@ -591,7 +606,8 @@ impl Map for Exrom {
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    /// Read a byte from CHR-ROM/RAM at a given address.
+    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
                 self.inc_fetch_count();
@@ -646,27 +662,14 @@ impl Map for Exrom {
                 irq_state.prev_addr = Some(addr);
                 status.reading = true;
             }
-            0xFFFA | 0xFFFB => {
-                self.irq_state.in_frame = false; // NMI clears in_frame
-                self.irq_state.prev_addr = None;
-                self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
-            }
             _ => (),
         }
-        let val = self.map_peek(addr);
-        match addr {
-            0x5204 => {
-                self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
-            }
-            0x5010 => Cpu::clear_irq(Irq::DMC),
-            _ => (),
-        }
-        val
+        self.chr_peek(addr, ciram)
     }
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
             0x0000..=0x1FFF => {
                 if self.regs.exram_mode.attr && !self.spr_fetch() {
@@ -675,9 +678,9 @@ impl Map for Exrom {
                     // Bits 0-5 of 4k CHR bank
                     let bank_lo = ((self.read_ex_ram(self.tile_cache) & 0x3F) as usize) << 12;
                     let addr = bank_hi | bank_lo | (addr as usize) & 0x0FFF;
-                    MappedRead::Chr(addr)
+                    self.chr_rom[addr]
                 } else {
-                    MappedRead::Chr(self.chr_banks.translate(addr))
+                    self.chr_rom[self.chr_banks.translate(addr)]
                 }
             }
             0x2000..=0x3EFF => {
@@ -697,40 +700,72 @@ impl Map for Exrom {
                 if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
                     // ExAttr mode returns attr bits for all nametables, regardless of mapping
                     let attr = (self.read_ex_ram(self.tile_cache) >> 6) & 0x03;
-                    MappedRead::Data(Self::ATTR_MIRROR[attr as usize])
+                    Self::ATTR_MIRROR[attr as usize]
                 } else {
                     let nametable_mode = self.regs.exram_mode.nametable;
                     match self.nametable_select(addr) {
-                        Nametable::ScreenA => MappedRead::CIRam((addr & 0x03FF).into()),
+                        Nametable::ScreenA => ciram[(addr & 0x03FF).into()],
                         Nametable::ScreenB => {
-                            MappedRead::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into())
+                            ciram[(ppu::size::NAMETABLE | (addr & 0x03FF)).into()]
                         }
-                        Nametable::ExRam if nametable_mode => {
-                            MappedRead::Data(self.read_ex_ram(addr))
+                        Nametable::ExRam if nametable_mode => self.read_ex_ram(addr),
+                        Nametable::Fill if nametable_mode => {
+                            if is_attr {
+                                Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
+                            } else {
+                                self.regs.fill.tile
+                            }
                         }
-                        Nametable::Fill if nametable_mode => MappedRead::Data(if is_attr {
-                            Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
-                        } else {
-                            self.regs.fill.tile
-                        }),
                         // If nametable mode is not set, zero is read back
-                        _ => MappedRead::Data(0x00),
+                        _ => 0,
                     }
                 }
             }
+            _ => 0,
+        }
+    }
+
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_read(&mut self, addr: u16) -> u8 {
+        match addr {
+            0xFFFA | 0xFFFB => {
+                self.irq_state.in_frame = false; // NMI clears in_frame
+                self.irq_state.prev_addr = None;
+                self.irq_state.pending = false;
+                Cpu::clear_irq(Irq::MAPPER);
+            }
+            _ => (),
+        }
+        let val = self.prg_peek(addr);
+        match addr {
+            0x5204 => {
+                self.irq_state.pending = false;
+                Cpu::clear_irq(Irq::MAPPER);
+            }
+            0x5010 => Cpu::clear_irq(Irq::DMC),
+            _ => (),
+        }
+        val
+    }
+
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
+        match addr {
             0x5010 => {
                 // [I... ...M] DMC
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
                 let irq = Cpu::has_irq(Irq::DMC);
-                MappedRead::Data((u8::from(irq) << 7) | self.dmc_mode)
+                (u8::from(irq) << 7) | self.dmc_mode
             }
-            0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
-            0x5101 => MappedRead::Data(self.regs.chr_mode as u8),
-            0x5104 => MappedRead::Data(self.regs.exram_mode.bits),
-            0x5105 => MappedRead::Data(self.regs.nametable_mapping.mode),
-            0x5106 => MappedRead::Data(self.regs.fill.tile),
-            0x5107 => MappedRead::Data(self.regs.fill.attr as u8),
+            0x5100 => self.regs.prg_mode as u8,
+            0x5101 => self.regs.chr_mode as u8,
+            0x5104 => self.regs.exram_mode.bits,
+            0x5105 => self.regs.nametable_mapping.mode,
+            0x5106 => self.regs.fill.tile,
+            0x5107 => self.regs.fill.attr as u8,
             0x5015 => {
                 // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
                 let mut status = 0x00;
@@ -740,19 +775,15 @@ impl Map for Exrom {
                 if self.pulse2.length.counter > 0 {
                     status |= 0x02;
                 }
-                MappedRead::Data(status)
+                status
             }
-            0x5113..=0x5117 => {
-                MappedRead::Data(self.regs.prg_banks[(addr - 0x5113) as usize] as u8)
-            }
-            0x5120..=0x512B => {
-                MappedRead::Data(self.regs.chr_banks[(addr - 0x5120) as usize] as u8)
-            }
-            0x5130 => MappedRead::Data(self.regs.chr_hi as u8),
-            0x5200 => MappedRead::Data(self.regs.vsplit.mode),
-            0x5201 => MappedRead::Data(self.regs.vsplit.scroll),
-            0x5202 => MappedRead::Data(self.regs.vsplit.bank),
-            0x5203 => MappedRead::Data(self.regs.irq_scanline as u8),
+            0x5113..=0x5117 => self.regs.prg_banks[(addr - 0x5113) as usize] as u8,
+            0x5120..=0x512B => self.regs.chr_banks[(addr - 0x5120) as usize] as u8,
+            0x5130 => self.regs.chr_hi as u8,
+            0x5200 => self.regs.vsplit.mode,
+            0x5201 => self.regs.vsplit.scroll,
+            0x5202 => self.regs.vsplit.bank,
+            0x5203 => self.regs.irq_scanline as u8,
             0x5204 => {
                 // $5204:  [PI.. ....]
                 //   P = IRQ currently pending
@@ -761,42 +792,46 @@ impl Map for Exrom {
                 let irq_pending = Cpu::has_irq(Irq::MAPPER);
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
-                MappedRead::Data(
-                    (u8::from(irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6),
-                )
+                (u8::from(irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
             }
-            0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
-            0x5206 => MappedRead::Data(((self.regs.mult_result >> 8) & 0xFF) as u8),
+            0x5205 => (self.regs.mult_result & 0xFF) as u8,
+            0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
             0x5C00..=0x5FFF if self.regs.exram_mode.rw != ExRamRW::W => {
                 // Nametable/Attr modes are not used for RAM, thus are not readable
-                MappedRead::Data(self.read_ex_ram(addr))
+                self.read_ex_ram(addr)
             }
             0x6000..=0xDFFF => {
                 if self.rom_select(addr) {
-                    MappedRead::PrgRom(self.prg_rom_banks.translate(addr))
+                    self.prg_rom[self.prg_rom_banks.translate(addr)]
                 } else {
-                    MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
+                    self.prg_ram[self.prg_ram_banks.translate(addr)]
                 }
             }
-            0xE000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            0x5207..=0x5209 => MappedRead::Data(0),
-            _ => MappedRead::Bus,
+            0xE000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
         match addr {
+            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)] = val,
             0x2000..=0x3EFF => match self.nametable_select(addr) {
-                Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
-                Nametable::ScreenB => {
-                    return MappedWrite::CIRam((Ppu::NT_SIZE | (addr & 0x03FF)).into(), val);
-                }
+                Nametable::ScreenA => ciram[(addr & 0x03FF).into()] = val,
+                Nametable::ScreenB => ciram[(ppu::size::NAMETABLE | (addr & 0x03FF)).into()] = val,
                 Nametable::ExRam if self.regs.exram_mode.nametable => {
                     self.write_ex_ram(addr, val);
-                    return MappedWrite::None;
                 }
-                _ => return MappedWrite::None,
+                _ => (),
             },
+            _ => (),
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        match addr {
             0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
             0x5002 => self.pulse1.write_timer_lo(val),
@@ -858,16 +893,13 @@ impl Map for Exrom {
                 self.update_chr_banks(self.last_chr_write);
             }
             0x5102 | 0x5103 => {
-                // [.... ..AA]    PRG-RAM Protect A
-                // [.... ..BB]    PRG-RAM Protect B
-                self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
                 // To allow writing to PRG-RAM you must set:
                 //    A=%10
                 //    B=%01
                 // Any other value will prevent PRG-RAM writing.
-                let writable =
-                    self.regs.prg_ram_protect[0] == 0b10 && self.regs.prg_ram_protect[1] == 0b01;
-                return MappedWrite::PrgRamProtect(!writable);
+                // [.... ..AA]    PRG-RAM Protect A
+                // [.... ..BB]    PRG-RAM Protect B
+                self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
             }
             0x5104 => {
                 // [.... ..XX] ExRam mode
@@ -979,35 +1011,31 @@ impl Map for Exrom {
                 _ => (),
             },
             0x6000..=0xDFFF if !self.rom_select(addr) => {
-                return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
+                self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
             }
             _ => (),
         }
-        MappedWrite::Bus
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        if kind == BusKind::Cpu {
-            match addr {
-                0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
-                0x2001 => {
-                    self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
-                    if !self.ppu_status.rendering {
-                        self.irq_state.in_frame = false;
-                        self.irq_state.prev_addr = None;
-                    }
+    /// Synchronize a write to a PPU register at a given address.
+    fn ppu_write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
+            0x2001 => {
+                self.ppu_status.rendering = val & 0x18 > 0; // BG or Spr rendering enabled
+                if !self.ppu_status.rendering {
+                    self.irq_state.in_frame = false;
+                    self.irq_state.prev_addr = None;
                 }
-                _ => (),
             }
+            _ => (),
         }
     }
 
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 
