@@ -79,7 +79,7 @@ jobs:
           export CROSS_CONTAINER_IN_CONTAINER=true
           time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
       - if: success()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -115,7 +115,7 @@ jobs:
       - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
       - if: success()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -153,7 +153,7 @@ jobs:
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
       - if: success()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
@@ -184,7 +184,7 @@ jobs:
       - run: |
           time cargo make build-artifacts -- --target wasm32-unknown-unknown
       - if: success()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wasm32-unknown-unknown-artifacts
           path: tetanes/dist/
