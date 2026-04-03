@@ -1166,18 +1166,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum_dispatch"
-version = "0.3.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3797,7 +3785,6 @@ dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
  "dirs",
- "enum_dispatch",
  "flate2",
  "image",
  "rand 0.10.0",

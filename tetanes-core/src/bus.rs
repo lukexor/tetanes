@@ -6,7 +6,7 @@ use crate::{
     apu::{Apu, ApuRegisters, Channel},
     cart::Cart,
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::Cpu,
+    cpu::CpuInterrupts,
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
@@ -162,8 +162,8 @@ impl Bus {
 }
 
 impl Clock for Bus {
-    fn clock(&mut self) {
-        self.ppu.bus.mapper.clock();
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
+        self.ppu.bus.mapper.clock(intrs);
         let output = match self.ppu.bus.mapper {
             Mapper::Exrom(ref exrom) => exrom.output(),
             Mapper::Namco163(ref namco163) => namco163.output(),
@@ -172,23 +172,23 @@ impl Clock for Bus {
             _ => 0.0,
         };
         self.apu.add_mapper_output(output);
-        self.apu.clock_lazy();
-        self.input.clock();
+        self.apu.clock_lazy(intrs);
+        self.input.clock(intrs);
     }
 }
 
 impl ClockTo for Bus {
-    fn clock_to(&mut self, clock: u32) {
-        self.ppu.clock_to(clock);
+    fn clock_to(&mut self, clock: u32, intrs: &mut CpuInterrupts) {
+        self.ppu.clock_to(clock, intrs);
     }
 }
 
 impl Read for Bus {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u8 {
         let val = match addr {
             0x0000..=0x07FF => self.wram[addr as usize],
             0x4020..=0xFFFF => {
-                let val = match self.ppu.bus.mapper.map_read(addr) {
+                let val = match self.ppu.bus.mapper.map_read(addr, intrs) {
                     MappedRead::Data(val) => val,
                     MappedRead::PrgRam(addr) => self.prg_ram[addr],
                     MappedRead::PrgRom(addr) => self.prg_rom[addr],
@@ -196,19 +196,19 @@ impl Read for Bus {
                 };
                 self.genie_read(addr, val)
             }
-            0x2002 => self.ppu.read_status(),
+            0x2002 => self.ppu.read_status(intrs),
             0x2004 => self.ppu.read_oamdata(),
-            0x2007 => self.ppu.read_data(),
-            0x4015 => self.apu.read_status(),
+            0x2007 => self.ppu.read_data(intrs),
+            0x4015 => self.apu.read_status(intrs),
             0x4016 => self.input.read(Player::One, &self.ppu),
             0x4017 => self.input.read(Player::Two, &self.ppu),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
-            0x0800..=0x1FFF => self.read(addr & 0x07FF), // WRAM Mirrors
-            0x2008..=0x3FFF => self.read(addr & 0x2007), // Ppu Mirrors
+            0x0800..=0x1FFF => self.read(addr & 0x07FF, intrs), // WRAM Mirrors
+            0x2008..=0x3FFF => self.read(addr & 0x2007, intrs), // Ppu Mirrors
             _ => self.open_bus,
         };
         self.open_bus = val;
-        self.ppu.bus.mapper.bus_read(addr, BusKind::Cpu);
+        self.ppu.bus.mapper.bus_read(addr, BusKind::Cpu, intrs);
         val
     }
 
@@ -239,12 +239,12 @@ impl Read for Bus {
 }
 
 impl Write for Bus {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8, intrs: &mut CpuInterrupts) {
         match addr {
             0x0000..=0x07FF => {
                 self.wram[addr as usize] = val;
             }
-            0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val) {
+            0x4020..=0xFFFF => match self.ppu.bus.mapper.map_write(addr, val, intrs) {
                 MappedWrite::PrgRam(addr, val) => {
                     if !self.prg_ram.is_empty() && !self.prg_ram_protect {
                         self.prg_ram[addr] = val;
@@ -253,42 +253,42 @@ impl Write for Bus {
                 MappedWrite::PrgRamProtect(protect) => self.prg_ram_protect = protect,
                 _ => (),
             },
-            0x2000 => self.ppu.write_ctrl(val),
+            0x2000 => self.ppu.write_ctrl(val, intrs),
             0x2001 => self.ppu.write_mask(val),
             0x2003 => self.ppu.write_oamaddr(val),
             0x2004 => self.ppu.write_oamdata(val),
             0x2005 => self.ppu.write_scroll(val),
-            0x2006 => self.ppu.write_addr(val),
-            0x2007 => self.ppu.write_data(val),
-            0x4000 => self.apu.write_ctrl(Channel::Pulse1, val),
-            0x4001 => self.apu.write_sweep(Channel::Pulse1, val),
-            0x4002 => self.apu.write_timer_lo(Channel::Pulse1, val),
-            0x4003 => self.apu.write_timer_hi(Channel::Pulse1, val),
-            0x4004 => self.apu.write_ctrl(Channel::Pulse2, val),
-            0x4005 => self.apu.write_sweep(Channel::Pulse2, val),
-            0x4006 => self.apu.write_timer_lo(Channel::Pulse2, val),
-            0x4007 => self.apu.write_timer_hi(Channel::Pulse2, val),
-            0x4008 => self.apu.write_linear_counter(val),
-            0x400A => self.apu.write_timer_lo(Channel::Triangle, val),
-            0x400B => self.apu.write_timer_hi(Channel::Triangle, val),
-            0x400C => self.apu.write_ctrl(Channel::Noise, val),
-            0x400E => self.apu.write_timer_lo(Channel::Noise, val),
-            0x400F => self.apu.write_length(Channel::Noise, val),
-            0x4010 => self.apu.write_timer_lo(Channel::Dmc, val),
-            0x4011 => self.apu.write_dmc_output(val),
-            0x4012 => self.apu.write_dmc_addr(val),
-            0x4013 => self.apu.write_length(Channel::Dmc, val),
-            0x4014 => Cpu::start_oam_dma(u16::from(val) << 8),
-            0x4015 => self.apu.write_status(val),
+            0x2006 => self.ppu.write_addr(val, intrs),
+            0x2007 => self.ppu.write_data(val, intrs),
+            0x4000 => self.apu.write_ctrl(Channel::Pulse1, val, intrs),
+            0x4001 => self.apu.write_sweep(Channel::Pulse1, val, intrs),
+            0x4002 => self.apu.write_timer_lo(Channel::Pulse1, val, intrs),
+            0x4003 => self.apu.write_timer_hi(Channel::Pulse1, val, intrs),
+            0x4004 => self.apu.write_ctrl(Channel::Pulse2, val, intrs),
+            0x4005 => self.apu.write_sweep(Channel::Pulse2, val, intrs),
+            0x4006 => self.apu.write_timer_lo(Channel::Pulse2, val, intrs),
+            0x4007 => self.apu.write_timer_hi(Channel::Pulse2, val, intrs),
+            0x4008 => self.apu.write_linear_counter(val, intrs),
+            0x400A => self.apu.write_timer_lo(Channel::Triangle, val, intrs),
+            0x400B => self.apu.write_timer_hi(Channel::Triangle, val, intrs),
+            0x400C => self.apu.write_ctrl(Channel::Noise, val, intrs),
+            0x400E => self.apu.write_timer_lo(Channel::Noise, val, intrs),
+            0x400F => self.apu.write_length(Channel::Noise, val, intrs),
+            0x4010 => self.apu.write_timer_lo(Channel::Dmc, val, intrs),
+            0x4011 => self.apu.write_dmc_output(val, intrs),
+            0x4012 => self.apu.write_dmc_addr(val, intrs),
+            0x4013 => self.apu.write_length(Channel::Dmc, val, intrs),
+            0x4014 => intrs.start_oam_dma(u16::from(val) << 8),
+            0x4015 => self.apu.write_status(val, intrs),
             0x4016 => self.input.write(val),
-            0x4017 => self.apu.write_frame_counter(val),
+            0x4017 => self.apu.write_frame_counter(val, intrs),
             0x2002 => self.ppu.open_bus = val,
-            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val), // WRAM Mirrors
-            0x2008..=0x3FFF => return self.write(addr & 0x2007, val), // Ppu Mirrors
+            0x0800..=0x1FFF => return self.write(addr & 0x07FF, val, intrs), // WRAM Mirrors
+            0x2008..=0x3FFF => return self.write(addr & 0x2007, val, intrs), // Ppu Mirrors
             _ => (),
         }
         self.open_bus = val;
-        self.ppu.bus.mapper.bus_write(addr, val, BusKind::Cpu);
+        self.ppu.bus.mapper.bus_write(addr, val, BusKind::Cpu, intrs);
     }
 }
 
@@ -297,22 +297,22 @@ impl Regional for Bus {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, intrs: &mut CpuInterrupts) {
         self.region = region;
-        self.ppu.set_region(region);
-        self.apu.set_region(region);
+        self.ppu.set_region(region, intrs);
+        self.apu.set_region(region, intrs);
         self.input.set_region(region);
     }
 }
 
 impl Reset for Bus {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
             self.ram_state.fill(&mut self.prg_ram);
         }
-        self.ppu.reset(kind);
-        self.apu.reset(kind);
+        self.ppu.reset(kind, intrs);
+        self.apu.reset(kind, intrs);
     }
 }
 
@@ -370,24 +370,25 @@ mod test {
         cart.mapper = Cnrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x00);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom start");
-        bus.write(0x2006, 0x1F);
-        bus.write(0x2006, 0xFF);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom end");
+        let mut intrs = CpuInterrupts::default();
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x66, "chr_rom start");
+        bus.write(0x2006, 0x1F, &mut intrs);
+        bus.write(0x2006, 0xFF, &mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x66, "chr_rom end");
 
         // Writes disallowed
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x10);
-        bus.write(0x2007, 0x77);
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.write(0x2006, 0x10, &mut intrs);
+        bus.write(0x2007, 0x77, &mut intrs);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x10);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom read-only");
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.write(0x2006, 0x10, &mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x66, "chr_rom read-only");
     }
 
     #[test]
@@ -399,30 +400,31 @@ mod test {
         cart.mapper = Nrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x00);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_ram start");
-        bus.write(0x2006, 0x1F);
-        bus.write(0x2006, 0xFF);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_ram end");
+        let mut intrs = CpuInterrupts::default();
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.write(0x2006, 0x00, &mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x66, "chr_ram start");
+        bus.write(0x2006, 0x1F, &mut intrs);
+        bus.write(0x2006, 0xFF, &mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x66, "chr_ram end");
 
         // Writes allowed
-        bus.write(0x2006, 0x10);
-        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x10, &mut intrs);
+        bus.write(0x2006, 0x00, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        bus.ppu.clock();
-        bus.ppu.clock();
-        bus.write(0x2007, 0x77);
+        bus.ppu.clock(&mut intrs);
+        bus.ppu.clock(&mut intrs);
+        bus.write(0x2007, 0x77, &mut intrs);
 
-        bus.write(0x2006, 0x10);
-        bus.write(0x2006, 0x00);
+        bus.write(0x2006, 0x10, &mut intrs);
+        bus.write(0x2006, 0x00, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        bus.ppu.clock();
-        bus.ppu.clock();
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x77, "chr_ram write");
+        bus.ppu.clock(&mut intrs);
+        bus.ppu.clock(&mut intrs);
+        bus.read(0x2007, &mut intrs);
+        assert_eq!(bus.read(0x2007, &mut intrs), 0x77, "chr_ram write");
     }
 
     #[test]
@@ -441,20 +443,22 @@ mod test {
         bus.load_cart(cart);
         bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
 
+        let mut intrs = CpuInterrupts::default();
         assert_eq!(bus.peek(addr), new_value, "peek code value");
-        assert_eq!(bus.read(addr), new_value, "read code value");
+        assert_eq!(bus.read(addr, &mut intrs), new_value, "read code value");
         bus.remove_genie_code(code);
         assert_eq!(bus.peek(addr), orig_value, "peek orig value");
-        assert_eq!(bus.read(addr), orig_value, "read orig value");
+        assert_eq!(bus.read(addr, &mut intrs), orig_value, "read orig value");
     }
 
     #[test]
     fn clock() {
         let mut bus = Bus::default();
 
-        bus.clock_to(12);
+        let mut intrs = CpuInterrupts::default();
+        bus.clock_to(12, &mut intrs);
         assert_eq!(bus.ppu.master_clock, 12, "ppu clock");
-        bus.clock();
+        bus.clock(&mut intrs);
         assert_eq!(bus.apu.master_cycle, 1, "apu clock");
     }
 
@@ -462,22 +466,23 @@ mod test {
     fn read_write_ram() {
         let mut bus = Bus::default();
 
-        bus.write(0x0001, 0x66);
+        let mut intrs = CpuInterrupts::default();
+        bus.write(0x0001, 0x66, &mut intrs);
         assert_eq!(bus.peek(0x0001), 0x66, "peek ram");
-        assert_eq!(bus.read(0x0001), 0x66, "read ram");
-        assert_eq!(bus.read(0x0801), 0x66, "peek mirror 1");
-        assert_eq!(bus.read(0x0801), 0x66, "read mirror 1");
-        assert_eq!(bus.read(0x1001), 0x66, "peek mirror 2");
-        assert_eq!(bus.read(0x1001), 0x66, "read mirror 2");
-        assert_eq!(bus.read(0x1801), 0x66, "peek mirror 3");
-        assert_eq!(bus.read(0x1801), 0x66, "read mirror 3");
+        assert_eq!(bus.read(0x0001, &mut intrs), 0x66, "read ram");
+        assert_eq!(bus.read(0x0801, &mut intrs), 0x66, "peek mirror 1");
+        assert_eq!(bus.read(0x0801, &mut intrs), 0x66, "read mirror 1");
+        assert_eq!(bus.read(0x1001, &mut intrs), 0x66, "peek mirror 2");
+        assert_eq!(bus.read(0x1001, &mut intrs), 0x66, "read mirror 2");
+        assert_eq!(bus.read(0x1801, &mut intrs), 0x66, "peek mirror 3");
+        assert_eq!(bus.read(0x1801, &mut intrs), 0x66, "read mirror 3");
 
-        bus.write(0x0802, 0x77);
-        assert_eq!(bus.read(0x0002), 0x77, "write mirror 1");
-        bus.write(0x1002, 0x88);
-        assert_eq!(bus.read(0x0002), 0x88, "write mirror 2");
-        bus.write(0x1802, 0x99);
-        assert_eq!(bus.read(0x0002), 0x99, "write mirror 3");
+        bus.write(0x0802, 0x77, &mut intrs);
+        assert_eq!(bus.read(0x0002, &mut intrs), 0x77, "write mirror 1");
+        bus.write(0x1002, 0x88, &mut intrs);
+        assert_eq!(bus.read(0x0002, &mut intrs), 0x88, "write mirror 2");
+        bus.write(0x1802, 0x99, &mut intrs);
+        assert_eq!(bus.read(0x0002, &mut intrs), 0x99, "write mirror 3");
     }
 
     #[test]

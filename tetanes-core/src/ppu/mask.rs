@@ -105,13 +105,13 @@ impl Mask {
 
 impl Reset for Mask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.write(0);
     }
 }
 
 impl Clock for Mask {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         // Rendering enabled flag is set with a 1 cycle delay (setting it at cycle N won't take
         // effect until cycle N+2)
         if self.pending_rendering_update {

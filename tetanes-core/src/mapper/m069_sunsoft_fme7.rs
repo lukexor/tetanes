@@ -6,7 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
-    cpu::{Cpu, Irq},
+    cpu::{Irq},
     mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
@@ -90,7 +90,12 @@ impl Map for SunsoftFme7 {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
                 if self.regs.prg_ram_enabled {
@@ -118,7 +123,7 @@ impl Map for SunsoftFme7 {
                 0xD => {
                     self.regs.irq_enabled = (val & 0x01) == 0x01;
                     self.regs.irq_counter_enabled = (val & 0x80) == 0x80;
-                    Cpu::clear_irq(Irq::MAPPER);
+                    intrs.clear_irq(Irq::MAPPER);
                 }
                 0xE => self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val),
                 0xF => {
@@ -144,14 +149,14 @@ impl Map for SunsoftFme7 {
 impl Reset for SunsoftFme7 {}
 
 impl Clock for SunsoftFme7 {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if self.regs.irq_counter_enabled {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
             if self.regs.irq_counter == 0xFFFF && self.regs.irq_enabled {
-                Cpu::set_irq(Irq::MAPPER);
+                intrs.set_irq(Irq::MAPPER);
             }
         }
-        self.audio.clock();
+        self.audio.clock(intrs);
     }
 }
 
@@ -267,7 +272,7 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.clock_timer == 0 {
             self.clock_timer = 1;
             for channel in 0..3 {

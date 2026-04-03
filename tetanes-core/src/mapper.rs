@@ -3,9 +3,7 @@
 //! <https://wiki.nesdev.org/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, Regional, Reset, Sram},
-    mem,
-    ppu::Mirroring,
+    common::{Clock, Regional, Reset, Sram}, cpu::CpuInterrupts, mem, ppu::Mirroring
 };
 use serde::{Deserialize, Serialize};
 
@@ -232,24 +230,24 @@ macro_rules! impl_map {
 }
 
 impl Map for Mapper {
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        impl_map!(self, map_read, addr)
+    fn map_read(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> MappedRead {
+        impl_map!(self, map_read, addr, intrs)
     }
 
     fn map_peek(&self, addr: u16) -> MappedRead {
         impl_map!(self, map_peek, addr)
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        impl_map!(self, map_write, addr, val)
+    fn map_write(&mut self, addr: u16, val: u8, intrs: &mut CpuInterrupts) -> MappedWrite {
+        impl_map!(self, map_write, addr, val, intrs)
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        impl_map!(self, bus_read, addr, kind)
+    fn bus_read(&mut self, addr: u16, kind: BusKind, intrs: &mut CpuInterrupts) {
+        impl_map!(self, bus_read, addr, kind, intrs)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        impl_map!(self, bus_write, addr, val, kind)
+    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind, intrs: &mut CpuInterrupts) {
+        impl_map!(self, bus_write, addr, val, kind, intrs)
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -262,14 +260,14 @@ impl Map for Mapper {
 }
 
 impl Reset for Mapper {
-    fn reset(&mut self, kind: crate::prelude::ResetKind) {
-        impl_map!(self, reset, kind)
+    fn reset(&mut self, kind: crate::prelude::ResetKind, intrs: &mut CpuInterrupts) {
+        impl_map!(self, reset, kind, intrs)
     }
 }
 
 impl Clock for Mapper {
-    fn clock(&mut self) {
-        impl_map!(self, clock)
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
+        impl_map!(self, clock, intrs)
     }
 }
 
@@ -278,8 +276,8 @@ impl Regional for Mapper {
         impl_map!(self, region)
     }
 
-    fn set_region(&mut self, region: crate::prelude::NesRegion) {
-        impl_map!(self, set_region, region)
+    fn set_region(&mut self, region: crate::prelude::NesRegion, intrs: &mut CpuInterrupts) {
+        impl_map!(self, set_region, region, intrs)
     }
 }
 
@@ -364,7 +362,7 @@ pub enum BusKind {
 /// Trait implemented for all [`Mapper`]s.
 pub trait Map: Clock + Regional + Reset + Sram {
     /// Determine the [`MappedRead`] for the given address.
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, _intrs: &mut CpuInterrupts) -> MappedRead {
         self.map_peek(addr)
     }
 
@@ -374,17 +372,24 @@ pub trait Map: Clock + Regional + Reset + Sram {
     }
 
     /// Determine the [`MappedWrite`] for the given address and value.
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
+    fn map_write(&mut self, _addr: u16, _val: u8, _intrs: &mut CpuInterrupts) -> MappedWrite {
         MappedWrite::default()
     }
 
     /// Simulates a read for the given bus at the given address for mappers that use bus reads for
     /// timing.
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    fn bus_read(&mut self, _addr: u16, _kind: BusKind, _intrs: &mut CpuInterrupts) {}
 
     /// Simulates a write for the given bus at the given address for mappers that use bus writes for
     /// timing.
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    fn bus_write(
+        &mut self,
+        _addr: u16,
+        _val: u8,
+        _kind: BusKind,
+        _intrs: &mut CpuInterrupts,
+    ) {
+    }
 
     /// Returns the current [`Mirroring`] mode.
     fn mirroring(&self) -> Mirroring {
@@ -396,7 +401,7 @@ pub trait Map: Clock + Regional + Reset + Sram {
 }
 
 impl Map for () {
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, _intrs: &mut CpuInterrupts) -> MappedRead {
         self.map_peek(addr)
     }
 
@@ -404,13 +409,20 @@ impl Map for () {
         MappedRead::default()
     }
 
-    fn map_write(&mut self, _addr: u16, _val: u8) -> MappedWrite {
+    fn map_write(&mut self, _addr: u16, _val: u8, _intrs: &mut CpuInterrupts) -> MappedWrite {
         MappedWrite::default()
     }
 
-    fn bus_read(&mut self, _addr: u16, _kind: BusKind) {}
+    fn bus_read(&mut self, _addr: u16, _kind: BusKind, _intrs: &mut CpuInterrupts) {}
 
-    fn bus_write(&mut self, _addr: u16, _val: u8, _kind: BusKind) {}
+    fn bus_write(
+        &mut self,
+        _addr: u16,
+        _val: u8,
+        _kind: BusKind,
+        _intrs: &mut CpuInterrupts,
+    ) {
+    }
 
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()

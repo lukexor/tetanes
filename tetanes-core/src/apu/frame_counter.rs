@@ -4,7 +4,7 @@
 
 use crate::{
     common::{NesRegion, Reset, ResetKind},
-    cpu::{Cpu, Irq},
+    cpu::{CpuInterrupts, Irq},
 };
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -86,10 +86,10 @@ impl FrameCounter {
         self.write_delay = if cycle & 0x01 == 0x01 { 4 } else { 3 };
         trace!("APU $4017 write delay cycles: {}", self.write_delay);
         self.inhibit_irq = val & 0x40 == 0x40; // D6
-        if self.inhibit_irq {
-            trace!("APU Frame Counter IRQ inhibit");
-            Cpu::clear_irq(Irq::FRAME_COUNTER);
-        }
+    }
+
+    pub fn clear_irq(&mut self, intrs: &mut CpuInterrupts) {
+        intrs.clear_irq(Irq::FRAME_COUNTER);
     }
 
     pub const fn should_clock(&mut self, cycles: u32) -> bool {
@@ -109,7 +109,12 @@ impl FrameCounter {
     // - - - - - -     (interrupt flag never set)
     // - l - - l -     96 Hz
     // e e e - e -     192 Hz
-    pub fn clock_with(&mut self, cycles: u32, mut on_clock: impl FnMut(FrameType)) -> u32 {
+    pub fn clock_with(
+        &mut self,
+        cycles: u32,
+        intrs: &mut CpuInterrupts,
+        mut on_clock: impl FnMut(FrameType, &mut CpuInterrupts),
+    ) -> u32 {
         let mut cycles_ran = 0;
         let step_cycles = self.step_cycles[self.step];
         if self.cycle + cycles >= step_cycles {
@@ -118,12 +123,12 @@ impl FrameCounter {
                     "APU Frame Counter IRQ pending - cycles: {} >= {step_cycles}",
                     self.cycle + cycles
                 );
-                Cpu::set_irq(Irq::FRAME_COUNTER);
+                intrs.set_irq(Irq::FRAME_COUNTER);
             }
 
             let ty = Self::FRAME_TYPE[self.step];
             if ty != FrameType::None && self.block_counter == 0 {
-                on_clock(ty);
+                on_clock(ty, intrs);
                 // Do not allow writes to $4017 to clock for the next cycle (odd + following even
                 // cycle)
                 self.block_counter = 2;
@@ -157,9 +162,13 @@ impl FrameCounter {
                 self.step = 0;
                 self.cycle = 0;
                 self.write_buffer = None;
+                if self.inhibit_irq {
+                    trace!("APU Frame Counter IRQ inhibit");
+                    self.clear_irq(intrs);
+                }
                 if self.mode == 1 && self.block_counter == 0 {
                     // Writing to $4017 with bit 7 set will immediately generate a quarter/half frame
-                    on_clock(FrameType::Half);
+                    on_clock(FrameType::Half, intrs);
                     self.block_counter = 2;
                 }
             }
@@ -174,8 +183,9 @@ impl FrameCounter {
 }
 
 impl Reset for FrameCounter {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
         self.cycle = 0;
+        intrs.clear_irq(Irq::FRAME_COUNTER);
         if kind == ResetKind::Hard {
             self.mode = 0;
             self.step_cycles = Self::step_cycles(self.mode, self.region);

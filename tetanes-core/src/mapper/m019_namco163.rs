@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::{Cpu, Irq},
+    cpu::Irq,
     fs,
     mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::{BankAccess, Banks, ConstArray, Memory},
@@ -178,7 +178,7 @@ impl Map for Namco163 {
     // $2800..=$2BFF bank 10 -> page N -> addr + page * $0400
     // $2C00..=$2FFF bank 11 -> page N -> addr + page * $0400
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, _intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
         if matches!(addr, 0x4800..=0x4FFF) {
             MappedRead::Data(self.audio.read_register(addr))
         } else {
@@ -214,7 +214,12 @@ impl Map for Namco163 {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x3EFF => {
                 let bank = addr >> 10;
@@ -230,12 +235,12 @@ impl Map for Namco163 {
             0x5000..=0x57FF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val);
-                Cpu::clear_irq(Irq::MAPPER);
+                intrs.clear_irq(Irq::MAPPER);
             }
             0x5800..=0x5FFF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF) | (u16::from(val) << 8);
-                Cpu::clear_irq(Irq::MAPPER);
+                intrs.clear_irq(Irq::MAPPER);
             }
             0x6000..=0x7FFF => {
                 self.prg_ram_written_to = true;
@@ -321,7 +326,7 @@ impl Map for Namco163 {
 }
 
 impl Reset for Namco163 {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         if kind == ResetKind::Hard {
             self.regs = Regs::default();
         }
@@ -337,15 +342,15 @@ impl Reset for Namco163 {
 }
 
 impl Clock for Namco163 {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
             if self.regs.irq_counter & 0x7FFF == 0x7FFF {
-                Cpu::set_irq(Irq::MAPPER);
+                intrs.set_irq(Irq::MAPPER);
             }
         }
         if self.board == Board::Namco163 {
-            self.audio.clock();
+            self.audio.clock(intrs);
         }
     }
 }
@@ -556,7 +561,7 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if !self.disabled {
             self.update_counter += 1;
             if self.update_counter == 15 {

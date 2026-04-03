@@ -56,13 +56,13 @@ impl Triangle {
         self.force_silent = silent;
     }
 
-    pub fn clock_quarter_frame(&mut self) {
-        self.linear.clock();
+    pub fn clock_quarter_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.linear.clock(intrs);
     }
 
-    pub fn clock_half_frame(&mut self) {
-        self.clock_quarter_frame();
-        self.length.clock();
+    pub fn clock_half_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.clock_quarter_frame(intrs);
+        self.length.clock(intrs);
     }
 
     /// $4008 Linear counter control
@@ -114,7 +114,7 @@ impl Clock for Triangle {
     //             |                |
     //             v                v
     // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.timer.tick() && self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
         }
@@ -122,9 +122,9 @@ impl Clock for Triangle {
 }
 
 impl Reset for Triangle {
-    fn reset(&mut self, kind: ResetKind) {
-        self.length.reset(kind);
-        self.linear.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.length.reset(kind, intrs);
+        self.linear.reset(kind, intrs);
         self.sequence = 0;
     }
 }
@@ -157,7 +157,7 @@ impl LinearCounter {
 }
 
 impl Clock for LinearCounter {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.reload {
             self.counter = self.counter_reload;
         } else if self.counter > 0 {
@@ -170,7 +170,7 @@ impl Clock for LinearCounter {
 }
 
 impl Reset for LinearCounter {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.counter = 0;
         self.counter_reload = 0;
         self.reload = false;

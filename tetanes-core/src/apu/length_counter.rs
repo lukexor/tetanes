@@ -75,7 +75,7 @@ impl LengthCounter {
 }
 
 impl Clock for LengthCounter {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.counter > 0 && !self.halt {
             self.counter -= 1;
         }
@@ -83,7 +83,7 @@ impl Clock for LengthCounter {
 }
 
 impl Reset for LengthCounter {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.enabled = false;
         match kind {
             ResetKind::Soft => {

@@ -14,21 +14,123 @@ use crate::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::{
-    cell::Cell,
-    fmt::{self},
-};
+use std::fmt::{self};
 use tracing::trace;
 
 pub mod instr;
 
-thread_local! {
-    static NMI: Cell<bool> = const { Cell::new(false) };
-    static IRQS: Cell<Irq> = const { Cell::new(Irq::empty()) };
-    static DMAS: Cell<Dma> = const { Cell::new(Dma::empty()) };
-    static DMA_HALT: Cell<bool> = const { Cell::new(false) };
-    static DMA_DUMMY_READ: Cell<bool> = const { Cell::new(false) };
-    static DMA_OAM_ADDR: Cell<u16> = const { Cell::new(0x0000) };
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CpuInterrupts {
+    nmi: bool,
+    irqs: Irq,
+    dmas: Dma,
+    dma_halt: bool,
+    dma_dummy_read: bool,
+    dma_oam_addr: u16,
+}
+
+impl Default for CpuInterrupts {
+    fn default() -> Self {
+        Self {
+            nmi: false,
+            irqs: Irq::empty(),
+            dmas: Dma::empty(),
+            dma_halt: false,
+            dma_dummy_read: false,
+            dma_oam_addr: 0,
+        }
+    }
+}
+
+impl CpuInterrupts {
+        #[inline]
+    #[must_use]
+    pub fn nmi_pending(&self) -> bool {
+        self.nmi
+    }
+
+    #[inline]
+    pub fn set_nmi(&mut self) {
+        self.nmi = true;
+    }
+
+    #[inline]
+    pub fn clear_nmi(&mut self) {
+        self.nmi = false;
+    }
+
+    #[inline]
+    pub fn irqs(&self) -> Irq {
+        self.irqs
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_irq(&self, irq: Irq) -> bool {
+        self.irqs.contains(irq)
+    }
+
+    #[inline]
+    pub fn set_irq(&mut self, irq: Irq) {
+        self.irqs |= irq;
+    }
+
+    #[inline]
+    pub fn clear_irq(&mut self, irq: Irq) {
+        self.irqs = self.irqs & !irq;
+    }
+
+    #[inline]
+    pub fn start_dmc_dma(&mut self) {
+        self.dmas |= Dma::DMC;
+        self.dma_halt = true;
+        self.dma_dummy_read = true;
+    }
+
+    #[inline]
+    pub fn start_oam_dma(&mut self, addr: u16) {
+        self.dmas |= Dma::OAM;
+        self.dma_halt = true;
+        self.dma_oam_addr = addr;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn halt_for_dma(&self) -> bool {
+        self.dma_halt
+    }
+
+    #[inline]
+    pub fn dma_oam_addr(&self) -> u16 {
+        self.dma_oam_addr
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn dmas_running(&self) -> Option<(bool, bool)> {
+        let dmas = self.dmas;
+        (!dmas.is_empty()).then_some((dmas.contains(Dma::DMC), dmas.contains(Dma::OAM)))
+    }
+
+    #[inline]
+    pub fn clear_dma(&mut self, dma: Dma) {
+        self.dmas = self.dmas & !dma;
+    }
+
+    #[inline]
+    pub fn clear_dma_halt(&mut self) {
+        self.dma_halt = false;
+    }
+
+    #[inline]
+    pub fn dma_dummy_read(&self) -> bool {
+        self.dma_dummy_read
+    }
+
+    #[inline]
+    pub fn clear_dma_dummy_read(&mut self) {
+        self.dma_dummy_read = false;
+    }
 }
 
 bitflags! {
@@ -114,7 +216,7 @@ pub struct Cpu {
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
     #[serde(skip)]
-    pub disasm: String,
+    pub disasm: String
 }
 
 impl Cpu {
@@ -154,9 +256,10 @@ impl Cpu {
             irq_flags: IrqFlags::default(),
             bus,
             corrupted: false,
-            disasm: String::new(),
+            disasm: String::new()
         };
-        cpu.set_region(cpu.bus.region);
+        let mut intrs = CpuInterrupts::default();
+        cpu.set_region(cpu.bus.region, &mut intrs);
         cpu
     }
 
@@ -200,95 +303,6 @@ impl Cpu {
         Cpu::INSTR_REF[usize::from(opcode)]
     }
 
-    #[inline]
-    #[must_use]
-    pub fn nmi_pending() -> bool {
-        NMI.get()
-    }
-
-    #[inline]
-    pub fn set_nmi() {
-        NMI.set(true);
-    }
-
-    #[inline]
-    pub fn clear_nmi() {
-        NMI.set(false);
-    }
-
-    #[inline]
-    pub fn irqs() -> Irq {
-        IRQS.get()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn has_irq(irq: Irq) -> bool {
-        IRQS.get().contains(irq)
-    }
-
-    #[inline]
-    pub fn set_irq(irq: Irq) {
-        IRQS.set(IRQS.get() | irq);
-    }
-
-    #[inline]
-    pub fn clear_irq(irq: Irq) {
-        IRQS.set(IRQS.get() & !irq);
-    }
-
-    #[inline]
-    pub fn start_dmc_dma() {
-        DMAS.set(DMAS.get() | Dma::DMC);
-        DMA_HALT.set(true);
-        DMA_DUMMY_READ.set(true);
-    }
-
-    #[inline]
-    pub fn start_oam_dma(addr: u16) {
-        DMAS.set(DMAS.get() | Dma::OAM);
-        DMA_HALT.set(true);
-        DMA_OAM_ADDR.set(addr);
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn halt_for_dma() -> bool {
-        DMA_HALT.get()
-    }
-
-    #[inline]
-    pub fn dma_oam_addr() -> u16 {
-        DMA_OAM_ADDR.get()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn dmas_running() -> Option<(bool, bool)> {
-        let dmas = DMAS.get();
-        (!dmas.is_empty()).then_some((dmas.contains(Dma::DMC), dmas.contains(Dma::OAM)))
-    }
-
-    #[inline]
-    pub fn clear_dma(dma: Dma) {
-        DMAS.set(DMAS.get() & !dma);
-    }
-
-    #[inline]
-    pub fn clear_dma_halt() {
-        DMA_HALT.set(false);
-    }
-
-    #[inline]
-    pub fn dma_dummy_read() -> bool {
-        DMA_DUMMY_READ.get()
-    }
-
-    #[inline]
-    pub fn clear_dma_dummy_read() {
-        DMA_DUMMY_READ.set(false);
-    }
-
     /// Process an interrupted request.
     ///
     /// <https://wiki.nesdev.org/w/index.php/IRQ>
@@ -303,15 +317,15 @@ impl Cpu {
     ///  7    PC     R  fetch high byte of interrupt vector
     #[cold]
     #[inline(never)]
-    pub fn irq(&mut self) {
-        if Self::halt_for_dma() && self.region() == NesRegion::Pal {
+    pub fn irq(&mut self, intrs: &mut CpuInterrupts) {
+        if intrs.halt_for_dma() && self.region() == NesRegion::Pal {
             // Check for DMA on PAL
-            self.handle_dma(self.pc);
+            self.handle_dma(self.pc, intrs);
         }
 
-        self.read(self.pc); // Dummy read
-        self.read(self.pc); // Dummy read
-        self.push_word(self.pc);
+        self.read(self.pc, intrs); // Dummy read
+        self.read(self.pc, intrs); // Dummy read
+        self.push_word(self.pc, intrs);
 
         // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
         // IRQ when it occurs between cycles 4 and 5.
@@ -320,13 +334,13 @@ impl Cpu {
         // Set U and !B during push
         let status = ((self.status | Status::U) & !Status::B).bits();
         let nmi = self.irq_flags(IrqFlags::NMI);
-        self.push_byte(status);
+        self.push_byte(status, intrs);
         self.status.set(Status::I, true);
 
         if nmi {
             self.clear_irq_flags(IrqFlags::NMI);
-            self.pc = self.read_word(Self::NMI_VECTOR);
-            self.bus.ppu.clock_to(self.master_clock);
+            self.pc = self.read_word(Self::NMI_VECTOR, intrs);
+            self.bus.ppu.clock_to(self.master_clock, intrs);
             self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
             self.bus.ppu.master_clock = 0;
             trace!(
@@ -334,7 +348,7 @@ impl Cpu {
                 self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
             );
         } else {
-            self.pc = self.read_word(Self::IRQ_VECTOR);
+            self.pc = self.read_word(Self::IRQ_VECTOR, intrs);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
                 self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
@@ -344,33 +358,35 @@ impl Cpu {
 
     /// Handle CPU interrupt requests, if any are pending.
     #[inline(always)]
-    fn handle_interrupts(&mut self) {
-        let flags = &mut self.irq_flags;
-
+    fn handle_interrupts(&mut self, intrs: &mut CpuInterrupts) {
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
         // The internal signal goes high during φ1 of the cycle that follows the one where
         // the edge is detected, and stays high until the NMI has been handled. NMI is handled only
         // when `prev_nmi` is true.
-        flags.set(IrqFlags::PREV_NMI, flags.contains(IrqFlags::NMI));
+        self.irq_flags
+            .set(IrqFlags::PREV_NMI, self.irq_flags.contains(IrqFlags::NMI));
 
         // This edge detector polls the status of the NMI line during φ2 of each CPU cycle (i.e.,
         // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
         // signal if the input goes from being high during one cycle to being low during the
         // next.
-        let nmi_pending = Self::nmi_pending();
-        let prev_nmi_pending = flags.contains(IrqFlags::PREV_NMI_PENDING);
+        let nmi_pending = intrs.nmi_pending();
+        let prev_nmi_pending = self.irq_flags.contains(IrqFlags::PREV_NMI_PENDING);
         if !prev_nmi_pending && nmi_pending {
-            flags.insert(IrqFlags::NMI);
+            self.irq_flags.insert(IrqFlags::NMI);
         }
-        flags.set(IrqFlags::PREV_NMI_PENDING, nmi_pending);
+        self.irq_flags.set(IrqFlags::PREV_NMI_PENDING, nmi_pending);
 
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
-        flags.set(IrqFlags::PREV_RUN_IRQ, flags.contains(IrqFlags::RUN_IRQ));
-        let irqs = Self::irqs();
+        self.irq_flags.set(
+            IrqFlags::PREV_RUN_IRQ,
+            self.irq_flags.contains(IrqFlags::RUN_IRQ),
+        );
+        let irqs = intrs.irqs;
         let run_irq = !irqs.is_empty() && !self.status.intersects(Status::I);
-        flags.set(IrqFlags::RUN_IRQ, run_irq);
+        self.irq_flags.set(IrqFlags::RUN_IRQ, run_irq);
 
         #[cfg(feature = "trace")]
         if !flags.contains(IrqFlags::PREV_NMI_PENDING) && flags.contains(IrqFlags::RUN_IRQ) {
@@ -380,44 +396,44 @@ impl Cpu {
 
     /// Start a CPU cycle.
     #[inline(always)]
-    fn start_cycle(&mut self, increment: u8) {
+    fn start_cycle(&mut self, increment: u8, intrs: &mut CpuInterrupts) {
         self.master_clock += u32::from(increment);
         self.cycle = self.cycle.wrapping_add(1);
-        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
-        self.bus.clock();
+        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET, intrs);
+        self.bus.clock(intrs);
     }
 
     /// End a CPU cycle.
     #[inline(always)]
-    fn end_cycle(&mut self, increment: u8) {
+    fn end_cycle(&mut self, increment: u8, intrs: &mut CpuInterrupts) {
         self.master_clock += u32::from(increment);
-        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET);
+        self.bus.clock_to(self.master_clock - Self::PPU_OFFSET, intrs);
 
-        self.handle_interrupts();
+        self.handle_interrupts(intrs);
     }
 
     /// Start a direct-memory access (DMA) cycle.
     #[inline(always)]
-    fn start_dma_cycle(&mut self) {
+    fn start_dma_cycle(&mut self, intrs: &mut CpuInterrupts) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if Self::halt_for_dma() {
-            Self::clear_dma_halt();
+        if intrs.halt_for_dma() {
+            intrs.clear_dma_halt();
         } else {
-            Self::clear_dma_dummy_read();
+            intrs.clear_dma_dummy_read();
         }
-        self.start_cycle(self.start_cycles - 1);
+        self.start_cycle(self.start_cycles - 1, intrs);
     }
 
     /// Handle a direct-memory access (DMA) request.
     #[cold]
     #[inline(never)]
-    fn handle_dma(&mut self, addr: u16) {
+    fn handle_dma(&mut self, addr: u16, intrs: &mut CpuInterrupts) {
         trace!("Starting DMA - CYC:{}", self.cycle);
 
-        self.start_cycle(self.start_cycles - 1);
-        self.bus.read(addr);
-        self.end_cycle(self.start_cycles + 1);
-        Self::clear_dma_halt();
+        self.start_cycle(self.start_cycles - 1, intrs);
+        self.bus.read(addr, intrs);
+        self.end_cycle(self.start_cycles + 1, intrs);
+        intrs.clear_dma_halt();
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
 
@@ -425,53 +441,53 @@ impl Cpu {
         let mut oam_dma_count = 0;
         let mut read_val = 0;
 
-        while let Some((dmc_dma, oam_dma)) = Self::dmas_running() {
+        while let Some((dmc_dma, oam_dma)) = intrs.dmas_running() {
             if self.cycle & 0x01 == 0x00 {
-                if dmc_dma && !Self::halt_for_dma() && !Self::dma_dummy_read() {
+                if dmc_dma && !intrs.halt_for_dma() && !intrs.dma_dummy_read() {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
-                    self.start_dma_cycle();
+                    self.start_dma_cycle(intrs);
                     let dma_addr = self.bus.apu.dmc.dma_addr();
-                    read_val = self.bus.read(dma_addr);
+                    read_val = self.bus.read(dma_addr, intrs);
                     trace!(
                         "Loaded DMC DMA byte. ${dma_addr:04X}: {read_val} - CYC:{}",
                         self.cycle
                     );
-                    self.end_cycle(self.start_cycles + 1);
-                    self.bus.apu.dmc.load_buffer(read_val);
-                    Self::clear_dma(Dma::DMC);
+                    self.end_cycle(self.start_cycles + 1, intrs);
+                    self.bus.apu.dmc.load_buffer(read_val, intrs);
+                    intrs.clear_dma(Dma::DMC);
                 } else if oam_dma {
                     // DMC DMA not running or ready, run OAM DMA
-                    self.start_dma_cycle();
-                    read_val = self.bus.read(Self::dma_oam_addr() + oam_offset);
-                    self.end_cycle(self.start_cycles + 1);
+                    self.start_dma_cycle(intrs);
+                    read_val = self.bus.read(intrs.dma_oam_addr() + oam_offset, intrs);
+                    self.end_cycle(self.start_cycles + 1, intrs);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    debug_assert!(Self::halt_for_dma() || Self::dma_dummy_read());
-                    self.start_dma_cycle();
+                    debug_assert!(intrs.halt_for_dma() || intrs.dma_dummy_read());
+                    self.start_dma_cycle(intrs);
                     if !skip_dummy_reads {
-                        self.bus.read(addr); // throw away
+                        self.bus.read(addr, intrs); // throw away
                     }
-                    self.end_cycle(self.start_cycles + 1);
+                    self.end_cycle(self.start_cycles + 1, intrs);
                 }
             } else if oam_dma && oam_dma_count & 0x01 == 0x01 {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
-                self.start_dma_cycle();
-                self.bus.write(0x2004, read_val);
-                self.end_cycle(self.start_cycles + 1);
+                self.start_dma_cycle(intrs);
+                self.bus.write(0x2004, read_val, intrs);
+                self.end_cycle(self.start_cycles + 1, intrs);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
-                    Self::clear_dma(Dma::OAM);
+                    intrs.clear_dma(Dma::OAM);
                 }
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
-                self.start_dma_cycle();
+                self.start_dma_cycle(intrs);
                 if !skip_dummy_reads {
-                    self.bus.read(addr); // throw away
+                    self.bus.read(addr, intrs); // throw away
                 }
-                self.end_cycle(self.start_cycles + 1);
+                self.end_cycle(self.start_cycles + 1, intrs);
             }
         }
     }
@@ -542,17 +558,17 @@ impl Cpu {
 
     /// Push a byte to the stack.
     #[inline(always)]
-    fn push_byte(&mut self, val: u8) {
-        self.write(Self::SP_BASE | u16::from(self.sp), val);
+    fn push_byte(&mut self, val: u8, intrs: &mut CpuInterrupts) {
+        self.write(Self::SP_BASE | u16::from(self.sp), val, intrs);
         self.sp = self.sp.wrapping_sub(1);
     }
 
     /// Pull a byte from the stack.
     #[inline(always)]
     #[must_use]
-    fn pop_byte(&mut self) -> u8 {
+    fn pop_byte(&mut self, intrs: &mut CpuInterrupts) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(Self::SP_BASE | u16::from(self.sp))
+        self.read(Self::SP_BASE | u16::from(self.sp), intrs)
     }
 
     /// Peek byte at the top of the stack.
@@ -573,17 +589,17 @@ impl Cpu {
 
     /// Push a word (two bytes) to the stack
     #[inline(always)]
-    fn push_word(&mut self, val: u16) {
+    fn push_word(&mut self, val: u16, intrs: &mut CpuInterrupts) {
         let [lo, hi] = val.to_le_bytes();
-        self.push_byte(hi);
-        self.push_byte(lo);
+        self.push_byte(hi, intrs);
+        self.push_byte(lo, intrs);
     }
 
     /// Pull a word (two bytes) from the stack
     #[inline(always)]
-    fn pop_word(&mut self) -> u16 {
-        let lo = self.pop_byte();
-        let hi = self.pop_byte();
+    fn pop_word(&mut self, intrs: &mut CpuInterrupts) -> u16 {
+        let lo = self.pop_byte(intrs);
+        let hi = self.pop_byte(intrs);
         u16::from_le_bytes([lo, hi])
     }
 
@@ -592,8 +608,8 @@ impl Cpu {
     /// Fetch a byte and increments PC by 1.
     #[inline(always)]
     #[must_use]
-    fn fetch_byte(&mut self) -> u8 {
-        let val = self.read(self.pc);
+    fn fetch_byte(&mut self, intrs: &mut CpuInterrupts) -> u8 {
+        let val = self.read(self.pc, intrs);
         self.pc = self.pc.wrapping_add(1);
         val
     }
@@ -601,21 +617,21 @@ impl Cpu {
     /// Fetch opcode operand based on addressing mode.
     #[inline(always)]
     #[must_use]
-    fn fetch_operand(&mut self) -> u16 {
+    fn fetch_operand(&mut self, intrs: &mut CpuInterrupts) -> u16 {
         match self.addr_mode {
-            AddrMode::ACC | AddrMode::IMP => self.acc_imp(),
-            AddrMode::IMM | AddrMode::REL | AddrMode::ZP0 => self.imm_rel_zp(),
-            AddrMode::ZPX => self.zpx(),
-            AddrMode::ZPY => self.zpy(),
-            AddrMode::IND => self.ind(),
-            AddrMode::IDX => self.idx(),
-            AddrMode::IDY => self.idy(false),
-            AddrMode::IDYW => self.idy(true),
-            AddrMode::ABS => self.abs(),
-            AddrMode::ABX => self.abx(false),
-            AddrMode::ABXW => self.abx(true),
-            AddrMode::ABY => self.aby(false),
-            AddrMode::ABYW => self.aby(true),
+            AddrMode::ACC | AddrMode::IMP => self.acc_imp(intrs),
+            AddrMode::IMM | AddrMode::REL | AddrMode::ZP0 => self.imm_rel_zp(intrs),
+            AddrMode::ZPX => self.zpx(intrs),
+            AddrMode::ZPY => self.zpy(intrs),
+            AddrMode::IND => self.ind(intrs),
+            AddrMode::IDX => self.idx(intrs),
+            AddrMode::IDY => self.idy(false, intrs),
+            AddrMode::IDYW => self.idy(true, intrs),
+            AddrMode::ABS => self.abs(intrs),
+            AddrMode::ABX => self.abx(false, intrs),
+            AddrMode::ABXW => self.abx(true, intrs),
+            AddrMode::ABY => self.aby(false, intrs),
+            AddrMode::ABYW => self.aby(true, intrs),
             AddrMode::OTH => 0,
         }
     }
@@ -623,32 +639,32 @@ impl Cpu {
     /// Fetch a 16-bit word and increments PC by 2.
     #[inline(always)]
     #[must_use]
-    fn fetch_word(&mut self) -> u16 {
-        let lo = self.fetch_byte();
-        let hi = self.fetch_byte();
+    fn fetch_word(&mut self, intrs: &mut CpuInterrupts) -> u16 {
+        let lo = self.fetch_byte(intrs);
+        let hi = self.fetch_byte(intrs);
         u16::from_le_bytes([lo, hi])
     }
 
     /// Read operand value.
     #[inline(always)]
     #[must_use]
-    fn read_operand(&mut self) -> u8 {
+    fn read_operand(&mut self, intrs: &mut CpuInterrupts) -> u8 {
         if matches!(
             self.addr_mode,
             AddrMode::ACC | AddrMode::IMP | AddrMode::IMM | AddrMode::REL
         ) {
             self.operand as u8
         } else {
-            self.read(self.operand)
+            self.read(self.operand, intrs)
         }
     }
 
     /// Read a 16-bit word.
     #[inline(always)]
     #[must_use]
-    pub fn read_word(&mut self, addr: u16) -> u16 {
-        let lo = self.read(addr);
-        let hi = self.read(addr.wrapping_add(1));
+    pub fn read_word(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u16 {
+        let lo = self.read(addr, intrs);
+        let hi = self.read(addr.wrapping_add(1), intrs);
         u16::from_le_bytes([lo, hi])
     }
 
@@ -859,35 +875,35 @@ impl Cpu {
 
 impl Clock for Cpu {
     /// Runs the CPU one instruction.
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
-        let opcode = self.fetch_byte(); // Cycle 1
+        let opcode = self.fetch_byte(intrs); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];
         self.addr_mode = op.addr_mode();
-        self.operand = self.fetch_operand();
-        op.run(self);
+        self.operand = self.fetch_operand(intrs);
+        op.run(self, intrs);
 
         if self
             .irq_flags
             .intersects(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI)
         {
-            self.irq();
+            self.irq(intrs);
         }
     }
 }
 
 impl Read for Cpu {
     #[inline(always)]
-    fn read(&mut self, addr: u16) -> u8 {
-        if Self::halt_for_dma() {
-            self.handle_dma(addr);
+    fn read(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u8 {
+        if intrs.halt_for_dma() {
+            self.handle_dma(addr, intrs);
         }
 
-        self.start_cycle(self.start_cycles - 1);
-        let val = self.bus.read(addr);
-        self.end_cycle(self.end_cycles + 1);
+        self.start_cycle(self.start_cycles - 1, intrs);
+        let val = self.bus.read(addr, intrs);
+        self.end_cycle(self.end_cycles + 1, intrs);
         val
     }
 
@@ -898,10 +914,10 @@ impl Read for Cpu {
 
 impl Write for Cpu {
     #[inline(always)]
-    fn write(&mut self, addr: u16, val: u8) {
-        self.start_cycle(self.start_cycles + 1);
-        self.bus.write(addr, val);
-        self.end_cycle(self.end_cycles - 1);
+    fn write(&mut self, addr: u16, val: u8, intrs: &mut CpuInterrupts) {
+        self.start_cycle(self.start_cycles + 1, intrs);
+        self.bus.write(addr, val, intrs);
+        self.end_cycle(self.end_cycles - 1, intrs);
     }
 }
 
@@ -911,7 +927,7 @@ impl Regional for Cpu {
         self.bus.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, intrs: &mut CpuInterrupts) {
         let (start_cycles, end_cycles) = match region {
             NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2
             NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
@@ -919,7 +935,7 @@ impl Regional for Cpu {
         };
         self.start_cycles = start_cycles;
         self.end_cycles = end_cycles;
-        self.bus.set_region(region);
+        self.bus.set_region(region, intrs);
     }
 }
 
@@ -929,7 +945,7 @@ impl Reset for Cpu {
     /// Updates the PC, SP, and Status values to defined constants.
     ///
     /// These operations take the CPU 7 cycles.
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
         trace!("{:?} RESET", kind);
 
         match kind {
@@ -948,20 +964,15 @@ impl Reset for Cpu {
             }
         }
 
-        self.bus.reset(kind);
+        self.bus.reset(kind, intrs);
         self.cycle = 0;
         self.master_clock = 0;
         self.irq_flags = IrqFlags::default();
         self.corrupted = false;
-        Self::clear_nmi();
-        Self::clear_irq(Irq::all());
-        Self::clear_dma_halt();
-        Self::clear_dma(Dma::all());
-        Self::clear_dma_dummy_read();
 
         // Read directly from bus so as to not clock other components during reset
-        let lo = self.bus.read(Self::RESET_VECTOR);
-        let hi = self.bus.read(Self::RESET_VECTOR + 1);
+        let lo = self.bus.read(Self::RESET_VECTOR, intrs);
+        let hi = self.bus.read(Self::RESET_VECTOR + 1, intrs);
         self.pc = u16::from_le_bytes([lo, hi]);
 
         // The CPU takes 7 cycles to reset/power on
@@ -969,8 +980,8 @@ impl Reset for Cpu {
         // * <https://www.nesdev.org/wiki/CPU_interrupts>
         // * <http://archive.6502.org/datasheets/synertek_programming_manual.pdf>
         for _ in 0..7 {
-            self.start_cycle(self.start_cycles - 1);
-            self.end_cycle(self.start_cycles + 1);
+            self.start_cycle(self.start_cycles - 1, intrs);
+            self.end_cycle(self.start_cycles + 1, intrs);
         }
     }
 }
@@ -986,7 +997,6 @@ impl fmt::Debug for Cpu {
             .field("y", &format_args!("${:02X}", self.y))
             .field("status", &self.status)
             .field("bus", &self.bus)
-            .field("irqs", &Self::irqs())
             .field("interrupt_flags", &self.irq_flags)
             .finish()
     }
@@ -1003,8 +1013,10 @@ mod tests {
         let mut cart = Cart::empty();
         cart.mapper = Nrom::load(&mut cart).unwrap();
         cpu.bus.load_cart(cart);
-        cpu.reset(ResetKind::Hard);
-        cpu.clock();
+
+        let mut intrs = CpuInterrupts::default();
+        cpu.reset(ResetKind::Hard, &mut intrs);
+        cpu.clock(&mut intrs);
 
         assert_eq!(cpu.cycle, 14, "cpu after power + one clock");
 
@@ -1017,9 +1029,9 @@ mod tests {
             if instr_ref.instr == HLT {
                 continue;
             }
-            cpu.reset(ResetKind::Hard);
-            cpu.bus.write(0x0000, instr_ref.opcode);
-            cpu.clock();
+            cpu.reset(ResetKind::Hard, &mut intrs);
+            cpu.bus.write(0x0000, instr_ref.opcode, &mut intrs);
+            cpu.clock(&mut intrs);
             let cpu_cyc = u32::from(7 + instr_ref.cycles + extra_cycle);
             assert_eq!(
                 cpu.cycle, cpu_cyc,

@@ -6,7 +6,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    cpu::{Cpu, Irq},
+    cpu::Irq,
     mapper::{self, BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::Banks,
     ppu::Mirroring,
@@ -171,7 +171,7 @@ impl Txrom {
         };
     }
 
-    pub fn clock_irq(&mut self, addr: u16) {
+    pub fn clock_irq(&mut self, addr: u16, intrs: &mut crate::cpu::CpuInterrupts) {
         if addr < 0x2000 {
             let next_clock = (addr >> 12) & 1;
             let (last, next) = if self.revision == Revision::Acc {
@@ -190,7 +190,7 @@ impl Txrom {
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
-                    Cpu::set_irq(Irq::MAPPER);
+                    intrs.set_irq(Irq::MAPPER);
                 }
                 self.regs.irq_reload = false;
             }
@@ -214,8 +214,8 @@ impl Map for Txrom {
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.clock_irq(addr);
+    fn map_read(&mut self, addr: u16, intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
+        self.clock_irq(addr, intrs);
         self.map_peek(addr)
     }
 
@@ -231,7 +231,12 @@ impl Map for Txrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x2000..=0x3EFF if self.mirroring == Mirroring::FourScreen => {
@@ -289,7 +294,7 @@ impl Map for Txrom {
                     0xC000 => self.regs.irq_latch = val,
                     0xC001 => self.regs.irq_reload = true,
                     0xE000 => {
-                        Cpu::clear_irq(Irq::MAPPER);
+                        intrs.clear_irq(Irq::MAPPER);
                         self.regs.irq_enabled = false;
                     }
                     0xE001 => self.regs.irq_enabled = true,
@@ -301,17 +306,23 @@ impl Map for Txrom {
         }
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
+    fn bus_read(&mut self, addr: u16, kind: BusKind, intrs: &mut crate::cpu::CpuInterrupts) {
         // Clock on PPU A12
         if kind == BusKind::Ppu {
-            self.clock_irq(addr);
+            self.clock_irq(addr, intrs);
         }
     }
 
-    fn bus_write(&mut self, addr: u16, _val: u8, kind: BusKind) {
+    fn bus_write(
+        &mut self,
+        addr: u16,
+        _val: u8,
+        kind: BusKind,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) {
         // Clock on PPU A12
         if kind == BusKind::Ppu {
-            self.clock_irq(addr);
+            self.clock_irq(addr, intrs);
         }
     }
 
@@ -325,7 +336,7 @@ impl Map for Txrom {
 }
 
 impl Reset for Txrom {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.regs = Regs::default();
         self.update_banks();
     }

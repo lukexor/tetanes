@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    cpu::{Cpu, Irq},
+    cpu::{Irq},
     fs,
     mapper::{self, Map, MappedRead, MappedWrite, Mapper, Mirroring},
     mem::{Banks, Memory},
@@ -184,7 +184,7 @@ impl BandaiFCG {
         self.set_mirroring(mirroring);
     }
 
-    fn write_irq_ctrl(&mut self, val: u8) {
+    fn write_irq_ctrl(&mut self, val: u8, intrs: &mut crate::cpu::CpuInterrupts) {
         self.regs.irq_enabled = val & 0x01 == 0x01;
 
         // Wiki claims there is no reload value, however this seems to be the only way to make
@@ -195,7 +195,7 @@ impl BandaiFCG {
             self.regs.irq_counter = self.regs.irq_reload;
         }
 
-        Cpu::clear_irq(Irq::MAPPER);
+        intrs.clear_irq(Irq::MAPPER);
     }
 
     fn write_irq_latch(&mut self, addr: u16, val: u8) {
@@ -268,7 +268,7 @@ impl Map for BandaiFCG {
     // CPU $8000..=$BFFF 16K switchable PRG-ROM bank
     // CPU $C000..=$FFFF 16K PRG-ROM bank, fixed to the last bank
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, _intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
         if matches!(addr, 0x6000..=0x7FFF) {
             if !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite) {
                 return MappedRead::Data(0x00);
@@ -300,7 +300,12 @@ impl Map for BandaiFCG {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0xFFFF => {
@@ -308,7 +313,7 @@ impl Map for BandaiFCG {
                     0x00..=0x07 => self.write_chr_bank(addr, val),
                     0x08 => self.write_prg_bank(val),
                     0x09 => self.write_mirroring(val),
-                    0x0A => self.write_irq_ctrl(val),
+                    0x0A => self.write_irq_ctrl(val, intrs),
                     0x0B..=0x0C => self.write_irq_latch(addr, val),
                     0x0D => {
                         if self.mapper_num == 153 {
@@ -336,16 +341,16 @@ impl Map for BandaiFCG {
 }
 
 impl Clock for BandaiFCG {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if let Some(barcode_reader) = &mut self.barcode_reader {
-            barcode_reader.clock();
+            barcode_reader.clock(intrs);
         }
         // Checking counter before decrementing seems to be the only way to get both Famicom Jump
         // II - Saikyou no 7 Nin (J) and Magical Taruruuto-kun 2 - Mahou Daibouken (J) to work
         // without glitches with the same code.
         if self.regs.irq_enabled {
             if self.regs.irq_counter == 0 {
-                Cpu::set_irq(Irq::MAPPER);
+                intrs.set_irq(Irq::MAPPER);
             }
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
         }
@@ -561,7 +566,7 @@ impl BarcodeReader {
 }
 
 impl Clock for BarcodeReader {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.master_clock += 1;
     }
 }

@@ -87,13 +87,13 @@ impl Noise {
         }
     }
 
-    pub fn clock_quarter_frame(&mut self) {
-        self.envelope.clock();
+    pub fn clock_quarter_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.envelope.clock(intrs);
     }
 
-    pub fn clock_half_frame(&mut self) {
-        self.clock_quarter_frame();
-        self.length.clock();
+    pub fn clock_half_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.clock_quarter_frame(intrs);
+        self.length.clock(intrs);
     }
 
     /// $400C Noise control
@@ -152,7 +152,7 @@ impl Clock for Noise {
     //                    |                |
     //                    v                v
     // Envelope -------> Gate ----------> Gate --> (to mixer)
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.timer.tick() {
             let shift_by = if self.shift_mode == ShiftMode::One {
                 6
@@ -171,17 +171,17 @@ impl Regional for Noise {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.region = region;
     }
 }
 
 impl Reset for Noise {
-    fn reset(&mut self, kind: ResetKind) {
-        self.timer.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.timer.reset(kind, intrs);
         self.timer.period = Self::period(self.region, 0);
-        self.length.reset(kind);
-        self.envelope.reset(kind);
+        self.length.reset(kind, intrs);
+        self.envelope.reset(kind, intrs);
         self.shift = 1;
         self.shift_mode = ShiftMode::Zero;
     }

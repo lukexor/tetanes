@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Write, path::Path};
 use thiserror::Error;
 
+use crate::cpu::CpuInterrupts;
+
 /// Default directory for save states.
 pub const SAVE_DIR: &str = "save";
 /// Default directory for save RAM.
@@ -133,7 +135,7 @@ pub trait Regional {
     }
 
     /// Set the region.
-    fn set_region(&mut self, _region: NesRegion) {}
+    fn set_region(&mut self, _region: NesRegion, _intrs: &mut CpuInterrupts) {}
 }
 
 /// Type of reset for types that have different behavior for reset vs power cycling.
@@ -149,19 +151,19 @@ pub enum ResetKind {
 /// Trait for types that can can be reset.
 pub trait Reset {
     /// Reset the component given the [`ResetKind`].
-    fn reset(&mut self, _kind: ResetKind) {}
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut CpuInterrupts) {}
 }
 
 /// Trait for types that can be clocked.
 pub trait Clock {
     /// Clock component once.
-    fn clock(&mut self) {}
+    fn clock(&mut self, _intrs: &mut CpuInterrupts) {}
 }
 
 /// Trait for types that can clock to a target cycle.
 pub trait ClockTo {
     /// Clock component to the given master_cycle.
-    fn clock_to(&mut self, _master_cycle: u32) {}
+    fn clock_to(&mut self, _master_cycle: u32, _intrs: &mut CpuInterrupts) {}
 }
 
 /// Trait for types that can output `f32` audio samples.
@@ -242,7 +244,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 pub(crate) mod tests {
     use crate::{
         action::Action,
-        common::{Regional, Reset, ResetKind},
+        common::{Reset, ResetKind},
         control_deck::{Config, ControlDeck},
         input::Player,
         mem::RamState,
@@ -489,8 +491,12 @@ pub(crate) mod tests {
                 if deck.frame_number() != test_frame.number && !test_frame.audio {
                     deck.clear_audio_samples();
                 }
-                deck.joypad_mut(Player::One).reset(ResetKind::Soft);
-                deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
+
+                let (joypad, intrs) = deck.joypad_mut_with_interrupts(Player::One);
+                joypad.reset(ResetKind::Soft, intrs);
+
+                let (joypad, intrs) = deck.joypad_mut_with_interrupts(Player::Two);
+                joypad.reset(ResetKind::Soft, intrs);
             }
 
             on_frame_action(test_frame, &mut deck);

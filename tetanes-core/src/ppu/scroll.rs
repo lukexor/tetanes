@@ -252,7 +252,7 @@ impl Scroll {
 
 impl Reset for Scroll {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         if kind == ResetKind::Hard {
             // v is not cleared on a a soft reset
             self.v = 0x0000;

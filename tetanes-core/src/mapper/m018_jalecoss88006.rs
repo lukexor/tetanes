@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    cpu::{Cpu, Irq},
+    cpu::Irq,
     mapper::{self, Map, MappedRead, MappedWrite, Mapper},
     mem::{BankAccess, Banks},
     ppu::Mirroring,
@@ -124,7 +124,12 @@ impl Map for JalecoSs88006 {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => {
                 if self.prg_ram_banks.writable(addr) {
@@ -157,14 +162,14 @@ impl Map for JalecoSs88006 {
                 0xD002 | 0xD003 => self.update_chr_bank(7, val, PageBit::from(addr)),
                 0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
                 0xF000 => {
-                    Cpu::clear_irq(Irq::MAPPER);
+                    intrs.clear_irq(Irq::MAPPER);
                     self.irq_counter = u16::from(self.regs.irq_reload[0])
                         | (u16::from(self.regs.irq_reload[1]) << 4)
                         | (u16::from(self.regs.irq_reload[2]) << 8)
                         | (u16::from(self.regs.irq_reload[3]) << 12);
                 }
                 0xF001 => {
-                    Cpu::clear_irq(Irq::MAPPER);
+                    intrs.clear_irq(Irq::MAPPER);
                     self.regs.irq_enabled = val & 0x01 == 0x01;
                     if val & 0x08 == 0x08 {
                         self.regs.irq_counter_size = 3;
@@ -202,7 +207,7 @@ impl Map for JalecoSs88006 {
 }
 
 impl Reset for JalecoSs88006 {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.regs = Regs::default();
         if kind == ResetKind::Hard {
             self.prg_rom_banks.set(3, self.prg_rom_banks.last());
@@ -211,12 +216,12 @@ impl Reset for JalecoSs88006 {
 }
 
 impl Clock for JalecoSs88006 {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if self.regs.irq_enabled {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
             let counter = self.irq_counter & irq_mask;
             if counter == 0 {
-                Cpu::set_irq(Irq::MAPPER);
+                intrs.set_irq(Irq::MAPPER);
             }
             self.irq_counter =
                 (self.irq_counter & !irq_mask) | (counter.wrapping_sub(1) & irq_mask);

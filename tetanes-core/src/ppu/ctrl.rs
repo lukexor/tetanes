@@ -92,7 +92,7 @@ impl Ctrl {
 
 impl Reset for Ctrl {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.write(0);
     }
 }

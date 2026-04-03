@@ -47,7 +47,12 @@ impl Map for Bnrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => return MappedWrite::ChrRam(addr.into(), val),
             // Support up to 8MB PRG-ROM

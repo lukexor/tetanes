@@ -5,7 +5,7 @@ use crate::{
     bus::Bus,
     cart::{self, Cart},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
-    cpu::Cpu,
+    cpu::{Cpu, CpuInterrupts, Dma, Irq},
     debug::Debugger,
     fs,
     genie::{self, GenieCode},
@@ -223,6 +223,7 @@ pub struct ControlDeck {
     frame_accumulator: u16,
     /// NES CPU.
     cpu: Cpu,
+    cpu_interrupts: CpuInterrupts
 }
 
 impl Default for ControlDeck {
@@ -240,16 +241,17 @@ impl ControlDeck {
     /// Create a NES `ControlDeck` with a configuration.
     pub fn with_config(cfg: Config) -> Self {
         let mut cpu = Cpu::new(Bus::new(cfg.region, cfg.ram_state));
+        let mut cpu_interrupts = CpuInterrupts::default();
         cpu.bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
         cpu.bus.ppu.emulate_warmup = cfg.emulate_ppu_warmup;
         cpu.bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
         if cfg.region.is_auto() {
-            cpu.set_region(NesRegion::Ntsc);
+            cpu.set_region(NesRegion::Ntsc, &mut cpu_interrupts);
         } else {
-            cpu.set_region(cfg.region);
+            cpu.set_region(cfg.region, &mut cpu_interrupts);
         }
         cpu.bus.input.set_concurrent_dpad(cfg.concurrent_dpad);
-        cpu.bus.input.set_four_player(cfg.four_player);
+        cpu.bus.input.set_four_player(cfg.four_player, &mut cpu_interrupts);
         cpu.bus.input.connect_zapper(cfg.zapper);
         for (i, enabled) in cfg.channels_enabled.iter().enumerate() {
             match Channel::try_from(i) {
@@ -273,6 +275,7 @@ impl ControlDeck {
             frame_speed_step: 4,
             frame_accumulator: 0,
             cpu,
+            cpu_interrupts
         }
     }
 
@@ -301,7 +304,7 @@ impl ControlDeck {
             region: cart.region(),
         };
         if self.auto_detect_region {
-            self.cpu.set_region(loaded_rom.region);
+            self.cpu.set_region(loaded_rom.region, &mut self.cpu_interrupts);
         }
         self.cpu.bus.load_cart(cart);
         self.update_mapper_revisions();
@@ -353,6 +356,22 @@ impl ControlDeck {
     #[inline]
     pub fn load_cpu(&mut self, cpu: Cpu) {
         self.cpu.load(cpu);
+    }
+
+    #[inline]
+    fn set_region_inner(&mut self, region: NesRegion) {
+        self.auto_detect_region = region.is_auto();
+        if self.auto_detect_region {
+            self.cpu
+                .set_region(self.cart_region().unwrap_or_default(), &mut self.cpu_interrupts);
+        } else {
+            self.cpu.set_region(region, &mut self.cpu_interrupts);
+        }
+    }
+
+    #[inline]
+    pub fn set_region(&mut self, region: NesRegion) {
+        self.set_region_inner(region);
     }
 
     /// Set the [`MapperRevision`] to emulate for the any ROM loaded that uses this mapper.
@@ -622,6 +641,10 @@ impl ControlDeck {
         self.cpu.clock_rate()
     }
 
+    fn clock(&mut self) {
+        self.cpu.clock(&mut self.cpu_interrupts);
+    }
+
     /// Steps the control deck one CPU clock.
     ///
     /// # Errors
@@ -707,7 +730,7 @@ impl ControlDeck {
                 self.clock_instr()?;
             }
         }
-        self.cpu.bus.apu.clock_flush();
+        self.cpu.bus.apu.clock_flush(&mut self.cpu_interrupts);
 
         Ok(())
     }
@@ -929,7 +952,7 @@ impl ControlDeck {
     /// Enable/Disable Four Score for 4-player controllers.
     #[inline]
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        self.cpu.bus.input.set_four_player(four_player);
+        self.cpu.bus.input.set_four_player(four_player, &mut self.cpu_interrupts);
     }
 
     /// Returns the current [`Joypad`] state for a given controller slot.
@@ -942,6 +965,12 @@ impl ControlDeck {
     #[inline]
     pub const fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
         self.cpu.bus.input.joypad_mut(slot)
+    }
+
+    #[cfg(test)]
+    #[inline]
+    pub(crate) const fn joypad_mut_with_interrupts(&mut self, slot: Player) -> (&mut Joypad, &mut CpuInterrupts) {
+        (self.cpu.bus.input.joypad_mut(slot), &mut self.cpu_interrupts)
     }
 
     /// Returns whether the [`Zapper`](crate::input::Zapper) gun is connected.
@@ -1043,12 +1072,24 @@ impl ControlDeck {
     pub const fn is_running(&self) -> bool {
         self.running
     }
-}
 
-impl Clock for ControlDeck {
-    /// Steps the control deck a single clock cycle.
-    fn clock(&mut self) {
-        self.cpu.clock()
+    /// Resets the console.
+    pub fn reset(&mut self, kind: ResetKind) {
+        self.cpu_interrupts.clear_nmi();
+        self.cpu_interrupts.clear_irq(Irq::all());
+        self.cpu_interrupts.clear_dma_halt();
+        self.cpu_interrupts.clear_dma(Dma::all());
+        self.cpu_interrupts.clear_dma_dummy_read();
+
+        self.cpu.reset(kind, &mut self.cpu_interrupts);
+        if self.loaded_rom.is_some() {
+            self.running = true;
+        }
+    }
+
+    pub fn cpu_interrupts_mut(&mut self) -> &mut CpuInterrupts
+    {
+        &mut self.cpu_interrupts
     }
 }
 
@@ -1059,22 +1100,7 @@ impl Regional for ControlDeck {
     }
 
     /// Set the NES format for the emulation.
-    fn set_region(&mut self, region: NesRegion) {
-        self.auto_detect_region = region.is_auto();
-        if self.auto_detect_region {
-            self.cpu.set_region(self.cart_region().unwrap_or_default());
-        } else {
-            self.cpu.set_region(region);
-        }
-    }
-}
-
-impl Reset for ControlDeck {
-    /// Resets the console.
-    fn reset(&mut self, kind: ResetKind) {
-        self.cpu.reset(kind);
-        if self.loaded_rom.is_some() {
-            self.running = true;
-        }
+    fn set_region(&mut self, region: NesRegion, _intrs: &mut CpuInterrupts) {
+        self.set_region_inner(region);
     }
 }

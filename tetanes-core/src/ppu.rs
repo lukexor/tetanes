@@ -2,7 +2,7 @@
 
 use crate::{
     common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
-    cpu::Cpu,
+    cpu::{CpuInterrupts},
     debug::PpuDebugger,
     mapper::{BusKind, Map, Mapper},
     mem::{ConstArray, RamState, Read, Write},
@@ -42,11 +42,11 @@ pub enum Mirroring {
 /// Trait for PPU Registers.
 pub trait Registers {
     /// $2000 PPUCTRL
-    fn write_ctrl(&mut self, val: u8);
+    fn write_ctrl(&mut self, val: u8, intrs: &mut CpuInterrupts);
     /// Write $2001 PPUMASK
     fn write_mask(&mut self, val: u8);
     /// Read $2002 PPUSTATUS
-    fn read_status(&mut self) -> u8;
+    fn read_status(&mut self, intrs: &mut CpuInterrupts) -> u8;
     /// Peek $2002 PPUSTATUS
     fn peek_status(&self) -> u8;
     /// Write $2003 OAMADDR
@@ -60,13 +60,13 @@ pub trait Registers {
     /// Write $2005 PPUSCROLL
     fn write_scroll(&mut self, val: u8);
     /// Write $2006 PPUADDR
-    fn write_addr(&mut self, val: u8);
+    fn write_addr(&mut self, val: u8, intrs: &mut CpuInterrupts);
     /// Read $2007 PPUDATA
-    fn read_data(&mut self) -> u8;
+    fn read_data(&mut self, intrs: &mut CpuInterrupts) -> u8;
     /// Peek $2007 PPUDATA
     fn peek_data(&self) -> u8;
     /// Write $2007 PPUDATA
-    fn write_data(&mut self, val: u8);
+    fn write_data(&mut self, val: u8, intrs: &mut CpuInterrupts);
 }
 
 /// NES PPU.
@@ -298,7 +298,8 @@ impl Ppu {
             debugger: Default::default(),
         };
 
-        ppu.set_region(ppu.region);
+        let mut intrs = CpuInterrupts::default();
+        ppu.set_region(ppu.region, &mut intrs);
 
         ppu
     }
@@ -585,21 +586,21 @@ impl Ppu {
         }
     }
 
-    fn start_vblank(&mut self) {
+    fn start_vblank(&mut self, intrs: &mut CpuInterrupts) {
         trace!("Start VBL - PPU:{:3},{:3}", self.cycle, self.scanline);
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
             if self.ctrl.nmi_enabled {
-                Cpu::set_nmi();
+                intrs.set_nmi();
                 trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
             }
         }
         self.prevent_vbl = false;
         let val = self.peek_status();
-        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu);
+        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu, intrs);
     }
 
-    fn stop_vblank(&mut self) {
+    fn stop_vblank(&mut self, intrs: &mut CpuInterrupts) {
         trace!(
             "Stop VBL, Sprite0 Hit, Overflow - PPU:{:3},{:3}",
             self.cycle, self.scanline
@@ -608,17 +609,17 @@ impl Ppu {
         self.status.set_spr_overflow(false);
         self.status.reset_in_vblank();
         self.reset_signal = false;
-        Cpu::clear_nmi();
+        intrs.clear_nmi();
         self.open_bus = 0; // Clear open bus every frame
         let val = self.peek_status();
-        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu);
+        self.bus.mapper.bus_write(0x2002, val, BusKind::Ppu, intrs);
     }
 
     /// Fetch BG nametable byte.
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     #[inline(always)]
-    fn fetch_bg_nt_byte(&mut self) {
+    fn fetch_bg_nt_byte(&mut self, intrs: &mut CpuInterrupts) {
         self.prev_palette = self.curr_palette;
         self.curr_palette = self.next_palette;
 
@@ -627,7 +628,7 @@ impl Ppu {
 
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = Self::NT_START | (self.scroll.addr() & nametable_addr_mask);
-        let tile_index = u16::from(self.bus.read_ciram(addr));
+        let tile_index = u16::from(self.bus.read_ciram(addr, intrs));
         self.tile_addr = self.ctrl.bg_select | (tile_index << 4) | self.scroll.fine_y;
     }
 
@@ -635,10 +636,10 @@ impl Ppu {
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     #[inline(always)]
-    fn fetch_bg_attr_byte(&mut self) {
+    fn fetch_bg_attr_byte(&mut self, intrs: &mut CpuInterrupts) {
         let addr = self.scroll.attr_addr();
         let shift = self.scroll.attr_shift();
-        self.next_palette = ((self.bus.read_ciram(addr) >> shift) & 0x03) << 2;
+        self.next_palette = ((self.bus.read_ciram(addr, intrs) >> shift) & 0x03) << 2;
     }
 
     /// Fetch 4 tiles and write out shift registers every 8th cycle.
@@ -646,7 +647,7 @@ impl Ppu {
     ///
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     #[inline]
-    fn fetch_background(&mut self) {
+    fn fetch_background(&mut self, intrs: &mut CpuInterrupts) {
         match self.cycle & 0x07 {
             0 => {
                 if self.mask.prev_rendering_enabled {
@@ -658,10 +659,10 @@ impl Ppu {
                     }
                 }
             }
-            1 => self.fetch_bg_nt_byte(),
-            3 => self.fetch_bg_attr_byte(),
-            5 => self.tile_lo = self.bus.read_chr(self.tile_addr),
-            7 => self.tile_hi = self.bus.read_chr(self.tile_addr + 8),
+            1 => self.fetch_bg_nt_byte(intrs),
+            3 => self.fetch_bg_attr_byte(intrs),
+            5 => self.tile_lo = self.bus.read_chr(self.tile_addr, intrs),
+            7 => self.tile_hi = self.bus.read_chr(self.tile_addr + 8, intrs),
             _ => (),
         }
     }
@@ -794,7 +795,7 @@ impl Ppu {
         self.spr_count = spr_count;
     }
 
-    fn load_sprites(&mut self) {
+    fn load_sprites(&mut self, intrs: &mut CpuInterrupts) {
         // Local variables improve cache locality
         let cycle = self.cycle;
         let scanline = self.scanline;
@@ -840,8 +841,8 @@ impl Ppu {
                 let sprite = &mut self.sprites[idx];
                 sprite.x = x;
                 sprite.y = y;
-                sprite.tile_lo = self.bus.read_chr(tile_addr);
-                sprite.tile_hi = self.bus.read_chr(tile_addr + 8);
+                sprite.tile_lo = self.bus.read_chr(tile_addr, intrs);
+                sprite.tile_hi = self.bus.read_chr(tile_addr + 8, intrs);
                 sprite.palette = ((attr & 0x03) << 2) | 0x10;
                 sprite.bg_priority = (attr & 0x20) == 0x20;
                 sprite.flip_horizontal = (attr & 0x40) == 0x40;
@@ -852,25 +853,25 @@ impl Ppu {
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF - used by MMC3 IRQ
                 // counter
-                let _ = self.bus.read_chr(tile_addr);
-                let _ = self.bus.read_chr(tile_addr + 8);
+                let _ = self.bus.read_chr(tile_addr, intrs);
+                let _ = self.bus.read_chr(tile_addr + 8, intrs);
             }
         }
     }
 
     // https://wiki.nesdev.org/w/index.php/PPU_OAM
-    fn fetch_sprites(&mut self) {
+    fn fetch_sprites(&mut self, intrs: &mut CpuInterrupts) {
         // OAMADDR set to $00 on prerender and visible scanlines
         self.write_oamaddr(0x00);
 
         match self.cycle & 0x07 {
             // Garbage NT sprite fetch (257, 265, 273, etc.) - Required for proper // MC-ACC IRQs
             // (MMC3 clone)
-            1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
-            3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
+            1 => self.fetch_bg_nt_byte(intrs),   // Garbage NT fetch
+            3 => self.fetch_bg_attr_byte(intrs), // Garbage attr fetch
             // Cycle 260, 268, etc. This is an approximation (each tile is actually loaded in 8
             // steps (e.g from 257 to 264))
-            4 => self.load_sprites(),
+            4 => self.load_sprites(intrs),
             _ => (),
         }
     }
@@ -988,7 +989,7 @@ impl Ppu {
     }
 
     #[inline]
-    fn tick(&mut self) {
+    fn tick(&mut self, intrs: &mut CpuInterrupts) {
         // Local variables improve cache locality
         let cycle = self.cycle;
         let scanline = self.scanline;
@@ -1008,7 +1009,7 @@ impl Ppu {
                         if visible_scanline {
                             self.evaluate_sprites();
                         }
-                        self.fetch_background();
+                        self.fetch_background(intrs);
                         if prerender_scanline && cycle <= 8 && self.oamaddr >= 0x08 {
                             // If OAMADDR is not less than eight when rendering starts, the eight bytes
                             // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
@@ -1035,16 +1036,16 @@ impl Ppu {
                             // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
                             self.scroll.copy_y();
                         }
-                        self.fetch_sprites();
+                        self.fetch_sprites(intrs);
                     }
                     // 321..=340
                     Self::BG_PREFETCH_START..=Self::CYCLE_END => {
                         // 336
                         if cycle <= Self::BG_PREFETCH_END {
-                            self.fetch_background();
+                            self.fetch_background(intrs);
                         } else if cycle >= Self::BG_DUMMY_START {
                             // 337..=340
-                            self.fetch_bg_nt_byte();
+                            self.fetch_bg_nt_byte(intrs);
                         }
                         self.oam_fetch = self.secondary_oamdata[0];
 
@@ -1073,13 +1074,13 @@ impl Ppu {
             }
         }
 
-        self.mask.clock();
+        self.mask.clock(intrs);
         if self.scroll.delayed_update()
             && (self.scanline > Self::VISIBLE_SCANLINE_END || !self.mask.rendering_enabled)
         {
             // MMC3 clocks using A12
             let addr = self.scroll.addr();
-            self.bus.mapper.bus_read(addr, BusKind::Ppu);
+            self.bus.mapper.bus_read(addr, BusKind::Ppu, intrs);
         }
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
@@ -1123,7 +1124,7 @@ impl Registers for Ppu {
     //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
-    fn write_ctrl(&mut self, val: u8) {
+    fn write_ctrl(&mut self, val: u8, intrs: &mut CpuInterrupts) {
         self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
@@ -1139,13 +1140,13 @@ impl Registers for Ppu {
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.ctrl.nmi_enabled {
-            Cpu::clear_nmi();
+            intrs.clear_nmi();
         } else if self.status.in_vblank {
             trace!(
                 "$2000 NMI During VBL - PPU:{:3},{:3}",
                 self.cycle, self.scanline
             );
-            Cpu::set_nmi();
+            intrs.set_nmi();
         }
     }
 
@@ -1171,12 +1172,12 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank starts, or CPU reads $2002
     //       |   7 | VBlank Flag, 1 = PPU is generating a Vertical Blanking Impulse
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
-    fn read_status(&mut self) -> u8 {
+    fn read_status(&mut self, interrupts: &mut CpuInterrupts) -> u8 {
         let status = self.peek_status();
-        if Cpu::nmi_pending() {
+        if interrupts.nmi_pending() {
             trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline,);
         }
-        Cpu::clear_nmi();
+        interrupts.clear_nmi();
         self.status.reset_in_vblank();
         self.scroll.reset_latch();
 
@@ -1190,7 +1191,7 @@ impl Registers for Ppu {
             self.prevent_vbl = true;
         }
         self.open_bus |= status & 0xE0;
-        self.bus.mapper.bus_write(0x2002, status, BusKind::Ppu);
+        self.bus.mapper.bus_write(0x2002, status, BusKind::Ppu, interrupts);
         status
     }
 
@@ -1303,7 +1304,7 @@ impl Registers for Ppu {
 
     // $2006 | W   | PPUADDR
     #[inline(always)]
-    fn write_addr(&mut self, val: u8) {
+    fn write_addr(&mut self, val: u8, intrs: &mut CpuInterrupts) {
         self.open_bus = val;
         if self.reset_signal && self.emulate_warmup {
             return;
@@ -1312,17 +1313,17 @@ impl Registers for Ppu {
         // MMC3 clocks using A12
         self.bus
             .mapper
-            .bus_write(self.scroll.addr(), val, BusKind::Ppu);
+            .bus_write(self.scroll.addr(), val, BusKind::Ppu, intrs);
     }
 
     // $2007 | RW  | PPUDATA
-    fn read_data(&mut self) -> u8 {
+    fn read_data(&mut self, intrs: &mut CpuInterrupts) -> u8 {
         let addr = self.scroll.addr();
         self.increment_vram_addr();
 
         // Buffering quirk resulting in a dummy read for the CPU
         // for reading pre-palette data in $0000 - $3EFF
-        let val = self.bus.read(addr);
+        let val = self.bus.read(addr, intrs);
         let val = if addr < Self::PALETTE_START {
             let buffer = self.vram_buffer;
             self.vram_buffer = val;
@@ -1331,14 +1332,14 @@ impl Registers for Ppu {
             // Set internal buffer with mirrors of nametable when reading palettes
             // Since we're reading from > $3EFF subtract $1000 to fill
             // buffer with nametable mirror data
-            self.vram_buffer = self.bus.read(addr - 0x1000);
+            self.vram_buffer = self.bus.read(addr - 0x1000, intrs);
             // Hi 2 bits of palette should be open bus
             val | (self.open_bus & 0xC0)
         };
 
         self.open_bus = val;
         // MMC3 clocks using A12
-        self.bus.mapper.bus_read(self.scroll.addr(), BusKind::Ppu);
+        self.bus.mapper.bus_read(self.scroll.addr(), BusKind::Ppu, intrs);
 
         trace!(
             "PPU $2007 read: {val:02X} - PPU:{:3},{:3}",
@@ -1362,7 +1363,7 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    fn write_data(&mut self, val: u8) {
+    fn write_data(&mut self, val: u8, intrs: &mut CpuInterrupts) {
         self.open_bus = val;
         let addr = self.scroll.addr();
         trace!(
@@ -1370,25 +1371,25 @@ impl Registers for Ppu {
             self.cycle, self.scanline
         );
         self.increment_vram_addr();
-        self.bus.write(addr, val);
+        self.bus.write(addr, val, intrs);
 
         // MMC3 clocks using A12
         let addr = self.scroll.addr();
-        self.bus.mapper.bus_write(addr, val, BusKind::Ppu);
+        self.bus.mapper.bus_write(addr, val, BusKind::Ppu, intrs);
     }
 }
 
 impl Clock for Ppu {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
         if self.cycle < Self::CYCLE_END {
             self.cycle += 1;
-            self.tick();
+            self.tick(intrs);
 
             if self.cycle == Self::VBLANK {
                 if self.scanline == self.vblank_scanline {
-                    self.start_vblank();
+                    self.start_vblank(intrs);
                 } else if self.scanline == self.prerender_scanline {
-                    self.stop_vblank();
+                    self.stop_vblank(intrs);
                 }
             }
         } else {
@@ -1413,9 +1414,9 @@ impl Clock for Ppu {
 }
 
 impl ClockTo for Ppu {
-    fn clock_to(&mut self, clock: u32) {
+    fn clock_to(&mut self, clock: u32, intrs: &mut CpuInterrupts) {
         while self.master_clock + self.clock_divider <= clock {
-            self.clock();
+            self.clock(intrs);
             self.master_clock += self.clock_divider;
         }
     }
@@ -1426,7 +1427,7 @@ impl Regional for Ppu {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, intrs: &mut CpuInterrupts) {
         // https://www.nesdev.org/wiki/Cycle_reference_chart
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
             NesRegion::Auto | NesRegion::Ntsc => (
@@ -1451,17 +1452,17 @@ impl Regional for Ppu {
         self.prerender_scanline = prerender_scanline;
         // PAL refreshes OAM later due to extended vblank to avoid OAM decay
         self.pal_spr_eval_scanline = self.vblank_scanline + 24;
-        self.bus.set_region(region);
+        self.bus.set_region(region, intrs);
         self.mask.set_region(region);
     }
 }
 
 impl Reset for Ppu {
-    fn reset(&mut self, kind: ResetKind) {
-        self.ctrl.reset(kind);
-        self.mask.reset(kind);
-        self.status.reset(kind);
-        self.scroll.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
+        self.ctrl.reset(kind, intrs);
+        self.mask.reset(kind, intrs);
+        self.status.reset(kind, intrs);
+        self.scroll.reset(kind, intrs);
         if kind == ResetKind::Soft {
             self.reset_signal = self.emulate_warmup;
         }
@@ -1475,7 +1476,7 @@ impl Reset for Ppu {
         self.scanline = 0;
         self.master_clock = 0;
         self.prevent_vbl = false;
-        self.frame.reset(kind);
+        self.frame.reset(kind, intrs);
         self.oam_fetch = 0x00;
         self.oam_eval_done = false;
         self.overflow_count = 0;
@@ -1486,7 +1487,7 @@ impl Reset for Ppu {
         self.sprites = [Sprite::new(); 8];
         self.spr_present = ConstArray::new();
         self.open_bus = 0x00;
-        self.bus.reset(kind);
+        self.bus.reset(kind, intrs);
     }
 }
 
@@ -1545,67 +1546,74 @@ mod tests {
     #[test]
     fn vram_writes() {
         let mut ppu = Ppu::default();
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        let mut intrs = CpuInterrupts::default();
+        ppu.write_addr(0x23, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to $2305
 
-        assert_eq!(ppu.bus.read_ciram(0x2305), 0x66);
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_data(0x66, &mut intrs); // write to $2305
+
+        assert_eq!(ppu.bus.read_ciram(0x2305, &mut intrs), 0x66);
     }
 
     #[test]
     fn vram_reads() {
+        let mut intrs = CpuInterrupts::default();
         let mut ppu = Ppu::default();
-        ppu.write_ctrl(0x00);
-        ppu.bus.write(0x2305, 0x66);
+        ppu.write_ctrl(0x00, &mut intrs);
+        ppu.bus.write(0x2305, 0x66, &mut intrs);
 
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x23, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
+
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
         assert_eq!(ppu.scroll.addr(), 0x2306);
-        assert_eq!(ppu.read_data(), 0x66);
+        assert_eq!(ppu.read_data(&mut intrs), 0x66);
         assert_eq!(ppu.scroll.addr(), 0x2307);
     }
 
     #[test]
     fn vram_read_pagecross() {
+        let mut intrs = CpuInterrupts::default();
         let mut ppu = Ppu::default();
-        ppu.write_ctrl(0x00);
-        ppu.bus.write(0x21FF, 0x66);
-        ppu.bus.write(0x2200, 0x77);
+        ppu.write_ctrl(0x00, &mut intrs);
+        ppu.bus.write(0x21FF, 0x66, &mut intrs);
+        ppu.bus.write(0x2200, 0x77, &mut intrs);
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0xFF);
+        ppu.write_addr(0x21, &mut intrs);
+        ppu.write_addr(0xFF, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.read_data(), 0x77);
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x66);
+        assert_eq!(ppu.read_data(&mut intrs), 0x77);
     }
 
     #[test]
     fn vram_read_vertical_increment() {
         let mut ppu = Ppu::default();
-        ppu.write_ctrl(0b100);
-        ppu.bus.write(0x21FF, 0x66);
-        ppu.bus.write(0x21FF + 32, 0x77);
-        ppu.bus.write(0x21FF + 64, 0x88);
+        let mut intrs = CpuInterrupts::default();
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0xFF);
+        ppu.write_ctrl(0b100, &mut intrs);
+        ppu.bus.write(0x21FF, 0x66, &mut intrs);
+        ppu.bus.write(0x21FF + 32, 0x77, &mut intrs);
+        ppu.bus.write(0x21FF + 64, 0x88, &mut intrs);
+
+        ppu.write_addr(0x21, &mut intrs);
+        ppu.write_addr(0xFF, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.read_data(), 0x77);
-        assert_eq!(ppu.read_data(), 0x88);
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x66);
+        assert_eq!(ppu.read_data(&mut intrs), 0x77);
+        assert_eq!(ppu.read_data(&mut intrs), 0x88);
     }
 
     // Horizontal: https://wiki.nesdev.org/w/index.php/Mirroring
@@ -1614,35 +1622,37 @@ mod tests {
     #[test]
     fn vram_horizontal_mirror() {
         let mut ppu = Ppu::default();
-        ppu.write_addr(0x24);
-        ppu.write_addr(0x05);
-        // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to a at $2405
+        let mut intrs = CpuInterrupts::default();
 
-        ppu.write_addr(0x28);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x24, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x77); // write to B at $2805
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_data(0x66, &mut intrs); // write to a at $2405
 
-        ppu.write_addr(0x20);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x28, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66); // read A from $2005
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_data(0x77, &mut intrs); // write to B at $2805
 
-        ppu.write_addr(0x2C);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x20, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x77); // read b from $2C05
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x66); // read A from $2005
+
+        ppu.write_addr(0x2C, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
+        // PPU writes to $2006 are delayed by 2 PPU clocks
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x77); // read b from $2C05
     }
 
     // Vertical: https://wiki.nesdev.org/w/index.php/Mirroring
@@ -1650,82 +1660,88 @@ mod tests {
     //   [0x2800 a ] [0x2C00 b ]
     #[test]
     fn vram_vertical_mirror() {
+        let mut intrs = CpuInterrupts::default();
+
         let mut ppu = Ppu::default();
         let mut cart = Cart::default();
         cart.mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
         cart.mapper.set_mirroring(Mirroring::Vertical);
         ppu.load_mapper(cart.mapper);
 
-        ppu.write_addr(0x20);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x20, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to A at $2005
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_data(0x66, &mut intrs); // write to A at $2005
 
-        ppu.write_addr(0x2C);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x2C, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x77); // write to b at $2C05
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_data(0x77, &mut intrs); // write to b at $2C05
 
-        ppu.write_addr(0x28);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x28, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66); // read a from $2805
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x66); // read a from $2805
 
-        ppu.write_addr(0x24);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x24, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x77); // read B from $2405
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x77); // read B from $2405
     }
 
     #[test]
     fn read_status_resets_latch() {
+        let mut intrs = CpuInterrupts::default();
         let mut ppu = Ppu::default();
-        ppu.bus.write(0x2305, 0x66);
+        ppu.bus.write(0x2305, 0x66, &mut intrs);
+        let mut intrs = CpuInterrupts::default();
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0x23);
+        ppu.write_addr(0x21, &mut intrs);
+        ppu.write_addr(0x23, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_addr(0x05);
-        ppu.read_data(); // buffer read
-        assert_ne!(ppu.read_data(), 0x66);
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_ne!(ppu.read_data(&mut intrs), 0x66);
 
-        ppu.read_status();
+        ppu.read_status(&mut CpuInterrupts::default());
 
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        ppu.write_addr(0x23, &mut intrs);
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
+        assert_eq!(ppu.read_data(&mut intrs), 0x66);
     }
 
     #[test]
     fn vram_mirroring() {
-        let mut ppu = Ppu::default();
-        ppu.write_ctrl(0);
-        ppu.bus.write(0x2305, 0x66);
+        let mut intrs = CpuInterrupts::default();
 
-        ppu.write_addr(0x63); // 0x6305 mirrors to 0x2305
-        ppu.write_addr(0x05);
+        let mut ppu = Ppu::default();
+        ppu.write_ctrl(0, &mut intrs);
+        ppu.bus.write(0x2305, 0x66, &mut intrs);
+
+        ppu.write_addr(0x63, &mut intrs); // 0x6305 mirrors to 0x2305
+        ppu.write_addr(0x05, &mut intrs);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
+        ppu.clock(&mut intrs);
+        ppu.clock(&mut intrs);
+        ppu.read_data(&mut intrs); // buffer read
         assert_eq!(ppu.scroll.addr(), 0x2306);
-        assert_eq!(ppu.read_data(), 0x66);
+        assert_eq!(ppu.read_data(&mut intrs), 0x66);
         assert_eq!(ppu.scroll.addr(), 0x2307);
     }
 
@@ -1734,7 +1750,8 @@ mod tests {
         let mut ppu = Ppu::default();
         ppu.status.set_in_vblank(true);
 
-        let status = ppu.read_status();
+        let mut intrs = CpuInterrupts::default();
+        let status = ppu.read_status(&mut intrs);
         assert_eq!(status >> 7, 1);
         assert_eq!(ppu.status.read() >> 7, 0);
     }
@@ -1761,7 +1778,8 @@ mod tests {
         ppu.sprites[0].bg_priority = false;
         ppu.status.set_spr_zero_hit(false);
 
-        ppu.tick();
+        let mut intrs = CpuInterrupts::default();
+        ppu.tick(&mut intrs);
 
         assert!(ppu.status.spr_zero_hit);
     }

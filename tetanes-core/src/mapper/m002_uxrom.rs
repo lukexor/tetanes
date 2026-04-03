@@ -49,7 +49,12 @@ impl Map for Uxrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x8000..=0xFFFF => {

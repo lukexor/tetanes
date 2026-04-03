@@ -94,7 +94,7 @@ impl Status {
 
 impl Reset for Status {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         if kind == ResetKind::Hard {
             self.set_in_vblank(false); // Technically random
             self.set_spr_zero_hit(false);

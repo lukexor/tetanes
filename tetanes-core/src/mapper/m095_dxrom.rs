@@ -39,16 +39,21 @@ impl Map for Dxrom {
     // CPU $C000..=$DFFF (or $8000..=$9FFF) 8K PRG-ROM Bank 3 Fixed to second-to-last Bank
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 Fixed to Last
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        self.inner.map_read(addr)
+    fn map_read(&mut self, addr: u16, intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
+        self.inner.map_read(addr, intrs)
     }
 
     fn map_peek(&self, addr: u16) -> MappedRead {
         self.inner.map_peek(addr)
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        let write = self.inner.map_write(addr, val);
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
+        let write = self.inner.map_write(addr, val, intrs);
         if addr & 0x01 == 0x01 {
             let nametable1 = (self.inner.bank_register(0) >> 5) & 0x01;
             let nametable2 = (self.inner.bank_register(1) >> 5) & 0x01;
@@ -61,12 +66,18 @@ impl Map for Dxrom {
         write
     }
 
-    fn bus_read(&mut self, addr: u16, kind: BusKind) {
-        self.inner.bus_read(addr, kind)
+    fn bus_read(&mut self, addr: u16, kind: BusKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.inner.bus_read(addr, kind, intrs)
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
-        self.inner.bus_write(addr, val, kind)
+    fn bus_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        kind: BusKind,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) {
+        self.inner.bus_write(addr, val, kind, intrs)
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -79,13 +90,13 @@ impl Map for Dxrom {
 }
 
 impl Reset for Dxrom {
-    fn reset(&mut self, kind: ResetKind) {
-        self.inner.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.inner.reset(kind, intrs);
     }
 }
 impl Clock for Dxrom {
-    fn clock(&mut self) {
-        self.inner.clock();
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.inner.clock(intrs);
     }
 }
 impl Regional for Dxrom {
@@ -93,8 +104,8 @@ impl Regional for Dxrom {
         self.inner.region()
     }
 
-    fn set_region(&mut self, region: NesRegion) {
-        self.inner.set_region(region)
+    fn set_region(&mut self, region: NesRegion, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.inner.set_region(region, intrs)
     }
 }
 impl Sram for Dxrom {

@@ -49,7 +49,12 @@ impl Map for Gxrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         if matches!(addr, 0x8000..=0xFFFF) {
             self.chr_banks.set(0, (val & Self::CHR_BANK_MASK).into());
             self.prg_rom_banks

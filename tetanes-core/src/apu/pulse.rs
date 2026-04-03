@@ -131,13 +131,13 @@ impl Pulse {
         }
     }
 
-    pub fn clock_quarter_frame(&mut self) {
-        self.envelope.clock();
+    pub fn clock_quarter_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.envelope.clock(intrs);
     }
 
-    pub fn clock_half_frame(&mut self) {
-        self.clock_quarter_frame();
-        self.length.clock();
+    pub fn clock_half_frame(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.clock_quarter_frame(intrs);
+        self.length.clock(intrs);
         self.clock_sweep();
     }
 
@@ -212,7 +212,7 @@ impl Clock for Pulse {
     //                    |            |             |
     //                    v            v             v
     // Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.timer.tick() {
             self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
         }
@@ -220,11 +220,11 @@ impl Clock for Pulse {
 }
 
 impl Reset for Pulse {
-    fn reset(&mut self, kind: ResetKind) {
-        self.timer.reset(kind);
-        self.length.reset(kind);
-        self.envelope.reset(kind);
-        self.sweep.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.timer.reset(kind, intrs);
+        self.length.reset(kind, intrs);
+        self.envelope.reset(kind, intrs);
+        self.sweep.reset(kind, intrs);
         self.update_target_period();
         self.duty = 0;
         self.duty_cycle = 0;
@@ -264,7 +264,7 @@ impl Sweep {
 }
 
 impl Reset for Sweep {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.enabled = false;
         self.period = 0;
         self.negate = false;

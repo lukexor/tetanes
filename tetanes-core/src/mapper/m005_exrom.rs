@@ -591,7 +591,7 @@ impl Map for Exrom {
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
         match addr {
             0x0000..=0x1FFF => {
                 self.inc_fetch_count();
@@ -632,7 +632,7 @@ impl Map for Exrom {
                             if status.scanline == self.regs.irq_scanline {
                                 irq_state.pending = true;
                                 if self.regs.irq_enabled {
-                                    Cpu::set_irq(Irq::MAPPER);
+                                    intrs.set_irq(Irq::MAPPER);
                                 }
                             }
                         } else {
@@ -650,17 +650,26 @@ impl Map for Exrom {
                 self.irq_state.in_frame = false; // NMI clears in_frame
                 self.irq_state.prev_addr = None;
                 self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
+                intrs.clear_irq(Irq::MAPPER);
             }
             _ => (),
         }
-        let val = self.map_peek(addr);
+        let val = match addr {
+            0x5010 => {
+                let irq = intrs.has_irq(Irq::DMC);
+                MappedRead::Data((u8::from(irq) << 7) | self.dmc_mode)
+            }
+            0x5204 => MappedRead::Data(
+                (u8::from(self.irq_state.pending) << 7) | (u8::from(self.irq_state.in_frame) << 6),
+            ),
+            _ => self.map_peek(addr),
+        };
         match addr {
             0x5204 => {
                 self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
+                intrs.clear_irq(Irq::MAPPER);
             }
-            0x5010 => Cpu::clear_irq(Irq::DMC),
+            0x5010 => intrs.clear_irq(Irq::DMC),
             _ => (),
         }
         val
@@ -722,8 +731,7 @@ impl Map for Exrom {
                 // [I... ...M] DMC
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
-                let irq = Cpu::has_irq(Irq::DMC);
-                MappedRead::Data((u8::from(irq) << 7) | self.dmc_mode)
+                MappedRead::Data(self.dmc_mode)
             }
             0x5100 => MappedRead::Data(self.regs.prg_mode as u8),
             0x5101 => MappedRead::Data(self.regs.chr_mode as u8),
@@ -758,11 +766,8 @@ impl Map for Exrom {
                 //   P = IRQ currently pending
                 //   I = "In Frame" signal
 
-                let irq_pending = Cpu::has_irq(Irq::MAPPER);
-                // Reading $5204 will clear the pending flag (acknowledging the IRQ).
-                // Clearing is done in the read() function
                 MappedRead::Data(
-                    (u8::from(irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6),
+                    (u8::from(self.irq_state.pending) << 7) | (u8::from(self.irq_state.in_frame) << 6),
                 )
             }
             0x5205 => MappedRead::Data((self.regs.mult_result & 0xFF) as u8),
@@ -784,7 +789,12 @@ impl Map for Exrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x2000..=0x3EFF => match self.nametable_select(addr) {
                 Nametable::ScreenA => return MappedWrite::CIRam((addr & 0x03FF).into(), val),
@@ -954,9 +964,9 @@ impl Map for Exrom {
             0x5204 => {
                 self.regs.irq_enabled = val & 0x80 > 0; // [E... ....] IRQ Enable (0=disabled, 1=enabled)
                 if !self.regs.irq_enabled {
-                    Cpu::clear_irq(Irq::MAPPER);
+                    intrs.clear_irq(Irq::MAPPER);
                 } else if self.irq_state.pending {
-                    Cpu::set_irq(Irq::MAPPER);
+                    intrs.set_irq(Irq::MAPPER);
                 }
             }
             0x5205 => {
@@ -986,7 +996,13 @@ impl Map for Exrom {
         MappedWrite::Bus
     }
 
-    fn bus_write(&mut self, addr: u16, val: u8, kind: BusKind) {
+    fn bus_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        kind: BusKind,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) {
         if kind == BusKind::Cpu {
             match addr {
                 0x2000 => self.ppu_status.sprite8x16 = val & 0x20 > 0,
@@ -1012,14 +1028,14 @@ impl Map for Exrom {
 }
 
 impl Reset for Exrom {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.regs.prg_mode = PrgMode::Bank8k;
         self.regs.chr_mode = ChrMode::Bank1k;
     }
 }
 
 impl Clock for Exrom {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if self.ppu_status.reading {
             self.ppu_status.idle_count = 0;
         } else {
@@ -1033,13 +1049,13 @@ impl Clock for Exrom {
         }
         self.ppu_status.reading = false;
 
-        self.pulse1.clock();
-        self.pulse2.clock();
-        self.dmc.clock();
+        self.pulse1.clock(intrs);
+        self.pulse2.clock(intrs);
+        self.dmc.clock(intrs);
         self.pulse_timer -= 1.0;
         if self.pulse_timer <= 0.0 {
-            self.pulse1.clock_half_frame();
-            self.pulse2.clock_half_frame();
+            self.pulse1.clock_half_frame(intrs);
+            self.pulse2.clock_half_frame(intrs);
             self.pulse_timer = Cpu::region_clock_rate(self.region) / 240.0;
         }
 
@@ -1055,8 +1071,8 @@ impl Regional for Exrom {
         self.dmc.region()
     }
 
-    fn set_region(&mut self, region: NesRegion) {
-        self.dmc.set_region(region);
+    fn set_region(&mut self, region: NesRegion, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.dmc.set_region(region, intrs);
     }
 }
 

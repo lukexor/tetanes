@@ -2,7 +2,7 @@
 
 use crate::{
     common::{Clock, NesRegion, Reset, ResetKind},
-    cpu::Cpu,
+    cpu::{Cpu, CpuInterrupts},
     ppu::Ppu,
 };
 use bitflags::bitflags;
@@ -170,9 +170,9 @@ impl Input {
         self.zapper.connected = connected;
     }
 
-    pub fn set_four_player(&mut self, four_player: FourPlayer) {
+    pub fn set_four_player(&mut self, four_player: FourPlayer, intrs: &mut CpuInterrupts) {
         self.four_player = four_player;
-        self.reset(ResetKind::Hard);
+        self.reset(ResetKind::Hard, intrs);
     }
 
     pub fn clear(&mut self) {
@@ -261,8 +261,8 @@ impl InputRegisters for Input {
 }
 
 impl Clock for Input {
-    fn clock(&mut self) {
-        self.zapper.clock();
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
+        self.zapper.clock(intrs);
         if self.turbo_timer > 0 {
             self.turbo_timer -= 1;
         }
@@ -284,13 +284,13 @@ impl Clock for Input {
 }
 
 impl Reset for Input {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
         for pad in &mut self.joypads {
-            pad.reset(kind);
+            pad.reset(kind, intrs);
         }
         self.signatures[0] = Joypad::from_bytes(0b0000_1000);
         self.signatures[1] = Joypad::from_bytes(0b0000_0100);
-        self.zapper.reset(kind);
+        self.zapper.reset(kind, intrs);
     }
 }
 
@@ -456,7 +456,7 @@ impl Joypad {
 }
 
 impl Reset for Joypad {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut CpuInterrupts) {
         self.buttons = JoypadBtnState::empty();
         self.index = 0;
         self.strobe = false;
@@ -558,7 +558,7 @@ impl Zapper {
 }
 
 impl Clock for Zapper {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut CpuInterrupts) {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;
         }
@@ -566,7 +566,7 @@ impl Clock for Zapper {
 }
 
 impl Reset for Zapper {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut CpuInterrupts) {
         self.triggered = 0.0;
     }
 }

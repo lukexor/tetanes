@@ -57,7 +57,12 @@ impl Map for Nrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(addr.into(), val),
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),

@@ -69,7 +69,7 @@ impl Map for Pxrom {
     // CPU $8000..=$9FFF 8K switchable PRG-ROM bank
     // CPU $A000..=$FFFF Three 8K PRG-ROM banks, fixed to the last three banks
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
+    fn map_read(&mut self, addr: u16, _intrs: &mut crate::cpu::CpuInterrupts) -> MappedRead {
         let val = self.map_peek(addr);
         // Update latch after read
         match addr {
@@ -92,7 +92,12 @@ impl Map for Pxrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x6000..=0x7FFF => MappedWrite::PrgRam((addr & 0x1FFF).into(), val),
             0xA000..=0xAFFF => {
@@ -126,7 +131,7 @@ impl Map for Pxrom {
 }
 
 impl Reset for Pxrom {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.latch = [0x00; 2];
         self.latch_banks = [0x00; 4];
         self.update_banks();

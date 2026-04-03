@@ -5,7 +5,7 @@
 use crate::{
     apu::timer::{Timer, TimerCycle},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
-    cpu::{Cpu, Irq},
+    cpu::{CpuInterrupts, Irq},
 };
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -106,7 +106,7 @@ impl Dmc {
         self.should_clock = self.bytes_remaining > 0;
     }
 
-    pub fn load_buffer(&mut self, val: u8) {
+    pub fn load_buffer(&mut self, val: u8, intrs: &mut CpuInterrupts) {
         if self.bytes_remaining > 0 {
             self.sample_buffer = val;
             self.buffer_empty = false;
@@ -122,7 +122,7 @@ impl Dmc {
                 if self.loops {
                     self.init_sample();
                 } else if self.irq_enabled {
-                    Cpu::set_irq(Irq::DMC);
+                    intrs.set_irq(Irq::DMC);
                 }
             }
         }
@@ -139,12 +139,12 @@ impl Dmc {
     }
 
     /// $4010 DMC timer
-    pub fn write_timer(&mut self, val: u8) {
+    pub fn write_timer(&mut self, val: u8, intrs: &mut CpuInterrupts) {
         self.irq_enabled = val & 0x80 == 0x80;
         self.loops = val & 0x40 == 0x40;
         self.timer.period = Self::period(self.region, val);
         if !self.irq_enabled {
-            Cpu::clear_irq(Irq::DMC);
+            self.clear_irq(intrs);
         }
     }
 
@@ -175,12 +175,16 @@ impl Dmc {
         }
     }
 
-    pub fn should_clock(&mut self) -> bool {
+    pub fn clear_irq(&mut self, intrs: &mut CpuInterrupts) {
+        intrs.clear_irq(Irq::DMC);
+    }
+
+    pub fn should_clock(&mut self, intrs: &mut CpuInterrupts) -> bool {
         if self.init > 0 {
             self.init -= 1;
             if self.init == 0 && self.buffer_empty && self.bytes_remaining > 0 {
                 trace!("APU DMC DMA pending");
-                Cpu::start_dmc_dma();
+                intrs.start_dmc_dma();
             }
         }
         self.should_clock
@@ -208,7 +212,7 @@ impl Clock for Dmc {
     //                            |
     //                            v
     // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut CpuInterrupts) {
         if self.timer.tick() {
             if !self.silence {
                 // Update output level but clamp to 0..=127 range
@@ -235,7 +239,7 @@ impl Clock for Dmc {
                     self.buffer_empty = true;
                     if self.bytes_remaining > 0 {
                         trace!("APU DMC DMA pending");
-                        Cpu::start_dmc_dma();
+                        intrs.start_dmc_dma();
                     }
                 }
             }
@@ -248,15 +252,15 @@ impl Regional for Dmc {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, _intrs: &mut CpuInterrupts) {
         self.region = region;
         self.timer.period = Self::period(region, 0);
     }
 }
 
 impl Reset for Dmc {
-    fn reset(&mut self, kind: ResetKind) {
-        self.timer.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
+        self.timer.reset(kind, intrs);
         self.timer.period = Self::period(self.region, 0);
         self.timer.reload();
         self.timer.cycle += 1; // FIXME: Startup timing is slightly wrong, DMA tests fail with the
@@ -276,5 +280,6 @@ impl Reset for Dmc {
         self.shift = 0x00;
         self.silence = true;
         self.should_clock = false;
+        intrs.clear_irq(Irq::DMC);
     }
 }

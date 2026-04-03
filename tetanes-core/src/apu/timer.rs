@@ -49,7 +49,7 @@ impl Timer {
 }
 
 impl Reset for Timer {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.counter = 0;
         self.period = 0;
         self.cycle = 0;

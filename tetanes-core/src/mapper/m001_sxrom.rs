@@ -226,7 +226,12 @@ impl Map for Sxrom {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         match addr {
             0x0000..=0x1FFF => MappedWrite::ChrRam(self.chr_banks.translate(addr), val),
             0x6000..=0x7FFF if self.prg_ram_enabled() => {
@@ -320,7 +325,7 @@ impl Map for Sxrom {
 }
 
 impl Reset for Sxrom {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.reset_buffer();
         self.regs.prg_mode = true;
         self.regs.prg_bank_select = true;
@@ -333,7 +338,7 @@ impl Reset for Sxrom {
 }
 
 impl Clock for Sxrom {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.regs.write_just_occurred > 0 {
             self.regs.write_just_occurred -= 1;
         }

@@ -110,7 +110,7 @@ impl Frame {
 }
 
 impl Reset for Frame {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.count = 0;
         self.buffer = Buffer::default();
     }

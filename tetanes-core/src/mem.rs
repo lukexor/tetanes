@@ -14,6 +14,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::cpu::CpuInterrupts;
+
 /// Represents ROM or RAM memory in bytes, with a custom Debug implementation that avoids
 /// printing the entire contents.
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -289,14 +291,14 @@ where
 /// A trait that represents memory read operations. Reads typically have side-effects.
 pub trait Read {
     /// Read from the given address.
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16, _intrs: &mut CpuInterrupts) -> u8 {
         self.peek(addr)
     }
 
     /// Read two bytes from the given address.
-    fn read_u16(&mut self, addr: u16) -> u16 {
-        let lo = self.read(addr);
-        let hi = self.read(addr.wrapping_add(1));
+    fn read_u16(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u16 {
+        let lo = self.read(addr, intrs);
+        let hi = self.read(addr.wrapping_add(1), intrs);
         u16::from_le_bytes([lo, hi])
     }
 
@@ -314,13 +316,13 @@ pub trait Read {
 /// A trait that represents memory write operations.
 pub trait Write {
     /// Write value to the given address.
-    fn write(&mut self, addr: u16, val: u8);
+    fn write(&mut self, addr: u16, val: u8, intrs: &mut CpuInterrupts);
 
     /// Write  valuetwo bytes to the given address.
-    fn write_u16(&mut self, addr: u16, val: u16) {
+    fn write_u16(&mut self, addr: u16, val: u16, intrs: &mut CpuInterrupts) {
         let [lo, hi] = val.to_le_bytes();
-        self.write(addr, lo);
-        self.write(addr, hi);
+        self.write(addr, lo, intrs);
+        self.write(addr, hi, intrs);
     }
 }
 

@@ -418,7 +418,7 @@ impl Regional for Cart {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    fn set_region(&mut self, region: NesRegion, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.region = region;
     }
 }

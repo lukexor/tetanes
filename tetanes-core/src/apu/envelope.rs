@@ -56,7 +56,7 @@ impl Envelope {
 }
 
 impl Clock for Envelope {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.start {
             self.start = false;
             self.counter = 15;
@@ -75,7 +75,7 @@ impl Clock for Envelope {
 }
 
 impl Reset for Envelope {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.start = false;
         self.constant_volume = false;
         self.volume = 0;

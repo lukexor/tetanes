@@ -2,6 +2,7 @@
 
 use crate::{
     common::{NesRegion, Regional, Reset, ResetKind},
+    cpu::CpuInterrupts,
     mapper::{BusKind, Map, MappedRead, MappedWrite, Mapper},
     mem::{ConstArray, Memory, RamState, Read, Write},
     ppu::{Mirroring, Ppu},
@@ -109,8 +110,8 @@ impl Bus {
         addr as usize
     }
 
-    pub fn read_ciram(&mut self, addr: u16) -> u8 {
-        match self.mapper.map_read(addr) {
+    pub fn read_ciram(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u8 {
+        match self.mapper.map_read(addr, intrs) {
             MappedRead::Bus => self.ciram[Self::ciram_mirror(addr, self.mirroring())],
             MappedRead::CIRam(addr) => self.ciram[addr],
             MappedRead::ExRam(addr) => self.exram[addr],
@@ -145,8 +146,8 @@ impl Bus {
         }
     }
 
-    pub fn read_chr(&mut self, addr: u16) -> u8 {
-        let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr) {
+    pub fn read_chr(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u8 {
+        let addr = if let MappedRead::Chr(addr) = self.mapper.map_read(addr, intrs) {
             addr
         } else {
             addr.into()
@@ -171,10 +172,10 @@ impl Bus {
 }
 
 impl Read for Bus {
-    fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16, intrs: &mut CpuInterrupts) -> u8 {
         let val = match addr {
-            0x2000..=0x3EFF => self.read_ciram(addr),
-            0x0000..=0x1FFF => self.read_chr(addr),
+            0x2000..=0x3EFF => self.read_ciram(addr, intrs),
+            0x0000..=0x1FFF => self.read_chr(addr, intrs),
             0x3F00..=0x3FFF => self.peek_palette(addr),
             _ => {
                 error!("unexpected PPU memory access at ${:04X}", addr);
@@ -199,9 +200,9 @@ impl Read for Bus {
 }
 
 impl Write for Bus {
-    fn write(&mut self, addr: u16, val: u8) {
+    fn write(&mut self, addr: u16, val: u8, intrs: &mut CpuInterrupts) {
         match addr {
-            0x0000..=0x3EFF => match self.mapper.map_write(addr, val) {
+            0x0000..=0x3EFF => match self.mapper.map_write(addr, val, intrs) {
                 MappedWrite::Bus => {
                     let addr = Self::ciram_mirror(addr, self.mirroring());
                     self.ciram[addr] = val;
@@ -231,7 +232,7 @@ impl Write for Bus {
             }
             _ => error!("unexpected PPU memory access at ${:04X}", addr),
         }
-        self.mapper.bus_write(addr, val, BusKind::Ppu);
+        self.mapper.bus_write(addr, val, BusKind::Ppu, intrs);
         self.open_bus = val;
     }
 }
@@ -241,18 +242,18 @@ impl Regional for Bus {
         self.mapper.region()
     }
 
-    fn set_region(&mut self, region: NesRegion) {
-        self.mapper.set_region(region);
+    fn set_region(&mut self, region: NesRegion, intrs: &mut CpuInterrupts) {
+        self.mapper.set_region(region, intrs);
     }
 }
 
 impl Reset for Bus {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, kind: ResetKind, intrs: &mut CpuInterrupts) {
         self.open_bus = 0x00;
         if self.chr_ram {
             self.ram_state.fill(&mut self.chr);
         }
-        self.mapper.reset(kind);
+        self.mapper.reset(kind, intrs);
     }
 }
 

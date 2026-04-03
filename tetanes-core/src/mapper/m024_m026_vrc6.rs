@@ -260,7 +260,12 @@ impl Map for Vrc6 {
         }
     }
 
-    fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        mut addr: u16,
+        val: u8,
+        intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
             return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
         }
@@ -308,8 +313,8 @@ impl Map for Vrc6 {
                 self.update_chr_banks();
             }
             0xF000 => self.irq.write_reload(val),
-            0xF001 => self.irq.write_control(val),
-            0xF002 => self.irq.acknowledge(),
+            0xF001 => self.irq.write_control(val, intrs),
+            0xF002 => self.irq.acknowledge(intrs),
             _ => (),
         }
         MappedWrite::Bus
@@ -325,16 +330,16 @@ impl Map for Vrc6 {
 }
 
 impl Reset for Vrc6 {
-    fn reset(&mut self, kind: ResetKind) {
-        self.irq.reset(kind);
-        self.audio.reset(kind);
+    fn reset(&mut self, kind: ResetKind, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.irq.reset(kind, intrs);
+        self.audio.reset(kind, intrs);
     }
 }
 
 impl Clock for Vrc6 {
-    fn clock(&mut self) {
-        self.irq.clock();
-        self.audio.clock();
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
+        self.irq.clock(intrs);
+        self.audio.clock(intrs);
     }
 }
 
@@ -405,11 +410,11 @@ impl Audio {
 }
 
 impl Clock for Audio {
-    fn clock(&mut self) {
+    fn clock(&mut self, intrs: &mut crate::cpu::CpuInterrupts) {
         if !self.halt {
-            self.pulse1.clock();
-            self.pulse2.clock();
-            self.saw.clock();
+            self.pulse1.clock(intrs);
+            self.pulse2.clock(intrs);
+            self.saw.clock(intrs);
 
             self.out = self.pulse1.volume() + self.pulse2.volume() + self.saw.volume();
         }
@@ -417,7 +422,7 @@ impl Clock for Audio {
 }
 
 impl Reset for Audio {
-    fn reset(&mut self, _kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind, _intrs: &mut crate::cpu::CpuInterrupts) {
         self.halt = false;
     }
 }
@@ -488,7 +493,7 @@ impl Pulse {
 }
 
 impl Clock for Pulse {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {
@@ -562,7 +567,7 @@ impl Saw {
 }
 
 impl Clock for Saw {
-    fn clock(&mut self) {
+    fn clock(&mut self, _intrs: &mut crate::cpu::CpuInterrupts) {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {

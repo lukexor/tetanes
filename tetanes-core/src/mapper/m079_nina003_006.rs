@@ -48,7 +48,12 @@ impl Map for Nina003006 {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         if matches!(addr, 0x0000..=0x1FFF) {
             // return MappedWrite::Chr(self.chr_banks.translate(addr), val);
         } else if (addr & 0xE100) == 0x4100 {

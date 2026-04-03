@@ -70,7 +70,12 @@ impl Map for Bf909x {
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    fn map_write(
+        &mut self,
+        addr: u16,
+        val: u8,
+        _intrs: &mut crate::cpu::CpuInterrupts,
+    ) -> MappedWrite {
         // Firehawk uses $9000 to change mirroring
         if addr == 0x9000 {
             self.revision = Revision::Bf9097;
