@@ -5,11 +5,10 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::{Cpu, Irq},
     fs,
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
+    mapper::{self, Map, Mapper},
     mem::{BankAccess, Banks, ConstArray, Memory},
-    ppu::Mirroring,
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,16 +27,20 @@ pub enum Board {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
-    irq_counter: u16,
-    nt_select_lo: bool,
-    nt_select_hi: bool,
-    prg_ram_protect: u8,
+    pub irq_counter: u16,
+    pub irq_pending: bool,
+    pub nt_select_lo: bool,
+    pub nt_select_hi: bool,
+    pub prg_ram_protect: u8,
 }
 
 /// `Namco163` (Mapper 019).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Namco163 {
+    pub chr_rom: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub board: Board,
     pub mapper_num: u16,
@@ -57,12 +60,21 @@ impl Namco163 {
     const PRG_RAM_SIZE: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        if !cart.has_prg_ram() && cart.battery_backed() {
-            cart.add_prg_ram(Self::PRG_RAM_SIZE);
-        }
+    /// Load `Namco163` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
         let mut auto_detect_board = false;
+        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
+        let chr_banks = Banks::new(0x0000, 0x3FFF, chr_rom.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut namco163 = Self {
+            chr_rom,
+            prg_rom,
+            prg_ram,
             regs: Regs::default(),
             board: match cart.mapper_num() {
                 19 => {
@@ -86,9 +98,9 @@ impl Namco163 {
             mirroring: cart.mirroring(),
             prg_ram_written_to: false,
             nt_bank_enable: [false; 12],
-            chr_banks: Banks::new(0x0000, 0x3FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
-            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
         };
         // Default 0x2000.=0x2FFF to NTRAM
         for bank in 8..12 {
@@ -178,51 +190,68 @@ impl Map for Namco163 {
     // $2800..=$2BFF bank 10 -> page N -> addr + page * $0400
     // $2C00..=$2FFF bank 11 -> page N -> addr + page * $0400
 
-    fn map_read(&mut self, addr: u16) -> MappedRead {
-        if matches!(addr, 0x4800..=0x4FFF) {
-            MappedRead::Data(self.audio.read_register(addr))
-        } else {
-            self.map_peek(addr)
-        }
-    }
-
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
             0x0000..=0x3EFF => {
                 let bank = addr >> 10;
                 let addr = self.chr_banks.translate(addr);
                 if self.nt_bank_enable[bank as usize] {
-                    MappedRead::CIRam(addr)
+                    ciram[addr]
                 } else {
-                    MappedRead::Chr(addr)
+                    self.chr_rom[addr]
                 }
             }
+            _ => 0,
+        }
+    }
+
+    /// Read a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_read(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x4800..=0x4FFF => self.audio.read_register(addr),
+            _ => self.prg_peek(addr),
+        }
+    }
+
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
+        match addr {
             0x6000..=0x7FFF => {
                 if self.prg_ram_banks.readable(addr) {
-                    MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
+                    self.prg_ram[self.prg_ram_banks.translate(addr)]
                 } else {
-                    MappedRead::Bus
+                    0
                 }
             }
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
             _ => match addr & 0xF800 {
-                0x4800 => MappedRead::Data(self.audio.peek_register(addr)),
-                0x5000 => MappedRead::Data((self.regs.irq_counter & 0xFF) as u8),
-                0x5800 => MappedRead::Data((self.regs.irq_counter >> 8) as u8),
-                _ => MappedRead::Bus,
+                0x4800 => self.audio.peek_register(addr),
+                0x5000 => (self.regs.irq_counter & 0xFF) as u8,
+                0x5800 => (self.regs.irq_counter >> 8) as u8,
+                _ => 0,
             },
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
-        match addr {
-            0x0000..=0x3EFF => {
-                let bank = addr >> 10;
-                let addr = self.chr_banks.translate(addr);
-                if self.nt_bank_enable[bank as usize] {
-                    return MappedWrite::CIRam(addr, val);
-                }
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
+        if let 0x0000..=0x3EFF = addr {
+            let bank = addr >> 10;
+            let addr = self.chr_banks.translate(addr);
+            if self.nt_bank_enable[bank as usize] {
+                ciram[addr] = val;
             }
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        match addr {
             0x4800..=0x4FFF => {
                 self.maybe_set_board(Board::Namco163);
                 self.audio.write_register(addr, val)
@@ -230,12 +259,12 @@ impl Map for Namco163 {
             0x5000..=0x57FF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val);
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
             0x5800..=0x5FFF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF) | (u16::from(val) << 8);
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
             0x6000..=0x7FFF => {
                 self.prg_ram_written_to = true;
@@ -243,7 +272,7 @@ impl Map for Namco163 {
                     self.maybe_set_board(Board::Unknown);
                 }
                 if self.prg_ram_banks.writable(addr) {
-                    return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
+                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
                 }
             }
             0x8000..=0xDFFF => {
@@ -281,13 +310,12 @@ impl Map for Namco163 {
 
                 match self.board {
                     Board::Namco340 => {
-                        self.set_mirroring(match (val & 0xC0) >> 6 {
-                            0 => Mirroring::SingleScreenA,
-                            1 => Mirroring::Vertical,
-                            2 => Mirroring::Horizontal,
-                            3 => Mirroring::SingleScreenB,
-                            _ => unreachable!("invalid mirroring mode: ${val:02X}"),
-                        });
+                        self.mirroring = match (val & 0xC0) >> 6 {
+                            0b00 => Mirroring::SingleScreenA,
+                            0b01 => Mirroring::Vertical,
+                            0b10 => Mirroring::Horizontal,
+                            _ => Mirroring::SingleScreenB,
+                        };
                     }
                     Board::Namco163 => self.audio.write_register(addr, val),
                     _ => (),
@@ -312,9 +340,15 @@ impl Map for Namco163 {
             }
             _ => (),
         }
-        MappedWrite::Bus
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -341,7 +375,7 @@ impl Clock for Namco163 {
         if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
             if self.regs.irq_counter & 0x7FFF == 0x7FFF {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
         }
         if self.board == Board::Namco163 {
@@ -371,14 +405,14 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: Memory<ConstArray<u8, 0x80>>,
-    addr: usize,
-    auto_increment: bool,
-    disabled: bool,
-    update_counter: u8,
-    current_channel: i8,
-    channel_out: [f32; Self::CHANNEL_COUNT],
-    out: f32,
+    pub ram: ConstArray<u8, 0x80>,
+    pub addr: usize,
+    pub auto_increment: bool,
+    pub disabled: bool,
+    pub update_counter: u8,
+    pub current_channel: i8,
+    pub channel_out: [f32; Self::CHANNEL_COUNT],
+    pub out: f32,
 }
 
 impl Default for Audio {
@@ -402,7 +436,7 @@ impl Audio {
 
     pub fn new() -> Self {
         Self {
-            ram: Memory::new_const(),
+            ram: ConstArray::new(),
             addr: 0,
             auto_increment: false,
             disabled: false,

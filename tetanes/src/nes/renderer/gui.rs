@@ -45,7 +45,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
     cpu::instr::InstrRef,
-    ppu::Ppu,
+    ppu,
     time::{Duration, Instant},
 };
 use tracing::{error, info, warn};
@@ -1207,13 +1207,13 @@ impl Gui {
                                 .action_input(DeckAction::ZapperAimOffscreen)
                                 .is_some_and(|input| input_down(ui, gamepads, cfg, input))
                             {
-                                let pos = (Ppu::WIDTH + 10, Ppu::HEIGHT + 10);
+                                let pos = (ppu::size::WIDTH + 10, ppu::size::HEIGHT + 10);
                                 tx.event(EmulationEvent::ZapperAim(pos));
                             } else if let Some(Pos2 { x, y }) = res
                                 .hover_pos()
                                 .and_then(|Pos2 { x, y }| cursor_to_zapper(x, y, res.rect))
                             {
-                                let pos = (x.round() as u32, y.round() as u32);
+                                let pos = (x.round() as u16, y.round() as u16);
                                 tx.event(EmulationEvent::ZapperAim(pos));
                             }
                         }

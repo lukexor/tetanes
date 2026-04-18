@@ -10,16 +10,16 @@ use std::{
     fmt,
     marker::PhantomData,
     num::NonZeroUsize,
-    ops::{Deref, DerefMut, Index, IndexMut},
+    ops::{Deref, DerefMut, Index, IndexMut, Range, RangeInclusive},
     str::FromStr,
 };
+use tracing::warn;
 
 /// Represents ROM or RAM memory in bytes, with a custom Debug implementation that avoids
 /// printing the entire contents.
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Copy, Clone, Serialize, Deserialize)]
 pub struct Memory<D> {
     data: D,
-    mask: usize,
 }
 
 impl Memory<Box<[u8]>> {
@@ -27,20 +27,24 @@ impl Memory<Box<[u8]>> {
     pub fn empty() -> Self {
         Self {
             data: Vec::new().into_boxed_slice(),
-            mask: 0,
         }
     }
 
     /// Create a default `Memory` instance.
-    pub fn new(size: usize) -> Self {
-        debug_assert!(
-            size == 0 || size.is_power_of_two(),
-            "memory size {size} must be a power of two"
-        );
+    pub fn new(mut size: usize) -> Self {
+        if size > 0 && !size.is_power_of_two() {
+            warn!("memory size {size} must be a power of two");
+            size = size.next_power_of_two();
+        }
         Self {
             data: vec![0; size].into_boxed_slice(),
-            mask: size.saturating_sub(1),
         }
+    }
+
+    pub fn with_ram_state(size: usize, state: RamState) -> Self {
+        let mut mem = Self::new(size);
+        state.fill(&mut mem.data);
+        mem
     }
 
     /// Shortens `Memory` by keeping the first `size` bytes and dropping the rest.
@@ -48,12 +52,6 @@ impl Memory<Box<[u8]>> {
         let mut data = std::mem::take(&mut self.data).to_vec();
         data.truncate(size);
         self.data = data.into_boxed_slice();
-    }
-
-    /// Fill memory based on [`RamState`].
-    pub fn with_ram_state(mut self, state: RamState) -> Self {
-        state.fill(&mut self.data);
-        self
     }
 }
 
@@ -69,9 +67,10 @@ impl<T, const N: usize> Memory<ConstArray<T, N>> {
 
 impl<const N: usize> Memory<ConstArray<u8, N>> {
     /// Fill memory based on [`RamState`].
-    pub fn with_ram_state(mut self, state: RamState) -> Self {
-        state.fill(&mut *self.data);
-        self
+    pub fn with_ram_state_const(state: RamState) -> Self {
+        let mut mem = Self::default();
+        state.fill(&mut *mem.data);
+        mem
     }
 }
 
@@ -79,7 +78,6 @@ impl fmt::Debug for Memory<Box<[u8]>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
             .field("len", &self.data.len())
-            .field("mask", &self.mask)
             .finish()
     }
 }
@@ -88,7 +86,6 @@ impl<T, const N: usize> fmt::Debug for Memory<ConstArray<T, N>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
             .field("len", &self.data.len())
-            .field("mask", &self.mask)
             .finish()
     }
 }
@@ -118,31 +115,57 @@ impl<T, D: AsMut<[T]>> AsMut<[T]> for Memory<D> {
     }
 }
 
-impl<T> Index<usize> for Memory<Vec<T>> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        self.data.index(index & self.mask)
-    }
-}
-
-impl<T> IndexMut<usize> for Memory<Vec<T>> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.data.index_mut(index & self.mask)
-    }
-}
-
 impl<T> Index<usize> for Memory<Box<[T]>> {
     type Output = T;
 
+    #[inline(always)]
     fn index(&self, index: usize) -> &Self::Output {
-        self.data.index(index & self.mask)
+        self.data.index(index & (self.data.len() - 1))
     }
 }
 
 impl<T> IndexMut<usize> for Memory<Box<[T]>> {
+    #[inline(always)]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.data.index_mut(index & self.mask)
+        self.data.index_mut(index & (self.data.len() - 1))
+    }
+}
+
+impl<T> Index<Range<usize>> for Memory<Box<[T]>> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: Range<usize>) -> &Self::Output {
+        self.data
+            .index((range.start & (self.data.len() - 1))..range.end.min(self.len()))
+    }
+}
+
+impl<T> IndexMut<Range<usize>> for Memory<Box<[T]>> {
+    #[inline]
+    fn index_mut(&mut self, range: Range<usize>) -> &mut Self::Output {
+        self.data
+            .index_mut((range.start & (self.data.len() - 1))..range.end.min(self.len()))
+    }
+}
+
+impl<T> Index<RangeInclusive<usize>> for Memory<Box<[T]>> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: RangeInclusive<usize>) -> &Self::Output {
+        self.data.index(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
+    }
+}
+
+impl<T> IndexMut<RangeInclusive<usize>> for Memory<Box<[T]>> {
+    #[inline]
+    fn index_mut(&mut self, range: RangeInclusive<usize>) -> &mut Self::Output {
+        self.data.index_mut(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
     }
 }
 
@@ -194,24 +217,29 @@ impl<T, const N: usize> From<[T; N]> for ConstArray<T, N> {
 
 impl<T, const N: usize> Deref for ConstArray<T, N> {
     type Target = [T; N];
+
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
 impl<T, const N: usize> DerefMut for ConstArray<T, N> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
 }
 
 impl<T, const N: usize> AsRef<[T]> for ConstArray<T, N> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.data.as_ref()
     }
 }
 
 impl<T, const N: usize> AsMut<[T]> for ConstArray<T, N> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
@@ -220,14 +248,50 @@ impl<T, const N: usize> AsMut<[T]> for ConstArray<T, N> {
 impl<T, const N: usize> Index<usize> for ConstArray<T, N> {
     type Output = T;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         self.data.index(index & (N - 1))
     }
 }
 
 impl<T, const N: usize> IndexMut<usize> for ConstArray<T, N> {
+    #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.data.index_mut(index & (N - 1))
+    }
+}
+
+impl<T, const N: usize> Index<Range<usize>> for ConstArray<T, N> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: Range<usize>) -> &Self::Output {
+        self.data.index(range.start & (N - 1)..range.end.min(N))
+    }
+}
+
+impl<T, const N: usize> IndexMut<Range<usize>> for ConstArray<T, N> {
+    #[inline]
+    fn index_mut(&mut self, range: Range<usize>) -> &mut Self::Output {
+        self.data.index_mut(range.start & (N - 1)..range.end.min(N))
+    }
+}
+
+impl<T, const N: usize> Index<RangeInclusive<usize>> for ConstArray<T, N> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: RangeInclusive<usize>) -> &Self::Output {
+        self.data
+            .index(range.start() & (N - 1)..=*range.end().min(&(N - 1)))
+    }
+}
+
+impl<T, const N: usize> IndexMut<RangeInclusive<usize>> for ConstArray<T, N> {
+    #[inline]
+    fn index_mut(&mut self, range: RangeInclusive<usize>) -> &mut Self::Output {
+        self.data
+            .index_mut(range.start() & (N - 1)..=*range.end().min(&(N - 1)))
     }
 }
 
@@ -289,39 +353,19 @@ where
 /// A trait that represents memory read operations. Reads typically have side-effects.
 pub trait Read {
     /// Read from the given address.
+    #[inline(always)]
     fn read(&mut self, addr: u16) -> u8 {
         self.peek(addr)
     }
 
-    /// Read two bytes from the given address.
-    fn read_u16(&mut self, addr: u16) -> u16 {
-        let lo = self.read(addr);
-        let hi = self.read(addr.wrapping_add(1));
-        u16::from_le_bytes([lo, hi])
-    }
-
     /// Peek from the given address.
     fn peek(&self, addr: u16) -> u8;
-
-    /// Peek two bytes from the given address.
-    fn peek_u16(&self, addr: u16) -> u16 {
-        let lo = self.peek(addr);
-        let hi = self.peek(addr.wrapping_add(1));
-        u16::from_le_bytes([lo, hi])
-    }
 }
 
 /// A trait that represents memory write operations.
 pub trait Write {
     /// Write value to the given address.
     fn write(&mut self, addr: u16, val: u8);
-
-    /// Write  valuetwo bytes to the given address.
-    fn write_u16(&mut self, addr: u16, val: u16) {
-        let [lo, hi] = val.to_le_bytes();
-        self.write(addr, lo);
-        self.write(addr, hi);
-    }
 }
 
 /// RAM in a given state on startup.
@@ -414,25 +458,25 @@ pub enum BankAccess {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Banks {
-    start: usize,
-    end: usize,
     size: NonZeroUsize,
     window: NonZeroUsize,
     shift: usize,
     page_mask: usize,
     bank_mask: usize,
-    banks: Vec<usize>,
-    access: Vec<BankAccess>,
+    banks: Box<[usize]>,
+    access: Box<[BankAccess]>,
     page_count: usize,
 }
 
 #[derive(thiserror::Error, Debug)]
 #[must_use]
 pub enum Error {
-    #[error("bank `window` must a non-zero power of two")]
+    #[error("Memory Bank `window` must a non-zero power of two")]
     InvalidWindow,
-    #[error("bank `size` must be non-zero")]
+    #[error("Memory Bank `size` must be non-zero")]
     InvalidSize,
+    #[error("Memory Bank `capacity` must be non-zero")]
+    InvalidCapacity,
 }
 
 impl Banks {
@@ -449,32 +493,19 @@ impl Banks {
 
         let size = NonZeroUsize::try_from(end - start).map_err(|_| Error::InvalidSize)?;
         if capacity == 0 {
-            return Ok(Self {
-                start,
-                end,
-                size,
-                window,
-                shift: window.trailing_zeros() as usize,
-                page_mask: 0,
-                bank_mask: 0,
-                banks: Vec::new(),
-                access: Vec::new(),
-                page_count: 0,
-            });
+            return Err(Error::InvalidCapacity);
         }
 
         let bank_count = (size.get() + 1) / window;
+        let page_count = capacity / window;
 
-        let mut banks = vec![0; bank_count];
-        let access = vec![BankAccess::ReadWrite; bank_count];
+        let mut banks = vec![0; bank_count].into_boxed_slice();
+        let access = vec![BankAccess::ReadWrite; bank_count].into_boxed_slice();
         for (i, bank) in banks.iter_mut().enumerate() {
             *bank = (i * window.get()) % capacity;
         }
-        let page_count = capacity / window.get();
 
         Ok(Self {
-            start,
-            end,
             size,
             window,
             shift: window.trailing_zeros() as usize,
@@ -486,28 +517,30 @@ impl Banks {
         })
     }
 
+    #[inline(always)]
     pub fn set(&mut self, bank: usize, page: usize) {
         let bank = bank & self.bank_mask;
         self.banks[bank] = (page & self.page_mask) << self.shift;
         debug_assert!(
-            self.banks[bank] < self.page_count * self.window.get(),
+            self.banks[bank] <= self.page_count * self.window.get(),
             "memory page {} is out of bounds (max: {})",
             self.banks[bank],
             self.page_count * self.window.get()
         );
     }
 
+    #[inline(always)]
     pub fn set_range(&mut self, start: usize, end: usize, page: usize) {
         let mut new_addr = (page & self.page_mask) << self.shift;
         debug_assert!(
-            end <= self.banks.len(),
+            end < self.banks.len(),
             "end memory bank {end} is out of bounds (max {})",
             self.banks.len()
         );
         for bank in start..=end {
             self.banks[bank] = new_addr;
             debug_assert!(
-                self.banks[bank] < self.page_count * self.window.get(),
+                self.banks[bank] <= self.page_count * self.window.get(),
                 "memory page {} is out of bounds (max: {})",
                 self.banks[bank],
                 self.page_count * self.window.get()
@@ -516,16 +549,19 @@ impl Banks {
         }
     }
 
+    #[inline(always)]
     pub fn set_access(&mut self, bank: usize, access: BankAccess) {
         self.access[bank & self.bank_mask] = access;
     }
 
+    #[inline(always)]
     pub fn set_access_range(&mut self, start: usize, end: usize, access: BankAccess) {
         for slot in start..=end {
             self.set_access(slot, access);
         }
     }
 
+    #[inline(always)]
     pub fn readable(&self, addr: u16) -> bool {
         matches!(
             self.access[self.get(addr) & self.bank_mask],
@@ -533,6 +569,7 @@ impl Banks {
         )
     }
 
+    #[inline(always)]
     pub fn writable(&self, addr: u16) -> bool {
         matches!(
             self.access[self.get(addr) & self.bank_mask],
@@ -540,36 +577,43 @@ impl Banks {
         )
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn last(&self) -> usize {
         self.page_count.saturating_sub(1)
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn banks_len(&self) -> usize {
         self.banks.len()
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn get(&self, addr: u16) -> usize {
         (addr as usize & self.size.get()) >> self.shift
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn translate(&self, addr: u16) -> usize {
         (self.banks[self.get(addr) & self.bank_mask]) | (addr as usize) & (self.window.get() - 1)
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn page(&self, bank: usize) -> usize {
         self.banks[bank] >> self.shift
     }
 
+    #[inline(always)]
     #[must_use]
     pub fn page_offset(&self, bank: usize) -> usize {
         self.banks[bank]
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn page_count(&self) -> usize {
         self.page_count
@@ -579,8 +623,6 @@ impl Banks {
 impl std::fmt::Debug for Banks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("Bank")
-            .field("start", &format_args!("${:04X}", self.start))
-            .field("end", &format_args!("${:04X}", self.end))
             .field("size", &format_args!("${:04X}", self.size))
             .field("window", &format_args!("${:04X}", self.window))
             .field("shift", &self.shift)

@@ -18,7 +18,8 @@ use std::sync::{
 };
 use tetanes_core::{
     debug::PpuDebugger,
-    ppu::{Ppu, scroll::Scroll, sprite::Sprite},
+    mapper::Map,
+    ppu::{self, Ppu, addr, cycle, scanline, scroll::Scroll, sprite::Sprite},
 };
 
 #[derive(Debug)]
@@ -27,8 +28,8 @@ struct State {
     tx: NesEventProxy,
     tab: Tab,
     // TODO: persist in config
-    refresh_cycle: u32,
-    refresh_scanline: u32,
+    refresh_cycle: u16,
+    refresh_scanline: u16,
     show_refresh_lines: bool,
     show_dividers: bool,
     show_tile_grid: bool,
@@ -89,8 +90,8 @@ struct NametableTile {
     uv: Rect,
     col: u16,
     row: u16,
-    x: u32, // 0..=248
-    y: u32, // 0..=232
+    x: u16, // 0..=248
+    y: u16, // 0..=232
     nametable_addr: u16,
     tile_addr: u16,
     palette_index: u8,
@@ -174,7 +175,7 @@ pub enum Tab {
 }
 
 impl PpuViewer {
-    const TITLE: &'static str = "PPU Viewer";
+    const TITLE: &'static str = "TetaNES - PPU Viewer";
 
     pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
         Self {
@@ -184,7 +185,7 @@ impl PpuViewer {
                 tx,
                 tab: Tab::default(),
                 refresh_cycle: 0,
-                refresh_scanline: Ppu::VBLANK_SCANLINE_NTSC,
+                refresh_scanline: scanline::VBLANK_NTSC,
                 show_refresh_lines: false,
                 show_dividers: true,
                 show_tile_grid: false,
@@ -193,10 +194,10 @@ impl PpuViewer {
                 show_attr_grid_32x: false,
                 nametables: NametablesState {
                     // 4 nametables with 4 color channels (RGBA)
-                    pixels: vec![0x00; 4 * 4 * Ppu::SIZE],
+                    pixels: vec![0x00; 4 * 4 * ppu::size::FRAME],
                     texture: Texture::new(
                         render_state,
-                        2.0 * Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
+                        2.0 * Vec2::new(ppu::size::WIDTH as f32, ppu::size::HEIGHT as f32),
                         1.0,
                         Some("nes nametables"),
                     ),
@@ -205,10 +206,10 @@ impl PpuViewer {
                 },
                 pattern_tables: PatternTablesState {
                     // 2 pattern tables with 4 color channels (RGBA)
-                    pixels: vec![0x00; 2 * 4 * Ppu::SIZE],
+                    pixels: vec![0x00; 2 * 4 * ppu::size::FRAME],
                     texture: Texture::new(
                         render_state,
-                        Vec2::new(Ppu::WIDTH as f32, Ppu::WIDTH as f32 / 2.0),
+                        Vec2::new(ppu::size::WIDTH as f32, ppu::size::WIDTH as f32 / 2.0),
                         1.0,
                         Some("nes pattern tables"),
                     ),
@@ -219,7 +220,7 @@ impl PpuViewer {
                     // 64 8x8 sprites with 4 color channels (RGBA)
                     oam_pixels: vec![0x00; 64 * 8 * 8 * 4],
                     // 1 nametable with 4 color channels (RGBA)
-                    sprite_pixels: vec![0x00; 4 * Ppu::SIZE],
+                    sprite_pixels: vec![0x00; 4 * ppu::size::FRAME],
                     // 64 sprites
                     sprites: vec![Sprite::new(); 64],
                     oam_texture: Texture::new(
@@ -230,7 +231,7 @@ impl PpuViewer {
                     ),
                     sprites_texture: Texture::new(
                         render_state,
-                        Vec2::new(Ppu::WIDTH as f32, Ppu::HEIGHT as f32),
+                        Vec2::new(ppu::size::WIDTH as f32, ppu::size::HEIGHT as f32),
                         1.0,
                         Some("nes sprites"),
                     ),
@@ -426,7 +427,7 @@ impl State {
         ui.indent("refresh_settings", |ui| {
             ui.horizontal(|ui| {
                 let drag = DragValue::new(&mut self.refresh_cycle)
-                    .range(0..=Ppu::CYCLE_END)
+                    .range(0..=cycle::END)
                     .suffix(" cycle");
                 let res = ui.add(drag);
                 if res.changed() {
@@ -544,9 +545,8 @@ impl State {
                 }
 
                 if self.show_refresh_lines {
-                    let cycle_offset = self.refresh_cycle as f32 * image_rect.size().x
-                        / 2.0
-                        / Ppu::CYCLE_END as f32;
+                    let cycle_offset =
+                        self.refresh_cycle as f32 * image_rect.size().x / 2.0 / cycle::END as f32;
                     let scanline_offset = self.refresh_scanline as f32 * image_rect.size().y
                         / 2.0
                         / self.ppu.prerender_scanline as f32;
@@ -649,30 +649,30 @@ impl State {
         }
 
         let nametable_index = (row << 5) + col;
-        let base_nametable_addr = Ppu::NT_START | (nametable * Ppu::NT_SIZE);
-        let base_attr_addr = base_nametable_addr + Ppu::ATTR_OFFSET;
+        let base_nametable_addr = addr::NAMETABLE_START | (nametable * ppu::size::NAMETABLE);
+        let base_attr_addr = base_nametable_addr + addr::ATTR_OFFSET;
 
         let nametable_addr = base_nametable_addr + nametable_index;
-        let tile_index = u16::from(self.ppu.bus.peek_ciram(nametable_addr));
+        let tile_index = u16::from(self.ppu.mapper.chr_peek(nametable_addr, &self.ppu.ciram));
         let tile_addr = self.ppu.ctrl.bg_select + (tile_index << 4);
 
         let supertile = ((row & 0xFC) << 1) + (col >> 2);
         let attr_addr = base_attr_addr + supertile;
-        let attr_val = self.ppu.bus.peek_ciram(attr_addr);
+        let attr_val = self.ppu.mapper.chr_peek(attr_addr, &self.ppu.ciram);
 
         let attr_shift = (col & 0x02) | ((row & 0x02) << 1);
         // TODO: handle mmc5 extended attributes
         let palette_addr = ((attr_val >> attr_shift) & 0x03) << 2;
         let palette_index = palette_addr >> 2;
-        let palette_addr = Ppu::PALETTE_START + u16::from(palette_addr);
+        let palette_addr = addr::PALETTE_START + u16::from(palette_addr);
 
         let tile_uv = Rect::from_min_size(
             (Vec2::new(x, y) / texture_size).to_pos2(),
             Vec2::splat(8.0) / texture_size,
         );
 
-        let x = (x as u32) % Ppu::WIDTH;
-        let y = (y as u32) % Ppu::HEIGHT;
+        let x = (x as u16) % ppu::size::WIDTH;
+        let y = (y as u16) % ppu::size::HEIGHT;
 
         NametableTile {
             index: tile_index,
@@ -798,29 +798,29 @@ impl State {
             ..
         } = self.ppu;
         let use_scroll_t = scanline >= vblank_scanline
-            || (scanline == Ppu::VISIBLE_SCANLINE_END && cycle >= Ppu::SPR_EVAL_END)
-            || (scanline == prerender_scanline && cycle < Ppu::BG_PREFETCH_START + 7);
+            || (scanline == scanline::VISIBLE_END && cycle >= cycle::SPR_EVAL_END)
+            || (scanline == prerender_scanline && cycle < cycle::BG_PREFETCH_START + 7);
         let scroll_v = if use_scroll_t { scroll.t } else { scroll.v };
 
         let mut scroll_x = ((scroll_v & Scroll::COARSE_X_MASK) << 3)
-            | (((scroll_v & Scroll::NT_X_MASK) >> 10) * Ppu::WIDTH as u16);
+            | (((scroll_v & Scroll::NT_X_MASK) >> 10) * ppu::size::WIDTH);
         let scroll_y = ((scroll_v & Scroll::COARSE_Y_MASK) >> 2)
-            | (((scroll_v & Scroll::NT_Y_MASK) >> 11) * Ppu::HEIGHT as u16)
+            | (((scroll_v & Scroll::NT_Y_MASK) >> 11) * ppu::size::HEIGHT)
             | ((scroll_v & Scroll::FINE_Y_MASK) >> 12);
 
         if use_scroll_t {
             scroll_x |= scroll.fine_x;
         } else {
             // During rendering, subtract according to current cycle/scanline
-            if cycle <= Ppu::VISIBLE_END {
+            if cycle <= scanline::VISIBLE_END {
                 if cycle >= 8 {
-                    scroll_x = scroll_x.saturating_sub((cycle & !0x07) as u16);
+                    scroll_x = scroll_x.saturating_sub(cycle & !0x07);
                 }
                 // Adjust for 2x increments at end of last scanline
                 scroll_x = scroll_x.saturating_sub(16);
-            } else if cycle >= Ppu::BG_PREFETCH_START + 7 {
+            } else if cycle >= cycle::BG_PREFETCH_START + 7 {
                 scroll_x = scroll_x.saturating_sub(8);
-                if cycle >= Ppu::BG_PREFETCH_END {
+                if cycle >= cycle::BG_PREFETCH_END {
                     scroll_x = scroll_x.saturating_sub(8);
                 }
             }
@@ -1088,7 +1088,9 @@ impl State {
                                 ((sprite.x as f32) / 8.0).floor() * 8.0,
                                 ((sprite.y as f32) / 8.0).floor() * 8.0,
                             );
-                            if offset.x < Ppu::WIDTH as f32 && offset.y < Ppu::HEIGHT as f32 {
+                            if offset.x < ppu::size::WIDTH as f32
+                                && offset.y < ppu::size::HEIGHT as f32
+                            {
                                 let selection = tile_selection(
                                     spr_image_rect,
                                     self.oam.sprites_texture.size,
@@ -1300,7 +1302,7 @@ impl State {
         let pixel_idx = color_index as usize * 4;
         PaletteColor {
             index: index as u8,
-            addr: Ppu::PALETTE_START + color_index,
+            addr: addr::PALETTE_START + color_index,
             value: self.palette.colors[color_index as usize],
             color: if let [red, green, blue] = self.palette.pixels[pixel_idx..pixel_idx + 3] {
                 Color32::from_rgb(red, green, blue)

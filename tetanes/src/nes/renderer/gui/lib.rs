@@ -10,7 +10,7 @@ use egui::{
     Widget, WidgetText,
 };
 use std::ops::{Deref, DerefMut};
-use tetanes_core::ppu::Ppu;
+use tetanes_core::ppu;
 use winit::{event::ElementState, window::Window};
 
 #[derive(Debug, Copy, Clone)]
@@ -49,8 +49,8 @@ where
 }
 
 pub fn cursor_to_zapper(x: f32, y: f32, rect: Rect) -> Option<Pos2> {
-    let width = Ppu::WIDTH as f32;
-    let height = Ppu::HEIGHT as f32;
+    let width = ppu::size::WIDTH as f32;
+    let height = ppu::size::HEIGHT as f32;
     // Normalize x/y to 0..=1 and scale to PPU dimensions
     let x = ((x - rect.min.x) / rect.width()) * width;
     let y = ((y - rect.min.y) / rect.height()) * height;

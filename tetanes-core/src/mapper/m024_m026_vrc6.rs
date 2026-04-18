@@ -6,9 +6,9 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper, vrc_irq::VrcIrq},
-    mem::Banks,
-    ppu::Mirroring,
+    mapper::{self, Map, Mapper, vrc_irq::VrcIrq},
+    mem::{Banks, Memory},
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +36,9 @@ pub struct Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
+    pub chr_rom: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub revision: Revision,
     pub mirroring: Mirroring,
@@ -52,25 +55,36 @@ impl Vrc6 {
     const PRG_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(cart: &mut Cart, revision: Revision) -> Result<Mapper, mapper::Error> {
-        if !cart.has_prg_ram() {
-            cart.add_prg_ram(Self::PRG_RAM_SIZE);
-        }
+    /// Load `Vrc6` from `Cart`.
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+        revision: Revision,
+    ) -> Result<Mapper, mapper::Error> {
+        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_RAM_SIZE)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut vrc6 = Self {
+            chr_rom,
+            prg_rom,
+            prg_ram,
             regs: Regs::default(),
             revision,
             mirroring: cart.mirroring(),
             irq: VrcIrq::default(),
             audio: Audio::new(),
             nt_banks: [0; 4],
-            prg_ram_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_RAM_SIZE)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
-            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
+            chr_banks,
+            prg_ram_banks,
+            prg_rom_banks,
         };
         vrc6.prg_rom_banks.set(3, vrc6.prg_rom_banks.last());
         Ok(vrc6.into())
     }
 
+    #[inline(always)]
     #[must_use]
     pub const fn prg_ram_enabled(&self) -> bool {
         self.regs.banking_mode & 0x80 == 0x80
@@ -178,13 +192,12 @@ impl Vrc6 {
                         self.set_nametable_page(2, self.regs.chr[6]);
                         self.set_nametable_page(3, self.regs.chr[7]);
                     }
-                    2..=4 => {
+                    _ => {
                         self.set_nametable_page(0, self.regs.chr[6]);
                         self.set_nametable_page(1, self.regs.chr[7]);
                         self.set_nametable_page(2, self.regs.chr[6]);
                         self.set_nametable_page(3, self.regs.chr[7]);
                     }
-                    _ => unreachable!("impossible banking mode: {}", self.regs.banking_mode),
                 },
             }
         } else {
@@ -209,13 +222,12 @@ impl Vrc6 {
                             self.set_nametable_page(2, self.regs.chr[6] & 0x01);
                             self.set_nametable_page(3, self.regs.chr[7] & 0x01);
                         }
-                        2..=4 => {
+                        _ => {
                             self.set_nametable_page(0, self.regs.chr[6] & 0x01);
                             self.set_nametable_page(1, self.regs.chr[7] & 0x01);
                             self.set_nametable_page(2, self.regs.chr[6] & 0x01);
                             self.set_nametable_page(3, self.regs.chr[7] & 0x01);
                         }
-                        _ => unreachable!("impossible banking mode: {}", self.regs.banking_mode),
                     }
                 }
             }
@@ -239,88 +251,106 @@ impl Map for Vrc6 {
     // CPU $C000..=$DFFF 8K switchable PRG-ROM bank
     // CPU $E000..=$FFFF 8K PRG-ROM bank, fixed to the last bank
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
+            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
             0x2000..=0x3EFF => {
                 let addr = addr - 0x2000;
                 let a10 = (self.nt_banks[((addr >> 10) & 0x03) as usize] << 10) as u16;
                 let addr = a10 | (!a10 & addr);
                 if self.regs.banking_mode & 0x10 == 0x00 {
-                    MappedRead::CIRam(addr.into())
+                    ciram[addr.into()]
                 } else {
-                    MappedRead::Chr(self.chr_banks.translate(addr))
+                    self.chr_rom[self.chr_banks.translate(addr)]
                 }
             }
+            _ => 0,
+        }
+    }
+
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
+        match addr {
             0x6000..=0x7FFF if self.prg_ram_enabled() => {
-                MappedRead::PrgRam(self.prg_ram_banks.translate(addr))
+                self.prg_ram[self.prg_ram_banks.translate(addr)]
             }
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, mut addr: u16, val: u8) -> MappedWrite {
-        if self.prg_ram_enabled() && matches!(addr, 0x6000..=0x7FFF) {
-            return MappedWrite::PrgRam(self.prg_ram_banks.translate(addr), val);
-        }
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, mut addr: u16, val: u8) {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.prg_ram_enabled() {
+                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
+                }
+            }
+            _ => {
+                if self.revision == Revision::B {
+                    // Revision B swaps A0 and A1 lines
+                    addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
+                }
 
-        if self.revision == Revision::B {
-            // Revision B swaps A0 and A1 lines
-            addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
+                // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
+                match addr & 0xF003 {
+                    0x8000..=0x8003 => {
+                        // [.... PPPP]
+                        //       ||||
+                        //       ++++- Select 16 KB PRG-ROM bank at $8000-$BFFF
+                        self.prg_rom_banks
+                            .set_range(0, 1, ((val & 0x0F) << 1).into());
+                    }
+                    0x9000..=0x9003 | 0xA000..=0xA002 | 0xB000..=0xB002 => {
+                        self.audio.write_register(addr, val);
+                    }
+                    0xB003 => {
+                        // [W.PN MMDD]
+                        //  | || ||||
+                        //  | || ||++- PPU banking mode; see below
+                        //  | || ++--- Mirroring varies by banking mode, see below
+                        //  | |+------ 1: Nametables come from CHRROM, 0: Nametables come from CIRAM
+                        //  | +------- CHR A10 is 1: subject to further rules 0: according to the latched value
+                        //  +--------- PRG RAM enable
+                        self.regs.banking_mode = val;
+                        self.update_chr_banks();
+                    }
+                    0xC000..=0xC003 => {
+                        // [...P PPPP]
+                        //     | ||||
+                        //     +-++++- Select 8 KB PRG-ROM bank at $C000-$DFFF
+                        self.prg_rom_banks.set(2, (val & 0x1F).into());
+                    }
+                    0xD000..=0xD003 => {
+                        self.regs.chr[(addr & 0x03) as usize] = val.into();
+                        self.update_chr_banks();
+                    }
+                    0xE000..=0xE003 => {
+                        self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
+                        self.update_chr_banks();
+                    }
+                    0xF000 => self.irq.write_reload(val),
+                    0xF001 => self.irq.write_control(val),
+                    0xF002 => self.irq.acknowledge(),
+                    _ => (),
+                }
+            }
         }
-
-        // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
-        match addr & 0xF003 {
-            0x8000..=0x8003 => {
-                // [.... PPPP]
-                //       ||||
-                //       ++++- Select 16 KB PRG-ROM bank at $8000-$BFFF
-                self.prg_rom_banks
-                    .set_range(0, 1, ((val & 0x0F) << 1).into());
-            }
-            0x9000..=0x9003 | 0xA000..=0xA002 | 0xB000..=0xB002 => {
-                self.audio.write_register(addr, val);
-            }
-            0xB003 => {
-                // [W.PN MMDD]
-                //  | || ||||
-                //  | || ||++- PPU banking mode; see below
-                //  | || ++--- Mirroring varies by banking mode, see below
-                //  | |+------ 1: Nametables come from CHRROM, 0: Nametables come from CIRAM
-                //  | +------- CHR A10 is 1: subject to further rules 0: according to the latched value
-                //  +--------- PRG RAM enable
-                self.regs.banking_mode = val;
-                self.update_chr_banks();
-            }
-            0xC000..=0xC003 => {
-                // [...P PPPP]
-                //     | ||||
-                //     +-++++- Select 8 KB PRG-ROM bank at $C000-$DFFF
-                self.prg_rom_banks.set(2, (val & 0x1F).into());
-            }
-            0xD000..=0xD003 => {
-                self.regs.chr[(addr & 0x03) as usize] = val.into();
-                self.update_chr_banks();
-            }
-            0xE000..=0xE003 => {
-                self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
-                self.update_chr_banks();
-            }
-            0xF000 => self.irq.write_reload(val),
-            0xF001 => self.irq.write_control(val),
-            0xF002 => self.irq.acknowledge(),
-            _ => (),
-        }
-        MappedWrite::Bus
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.irq.irq_pending
+    }
+
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 
@@ -425,14 +455,14 @@ impl Reset for Audio {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
-    enabled: bool,
-    volume: u8,
-    duty_cycle: u8,
-    ignore_duty: bool,
-    frequency: u16,
-    timer: u16,
-    step: u8,
-    freq_shift: u8,
+    pub enabled: bool,
+    pub volume: u8,
+    pub duty_cycle: u8,
+    pub ignore_duty: bool,
+    pub frequency: u16,
+    pub timer: u16,
+    pub step: u8,
+    pub freq_shift: u8,
 }
 
 impl Default for Pulse {
@@ -502,13 +532,13 @@ impl Clock for Pulse {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Saw {
-    enabled: bool,
-    accum: u8,
-    accum_rate: u8,
-    frequency: u16,
-    timer: u16,
-    step: u8,
-    freq_shift: u8,
+    pub enabled: bool,
+    pub accum: u8,
+    pub accum_rate: u8,
+    pub frequency: u16,
+    pub timer: u16,
+    pub step: u8,
+    pub freq_shift: u8,
 }
 
 impl Default for Saw {

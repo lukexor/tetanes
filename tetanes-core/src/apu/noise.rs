@@ -39,7 +39,7 @@ pub struct Noise {
 
 impl Default for Noise {
     fn default() -> Self {
-        Self::new(NesRegion::Ntsc)
+        Self::new(NesRegion::default())
     }
 }
 

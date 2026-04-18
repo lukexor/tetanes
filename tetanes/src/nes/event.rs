@@ -201,7 +201,7 @@ pub enum EmulationEvent {
     ShowFrameStats(bool),
     Screenshot,
     UnloadRom,
-    ZapperAim((u32, u32)),
+    ZapperAim((u16, u16)),
     ZapperTrigger,
 }
 

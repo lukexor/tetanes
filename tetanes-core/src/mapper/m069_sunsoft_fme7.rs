@@ -6,10 +6,9 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
-    cpu::{Cpu, Irq},
-    mapper::{self, Map, MappedRead, MappedWrite, Mapper},
-    mem::Banks,
-    ppu::Mirroring,
+    mapper::{self, Map, Mapper},
+    mem::{Banks, Memory},
+    ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 
@@ -17,18 +16,22 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
-    command: u8,
-    parameter: u8,
-    prg_ram_enabled: bool,
-    irq_enabled: bool,
-    irq_counter_enabled: bool,
-    irq_counter: u16,
+    pub command: u8,
+    pub parameter: u8,
+    pub prg_ram_enabled: bool,
+    pub irq_enabled: bool,
+    pub irq_pending: bool,
+    pub irq_counter_enabled: bool,
+    pub irq_counter: u16,
 }
 
 /// `Sunsoft FME7` (Mapper 069).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct SunsoftFme7 {
+    pub chr_rom: Memory<Box<[u8]>>,
+    pub prg_rom: Memory<Box<[u8]>>,
+    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub mirroring: Mirroring,
     pub audio: Audio,
@@ -42,15 +45,25 @@ impl SunsoftFme7 {
     const PRG_RAM_SIZE: usize = 32 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.add_prg_ram(Self::PRG_RAM_SIZE);
+    pub fn load(
+        cart: &Cart,
+        chr_rom: Memory<Box<[u8]>>,
+        prg_rom: Memory<Box<[u8]>>,
+    ) -> Result<Mapper, mapper::Error> {
+        let prg_ram = Memory::with_ram_state(Self::PRG_RAM_SIZE, cart.ram_state);
+        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
+        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
+        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
         let mut sunsoft_fme7 = Self {
+            chr_rom,
+            prg_rom,
+            prg_ram,
             regs: Regs::default(),
             mirroring: cart.mirroring(),
             audio: Audio::new(),
-            chr_banks: Banks::new(0x0000, 0x1FFF, cart.chr_rom.len(), Self::CHR_WINDOW)?,
-            prg_banks: Banks::new(0x6000, 0x7FFF, cart.prg_ram.len(), Self::PRG_WINDOW)?,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+            chr_banks,
+            prg_banks: prg_ram_banks,
+            prg_rom_banks,
         };
         sunsoft_fme7
             .prg_rom_banks
@@ -75,26 +88,38 @@ impl Map for SunsoftFme7 {
     // CPU $C000..=$DFFF 8K PRG-ROM Bank 3 Switchable
     // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 fixed to last
 
-    fn map_peek(&self, addr: u16) -> MappedRead {
+    /// Peek a byte from CHR-ROM/RAM at a given address.
+    #[inline(always)]
+    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => MappedRead::Chr(self.chr_banks.translate(addr)),
-            0x6000..=0x7FFF => {
-                if self.regs.prg_ram_enabled {
-                    MappedRead::PrgRam(self.prg_banks.translate(addr))
-                } else {
-                    MappedRead::PrgRom(self.prg_banks.translate(addr))
-                }
-            }
-            0x8000..=0xFFFF => MappedRead::PrgRom(self.prg_rom_banks.translate(addr)),
-            _ => MappedRead::Bus,
+            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
+            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
+            _ => 0,
         }
     }
 
-    fn map_write(&mut self, addr: u16, val: u8) -> MappedWrite {
+    /// Peek a byte from PRG-ROM/RAM at a given address.
+    #[inline(always)]
+    fn prg_peek(&self, addr: u16) -> u8 {
         match addr {
             0x6000..=0x7FFF => {
                 if self.regs.prg_ram_enabled {
-                    return MappedWrite::PrgRam(self.prg_banks.translate(addr), val);
+                    self.prg_ram[self.prg_banks.translate(addr)]
+                } else {
+                    self.prg_rom[self.prg_banks.translate(addr)]
+                }
+            }
+            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
+            _ => 0,
+        }
+    }
+
+    /// Write a byte to PRG-RAM at a given address.
+    fn prg_write(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x6000..=0x7FFF => {
+                if self.regs.prg_ram_enabled {
+                    self.prg_ram[self.prg_banks.translate(addr)] = val;
                 }
             }
             0x8000..=0x9FFF => self.regs.command = val & 0x0F,
@@ -109,16 +134,18 @@ impl Map for SunsoftFme7 {
                     let bank = self.regs.command - 9;
                     self.prg_rom_banks.set(bank.into(), (val & 0x3F).into());
                 }
-                0xC => self.set_mirroring(match val & 0x03 {
-                    0 => Mirroring::Vertical,
-                    1 => Mirroring::Horizontal,
-                    2 => Mirroring::SingleScreenA,
-                    _ => Mirroring::SingleScreenB,
-                }),
+                0xC => {
+                    self.mirroring = match val & 0x03 {
+                        0b00 => Mirroring::Vertical,
+                        0b01 => Mirroring::Horizontal,
+                        0b10 => Mirroring::SingleScreenA,
+                        _ => Mirroring::SingleScreenB,
+                    }
+                }
                 0xD => {
                     self.regs.irq_enabled = (val & 0x01) == 0x01;
                     self.regs.irq_counter_enabled = (val & 0x80) == 0x80;
-                    Cpu::clear_irq(Irq::MAPPER);
+                    self.regs.irq_pending = false;
                 }
                 0xE => self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val),
                 0xF => {
@@ -127,17 +154,19 @@ impl Map for SunsoftFme7 {
                 _ => (),
             },
             0xC000..=0xFFFF => self.audio.write_register(addr, val),
-            _ => return MappedWrite::Bus,
+            _ => (),
         }
-        MappedWrite::None
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
+    /// Returns the current [`Mirroring`] mode.
+    #[inline(always)]
     fn mirroring(&self) -> Mirroring {
         self.mirroring
-    }
-
-    fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
     }
 }
 
@@ -148,7 +177,7 @@ impl Clock for SunsoftFme7 {
         if self.regs.irq_counter_enabled {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
             if self.regs.irq_counter == 0xFFFF && self.regs.irq_enabled {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
         }
         self.audio.clock();

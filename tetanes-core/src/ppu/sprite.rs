@@ -11,15 +11,14 @@ use std::fmt;
 #[derive(Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Sprite {
-    pub x: u32,
-    pub y: u32,
+    pub x: u16,
+    pub y: u16,
     pub tile_addr: u16,
     pub tile_lo: u8,
     pub tile_hi: u8,
     pub palette: u8,
     pub bg_priority: bool,
     pub flip_horizontal: bool,
-    pub flip_vertical: bool,
 }
 
 impl Sprite {
@@ -33,7 +32,6 @@ impl Sprite {
             palette: 0x07,
             bg_priority: true,
             flip_horizontal: true,
-            flip_vertical: true,
         }
     }
 }
@@ -55,7 +53,6 @@ impl fmt::Debug for Sprite {
             .field("palette", &format_args!("${:02X}", &self.palette))
             .field("bg_priority", &self.bg_priority)
             .field("flip_horizontal", &self.flip_horizontal)
-            .field("flip_vertical", &self.flip_vertical)
             .finish()
     }
 }

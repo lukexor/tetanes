@@ -6,25 +6,19 @@ use crate::common::{Reset, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
-const NAMETABLE1: u16 = 0x2000;
-const NAMETABLE2: u16 = 0x2400;
-const NAMETABLE3: u16 = 0x2800;
-const NAMETABLE4: u16 = 0x2C00;
-
 /// PPUCTRL register.
 ///
 /// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
 #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
 #[must_use]
 pub struct Ctrl {
-    pub spr_select: u16,
     pub bg_select: u16,
-    pub spr_height: u32,
+    pub spr_select: u16,
+    pub spr_height: u16,
+    pub vram_increment: bool,
     pub master_slave: u8,
     pub nmi_enabled: bool,
-    pub nametable_addr: u16,
-    pub vram_increment: u16,
-    bits: Bits,
+    pub bits: Bits,
 }
 
 bitflags! {
@@ -63,30 +57,19 @@ impl Ctrl {
         ctrl
     }
 
-    pub fn write(&mut self, val: u8) {
+    pub const fn write(&mut self, val: u8) {
         self.bits = Bits::from_bits_truncate(val);
         // 0x1000 or 0x0000
         self.spr_select = self.bits.contains(Bits::SPR_SELECT) as u16 * 0x1000;
         // 0x1000 or 0x0000
         self.bg_select = self.bits.contains(Bits::BG_SELECT) as u16 * 0x1000;
         // 16 or 8
-        self.spr_height = self.bits.contains(Bits::SPR_HEIGHT) as u32 * 8 + 8;
+        self.spr_height = self.bits.contains(Bits::SPR_HEIGHT) as u16 * 8 + 8;
         // 1 or 0
         self.master_slave = self.bits.contains(Bits::MASTER_SLAVE) as u8;
         self.nmi_enabled = self.bits.contains(Bits::NMI_ENABLE);
-        self.nametable_addr = match self.bits.bits() & 0b11 {
-            0b00 => NAMETABLE1,
-            0b01 => NAMETABLE2,
-            0b10 => NAMETABLE3,
-            0b11 => NAMETABLE4,
-            _ => unreachable!("impossible nametable_addr"),
-        };
         // 32 or 1
-        self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT) as u16 * 31 + 1
-    }
-
-    pub const fn nametable_select(&self) -> u8 {
-        self.bits.bits() & 0b11
+        self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT);
     }
 }
 

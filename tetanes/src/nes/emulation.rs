@@ -26,7 +26,7 @@ use tetanes_core::{
     common::{NesRegion, Regional, Reset, ResetKind},
     control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
-    ppu::Ppu,
+    ppu,
     time::{Duration, Instant},
     video::Frame,
 };
@@ -836,8 +836,8 @@ impl State {
             )
             .with_extension("png");
         let image = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(
-            Ppu::WIDTH,
-            Ppu::HEIGHT,
+            u32::from(ppu::size::WIDTH),
+            u32::from(ppu::size::HEIGHT),
             self.control_deck.frame_buffer(),
         )
         .ok_or_else(|| anyhow!("failed to create image buffer"))?;
