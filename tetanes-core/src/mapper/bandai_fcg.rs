@@ -702,25 +702,21 @@ impl Eeprom {
                             }
                         }
                         EepromMode::SendAck => self.output = 0,
-                        EepromMode::WaitAck => {
-                            if sda == 0 {
-                                // We expected an ack, but received something else, return to idle
-                                // mode
-                                self.next_mode = EepromMode::Idle;
-                            }
+                        EepromMode::WaitAck if sda == 0 => {
+                            // We expected an ack, but received something else, return to idle
+                            // mode
+                            self.next_mode = EepromMode::Idle;
                         }
                         _ => (),
                     }
                 } else if scl < self.prev_scl {
                     // Clock fall
                     match self.mode {
-                        EepromMode::Addr => {
-                            if self.counter == 8 {
-                                // After receiving the address, the X24C01 responds with an
-                                // acknowledge, then waits for eight bits of data
-                                self.mode = EepromMode::SendAck;
-                                self.output = 1;
-                            }
+                        EepromMode::Addr if self.counter == 8 => {
+                            // After receiving the address, the X24C01 responds with an
+                            // acknowledge, then waits for eight bits of data
+                            self.mode = EepromMode::SendAck;
+                            self.output = 1;
                         }
                         EepromMode::SendAck => {
                             // After sending an ack, move to the next mode of operation
@@ -728,21 +724,17 @@ impl Eeprom {
                             self.counter = 0;
                             self.output = 1;
                         }
-                        EepromMode::Read => {
-                            if self.counter == 8 {
-                                // After sending all 8 bits, wait for an ack
-                                self.mode = EepromMode::WaitAck;
-                                self.addr = (self.addr + 1) & 0x7F;
-                            }
+                        EepromMode::Read if self.counter == 8 => {
+                            // After sending all 8 bits, wait for an ack
+                            self.mode = EepromMode::WaitAck;
+                            self.addr = (self.addr + 1) & 0x7F;
                         }
-                        EepromMode::Write => {
-                            if self.counter == 8 {
-                                // After receiving all 8 bits, send an ack and then wait
-                                self.mode = EepromMode::SendAck;
-                                self.next_mode = EepromMode::Idle;
-                                self.rom_data[usize::from(self.addr & 0x7F)] = self.data;
-                                self.addr = (self.addr + 1) & 0x7F;
-                            }
+                        EepromMode::Write if self.counter == 8 => {
+                            // After receiving all 8 bits, send an ack and then wait
+                            self.mode = EepromMode::SendAck;
+                            self.next_mode = EepromMode::Idle;
+                            self.rom_data[usize::from(self.addr & 0x7F)] = self.data;
+                            self.addr = (self.addr + 1) & 0x7F;
                         }
                         _ => (),
                     }
@@ -783,71 +775,61 @@ impl Eeprom {
                             }
                         }
                         EepromMode::SendAck => self.output = 0,
-                        EepromMode::WaitAck => {
-                            if sda == 0 {
-                                self.next_mode = EepromMode::Read;
-                                self.data = self.rom_data[usize::from(self.addr)];
-                            }
+                        EepromMode::WaitAck if sda == 0 => {
+                            self.next_mode = EepromMode::Read;
+                            self.data = self.rom_data[usize::from(self.addr)];
                         }
                         _ => (),
                     }
                 } else if scl < self.prev_scl {
                     // Clock fall
                     match self.mode {
-                        EepromMode::ChipAddr => {
-                            // Upon a correct compare the X24C02 outputs an acknowledge on the SDA line
-                            if self.counter == 8 {
-                                if (self.chip_addr & 0xA0) == 0xA0 {
-                                    self.mode = EepromMode::SendAck;
-                                    self.counter = 0;
-                                    self.output = 1;
-
-                                    // The last bit of the slave address defines the operation to
-                                    // be performed. When set to one a read operation is selected,
-                                    // when set to zero a write operations is selected
-                                    if (self.chip_addr & 0x01) == 0x01 {
-                                        // Current Address Read
-                                        // Upon receipt of the slave address with the R/W bit set
-                                        // to one, the X24C02 issues an acknowledge and transmits
-                                        // the eight bit word during the next eight clock cycles
-                                        self.next_mode = EepromMode::Read;
-                                        self.data = self.rom_data[usize::from(self.addr)];
-                                    } else {
-                                        self.mode = EepromMode::Addr;
-                                    }
-                                } else {
-                                    // This chip wasn't selected, go back to idle mode
-                                    self.mode = EepromMode::Idle;
-                                    self.counter = 0;
-                                    self.output = 1;
-                                }
-                            }
-                        }
-                        EepromMode::Addr => {
-                            if self.counter == 8 {
-                                // Finished receiving all 8 bits of the address, send an ack and then starting writing the value
+                        // Upon a correct compare the X24C02 outputs an acknowledge on the SDA line
+                        EepromMode::ChipAddr if self.counter == 8 => {
+                            if (self.chip_addr & 0xA0) == 0xA0 {
                                 self.mode = EepromMode::SendAck;
-                                self.next_mode = EepromMode::Write;
+                                self.counter = 0;
+                                self.output = 1;
+
+                                // The last bit of the slave address defines the operation to
+                                // be performed. When set to one a read operation is selected,
+                                // when set to zero a write operations is selected
+                                if (self.chip_addr & 0x01) == 0x01 {
+                                    // Current Address Read
+                                    // Upon receipt of the slave address with the R/W bit set
+                                    // to one, the X24C02 issues an acknowledge and transmits
+                                    // the eight bit word during the next eight clock cycles
+                                    self.next_mode = EepromMode::Read;
+                                    self.data = self.rom_data[usize::from(self.addr)];
+                                } else {
+                                    self.mode = EepromMode::Addr;
+                                }
+                            } else {
+                                // This chip wasn't selected, go back to idle mode
+                                self.mode = EepromMode::Idle;
                                 self.counter = 0;
                                 self.output = 1;
                             }
                         }
-                        EepromMode::Read => {
-                            if self.counter == 8 {
-                                // After sending all 8 bits, wait for an ack
-                                self.mode = EepromMode::WaitAck;
-                                self.addr = self.addr.wrapping_add(1);
-                            }
+                        EepromMode::Addr if self.counter == 8 => {
+                            // Finished receiving all 8 bits of the address, send an ack and then starting writing the value
+                            self.mode = EepromMode::SendAck;
+                            self.next_mode = EepromMode::Write;
+                            self.counter = 0;
+                            self.output = 1;
                         }
-                        EepromMode::Write => {
-                            if self.counter == 8 {
-                                // After receiving all 8 bits, send an ack and then wait
-                                self.mode = EepromMode::SendAck;
-                                self.next_mode = EepromMode::Write;
-                                self.counter = 0;
-                                self.rom_data[usize::from(self.addr)] = self.data;
-                                self.addr = self.addr.wrapping_add(1);
-                            }
+                        EepromMode::Read if self.counter == 8 => {
+                            // After sending all 8 bits, wait for an ack
+                            self.mode = EepromMode::WaitAck;
+                            self.addr = self.addr.wrapping_add(1);
+                        }
+                        EepromMode::Write if self.counter == 8 => {
+                            // After receiving all 8 bits, send an ack and then wait
+                            self.mode = EepromMode::SendAck;
+                            self.next_mode = EepromMode::Write;
+                            self.counter = 0;
+                            self.rom_data[usize::from(self.addr)] = self.data;
+                            self.addr = self.addr.wrapping_add(1);
                         }
                         EepromMode::SendAck | EepromMode::WaitAck => {
                             self.mode = self.next_mode;

@@ -117,10 +117,8 @@ impl Map for SunsoftFme7 {
     /// Write a byte to PRG-RAM at a given address.
     fn prg_write(&mut self, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF => {
-                if self.regs.prg_ram_enabled {
-                    self.prg_ram[self.prg_banks.translate(addr)] = val;
-                }
+            0x6000..=0x7FFF if self.regs.prg_ram_enabled => {
+                self.prg_ram[self.prg_banks.translate(addr)] = val;
             }
             0x8000..=0x9FFF => self.regs.command = val & 0x0F,
             0xA000..=0xBFFF => match self.regs.command {
@@ -285,10 +283,8 @@ impl Audio {
     const fn write_register(&mut self, addr: u16, val: u8) {
         match addr {
             0xC000..=0xDFFF => self.register = val,
-            0xE000..=0xFFFF => {
-                if self.register <= 0x0F {
-                    self.registers[self.register as usize] = val;
-                }
+            0xE000..=0xFFFF if self.register <= 0x0F => {
+                self.registers[self.register as usize] = val;
             }
             _ => (),
         }

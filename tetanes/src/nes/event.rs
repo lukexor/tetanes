@@ -578,10 +578,8 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                     self.repaint_times.remove(&window_id);
                 }
-                WindowEvent::Resized(_) => {
-                    if Some(window_id) == self.renderer.root_window_id() {
-                        self.cfg.renderer.fullscreen = self.renderer.fullscreen();
-                    }
+                WindowEvent::Resized(_) if Some(window_id) == self.renderer.root_window_id() => {
+                    self.cfg.renderer.fullscreen = self.renderer.fullscreen();
                 }
                 WindowEvent::Focused(focused) => {
                     if focused && !self.occluded {
@@ -650,10 +648,10 @@ impl ApplicationHandler<NesEvent> for Running {
                 WindowEvent::MouseInput { button, state, .. } => {
                     self.on_input(window_id, Input::Mouse(button), state, false);
                 }
-                WindowEvent::DroppedFile(path) => {
-                    if Some(window_id) == self.renderer.root_window_id() {
-                        self.event(EmulationEvent::LoadRomPath(path));
-                    }
+                WindowEvent::DroppedFile(path)
+                    if Some(window_id) == self.renderer.root_window_id() =>
+                {
+                    self.event(EmulationEvent::LoadRomPath(path));
                 }
                 _ => (),
             }

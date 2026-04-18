@@ -320,7 +320,7 @@ pub mod size {
 
 pub mod cycle {
     //! Cycle constants.
-    //! https://www.nesdev.org/wiki/PPU_rendering
+    //! <https://www.nesdev.org/wiki/PPU_rendering>
 
     use std::ops::RangeInclusive;
 
@@ -364,7 +364,7 @@ pub mod cycle {
 
 pub mod scanline {
     //! Scanline constants.
-    //! https://www.nesdev.org/wiki/PPU_rendering
+    //! <https://www.nesdev.org/wiki/PPU_rendering>
 
     pub const START: u16 = 0;
 

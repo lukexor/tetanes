@@ -849,12 +849,10 @@ impl Map for Exrom {
                 self.dmc_mode = val & 0x01;
                 self.dmc.irq_enabled = val & 0x80 == 0x80;
             }
-            0x5011 => {
+            0x5011 if self.dmc_mode == 0 && val != 0x00 => {
                 // [DDDD DDDD] PCM Data
                 // Write mode - writing $00 has no effect
-                if self.dmc_mode == 0 && val != 0x00 {
-                    self.dmc.write_output(val);
-                }
+                self.dmc.write_output(val);
             }
             0x5015 => {
                 //  [.... ..BA]   Enable flags for Pulse 1 (A), 2 (B)  (0=disable, 1=enable)

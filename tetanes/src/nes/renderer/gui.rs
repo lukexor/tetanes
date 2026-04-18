@@ -211,11 +211,9 @@ impl Gui {
                 RendererEvent::FrameStats(stats) => {
                     self.frame_stats = *stats;
                 }
-                RendererEvent::ShowMenubar(show) => {
-                    // Toggling true is handled in the menu widget
-                    if !*show {
-                        self.menu_height = 0.0;
-                    }
+                // Toggling true is handled in the menu widget
+                RendererEvent::ShowMenubar(show) if !*show => {
+                    self.menu_height = 0.0;
                 }
                 RendererEvent::ReplayLoaded => {
                     self.run_state = RunState::Running;
@@ -1595,8 +1593,8 @@ impl Gui {
                 noninteractive: WidgetVisuals {
                     weak_bg_fill: hex_color!("#14191f"),
                     bg_fill: hex_color!("#14191f"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#253340")), // separators, indentation lines
-                    fg_stroke: Stroke::new(1.0, hex_color!("#e6b673")), // normal text color
+                    bg_stroke: Stroke::new(1f32, hex_color!("#253340")), // separators, indentation lines
+                    fg_stroke: Stroke::new(1f32, hex_color!("#e6b673")), // normal text color
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
@@ -1604,38 +1602,38 @@ impl Gui {
                     weak_bg_fill: hex_color!("#253340"), // button background
                     bg_fill: hex_color!("#253340"),      // checkbox background
                     bg_stroke: Stroke::default(),
-                    fg_stroke: Stroke::new(1.0, hex_color!("#a9491f")), // button text
+                    fg_stroke: Stroke::new(1f32, hex_color!("#a9491f")), // button text
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
                     weak_bg_fill: hex_color!("#212733"),
                     bg_fill: hex_color!("#212733"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#f29718")), // e.g. hover over window edge or button
-                    fg_stroke: Stroke::new(1.5, hex_color!("#ffb454")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#f29718")), // e.g. hover over window edge or button
+                    fg_stroke: Stroke::new(1.5f32, hex_color!("#ffb454")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
                     weak_bg_fill: hex_color!("#253340"),
                     bg_fill: hex_color!("#253340"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#fed7aa")),
-                    fg_stroke: Stroke::new(2.0, hex_color!("#fed7aa")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#fed7aa")),
+                    fg_stroke: Stroke::new(1f32, hex_color!("#fed7aa")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
                     weak_bg_fill: hex_color!("#151a1e"),
                     bg_fill: hex_color!("#14191f"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#253340")),
-                    fg_stroke: Stroke::new(1.0, hex_color!("#ffb454")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#253340")),
+                    fg_stroke: Stroke::new(1f32, hex_color!("#ffb454")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },
             selection: Selection {
                 bg_fill: hex_color!("#253340"),
-                stroke: Stroke::new(1.0, hex_color!("#ffb454")),
+                stroke: Stroke::new(1f32, hex_color!("#ffb454")),
             },
             hyperlink_color: hex_color!("#36a3d9"),
             faint_bg_color: Color32::from_additive_luminance(5), // visible, but barely so
@@ -1645,12 +1643,12 @@ impl Gui {
             error_fg_color: hex_color!("#ff3333"),
             window_corner_radius: CornerRadius::ZERO,
             window_fill: hex_color!("#14191f"),
-            window_stroke: Stroke::new(1.0, hex_color!("#253340")),
+            window_stroke: Stroke::new(1f32, hex_color!("#253340")),
             window_highlight_topmost: true,
             menu_corner_radius: CornerRadius::ZERO,
             panel_fill: hex_color!("#14191f"),
             text_cursor: TextCursorStyle {
-                stroke: Stroke::new(2.0, hex_color!("#95e6cb")),
+                stroke: Stroke::new(1f32, hex_color!("#95e6cb")),
                 ..Default::default()
             },
             striped: true,
@@ -1666,8 +1664,8 @@ impl Gui {
                 noninteractive: WidgetVisuals {
                     weak_bg_fill: hex_color!("#ffffff"),
                     bg_fill: hex_color!("#ffffff"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")), // separators, indentation lines
-                    fg_stroke: Stroke::new(1.0, hex_color!("#253340")), // normal text color
+                    bg_stroke: Stroke::new(1f32, hex_color!("#d9d7ce")), // separators, indentation lines
+                    fg_stroke: Stroke::new(1f32, hex_color!("#253340")), // normal text color
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
@@ -1675,38 +1673,38 @@ impl Gui {
                     weak_bg_fill: hex_color!("#d9d8d7"), // button background
                     bg_fill: hex_color!("#d9d8d7"),      // checkbox background
                     bg_stroke: Stroke::default(),
-                    fg_stroke: Stroke::new(1.0, hex_color!("#a2441b")), // button text
+                    fg_stroke: Stroke::new(1f32, hex_color!("#a2441b")), // button text
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
                 hovered: WidgetVisuals {
                     weak_bg_fill: hex_color!("#ffd9b3"),
                     bg_fill: hex_color!("#ffd9b3"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")), // e.g. hover over window edge or button
-                    fg_stroke: Stroke::new(1.5, hex_color!("#ff6a00")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#ff6a00")), // e.g. hover over window edge or button
+                    fg_stroke: Stroke::new(1.5f32, hex_color!("#ff6a00")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 active: WidgetVisuals {
                     weak_bg_fill: hex_color!("#d9d7ce"),
                     bg_fill: hex_color!("#d9d7ce"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#3e4b59")),
-                    fg_stroke: Stroke::new(2.0, hex_color!("#3e4b59")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#3e4b59")),
+                    fg_stroke: Stroke::new(1f32, hex_color!("#3e4b59")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 1.0,
                 },
                 open: WidgetVisuals {
                     weak_bg_fill: hex_color!("#f3f3f3"),
                     bg_fill: hex_color!("#ffffff"),
-                    bg_stroke: Stroke::new(1.0, hex_color!("#d9d7ce")),
-                    fg_stroke: Stroke::new(1.0, hex_color!("#ff6a00")),
+                    bg_stroke: Stroke::new(1f32, hex_color!("#d9d7ce")),
+                    fg_stroke: Stroke::new(1f32, hex_color!("#ff6a00")),
                     corner_radius: CornerRadius::ZERO,
                     expansion: 0.0,
                 },
             },
             selection: Selection {
                 bg_fill: hex_color!("#efc9a3"),
-                stroke: Stroke::new(1.0, hex_color!("#b2340b")),
+                stroke: Stroke::new(1f32, hex_color!("#b2340b")),
             },
             hyperlink_color: hex_color!("#36a3d9"),
             faint_bg_color: Color32::from_additive_luminance(5), // visible, but barely so
@@ -1715,10 +1713,10 @@ impl Gui {
             warn_fg_color: hex_color!("#e7c547"),
             error_fg_color: hex_color!("#ff3333"),
             window_fill: hex_color!("#f0eee4"),
-            window_stroke: Stroke::new(1.0, hex_color!("#d9d8d7")),
+            window_stroke: Stroke::new(1f32, hex_color!("#d9d8d7")),
             panel_fill: hex_color!("#f0eee4"),
             text_cursor: TextCursorStyle {
-                stroke: Stroke::new(2.0, hex_color!("#4cbf99")),
+                stroke: Stroke::new(1f32, hex_color!("#4cbf99")),
                 ..Default::default()
             },
             ..Self::dark_theme()
