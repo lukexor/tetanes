@@ -2,63 +2,38 @@
 //!
 //! <https://wiki.nesdev.org/w/index.php/CPU>
 
-use crate::cpu::instr::{
-    AddrMode,
-    Instr::{JMP, JSR},
-    InstrRef,
-};
 use crate::{
     bus::Bus,
-    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     mem::{Read, Write},
+};
+use crate::{
+    cpu::instr::{
+        AddrMode,
+        Instr::{JMP, JSR},
+        InstrRef,
+    },
+    mapper::Map,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::{
-    cell::Cell,
-    fmt::{self},
-};
+use std::fmt::{self};
 use tracing::trace;
 
 pub mod instr;
 
-thread_local! {
-    static NMI: Cell<bool> = const { Cell::new(false) };
-    static IRQS: Cell<Irq> = const { Cell::new(Irq::empty()) };
-    static DMAS: Cell<Dma> = const { Cell::new(Dma::empty()) };
-    static DMA_HALT: Cell<bool> = const { Cell::new(false) };
-    static DMA_DUMMY_READ: Cell<bool> = const { Cell::new(false) };
-    static DMA_OAM_ADDR: Cell<u16> = const { Cell::new(0x0000) };
-}
-
 bitflags! {
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
-    pub struct Irq: u8 {
-        const MAPPER = 1 << 0;
-        const FRAME_COUNTER = 1 << 1;
-        const DMC = 1 << 2;
-    }
-}
-
-bitflags! {
-    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
-    #[must_use]
-    pub struct Dma: u8 {
-        const OAM = 1 << 0;
-        const DMC = 1 << 1;
-    }
-}
-
-bitflags! {
-    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
-    #[must_use]
-    pub struct IrqFlags: u16 {
+    pub struct IrqFlags: u8 {
         const NMI = 1 << 0;
         const PREV_NMI = 1 << 1;
         const PREV_NMI_PENDING = 1 << 2;
         const RUN_IRQ = 1 << 3;
         const PREV_RUN_IRQ = 1 << 4;
+        const DMA_DMC = 1 << 5;
+        const DMA_HALT = 1 << 6;
+        const DMA_DUMMY_READ = 1 << 7;
     }
 }
 
@@ -110,6 +85,7 @@ pub struct Cpu {
     pub y: u8,               // y register
     pub status: Status,      // Status Registers
     pub irq_flags: IrqFlags,
+    pub dma_oam_addr: Option<u16>,
     pub bus: Bus,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
@@ -152,6 +128,7 @@ impl Cpu {
             y: 0x00,
             status: Self::POWER_ON_STATUS,
             irq_flags: IrqFlags::default(),
+            dma_oam_addr: None,
             bus,
             corrupted: false,
             disasm: String::new(),
@@ -192,93 +169,11 @@ impl Cpu {
         Cpu::INSTR_REF[usize::from(opcode)]
     }
 
+    /// Start OAM DMA.
     #[inline]
-    #[must_use]
-    pub fn nmi_pending() -> bool {
-        NMI.get()
-    }
-
-    #[inline]
-    pub fn set_nmi() {
-        NMI.set(true);
-    }
-
-    #[inline]
-    pub fn clear_nmi() {
-        NMI.set(false);
-    }
-
-    #[inline]
-    pub fn irqs() -> Irq {
-        IRQS.get()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn has_irq(irq: Irq) -> bool {
-        IRQS.get().contains(irq)
-    }
-
-    #[inline]
-    pub fn set_irq(irq: Irq) {
-        IRQS.set(IRQS.get() | irq);
-    }
-
-    #[inline]
-    pub fn clear_irq(irq: Irq) {
-        IRQS.set(IRQS.get() & !irq);
-    }
-
-    #[inline]
-    pub fn start_dmc_dma() {
-        DMAS.set(DMAS.get() | Dma::DMC);
-        DMA_HALT.set(true);
-        DMA_DUMMY_READ.set(true);
-    }
-
-    #[inline]
-    pub fn start_oam_dma(addr: u16) {
-        DMAS.set(DMAS.get() | Dma::OAM);
-        DMA_HALT.set(true);
-        DMA_OAM_ADDR.set(addr);
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn halt_for_dma() -> bool {
-        DMA_HALT.get()
-    }
-
-    #[inline]
-    pub fn dma_oam_addr() -> u16 {
-        DMA_OAM_ADDR.get()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn dmas_running() -> Option<(bool, bool)> {
-        let dmas = DMAS.get();
-        (!dmas.is_empty()).then_some((dmas.contains(Dma::DMC), dmas.contains(Dma::OAM)))
-    }
-
-    #[inline]
-    pub fn clear_dma(dma: Dma) {
-        DMAS.set(DMAS.get() & !dma);
-    }
-
-    #[inline]
-    pub fn clear_dma_halt() {
-        DMA_HALT.set(false);
-    }
-
-    #[inline]
-    pub fn dma_dummy_read() -> bool {
-        DMA_DUMMY_READ.get()
-    }
-
-    #[inline]
-    pub fn clear_dma_dummy_read() {
-        DMA_DUMMY_READ.set(false);
+    pub fn start_oam_dma(&mut self, addr: u16) {
+        self.irq_flags.insert(IrqFlags::DMA_HALT);
+        self.dma_oam_addr = Some(addr);
     }
 
     /// Process an interrupted request.
@@ -296,7 +191,7 @@ impl Cpu {
     #[cold]
     #[inline(never)]
     pub fn irq(&mut self) {
-        if Self::halt_for_dma() && self.region() == NesRegion::Pal {
+        if self.irq_flags(IrqFlags::DMA_HALT) && self.region() == NesRegion::Pal {
             // Check for DMA on PAL
             self.handle_dma(self.pc);
         }
@@ -335,6 +230,22 @@ impl Cpu {
     /// Handle CPU interrupt requests, if any are pending.
     #[inline(always)]
     fn handle_interrupts(&mut self) {
+        let irq_pending_mapper = self.bus.ppu.mapper.irq_pending();
+        let dma_pending_mapper = self.bus.ppu.mapper.dma_pending();
+        let nmi_pending = self.bus.ppu.nmi_pending;
+        let irq_pending_apu = self.bus.apu.irq_pending();
+        let dma_pending_apu = self.bus.apu.dma_pending();
+
+        if dma_pending_apu {
+            self.bus.apu.clear_dma_pending();
+            self.irq_flags
+                .insert(IrqFlags::DMA_DMC | IrqFlags::DMA_HALT | IrqFlags::DMA_DUMMY_READ);
+        } else if dma_pending_mapper {
+            self.bus.ppu.mapper.clear_dma_pending();
+            self.irq_flags
+                .insert(IrqFlags::DMA_DMC | IrqFlags::DMA_HALT | IrqFlags::DMA_DUMMY_READ);
+        }
+
         let flags = &mut self.irq_flags;
 
         // https://www.nesdev.org/wiki/CPU_interrupts
@@ -348,9 +259,8 @@ impl Cpu {
         // during the second half of each cycle, hence here in `end_cycle`) and raises an internal
         // signal if the input goes from being high during one cycle to being low during the
         // next.
-        let nmi_pending = Self::nmi_pending();
         let prev_nmi_pending = flags.contains(IrqFlags::PREV_NMI_PENDING);
-        if !prev_nmi_pending && nmi_pending {
+        if !prev_nmi_pending & nmi_pending {
             flags.insert(IrqFlags::NMI);
         }
         flags.set(IrqFlags::PREV_NMI_PENDING, nmi_pending);
@@ -358,13 +268,16 @@ impl Cpu {
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
         flags.set(IrqFlags::PREV_RUN_IRQ, flags.contains(IrqFlags::RUN_IRQ));
-        let irqs = Self::irqs();
-        let run_irq = !irqs.is_empty() && !self.status.intersects(Status::I);
+        let run_irq = (irq_pending_mapper | irq_pending_apu) & !self.status.intersects(Status::I);
         flags.set(IrqFlags::RUN_IRQ, run_irq);
 
         #[cfg(feature = "trace")]
         if !flags.contains(IrqFlags::PREV_NMI_PENDING) && flags.contains(IrqFlags::RUN_IRQ) {
-            trace!("IRQs: {:?} - CYC:{}", irqs, self.cycle);
+            trace!(
+                "IRQ: {} - CYC:{}",
+                irq_pending_mapper | irq_pending_apu,
+                self.cycle
+            );
         }
     }
 
@@ -390,10 +303,10 @@ impl Cpu {
     #[inline(always)]
     fn start_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if Self::halt_for_dma() {
-            Self::clear_dma_halt();
+        if self.irq_flags(IrqFlags::DMA_HALT) {
+            self.clear_irq_flags(IrqFlags::DMA_HALT);
         } else {
-            Self::clear_dma_dummy_read();
+            self.clear_irq_flags(IrqFlags::DMA_DUMMY_READ);
         }
         self.start_cycle(self.start_cycles - 1);
     }
@@ -407,7 +320,7 @@ impl Cpu {
         self.start_cycle(self.start_cycles - 1);
         self.bus.read(addr);
         self.end_cycle(self.start_cycles + 1);
-        Self::clear_dma_halt();
+        self.clear_irq_flags(IrqFlags::DMA_HALT);
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
 
@@ -415,9 +328,18 @@ impl Cpu {
         let mut oam_dma_count = 0;
         let mut read_val = 0;
 
-        while let Some((dmc_dma, oam_dma)) = Self::dmas_running() {
+        loop {
+            let dma_dmc = self.irq_flags(IrqFlags::DMA_DMC);
+            let dma_oam_addr = self.dma_oam_addr;
+            if !dma_dmc & dma_oam_addr.is_none() {
+                break;
+            }
+
             if self.cycle & 0x01 == 0x00 {
-                if dmc_dma && !Self::halt_for_dma() && !Self::dma_dummy_read() {
+                if dma_dmc
+                    & !self.irq_flags(IrqFlags::DMA_HALT)
+                    & !self.irq_flags(IrqFlags::DMA_DUMMY_READ)
+                {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.start_dma_cycle();
                     let dma_addr = self.bus.apu.dmc.dma_addr();
@@ -428,32 +350,35 @@ impl Cpu {
                     );
                     self.end_cycle(self.start_cycles + 1);
                     self.bus.apu.dmc.load_buffer(read_val);
-                    Self::clear_dma(Dma::DMC);
-                } else if oam_dma {
+                    self.clear_irq_flags(IrqFlags::DMA_DMC);
+                } else if let Some(oam_addr) = dma_oam_addr {
                     // DMC DMA not running or ready, run OAM DMA
                     self.start_dma_cycle();
-                    read_val = self.bus.read(Self::dma_oam_addr() + oam_offset);
+                    read_val = self.bus.read(oam_addr + oam_offset);
                     self.end_cycle(self.start_cycles + 1);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
-                    debug_assert!(Self::halt_for_dma() || Self::dma_dummy_read());
+                    debug_assert!(
+                        self.irq_flags(IrqFlags::DMA_HALT)
+                            | self.irq_flags(IrqFlags::DMA_DUMMY_READ)
+                    );
                     self.start_dma_cycle();
                     if !skip_dummy_reads {
                         self.bus.read(addr); // throw away
                     }
                     self.end_cycle(self.start_cycles + 1);
                 }
-            } else if oam_dma && oam_dma_count & 0x01 == 0x01 {
+            } else if dma_oam_addr.is_some() & (oam_dma_count & 0x01 == 0x01) {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.start_dma_cycle();
                 self.bus.write(0x2004, read_val);
                 self.end_cycle(self.start_cycles + 1);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
-                    Self::clear_dma(Dma::OAM);
+                    self.dma_oam_addr.take();
                 }
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
@@ -812,6 +737,9 @@ impl Cpu {
     #[cold]
     #[inline(never)]
     pub fn trace_instr(&mut self) {
+        if !tracing::enabled!(tracing::Level::TRACE) {
+            return;
+        }
         let mut pc = self.pc;
         let status = self.status;
         let acc = self.acc;
@@ -883,7 +811,7 @@ impl Clock for Cpu {
 impl Read for Cpu {
     #[inline(always)]
     fn read(&mut self, addr: u16) -> u8 {
-        if Self::halt_for_dma() {
+        if self.irq_flags(IrqFlags::DMA_HALT) {
             self.handle_dma(addr);
         }
 
@@ -902,7 +830,11 @@ impl Write for Cpu {
     #[inline(always)]
     fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.start_cycles + 1);
-        self.bus.write(addr, val);
+        if addr == 0x4014 {
+            self.start_oam_dma(u16::from(val) << 8);
+        } else {
+            self.bus.write(addr, val);
+        }
         self.end_cycle(self.end_cycles - 1);
     }
 }
@@ -922,6 +854,7 @@ impl Regional for Cpu {
         self.start_cycles = start_cycles;
         self.end_cycles = end_cycles;
         self.bus.set_region(region);
+        self.clock_sync();
     }
 }
 
@@ -955,11 +888,6 @@ impl Reset for Cpu {
         self.master_clock = 0;
         self.irq_flags = IrqFlags::default();
         self.corrupted = false;
-        Self::clear_nmi();
-        Self::clear_irq(Irq::all());
-        Self::clear_dma_halt();
-        Self::clear_dma(Dma::all());
-        Self::clear_dma_dummy_read();
 
         // Read directly from bus so as to not clock other components during reset
         let lo = self.bus.read(Self::RESET_VECTOR);
@@ -988,7 +916,6 @@ impl fmt::Debug for Cpu {
             .field("y", &format_args!("${:02X}", self.y))
             .field("status", &self.status)
             .field("bus", &self.bus)
-            .field("irqs", &Self::irqs())
             .field("interrupt_flags", &self.irq_flags)
             .finish()
     }

@@ -5,7 +5,6 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    cpu::{Cpu, Irq},
     fs,
     mapper::{self, Map, Mapper, Mirroring},
     mem::{Banks, Memory},
@@ -25,6 +24,7 @@ pub struct Regs {
     pub irq_latch: u8,
     pub irq_counter: u16,
     pub irq_enabled: bool,
+    pub irq_pending: bool,
     pub irq_reload: u16,
 }
 
@@ -196,7 +196,7 @@ impl BandaiFCG {
         };
     }
 
-    fn write_irq_ctrl(&mut self, val: u8) {
+    const fn write_irq_ctrl(&mut self, val: u8) {
         self.regs.irq_enabled = val & 0x01 == 0x01;
 
         // Wiki claims there is no reload value, however this seems to be the only way to make
@@ -207,7 +207,7 @@ impl BandaiFCG {
             self.regs.irq_counter = self.regs.irq_reload;
         }
 
-        Cpu::clear_irq(Irq::MAPPER);
+        self.regs.irq_pending = false;
     }
 
     fn write_irq_latch(&mut self, addr: u16, val: u8) {
@@ -367,6 +367,11 @@ impl Map for BandaiFCG {
         }
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
     fn mirroring(&self) -> Mirroring {
@@ -384,7 +389,7 @@ impl Clock for BandaiFCG {
         // without glitches with the same code.
         if self.regs.irq_enabled {
             if self.regs.irq_counter == 0 {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
         }
@@ -419,11 +424,11 @@ impl Reset for BandaiFCG {}
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BarcodeReader {
-    data: Box<[u8]>,
-    master_clock: usize,
-    insert_cycle: usize,
-    new_barcode: u64,
-    new_barcode_digit_count: u32,
+    pub data: Box<[u8]>,
+    pub master_clock: usize,
+    pub insert_cycle: usize,
+    pub new_barcode: u64,
+    pub new_barcode_digit_count: u32,
 }
 
 impl BarcodeReader {
@@ -612,17 +617,17 @@ pub enum EepromMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Eeprom {
-    model: EepromModel,
-    mode: EepromMode,
-    next_mode: EepromMode,
-    chip_addr: u8,
-    addr: u8,
-    data: u8,
-    counter: u8,
-    output: u8,
-    prev_scl: u8,
-    prev_sda: u8,
-    rom_data: Memory<Box<[u8]>>,
+    pub model: EepromModel,
+    pub mode: EepromMode,
+    pub next_mode: EepromMode,
+    pub chip_addr: u8,
+    pub addr: u8,
+    pub data: u8,
+    pub counter: u8,
+    pub output: u8,
+    pub prev_scl: u8,
+    pub prev_sda: u8,
+    pub rom_data: Memory<Box<[u8]>>,
 }
 
 impl Eeprom {

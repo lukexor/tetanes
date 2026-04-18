@@ -6,7 +6,6 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
-    cpu::{Cpu, Irq},
     mapper::{self, Map, Mapper},
     mem::{Banks, Memory},
     ppu::{CIRam, Mirroring},
@@ -17,12 +16,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
-    command: u8,
-    parameter: u8,
-    prg_ram_enabled: bool,
-    irq_enabled: bool,
-    irq_counter_enabled: bool,
-    irq_counter: u16,
+    pub command: u8,
+    pub parameter: u8,
+    pub prg_ram_enabled: bool,
+    pub irq_enabled: bool,
+    pub irq_pending: bool,
+    pub irq_counter_enabled: bool,
+    pub irq_counter: u16,
 }
 
 /// `Sunsoft FME7` (Mapper 069).
@@ -145,7 +145,7 @@ impl Map for SunsoftFme7 {
                 0xD => {
                     self.regs.irq_enabled = (val & 0x01) == 0x01;
                     self.regs.irq_counter_enabled = (val & 0x80) == 0x80;
-                    Cpu::clear_irq(Irq::MAPPER);
+                    self.regs.irq_pending = false;
                 }
                 0xE => self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val),
                 0xF => {
@@ -156,6 +156,11 @@ impl Map for SunsoftFme7 {
             0xC000..=0xFFFF => self.audio.write_register(addr, val),
             _ => (),
         }
+    }
+
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
     }
 
     /// Returns the current [`Mirroring`] mode.
@@ -172,7 +177,7 @@ impl Clock for SunsoftFme7 {
         if self.regs.irq_counter_enabled {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
             if self.regs.irq_counter == 0xFFFF && self.regs.irq_enabled {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
         }
         self.audio.clock();

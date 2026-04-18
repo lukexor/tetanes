@@ -5,7 +5,6 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    cpu::{Cpu, Irq},
     mapper::{self, Map, Mapper},
     mem::{BankAccess, Banks, Memory},
     ppu::{CIRam, Mirroring},
@@ -45,6 +44,7 @@ impl From<u16> for PageBit {
 #[must_use]
 pub struct Regs {
     pub irq_enabled: bool,
+    pub irq_pending: bool,
     pub irq_reload: [u8; 4],
     pub irq_counter_size: u8,
 }
@@ -181,15 +181,15 @@ impl Map for JalecoSs88006 {
                 0xD002 | 0xD003 => self.update_chr_bank(7, val, PageBit::from(addr)),
                 0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
                 0xF000 => {
-                    Cpu::clear_irq(Irq::MAPPER);
+                    self.regs.irq_pending = false;
                     self.irq_counter = u16::from(self.regs.irq_reload[0])
                         | (u16::from(self.regs.irq_reload[1]) << 4)
                         | (u16::from(self.regs.irq_reload[2]) << 8)
                         | (u16::from(self.regs.irq_reload[3]) << 12);
                 }
                 0xF001 => {
-                    Cpu::clear_irq(Irq::MAPPER);
                     self.regs.irq_enabled = val & 0x01 == 0x01;
+                    self.regs.irq_pending = false;
                     if val & 0x08 == 0x08 {
                         self.regs.irq_counter_size = 3;
                     } else if val & 0x04 == 0x04 {
@@ -216,6 +216,11 @@ impl Map for JalecoSs88006 {
         }
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
     fn mirroring(&self) -> Mirroring {
@@ -238,7 +243,7 @@ impl Clock for JalecoSs88006 {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
             let counter = self.irq_counter & irq_mask;
             if counter == 0 {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
             self.irq_counter =
                 (self.irq_counter & !irq_mask) | (counter.wrapping_sub(1) & irq_mask);

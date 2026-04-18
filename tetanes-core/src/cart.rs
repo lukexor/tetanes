@@ -81,7 +81,7 @@ impl Cart {
         Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
-            region: NesRegion::Ntsc,
+            region: NesRegion::default(),
             ram_state: RamState::default(),
             mapper: Mapper::none(),
             chr_rom: Memory::new(CHR_ROM_BANK_SIZE),

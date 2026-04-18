@@ -63,9 +63,9 @@ description = "Benchmark TetaNES"
 category = "Development"
 command = "perf"
 args = [
-  "stat", "-x,", "-e",
+  "stat", "-e",
   "cycles,instructions,cache-misses,cache-references,branch-misses,branches,L1-dcache-load-misses,L1-dcache-loads",
-  "taskset", "-c", "0", "cargo", "bench", "--bench", "clock_frame", "${@}"
+  "taskset", "-c", "0", "cargo", "bench", "--profile", "perf", "--bench", "clock_frame", "${@}"
 ]
 
 [tasks.test]
@@ -73,12 +73,6 @@ description = "Test TetaNES"
 category = "Development"
 command = "cargo"
 args = ["nextest", "run", "--locked", "--all-features", "--no-fail-fast", "${@}"]
-
-[tasks.bench-flamegraph]
-description = "Benchmark TetaNES w/ Flamegraph"
-category = "Development"
-command = "cargo"
-args = ["bench", "--profile", "flamegraph", "--bench", "clock_frame", "${@}", "--", "--profile-time", "60"]
 
 [tasks.run]
 description = "Run TetaNES in release mode"

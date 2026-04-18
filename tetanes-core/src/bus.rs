@@ -3,16 +3,15 @@
 //! <https://wiki.nesdev.org/w/index.php/CPU_memory_map>
 
 use crate::{
-    apu::{Apu, ApuRegisters, Channel},
+    apu::{Apu, Channel},
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::Cpu,
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Map, Mapper},
     mem::{ConstArray, RamState, Read, Write},
-    ppu::{Ppu, Registers},
+    ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
@@ -71,7 +70,7 @@ pub struct Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self::new(NesRegion::Ntsc, RamState::default())
+        Self::new(NesRegion::default(), RamState::default())
     }
 }
 
@@ -150,9 +149,9 @@ impl Bus {
     pub fn cpu_clock(&mut self) {
         self.ppu.mapper.clock();
         let output = self.ppu.mapper.output();
+        self.input.clock();
         self.apu.add_mapper_output(output);
         self.apu.clock_lazy();
-        self.input.clock();
     }
 }
 
@@ -218,6 +217,7 @@ impl Write for Bus {
             0x4100..=0xFFFF => self.ppu.mapper.prg_write(addr, val),
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
+            0x2002 => self.ppu.open_bus = val,
             0x2003 => self.ppu.write_oamaddr(val),
             0x2004 => self.ppu.write_oamdata(val),
             0x2005 => self.ppu.write_scroll(val),
@@ -241,11 +241,10 @@ impl Write for Bus {
             0x4011 => self.apu.write_dmc_output(val),
             0x4012 => self.apu.write_dmc_addr(val),
             0x4013 => self.apu.write_length(Channel::Dmc, val),
-            0x4014 => Cpu::start_oam_dma(u16::from(val) << 8),
             0x4015 => self.apu.write_status(val),
             0x4016 => self.input.write(val),
             0x4017 => self.apu.write_frame_counter(val),
-            0x2002 => self.ppu.open_bus = val,
+            0x4014 => (), // DMA handled by CPU
             _ => (),
         }
     }
@@ -288,7 +287,6 @@ impl Sram for Bus {
 mod test {
     use super::*;
     use crate::{
-        common::ClockTo,
         mapper::{Cnrom, Nrom},
         mem::Memory,
     };

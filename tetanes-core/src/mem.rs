@@ -20,7 +20,6 @@ use tracing::warn;
 #[derive(Default, Copy, Clone, Serialize, Deserialize)]
 pub struct Memory<D> {
     data: D,
-    mask: usize,
 }
 
 impl Memory<Box<[u8]>> {
@@ -28,7 +27,6 @@ impl Memory<Box<[u8]>> {
     pub fn empty() -> Self {
         Self {
             data: Vec::new().into_boxed_slice(),
-            mask: 0,
         }
     }
 
@@ -40,7 +38,6 @@ impl Memory<Box<[u8]>> {
         }
         Self {
             data: vec![0; size].into_boxed_slice(),
-            mask: size.saturating_sub(1),
         }
     }
 
@@ -81,7 +78,6 @@ impl fmt::Debug for Memory<Box<[u8]>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
             .field("len", &self.data.len())
-            .field("mask", &self.mask)
             .finish()
     }
 }
@@ -90,7 +86,6 @@ impl<T, const N: usize> fmt::Debug for Memory<ConstArray<T, N>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Memory")
             .field("len", &self.data.len())
-            .field("mask", &self.mask)
             .finish()
     }
 }
@@ -125,14 +120,14 @@ impl<T> Index<usize> for Memory<Box<[T]>> {
 
     #[inline(always)]
     fn index(&self, index: usize) -> &Self::Output {
-        self.data.index(index & self.mask)
+        self.data.index(index & (self.data.len() - 1))
     }
 }
 
 impl<T> IndexMut<usize> for Memory<Box<[T]>> {
     #[inline(always)]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.data.index_mut(index & self.mask)
+        self.data.index_mut(index & (self.data.len() - 1))
     }
 }
 
@@ -142,7 +137,7 @@ impl<T> Index<Range<usize>> for Memory<Box<[T]>> {
     #[inline]
     fn index(&self, range: Range<usize>) -> &Self::Output {
         self.data
-            .index(range.start & self.mask..range.end.min(self.len()))
+            .index((range.start & (self.data.len() - 1))..range.end.min(self.len()))
     }
 }
 
@@ -150,7 +145,7 @@ impl<T> IndexMut<Range<usize>> for Memory<Box<[T]>> {
     #[inline]
     fn index_mut(&mut self, range: Range<usize>) -> &mut Self::Output {
         self.data
-            .index_mut(range.start & self.mask..range.end.min(self.len()))
+            .index_mut((range.start & (self.data.len() - 1))..range.end.min(self.len()))
     }
 }
 
@@ -159,16 +154,18 @@ impl<T> Index<RangeInclusive<usize>> for Memory<Box<[T]>> {
 
     #[inline]
     fn index(&self, range: RangeInclusive<usize>) -> &Self::Output {
-        self.data
-            .index(range.start() & self.mask..=*range.end().min(&self.mask))
+        self.data.index(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
     }
 }
 
 impl<T> IndexMut<RangeInclusive<usize>> for Memory<Box<[T]>> {
     #[inline]
     fn index_mut(&mut self, range: RangeInclusive<usize>) -> &mut Self::Output {
-        self.data
-            .index_mut(range.start() & self.mask..=*range.end().min(&self.mask))
+        self.data.index_mut(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
     }
 }
 

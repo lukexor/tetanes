@@ -129,7 +129,7 @@ impl TryFrom<usize> for NesRegion {
 pub trait Regional {
     /// Return the current region.
     fn region(&self) -> NesRegion {
-        NesRegion::Ntsc
+        NesRegion::default()
     }
 
     /// Set the region.
@@ -156,12 +156,6 @@ pub trait Reset {
 pub trait Clock {
     /// Clock component once.
     fn clock(&mut self) {}
-}
-
-/// Trait for types that can clock to a target cycle.
-pub trait ClockTo {
-    /// Clock component to the given master_cycle.
-    fn clock_to(&mut self, _master_cycle: u32) {}
 }
 
 /// Trait for types that can output `f32` audio samples.

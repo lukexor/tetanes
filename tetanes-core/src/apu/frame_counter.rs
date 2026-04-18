@@ -2,10 +2,7 @@
 //!
 //! See: <https://www.nesdev.org/wiki/APU_Frame_Counter>
 
-use crate::{
-    common::{NesRegion, Reset, ResetKind},
-    cpu::{Cpu, Irq},
-};
+use crate::common::{NesRegion, Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -23,6 +20,7 @@ pub struct FrameCounter {
     pub block_counter: u8,
     pub cycle: u32,
     pub inhibit_irq: bool, // Set by $4017 D6
+    pub irq_pending: bool,
 }
 
 /// The Frame Counter clock type.
@@ -62,6 +60,7 @@ impl FrameCounter {
             block_counter: 0,
             cycle: 0,
             inhibit_irq: false,
+            irq_pending: false,
         }
     }
 
@@ -88,7 +87,7 @@ impl FrameCounter {
         self.inhibit_irq = val & 0x40 == 0x40; // D6
         if self.inhibit_irq {
             trace!("APU Frame Counter IRQ inhibit");
-            Cpu::clear_irq(Irq::FRAME_COUNTER);
+            self.irq_pending = false;
         }
     }
 
@@ -119,7 +118,7 @@ impl FrameCounter {
                     "APU Frame Counter IRQ pending - cycles: {} >= {step_cycles}",
                     self.cycle + cycles
                 );
-                Cpu::set_irq(Irq::FRAME_COUNTER);
+                self.irq_pending = true;
             }
 
             let ty = Self::FRAME_TYPE[self.step];
@@ -188,5 +187,6 @@ impl Reset for FrameCounter {
         }
         self.step = 0;
         self.block_counter = 0;
+        self.irq_pending = false;
     }
 }

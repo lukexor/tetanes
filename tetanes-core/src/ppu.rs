@@ -1,8 +1,7 @@
 //! NES PPU (Picture Processing Unit) implementation.
 
 use crate::{
-    common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind},
-    cpu::Cpu,
+    common::{Clock, NesRegion, Regional, Reset, ResetKind},
     debug::PpuDebugger,
     mapper::{Map, Mapper},
     mem::{ConstArray, Read, Write},
@@ -154,36 +153,6 @@ impl PpuAddr for u16 {
     }
 }
 
-/// Trait for PPU Registers.
-pub trait Registers {
-    /// $2000 PPUCTRL
-    fn write_ctrl(&mut self, val: u8);
-    /// Write $2001 PPUMASK
-    fn write_mask(&mut self, val: u8);
-    /// Read $2002 PPUSTATUS
-    fn read_status(&mut self) -> u8;
-    /// Peek $2002 PPUSTATUS
-    fn peek_status(&self) -> u8;
-    /// Write $2003 OAMADDR
-    fn write_oamaddr(&mut self, val: u8);
-    /// Read $2004 OAMDATA
-    fn read_oamdata(&mut self) -> u8;
-    /// Peek $2004 OAMDATA
-    fn peek_oamdata(&self) -> u8;
-    /// Write $2004 OAMDATA
-    fn write_oamdata(&mut self, val: u8);
-    /// Write $2005 PPUSCROLL
-    fn write_scroll(&mut self, val: u8);
-    /// Write $2006 PPUADDR
-    fn write_addr(&mut self, val: u8);
-    /// Read $2007 PPUDATA
-    fn read_data(&mut self) -> u8;
-    /// Peek $2007 PPUDATA
-    fn peek_data(&self) -> u8;
-    /// Write $2007 PPUDATA
-    fn write_data(&mut self, val: u8);
-}
-
 /// NES PPU.
 ///
 /// See: <https://wiki.nesdev.org/w/index.php/PPU>
@@ -300,6 +269,8 @@ pub struct Ppu {
     // === 640 : end of cache line
     /// Mapper.
     pub mapper: Mapper,
+    /// NMI pending.
+    pub nmi_pending: bool,
 
     /// $2007 PPUDATA buffer.
     pub vram_buffer: u8,
@@ -475,6 +446,7 @@ impl Ppu {
             tile_addr: 0x0000,
 
             status: Status::new(),
+            nmi_pending: false,
 
             oam_fetch: 0x00,
             oamaddr: 0x0000,
@@ -846,7 +818,7 @@ impl Ppu {
         if !self.prevent_vbl {
             self.status.set_in_vblank(true);
             if self.ctrl.nmi_enabled {
-                Cpu::set_nmi();
+                self.nmi_pending = true;
                 trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
             }
         }
@@ -861,8 +833,8 @@ impl Ppu {
         self.status.set_spr_zero_hit(false);
         self.status.set_spr_overflow(false);
         self.status.reset_in_vblank();
+        self.nmi_pending = false;
         self.reset_signal = false;
-        Cpu::clear_nmi();
         self.open_bus = 0; // Clear open bus every frame
     }
 
@@ -1243,9 +1215,16 @@ impl Ppu {
             u16::from(color & self.mask.grayscale) | self.mask.emphasis,
         );
     }
-}
 
-impl Registers for Ppu {
+    #[inline(always)]
+    pub fn clock_to(&mut self, clock: u32) {
+        let divider = u32::from(self.clock_divider);
+        while self.master_clock + divider <= clock {
+            self.clock();
+            self.master_clock += divider;
+        }
+    }
+
     // $2000 | RW  | PPUCTRL
     //       | 0-1 | Name Table to show:
     //       |     |
@@ -1269,7 +1248,7 @@ impl Registers for Ppu {
     //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
-    fn write_ctrl(&mut self, val: u8) {
+    pub fn write_ctrl(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
             return;
@@ -1287,13 +1266,13 @@ impl Registers for Ppu {
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
         if !self.ctrl.nmi_enabled {
-            Cpu::clear_nmi();
+            self.nmi_pending = false;
         } else if self.status.in_vblank {
             trace!(
                 "$2000 NMI During VBL - PPU:{:3},{:3}",
                 self.cycle, self.scanline
             );
-            Cpu::set_nmi();
+            self.nmi_pending = true;
         }
     }
 
@@ -1305,7 +1284,7 @@ impl Registers for Ppu {
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
     #[inline(always)]
-    fn write_mask(&mut self, val: u8) {
+    pub fn write_mask(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
             return;
@@ -1321,16 +1300,15 @@ impl Registers for Ppu {
     //       |     | This flag resets to 0 when VBlank starts, or CPU reads $2002
     //       |   7 | VBlank Flag, 1 = PPU is generating a Vertical Blanking Impulse
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
-    fn read_status(&mut self) -> u8 {
+    pub fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
         // Top three bits ignored for open bus
         self.open_bus |= status & 0xE0;
 
-        if Cpu::nmi_pending() {
-            trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline,);
+        if self.nmi_pending {
+            trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline);
         }
-        Cpu::clear_nmi();
-
+        self.nmi_pending = false;
         self.status.reset_in_vblank();
         self.scroll.reset_latch();
 
@@ -1356,7 +1334,7 @@ impl Registers for Ppu {
     //
     // Non-mutating version of `read_status`.
     #[inline(always)]
-    fn peek_status(&self) -> u8 {
+    pub const fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
         (self.status.read() & 0xE0) | (self.open_bus & 0x1F)
     }
@@ -1367,7 +1345,7 @@ impl Registers for Ppu {
     //       |     | each access to $2004. The Sprite Memory contains coordinates,
     //       |     | colors, and other attributes of the sprites.
     #[inline(always)]
-    fn write_oamaddr(&mut self, val: u8) {
+    pub const fn write_oamaddr(&mut self, val: u8) {
         self.open_bus = val;
         self.oamaddr = val;
     }
@@ -1378,7 +1356,7 @@ impl Registers for Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     #[inline(always)]
-    fn read_oamdata(&mut self) -> u8 {
+    pub fn read_oamdata(&mut self) -> u8 {
         self.open_bus = self.peek_oamdata();
         self.open_bus
     }
@@ -1389,7 +1367,8 @@ impl Registers for Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     // Non-mutating version of `read_oamdata`.
-    fn peek_oamdata(&self) -> u8 {
+    #[inline(always)]
+    pub fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= scanline::VISIBLE_END
             && self.mask.rendering_enabled
@@ -1406,7 +1385,7 @@ impl Registers for Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
-    fn write_oamdata(&mut self, mut val: u8) {
+    pub fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
 
         if self.mask.rendering_enabled
@@ -1446,7 +1425,7 @@ impl Registers for Ppu {
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
     #[inline(always)]
-    fn write_scroll(&mut self, val: u8) {
+    pub fn write_scroll(&mut self, val: u8) {
         self.open_bus = val;
 
         if self.reset_signal {
@@ -1457,7 +1436,7 @@ impl Registers for Ppu {
 
     // $2006 | W   | PPUADDR
     #[inline(always)]
-    fn write_addr(&mut self, val: u8) {
+    pub fn write_addr(&mut self, val: u8) {
         self.open_bus = val;
 
         if self.reset_signal {
@@ -1467,7 +1446,7 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    fn read_data(&mut self) -> u8 {
+    pub fn read_data(&mut self) -> u8 {
         let addr = self.scroll.addr();
         self.increment_vram_addr();
 
@@ -1501,7 +1480,7 @@ impl Registers for Ppu {
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
-    fn peek_data(&self) -> u8 {
+    pub fn peek_data(&self) -> u8 {
         let addr = self.scroll.addr();
         if addr < addr::PALETTE_START {
             self.vram_buffer
@@ -1513,7 +1492,7 @@ impl Registers for Ppu {
     }
 
     // $2007 | RW  | PPUDATA
-    fn write_data(&mut self, val: u8) {
+    pub fn write_data(&mut self, val: u8) {
         let addr = self.scroll.addr();
         trace!(
             "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
@@ -1667,17 +1646,6 @@ impl Clock for Ppu {
     }
 }
 
-impl ClockTo for Ppu {
-    #[inline(always)]
-    fn clock_to(&mut self, clock: u32) {
-        let divider = u32::from(self.clock_divider);
-        while self.master_clock + divider <= clock {
-            self.clock();
-            self.master_clock += divider;
-        }
-    }
-}
-
 impl Regional for Ppu {
     fn region(&self) -> NesRegion {
         self.region
@@ -1728,6 +1696,7 @@ impl Reset for Ppu {
         self.mapper.reset(kind);
 
         self.status.reset(kind);
+        self.nmi_pending = false;
 
         self.oam_fetch = 0x00;
         self.oam_eval_done = false;

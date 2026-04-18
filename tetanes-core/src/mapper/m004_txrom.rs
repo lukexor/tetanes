@@ -6,7 +6,6 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    cpu::{Cpu, Irq},
     mapper::{self, Map, Mapper},
     mem::{Banks, Memory},
     ppu::{CIRam, Mirroring},
@@ -52,6 +51,7 @@ pub struct Regs {
     pub irq_latch: u8,
     pub irq_counter: u8,
     pub irq_enabled: bool,
+    pub irq_pending: bool,
     pub irq_reload: bool,
     pub master_clock: u32,
     pub a12_low_clock: u32,
@@ -383,8 +383,8 @@ impl Map for Txrom {
                     0xC000 => self.regs.irq_latch = val,
                     0xC001 => self.regs.irq_reload = true,
                     0xE000 => {
-                        Cpu::clear_irq(Irq::MAPPER);
                         self.regs.irq_enabled = false;
+                        self.regs.irq_pending = false;
                     }
                     0xE001 => self.regs.irq_enabled = true,
                     _ => unreachable!("impossible address"),
@@ -419,13 +419,18 @@ impl Map for Txrom {
                     && self.regs.irq_counter == 0
                     && self.regs.irq_enabled
                 {
-                    Cpu::set_irq(Irq::MAPPER);
+                    self.regs.irq_pending = true;
                 }
             } else if self.regs.irq_counter == 0 && self.regs.irq_enabled {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
             self.regs.irq_reload = false;
         }
+    }
+
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
     }
 
     /// Returns the current [`Mirroring`] mode.

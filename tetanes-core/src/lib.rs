@@ -32,7 +32,7 @@ pub mod prelude {
         action::Action,
         apu::{Apu, Channel},
         cart::Cart,
-        common::{Clock, ClockTo, NesRegion, Regional, Reset, ResetKind, Sample},
+        common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
         control_deck::{Config, ControlDeck, HeadlessMode},
         cpu::Cpu,
         genie::GenieCode,

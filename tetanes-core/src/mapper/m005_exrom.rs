@@ -11,7 +11,7 @@ use crate::{
     },
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::{Cpu, Irq},
+    cpu::Cpu,
     mapper::{self, Map, Mapper},
     mem::{Banks, Memory},
     ppu::{self, CIRam, Mirroring, PpuAddr},
@@ -62,10 +62,10 @@ bitflags! {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct ExRamMode {
-    bits: u8,
-    nametable: bool,
-    attr: bool,
-    rw: ExRamRW,
+    pub bits: u8,
+    pub nametable: bool,
+    pub attr: bool,
+    pub rw: ExRamRW,
 }
 
 impl Default for ExRamMode {
@@ -226,9 +226,10 @@ pub struct Regs {
     pub vsplit: VSplit,                      // $5200 - $5202
     pub irq_scanline: u16,                   // $5203: Write $00 to disable IRQs
     pub irq_enabled: bool,                   // $5204
-    pub multiplicand: u8,                    // $5205: write
-    pub multiplier: u8,                      // $5206: write
-    pub mult_result: u16,                    // $5205: read lo, $5206: read hi
+    pub irq_pending: bool,
+    pub multiplicand: u8, // $5205: write
+    pub multiplier: u8,   // $5206: write
+    pub mult_result: u16, // $5205: read lo, $5206: read hi
 }
 
 impl Default for Regs {
@@ -252,6 +253,7 @@ impl Regs {
             vsplit: VSplit::new(),
             irq_scanline: 0x00,
             irq_enabled: false,
+            irq_pending: false,
             multiplicand: 0xFF,
             multiplier: 0xFF,
             mult_result: 0xFE01, // e.g. 0xFF * 0xFF
@@ -648,7 +650,7 @@ impl Map for Exrom {
                             if status.scanline == self.regs.irq_scanline {
                                 irq_state.pending = true;
                                 if self.regs.irq_enabled {
-                                    Cpu::set_irq(Irq::MAPPER);
+                                    self.regs.irq_pending = true;
                                 }
                             }
                         } else {
@@ -733,7 +735,7 @@ impl Map for Exrom {
                 self.irq_state.in_frame = false; // NMI clears in_frame
                 self.irq_state.prev_addr = None;
                 self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
             _ => (),
         }
@@ -741,9 +743,9 @@ impl Map for Exrom {
         match addr {
             0x5204 => {
                 self.irq_state.pending = false;
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
-            0x5010 => Cpu::clear_irq(Irq::DMC),
+            0x5010 => self.dmc.irq_pending = false,
             _ => (),
         }
         val
@@ -757,8 +759,7 @@ impl Map for Exrom {
                 // [I... ...M] DMC
                 // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
                 // M = Mode select (0 = write mode. 1 = read mode.)
-                let irq = Cpu::has_irq(Irq::DMC);
-                (u8::from(irq) << 7) | self.dmc_mode
+                (u8::from(self.dmc.irq_pending) << 7) | self.dmc_mode
             }
             0x5100 => self.regs.prg_mode as u8,
             0x5101 => self.regs.chr_mode as u8,
@@ -789,10 +790,9 @@ impl Map for Exrom {
                 //   P = IRQ currently pending
                 //   I = "In Frame" signal
 
-                let irq_pending = Cpu::has_irq(Irq::MAPPER);
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in the read() function
-                (u8::from(irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
+                (u8::from(self.regs.irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
             }
             0x5205 => (self.regs.mult_result & 0xFF) as u8,
             0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
@@ -986,9 +986,9 @@ impl Map for Exrom {
             0x5204 => {
                 self.regs.irq_enabled = val & 0x80 > 0; // [E... ....] IRQ Enable (0=disabled, 1=enabled)
                 if !self.regs.irq_enabled {
-                    Cpu::clear_irq(Irq::MAPPER);
+                    self.regs.irq_pending = false;
                 } else if self.irq_state.pending {
-                    Cpu::set_irq(Irq::MAPPER);
+                    self.regs.irq_pending = true;
                 }
             }
             0x5205 => {
@@ -1030,6 +1030,21 @@ impl Map for Exrom {
             }
             _ => (),
         }
+    }
+
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending || self.dmc.irq_pending
+    }
+
+    /// Whether an DMA is pending acknowledgement.
+    fn dma_pending(&self) -> bool {
+        self.dmc.dma_pending
+    }
+
+    /// Clear pending DMA.
+    fn clear_dma_pending(&mut self) {
+        self.dmc.dma_pending = false;
     }
 
     /// Returns the current [`Mirroring`] mode.

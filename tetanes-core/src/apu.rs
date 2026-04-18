@@ -13,7 +13,7 @@ use crate::{
         triangle::Triangle,
     },
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
-    cpu::{Cpu, Irq},
+    cpu::Cpu,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -64,22 +64,6 @@ impl TryFrom<usize> for Channel {
     }
 }
 
-/// Trait for [`Apu`] registers.
-pub trait ApuRegisters {
-    fn write_ctrl(&mut self, channel: Channel, val: u8);
-    fn write_sweep(&mut self, channel: Channel, val: u8);
-    fn write_timer_lo(&mut self, channel: Channel, val: u8);
-    fn write_timer_hi(&mut self, channel: Channel, val: u8);
-    fn write_linear_counter(&mut self, val: u8);
-    fn write_length(&mut self, channel: Channel, val: u8);
-    fn write_dmc_output(&mut self, val: u8);
-    fn write_dmc_addr(&mut self, val: u8);
-    fn read_status(&mut self) -> u8;
-    fn peek_status(&self) -> u8;
-    fn write_status(&mut self, val: u8);
-    fn write_frame_counter(&mut self, val: u8);
-}
-
 /// NES APU (Audio Processing Unit).
 ///
 /// See: <https://wiki.nesdev.org/w/index.php/APU>
@@ -109,6 +93,12 @@ pub struct Apu {
     pub mapper_enabled: bool,
     pub skip_mixing: bool,
     pub should_clock: bool,
+}
+
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new(NesRegion::default())
+    }
 }
 
 impl Apu {
@@ -349,17 +339,9 @@ impl Apu {
             self.channel_clock_to(Channel::Dmc, self.clock);
         }
     }
-}
 
-impl Default for Apu {
-    fn default() -> Self {
-        Self::new(NesRegion::Ntsc)
-    }
-}
-
-impl ApuRegisters for Apu {
     /// $4000 Pulse1, $4004 Pulse2, and $400C Noise Control.
-    fn write_ctrl(&mut self, channel: Channel, val: u8) {
+    pub fn write_ctrl(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_clock);
         match channel {
             Channel::Pulse1 => {
@@ -380,7 +362,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4001 Pulse1 and $4005 Pulse2 Sweep.
-    fn write_sweep(&mut self, channel: Channel, val: u8) {
+    pub fn write_sweep(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_clock);
         match channel {
             Channel::Pulse1 => {
@@ -396,7 +378,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4002 Pulse1, $4006 Pulse2, $400A Triangle, $400E Noise, and $4010 DMC Timer Low Byte.
-    fn write_timer_lo(&mut self, channel: Channel, val: u8) {
+    pub fn write_timer_lo(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_clock);
         match channel {
             Channel::Pulse1 => {
@@ -424,7 +406,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4003 Pulse1, $4007 Pulse2, and $400B Triangle Timer High Byte.
-    fn write_timer_hi(&mut self, channel: Channel, val: u8) {
+    pub fn write_timer_hi(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_clock);
         match channel {
             Channel::Pulse1 => {
@@ -447,7 +429,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4008 Triangle Linear Counter.
-    fn write_linear_counter(&mut self, val: u8) {
+    pub fn write_linear_counter(&mut self, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $4008 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.triangle.write_linear_counter(val);
@@ -455,7 +437,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $400F Noise and $4013 DMC Length.
-    fn write_length(&mut self, channel: Channel, val: u8) {
+    pub fn write_length(&mut self, channel: Channel, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $400F write: ${val:02X} - CYC:{}", self.cpu_cycle);
         match channel {
@@ -469,7 +451,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4011 DMC Output Level.
-    fn write_dmc_output(&mut self, val: u8) {
+    pub fn write_dmc_output(&mut self, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $4011 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         // Only 7-bits are used
@@ -481,7 +463,7 @@ impl ApuRegisters for Apu {
     }
 
     /// $4012 DMC Sample Addr.
-    fn write_dmc_addr(&mut self, val: u8) {
+    pub fn write_dmc_addr(&mut self, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $4012 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.dmc.write_addr(val);
@@ -490,21 +472,21 @@ impl ApuRegisters for Apu {
     /// Read APU Status.
     ///
     /// $4015   if-d nt21   DMC IRQ, frame IRQ, length counter statuses
-    fn read_status(&mut self) -> u8 {
+    pub fn read_status(&mut self) -> u8 {
         self.clock_to(self.master_clock);
         let val = self.peek_status();
         trace!("APU $4015 read: ${val:02X} - CYC:{}", self.cpu_cycle);
-        if Cpu::has_irq(Irq::FRAME_COUNTER) {
+        if self.frame_counter.irq_pending {
             trace!("APU Frame Counter IRQ - CYC:{}", self.cpu_cycle);
         }
-        Cpu::clear_irq(Irq::FRAME_COUNTER);
+        self.frame_counter.irq_pending = false;
         val
     }
 
     /// Read APU Status without side-effects.
     ///
     /// Non-mutating version of `read_status`.
-    fn peek_status(&self) -> u8 {
+    pub fn peek_status(&self) -> u8 {
         let mut status = 0x00;
         if self.pulse1.length.counter > 0 {
             status |= 0x01;
@@ -522,11 +504,10 @@ impl ApuRegisters for Apu {
             trace!("dmc bytes remaining: {}", self.dmc.bytes_remaining);
             status |= 0x10;
         }
-        let irqs = Cpu::irqs();
-        if irqs.contains(Irq::FRAME_COUNTER) {
+        if self.frame_counter.irq_pending {
             status |= 0x40;
         }
-        if irqs.contains(Irq::DMC) {
+        if self.dmc.irq_pending {
             status |= 0x80;
         }
         status
@@ -535,22 +516,40 @@ impl ApuRegisters for Apu {
     /// Write APU Status.
     ///
     /// $4015   ---d nt21   length ctr enable: DMC, noise, triangle, pulse 2, 1
-    fn write_status(&mut self, val: u8) {
+    pub fn write_status(&mut self, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $4015 write: ${val:02X} - CYC:{}", self.cpu_cycle);
-        Cpu::clear_irq(Irq::DMC);
         self.pulse1.set_enabled(val & 0x01 == 0x01);
         self.pulse2.set_enabled(val & 0x02 == 0x02);
         self.triangle.set_enabled(val & 0x04 == 0x04);
         self.noise.set_enabled(val & 0x08 == 0x08);
         self.dmc.set_enabled(val & 0x10 == 0x10, self.cpu_cycle);
+        self.dmc.irq_pending = false;
     }
 
     /// $4017 APU Frame Counter.
-    fn write_frame_counter(&mut self, val: u8) {
+    pub fn write_frame_counter(&mut self, val: u8) {
         self.clock_to(self.master_clock);
         trace!("APU $4017 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         self.frame_counter.write(val, self.cpu_cycle);
+    }
+
+    // Return pending IRQ.
+    #[inline(always)]
+    pub const fn irq_pending(&self) -> bool {
+        self.frame_counter.irq_pending | self.dmc.irq_pending
+    }
+
+    // Return pending DMA.
+    #[inline(always)]
+    pub const fn dma_pending(&self) -> bool {
+        self.dmc.dma_pending
+    }
+
+    // Clear pending DMA.
+    #[inline(always)]
+    pub const fn clear_dma_pending(&mut self) {
+        self.dmc.dma_pending = false;
     }
 }
 
@@ -561,7 +560,6 @@ impl Regional for Apu {
 
     fn set_region(&mut self, region: NesRegion) {
         if self.region != region {
-            self.clock_to(self.master_clock);
             self.region = region;
             self.clock_rate = Cpu::region_clock_rate(region);
             self.filter_chain = FilterChain::new(region, self.sample_rate);

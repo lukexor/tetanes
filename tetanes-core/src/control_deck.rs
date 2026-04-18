@@ -244,7 +244,7 @@ impl ControlDeck {
         cpu.bus.ppu.emulate_warmup = cfg.emulate_ppu_warmup;
         cpu.bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
         if cfg.region.is_auto() {
-            cpu.set_region(NesRegion::Ntsc);
+            cpu.set_region(NesRegion::default());
         } else {
             cpu.set_region(cfg.region);
         }

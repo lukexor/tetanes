@@ -263,6 +263,21 @@ impl Map for Mapper {
         impl_map!(self, ppu_write, addr, val)
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        impl_map!(self, irq_pending)
+    }
+
+    /// Whether an DMA is pending acknowledgement.
+    fn dma_pending(&self) -> bool {
+        impl_map!(self, dma_pending)
+    }
+
+    /// Clear pending DMA.
+    fn clear_dma_pending(&mut self) {
+        impl_map!(self, clear_dma_pending)
+    }
+
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
     fn mirroring(&self) -> Mirroring {
@@ -382,6 +397,19 @@ pub trait Map: Clock + Regional + Reset + Sram {
 
     /// Synchronize a write to a PPU address.
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
+
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        false
+    }
+
+    /// Clear pending DMA.
+    fn clear_dma_pending(&mut self) {}
+
+    /// Whether an DMA is pending acknowledgement.
+    fn dma_pending(&self) -> bool {
+        false
+    }
 
     /// Returns the current [`Mirroring`] mode.
     // All mappers have mirroring, even if it's hard-wired.

@@ -5,7 +5,6 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    cpu::{Cpu, Irq},
     fs,
     mapper::{self, Map, Mapper},
     mem::{BankAccess, Banks, ConstArray, Memory},
@@ -28,10 +27,11 @@ pub enum Board {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Regs {
-    irq_counter: u16,
-    nt_select_lo: bool,
-    nt_select_hi: bool,
-    prg_ram_protect: u8,
+    pub irq_counter: u16,
+    pub irq_pending: bool,
+    pub nt_select_lo: bool,
+    pub nt_select_hi: bool,
+    pub prg_ram_protect: u8,
 }
 
 /// `Namco163` (Mapper 019).
@@ -259,12 +259,12 @@ impl Map for Namco163 {
             0x5000..=0x57FF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val);
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
             0x5800..=0x5FFF => {
                 self.maybe_set_board(Board::Namco163);
                 self.regs.irq_counter = (self.regs.irq_counter & 0xFF) | (u16::from(val) << 8);
-                Cpu::clear_irq(Irq::MAPPER);
+                self.regs.irq_pending = false;
             }
             0x6000..=0x7FFF => {
                 self.prg_ram_written_to = true;
@@ -342,6 +342,11 @@ impl Map for Namco163 {
         }
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
     fn mirroring(&self) -> Mirroring {
@@ -370,7 +375,7 @@ impl Clock for Namco163 {
         if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
             if self.regs.irq_counter & 0x7FFF == 0x7FFF {
-                Cpu::set_irq(Irq::MAPPER);
+                self.regs.irq_pending = true;
             }
         }
         if self.board == Board::Namco163 {
@@ -400,14 +405,14 @@ impl Sample for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    ram: ConstArray<u8, 0x80>,
-    addr: usize,
-    auto_increment: bool,
-    disabled: bool,
-    update_counter: u8,
-    current_channel: i8,
-    channel_out: [f32; Self::CHANNEL_COUNT],
-    out: f32,
+    pub ram: ConstArray<u8, 0x80>,
+    pub addr: usize,
+    pub auto_increment: bool,
+    pub disabled: bool,
+    pub update_counter: u8,
+    pub current_channel: i8,
+    pub channel_out: [f32; Self::CHANNEL_COUNT],
+    pub out: f32,
 }
 
 impl Default for Audio {

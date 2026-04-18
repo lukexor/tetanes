@@ -342,6 +342,11 @@ impl Map for Vrc6 {
         }
     }
 
+    /// Whether an IRQ is pending acknowledgement.
+    fn irq_pending(&self) -> bool {
+        self.irq.irq_pending
+    }
+
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
     fn mirroring(&self) -> Mirroring {
@@ -450,14 +455,14 @@ impl Reset for Audio {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Pulse {
-    enabled: bool,
-    volume: u8,
-    duty_cycle: u8,
-    ignore_duty: bool,
-    frequency: u16,
-    timer: u16,
-    step: u8,
-    freq_shift: u8,
+    pub enabled: bool,
+    pub volume: u8,
+    pub duty_cycle: u8,
+    pub ignore_duty: bool,
+    pub frequency: u16,
+    pub timer: u16,
+    pub step: u8,
+    pub freq_shift: u8,
 }
 
 impl Default for Pulse {
@@ -527,13 +532,13 @@ impl Clock for Pulse {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Saw {
-    enabled: bool,
-    accum: u8,
-    accum_rate: u8,
-    frequency: u16,
-    timer: u16,
-    step: u8,
-    freq_shift: u8,
+    pub enabled: bool,
+    pub accum: u8,
+    pub accum_rate: u8,
+    pub frequency: u16,
+    pub timer: u16,
+    pub step: u8,
+    pub freq_shift: u8,
 }
 
 impl Default for Saw {
