@@ -5,11 +5,13 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
+    fs,
     mapper::{self, Map, Mapper, Mirroring},
     mem::{Banks, Memory},
     ppu::CIRam,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// `FxROM`/`MMC4` (Mapper 010).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +155,17 @@ impl Reset for Fxrom {
     }
 }
 
+impl Sram for Fxrom {
+    /// Save RAM to a given path.
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::save(path.as_ref(), &self.prg_ram)
+    }
+
+    /// Load save RAM from a given path.
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.prg_ram = data)
+    }
+}
+
 impl Clock for Fxrom {}
 impl Regional for Fxrom {}
-impl Sram for Fxrom {}

@@ -6,11 +6,13 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
+    fs,
     mapper::{self, Map, Mapper},
     mem::{Banks, Memory},
     ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// MMC1 Revision.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -367,8 +369,19 @@ impl Clock for Sxrom {
     }
 }
 
+impl Sram for Sxrom {
+    /// Save RAM to a given path.
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::save(path.as_ref(), &self.prg_ram)
+    }
+
+    /// Load save RAM from a given path.
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.prg_ram = data)
+    }
+}
+
 impl Regional for Sxrom {}
-impl Sram for Sxrom {}
 
 impl std::fmt::Debug for Sxrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

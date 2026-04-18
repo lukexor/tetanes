@@ -279,8 +279,10 @@ impl ControlDeck {
     /// Returns the path to the SRAM save file for a given ROM name which is used to store
     /// battery-backed Cart RAM. Returns `None` when the current platform doesn't have a
     /// `data` directory and no custom `data_dir` was configured.
-    pub fn sram_dir(&self, name: &str) -> PathBuf {
-        self.sram_dir.join(name)
+    pub fn sram_path(&self, name: &str) -> PathBuf {
+        self.sram_dir
+            .join(name)
+            .with_extension(Config::SRAM_EXTENSION)
     }
 
     /// Loads a ROM cartridge into memory
@@ -304,14 +306,13 @@ impl ControlDeck {
             self.cpu.set_region(loaded_rom.region);
         }
         self.cpu.bus.load_cart(cart);
+        self.loaded_rom = Some(loaded_rom.clone());
         self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
-        self.running = true;
-        let sram_dir = self.sram_dir(&name);
+        let sram_dir = self.sram_path(&name);
         if let Err(err) = self.load_sram(sram_dir) {
             error!("failed to load SRAM: {err:?}");
         }
-        self.loaded_rom = Some(loaded_rom.clone());
         Ok(loaded_rom)
     }
 
@@ -338,7 +339,7 @@ impl ControlDeck {
     /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
     pub fn unload_rom(&mut self) -> Result<()> {
         if let Some(rom) = &self.loaded_rom {
-            let sram_dir = self.sram_dir(&rom.name);
+            let sram_dir = self.sram_path(&rom.name);
             if let Err(err) = self.save_sram(sram_dir) {
                 error!("failed to save SRAM: {err:?}");
             }

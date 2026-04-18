@@ -12,12 +12,14 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::Cpu,
+    fs,
     mapper::{self, Map, Mapper},
     mem::{Banks, Memory},
     ppu::{self, CIRam, Mirroring, PpuAddr},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tracing::warn;
 
 /// PRG banking mode.
@@ -1103,7 +1105,17 @@ impl Regional for Exrom {
     }
 }
 
-impl Sram for Exrom {}
+impl Sram for Exrom {
+    /// Save RAM to a given path.
+    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::save(path.as_ref(), &self.prg_ram)
+    }
+
+    /// Load save RAM from a given path.
+    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.prg_ram = data)
+    }
+}
 
 impl Sample for Exrom {
     fn output(&self) -> f32 {
