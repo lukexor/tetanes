@@ -562,7 +562,7 @@ impl Banks {
     }
 
     #[inline(always)]
-    pub fn readable(&self, addr: u16) -> bool {
+    pub const fn readable(&self, addr: u16) -> bool {
         matches!(
             self.access[self.get(addr) & self.bank_mask],
             BankAccess::Read | BankAccess::ReadWrite
@@ -570,7 +570,7 @@ impl Banks {
     }
 
     #[inline(always)]
-    pub fn writable(&self, addr: u16) -> bool {
+    pub const fn writable(&self, addr: u16) -> bool {
         matches!(
             self.access[self.get(addr) & self.bank_mask],
             BankAccess::ReadWrite
@@ -585,7 +585,7 @@ impl Banks {
 
     #[inline(always)]
     #[must_use]
-    pub fn banks_len(&self) -> usize {
+    pub const fn banks_len(&self) -> usize {
         self.banks.len()
     }
 
@@ -597,19 +597,19 @@ impl Banks {
 
     #[inline(always)]
     #[must_use]
-    pub fn translate(&self, addr: u16) -> usize {
+    pub const fn translate(&self, addr: u16) -> usize {
         (self.banks[self.get(addr) & self.bank_mask]) | (addr as usize) & (self.window.get() - 1)
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn page(&self, bank: usize) -> usize {
+    pub const fn page(&self, bank: usize) -> usize {
         self.banks[bank] >> self.shift
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn page_offset(&self, bank: usize) -> usize {
+    pub const fn page_offset(&self, bank: usize) -> usize {
         self.banks[bank]
     }
 

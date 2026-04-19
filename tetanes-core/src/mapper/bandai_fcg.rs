@@ -442,7 +442,7 @@ impl BarcodeReader {
         }
     }
 
-    pub fn read(&self) -> u8 {
+    pub const fn read(&self) -> u8 {
         let elapsed_cycles = self.master_clock - self.insert_cycle;
         let bit_number = elapsed_cycles / 1000;
         if bit_number < self.data.len() {
