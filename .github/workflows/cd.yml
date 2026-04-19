@@ -40,7 +40,7 @@ jobs:
     if: >
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
-      || (inputs.tag && && (inputs.os == 'all' || inputs.os == 'linux')))
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux')))
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -122,7 +122,7 @@ jobs:
     if: >
       ((startsWith(github.event.release.name, 'tetanes')
         && !startsWith(github.event.release.name, 'tetanes-core'))
-      || (inputs.tag&& (inputs.os == 'all' || inputs.os == 'windows')))
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'windows')))
     runs-on: windows-latest
     strategy:
       fail-fast: false
