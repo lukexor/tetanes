@@ -65,7 +65,7 @@ jobs:
           commit: 19bc73f
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-make,cargo-deb
+          tool: cargo-make,cargo-deb,cargo-pgo
       - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
@@ -109,7 +109,7 @@ jobs:
           target: ${{ matrix.target }}
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-make
+          tool: cargo-make,cargo-pgo
       - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
       - if: success()
@@ -145,7 +145,7 @@ jobs:
           target: ${{ matrix.target }}
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-make,cargo-wix
+          tool: cargo-make,cargo-wix,cargo-pgo
       - if: startsWith(matrix.target, 'x86_64')
         run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
