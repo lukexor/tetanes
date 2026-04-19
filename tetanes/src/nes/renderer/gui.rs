@@ -57,7 +57,9 @@ mod ppu_viewer;
 mod preferences;
 
 const UI_SETTINGS_TITLE: &str = "🔧 UI Settings";
+#[cfg(debug_assertions)]
 const UI_INSPECTION_TITLE: &str = "🔍 UI Inspection";
+#[cfg(debug_assertions)]
 const UI_MEMORY_TITLE: &str = "📝 UI Memory";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -481,11 +483,13 @@ impl Gui {
                 self.ctx
                     .send_viewport_cmd_to(self.ui_settings_id, egui::ViewportCommand::Close);
             }
+            #[cfg(debug_assertions)]
             id if id == self.ui_inspection_id => {
                 self.ui_inspection_open.store(false, Ordering::Release);
                 self.ctx
                     .send_viewport_cmd_to(self.ui_inspection_id, egui::ViewportCommand::Close);
             }
+            #[cfg(debug_assertions)]
             id if id == self.ui_memory_id => {
                 self.ui_memory_open.store(false, Ordering::Release);
                 self.ctx
