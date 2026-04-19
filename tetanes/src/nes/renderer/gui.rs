@@ -30,8 +30,8 @@ use crate::{
 };
 use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Pos2, Rect, RichText, ScrollArea,
-    Sense, Stroke, TopBottomPanel, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
+    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
     include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
@@ -55,6 +55,10 @@ mod keybinds;
 pub mod lib;
 mod ppu_viewer;
 mod preferences;
+
+const UI_SETTINGS_TITLE: &str = "🔧 UI Settings";
+const UI_INSPECTION_TITLE: &str = "🔍 UI Inspection";
+const UI_MEMORY_TITLE: &str = "📝 UI Memory";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Menu {
@@ -85,11 +89,16 @@ pub struct Gui {
     pub menu_height: f32,
     nes_frame: Rect,
     about_open: bool,
-    gui_settings_open: Arc<AtomicBool>,
+    ui_settings_id: ViewportId,
+    ui_settings_open: Arc<AtomicBool>,
     #[cfg(debug_assertions)]
-    gui_inspection_open: Arc<AtomicBool>,
+    ui_inspection_id: ViewportId,
     #[cfg(debug_assertions)]
-    gui_memory_open: Arc<AtomicBool>,
+    ui_inspection_open: Arc<AtomicBool>,
+    #[cfg(debug_assertions)]
+    ui_memory_id: ViewportId,
+    #[cfg(debug_assertions)]
+    ui_memory_open: Arc<AtomicBool>,
     perf_stats_open: bool,
     update_window_open: bool,
     version: Version,
@@ -142,11 +151,16 @@ impl Gui {
             menu_height: 0.0,
             nes_frame: Rect::ZERO,
             about_open: false,
-            gui_settings_open: Arc::new(AtomicBool::new(false)),
+            ui_settings_id: egui::ViewportId::from_hash_of(UI_SETTINGS_TITLE),
+            ui_settings_open: Arc::new(AtomicBool::new(false)),
             #[cfg(debug_assertions)]
-            gui_inspection_open: Arc::new(AtomicBool::new(false)),
+            ui_inspection_id: egui::ViewportId::from_hash_of(UI_INSPECTION_TITLE),
             #[cfg(debug_assertions)]
-            gui_memory_open: Arc::new(AtomicBool::new(false)),
+            ui_inspection_open: Arc::new(AtomicBool::new(false)),
+            #[cfg(debug_assertions)]
+            ui_memory_id: egui::ViewportId::from_hash_of(UI_MEMORY_TITLE),
+            #[cfg(debug_assertions)]
+            ui_memory_open: Arc::new(AtomicBool::new(false)),
             perf_stats_open: false,
             update_window_open: false,
             version: Version::new(),
@@ -282,13 +296,13 @@ impl Gui {
     }
 
     /// Create the UI.
-    pub fn ui(&mut self, ctx: &Context, cfg: &Config, gamepads: &Gamepads) {
+    pub fn ui(&mut self, ui: &mut Ui, cfg: &Config, gamepads: &Gamepads) {
         if !self.initialized {
-            self.initialize(ctx, cfg);
+            self.initialize(ui, cfg);
         }
 
         if cfg.renderer.show_menubar {
-            TopBottomPanel::top("menubar").show(ctx, |ui| self.menubar(ui, cfg));
+            Panel::top("menubar").show_inside(ui, |ui| self.menubar(ui, cfg));
         }
 
         let viewport_opts = ViewportOptions {
@@ -297,27 +311,26 @@ impl Gui {
         };
 
         CentralPanel::default()
-            .frame(Frame::canvas(&ctx.style()))
-            .show(ctx, |ui| {
+            .frame(Frame::canvas(ui.style()))
+            .show_inside(ui, |ui| {
                 self.nes_frame(ui, viewport_opts.enabled, cfg, gamepads);
             });
 
-        self.preferences.show(ctx, viewport_opts, cfg.clone());
-        self.keybinds
-            .show(ctx, viewport_opts, cfg.clone(), gamepads);
-        self.ppu_viewer.show(ctx, viewport_opts);
+        self.preferences.show(ui, viewport_opts, cfg.clone());
+        self.keybinds.show(ui, viewport_opts, cfg.clone(), gamepads);
+        self.ppu_viewer.show(ui, viewport_opts);
 
-        self.show_about_window(ctx, viewport_opts.enabled);
-        self.show_about_homebrew_window(ctx, viewport_opts.enabled);
+        self.show_about_window(ui, viewport_opts.enabled);
+        self.show_about_homebrew_window(ui, viewport_opts.enabled);
 
-        self.show_performance_window(ctx, viewport_opts.enabled, cfg);
-        self.show_update_window(ctx, viewport_opts.enabled, cfg);
+        self.show_performance_window(ui, viewport_opts.enabled, cfg);
+        self.show_update_window(ui, viewport_opts.enabled, cfg);
 
         Self::show_viewport(
-            "🔧 UI Settings",
-            ctx,
+            UI_SETTINGS_TITLE,
+            ui,
             viewport_opts,
-            &self.gui_settings_open,
+            &self.ui_settings_open,
             |ctx, ui| {
                 ScrollArea::both().show(ui, |ui| ctx.settings_ui(ui));
             },
@@ -326,19 +339,19 @@ impl Gui {
         #[cfg(debug_assertions)]
         {
             Self::show_viewport(
-                "🔍 UI Inspection",
-                ctx,
+                UI_INSPECTION_TITLE,
+                ui,
                 viewport_opts,
-                &self.gui_inspection_open,
+                &self.ui_inspection_open,
                 |ctx, ui| {
                     ScrollArea::both().show(ui, |ui| ctx.inspection_ui(ui));
                 },
             );
             Self::show_viewport(
-                "📝 UI Memory",
-                ctx,
+                UI_MEMORY_TITLE,
+                ui,
                 viewport_opts,
-                &self.gui_memory_open,
+                &self.ui_memory_open,
                 |ctx, ui| {
                     ScrollArea::both().show(ui, |ui| ctx.memory_ui(ui));
                 },
@@ -346,19 +359,19 @@ impl Gui {
         }
     }
 
-    fn initialize(&mut self, ctx: &Context, cfg: &Config) {
+    fn initialize(&mut self, ui: &mut Ui, cfg: &Config) {
         let theme = if cfg.renderer.dark_theme {
             Self::dark_theme()
         } else {
             Self::light_theme()
         };
-        ctx.set_visuals(theme);
-        ctx.style_mut(|ctx| {
-            let scroll = &mut ctx.spacing.scroll;
-            scroll.floating = false;
-            scroll.foreground_color = false;
-            scroll.bar_width = 8.0;
-        });
+        ui.set_visuals(theme);
+        {
+            let style = ui.style_mut();
+            style.spacing.scroll.floating = false;
+            style.spacing.scroll.foreground_color = false;
+            style.spacing.scroll.bar_width = 8.0;
+        }
 
         const FONT: (&str, &[u8]) = (
             "pixeloid-sans",
@@ -373,7 +386,7 @@ impl Gui {
             include_bytes!("../../../assets/pixeloid-mono.ttf"),
         );
 
-        egui_extras::install_image_loaders(ctx);
+        egui_extras::install_image_loaders(ui);
 
         let mut fonts = FontDefinitions::default();
         for (name, data) in [FONT, BOLD_FONT, MONO_FONT] {
@@ -389,7 +402,7 @@ impl Gui {
             Some(font) => font.insert(0, MONO_FONT.0.to_string()),
             None => tracing::warn!("failed to set monospace font"),
         }
-        ctx.set_fonts(fonts);
+        ui.set_fonts(fonts);
 
         // Check for update on start
         if self.version.requires_updates() {
@@ -460,16 +473,31 @@ impl Gui {
 
     pub(super) fn close_viewport(&self, viewport_id: ViewportId) {
         match viewport_id {
-            id if id == self.keybinds.id => self.keybinds.toggle_open(&self.ctx),
-            id if id == self.ppu_viewer.id => self.ppu_viewer.toggle_open(&self.ctx),
-            id if id == self.preferences.id => self.preferences.toggle_open(&self.ctx),
+            id if id == self.keybinds.id => self.keybinds.set_open(false, &self.ctx),
+            id if id == self.ppu_viewer.id => self.ppu_viewer.set_open(false, &self.ctx),
+            id if id == self.preferences.id => self.preferences.set_open(false, &self.ctx),
+            id if id == self.ui_settings_id => {
+                self.ui_settings_open.store(false, Ordering::Release);
+                self.ctx
+                    .send_viewport_cmd_to(self.ui_settings_id, egui::ViewportCommand::Close);
+            }
+            id if id == self.ui_inspection_id => {
+                self.ui_inspection_open.store(false, Ordering::Release);
+                self.ctx
+                    .send_viewport_cmd_to(self.ui_inspection_id, egui::ViewportCommand::Close);
+            }
+            id if id == self.ui_memory_id => {
+                self.ui_memory_open.store(false, Ordering::Release);
+                self.ctx
+                    .send_viewport_cmd_to(self.ui_memory_id, egui::ViewportCommand::Close);
+            }
             _ => (),
         }
     }
 
     fn show_viewport(
         title: impl Into<String>,
-        ctx: &Context,
+        ui: &mut Ui,
         opts: ViewportOptions,
         open: &Arc<AtomicBool>,
         add_contents: impl Fn(&Context, &mut Ui) + Send + Sync + 'static,
@@ -486,21 +514,22 @@ impl Gui {
         }
 
         let open = Arc::clone(open);
-        ctx.show_viewport_deferred(viewport_id, viewport_builder, move |ctx, class| {
-            if class == ViewportClass::Embedded {
+        let ctx = ui.ctx().clone();
+        ui.show_viewport_deferred(viewport_id, viewport_builder, move |ui, class| {
+            if class == ViewportClass::EmbeddedWindow {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(&title)
                     .open(&mut window_open)
                     .vscroll(true)
-                    .show(ctx, |ui| {
-                        ui.add_enabled_ui(opts.enabled, |ui| add_contents(ctx, ui));
+                    .show(ui, |ui| {
+                        ui.add_enabled_ui(opts.enabled, |ui| add_contents(&ctx, ui));
                     });
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ctx, |ui| {
-                    ui.add_enabled_ui(opts.enabled, |ui| add_contents(ctx, ui));
+                CentralPanel::default().show_inside(ui, |ui| {
+                    ui.add_enabled_ui(opts.enabled, |ui| add_contents(&ctx, ui));
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
             }
@@ -618,7 +647,7 @@ impl Gui {
     }
 
     pub fn toggle_dark_mode_button(tx: &NesEventProxy, ui: &mut Ui) {
-        if ui.ctx().style().visuals.dark_mode {
+        if ui.style().visuals.dark_mode {
             let button = Button::new("☀").frame(false);
             let res = ui.add(button).on_hover_text("Switch to light mode");
             if res.clicked() {
@@ -1050,31 +1079,31 @@ impl Gui {
             tx.event(EmulationEvent::ShowFrameStats(self.perf_stats_open));
         }
 
-        let mut gui_settings_open = self.gui_settings_open.load(Ordering::Acquire);
-        let toggle = ToggleValue::new(&mut gui_settings_open, "🔧 UI Settings");
+        let mut gui_settings_open = self.ui_settings_open.load(Ordering::Acquire);
+        let toggle = ToggleValue::new(&mut gui_settings_open, UI_SETTINGS_TITLE);
         let res = ui.add(toggle).on_hover_text("Toggle the UI style window");
         if res.clicked() {
-            self.gui_settings_open
+            self.ui_settings_open
                 .store(gui_settings_open, Ordering::Release);
         }
 
         #[cfg(debug_assertions)]
         {
-            let mut gui_inspection_open = self.gui_inspection_open.load(Ordering::Acquire);
+            let mut gui_inspection_open = self.ui_inspection_open.load(Ordering::Acquire);
             let toggle = ToggleValue::new(&mut gui_inspection_open, "🔍 UI Inspection");
             let res = ui
                 .add(toggle)
                 .on_hover_text("Toggle the UI inspection window");
             if res.clicked() {
-                self.gui_inspection_open
+                self.ui_inspection_open
                     .store(gui_inspection_open, Ordering::Release);
             }
 
-            let mut gui_memory_open = self.gui_memory_open.load(Ordering::Acquire);
+            let mut gui_memory_open = self.ui_memory_open.load(Ordering::Acquire);
             let toggle = ToggleValue::new(&mut gui_memory_open, "📝 UI Memory");
             let res = ui.add(toggle).on_hover_text("Toggle the UI memory window");
             if res.clicked() {
-                self.gui_memory_open
+                self.ui_memory_open
                     .store(gui_memory_open, Ordering::Release);
             }
 

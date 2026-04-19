@@ -1136,10 +1136,10 @@ impl Renderer {
 
         // Mutated by accesskit below on platforms that support it
         #[allow(unused_mut)]
-        let mut output = self.ctx.run(raw_input, |ctx| {
+        let mut output = self.ctx.run_ui(raw_input, |ui| {
             match &viewport_ui_cb {
-                Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-                None => self.gui.borrow_mut().ui(ctx, cfg, gamepads),
+                Some(viewport_ui_cb) => viewport_ui_cb(ui),
+                None => self.gui.borrow_mut().ui(ui, cfg, gamepads),
             }
             self.gui
                 .borrow_mut()

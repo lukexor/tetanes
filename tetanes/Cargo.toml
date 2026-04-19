@@ -43,14 +43,14 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.33", default-features = false, features = [
+egui = { version = "0.34", default-features = false, features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.33", default-features = false, features = [
+egui_extras = { version = "0.34", default-features = false, features = [
   "image",
   "serde",
 ] }
@@ -70,14 +70,14 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid = { version = "1.16", features = ["v4", "serde"] }
 webbrowser = { version = "1.0", features = ["hardened", "disable-wsl"] }
-wgpu = "28.0"
+wgpu = "29.0"
 winit = { version = "0.30", features = ["serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Blocked upgrading until egui upgrades accesskit
-accesskit = "0.21"
+accesskit = "0.24"
 # Blocked upgrading until accesskit can be upgraded
-accesskit_winit = "0.29"
+accesskit_winit = "0.32"
 arboard = { version = "3.4", default-features = false, features = [
   "wayland-data-control",
   "windows-sys",
@@ -85,7 +85,7 @@ arboard = { version = "3.4", default-features = false, features = [
 clap.workspace = true
 cpal = "0.17"
 ctrlc = { version = "3.5", features = ["termination"] }
-egui = { version = "0.33", default-features = false, features = ["accesskit"] }
+egui = { version = "0.34", default-features = false }
 pollster = "0.4"
 reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
@@ -113,7 +113,7 @@ cpal = { version = "0.17", features = ["wasm-bindgen"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
 tracing-web = "0.1"
 uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
-wgpu = { version = "28.0", features = [
+wgpu = { version = "29.0", features = [
   "webgl",
   "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
 ] }
@@ -137,8 +137,7 @@ web-sys = { workspace = true, features = [
   "SpeechSynthesisUtterance",
   "Window",
 ] }
-# Locked to web-sys required for glow 0.16
-wasm-bindgen = "=0.2.108"
+wasm-bindgen = "0.2.118"
 wasm-bindgen-futures = "0.4"
 zip = { version = "8.0", default-features = false, features = ["deflate"] }
 

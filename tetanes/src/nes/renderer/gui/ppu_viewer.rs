@@ -7,9 +7,8 @@ use crate::nes::{
     },
 };
 use egui::{
-    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Pos2, Rect,
-    ScrollArea, Sense, SidePanel, Slider, StrokeKind, TopBottomPanel, Ui, Vec2, ViewportClass,
-    ViewportId,
+    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Panel, Pos2, Rect,
+    ScrollArea, Sense, Slider, StrokeKind, Ui, Vec2, ViewportClass, ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
@@ -263,18 +262,21 @@ impl PpuViewer {
 
     pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
-        self.state.lock().update_debugger(self.open());
-        if !self.open() {
+        self.state.lock().update_debugger(open);
+        if open {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
 
     pub fn toggle_open(&self, ctx: &Context) {
-        let _ = self
+        let Ok(open) = self
             .open
-            .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
-        self.state.lock().update_debugger(self.open());
-        if !self.open() {
+            .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open))
+        else {
+            return;
+        };
+        self.state.lock().update_debugger(open);
+        if !open {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
@@ -336,7 +338,7 @@ impl PpuViewer {
         state.ppu = ppu;
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions) {
+    pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions) {
         if !self.open.load(Ordering::Relaxed) {
             return;
         }
@@ -351,16 +353,16 @@ impl PpuViewer {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
-            if class == ViewportClass::Embedded {
+        ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
+            if class == ViewportClass::EmbeddedWindow {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(PpuViewer::TITLE)
                     .open(&mut window_open)
-                    .show(ctx, |ui| state.lock().ui(ui, opts.enabled));
+                    .show(ui, |ui| state.lock().ui(ui, opts.enabled));
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ctx, |ui| state.lock().ui(ui, opts.enabled));
-                if ctx.input(|i| i.viewport().close_requested()) {
+                CentralPanel::default().show_inside(ui, |ui| state.lock().ui(ui, opts.enabled));
+                if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
             }
@@ -385,7 +387,7 @@ impl State {
 
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
         ui.add_enabled_ui(enabled, |ui| {
-            TopBottomPanel::top("ppu_viewer_menubar").show_inside(ui, |ui| {
+            Panel::top("ppu_viewer_menubar").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.tab, Tab::Nametables, "Nametables");
                     ui.selectable_value(&mut self.tab, Tab::PatternTables, "Pattern Tables");
@@ -448,7 +450,7 @@ impl State {
     }
 
     fn nametables_tab(&mut self, ui: &mut Ui) {
-        SidePanel::right("nametable_panel").show_inside(ui, |ui| {
+        Panel::right("nametable_panel").show_inside(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Nametable Info");
@@ -861,7 +863,7 @@ impl State {
     }
 
     fn pattern_tables_tab(&mut self, ui: &mut Ui) {
-        SidePanel::right("pattern_tables_panel").show_inside(ui, |ui| {
+        Panel::right("pattern_tables_panel").show_inside(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Tile");
@@ -1008,7 +1010,7 @@ impl State {
     }
 
     fn oam_tab(&mut self, ui: &mut Ui) {
-        SidePanel::right("oam_panel").show_inside(ui, |ui| {
+        Panel::right("oam_panel").show_inside(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Tile");
@@ -1232,7 +1234,7 @@ impl State {
     }
 
     fn palette_tab(&mut self, ui: &mut Ui) {
-        SidePanel::right("palette_panel").show_inside(ui, |ui| {
+        Panel::right("palette_panel").show_inside(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Color");

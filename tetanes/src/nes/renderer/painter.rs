@@ -102,13 +102,13 @@ impl Default for Painter {
             // Firefox
             wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all().difference(wgpu::Backends::BROWSER_WEBGPU),
-                ..Default::default()
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
             }
         } else {
-            wgpu::InstanceDescriptor::default()
+            wgpu::InstanceDescriptor::new_without_display_handle()
         };
         Self {
-            instance: wgpu::Instance::new(&descriptor),
+            instance: wgpu::Instance::new(descriptor),
             render_state: None,
             surfaces: Default::default(),
         }
@@ -177,7 +177,7 @@ impl Painter {
         let Some(render_state) = &mut self.render_state else {
             return;
         };
-        let Some(surface) = self.surfaces.get(&viewport_id) else {
+        let Some(surface) = self.surfaces.get_mut(&viewport_id) else {
             return;
         };
 
@@ -202,11 +202,20 @@ impl Painter {
         render_state.update_buffers(clipped_primitives, &screen_descriptor);
 
         let output_frame = match surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(err) => {
-                if err != wgpu::SurfaceError::Outdated {
-                    tracing::error!("failed to acquire next frame: {:?}", err);
+            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => return,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                if let (Some(width), Some(height)) = (
+                    NonZeroU32::new(surface.width),
+                    NonZeroU32::new(surface.height),
+                ) {
+                    render_state.resize_surface(surface, width, height);
                 }
+                return;
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                tracing::error!("failed to acquire next frame");
                 return;
             }
         };
@@ -481,7 +490,10 @@ impl RenderState {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gui pipeline layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
+            bind_group_layouts: &[
+                Some(&uniform_bind_group_layout),
+                Some(&texture_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -805,10 +817,12 @@ impl RenderState {
             for epaint::ClippedPrimitive { primitive, .. } in paint_jobs {
                 if let Primitive::Mesh(mesh) = primitive {
                     let size = mesh.indices.len() * std::mem::size_of::<u32>();
-                    let slice = index_offset..(size + index_offset);
-                    index_buffer_staging[slice.clone()]
+                    index_buffer_staging
+                        .slice(index_offset..(size + index_offset))
                         .copy_from_slice(bytemuck::cast_slice(&mesh.indices));
-                    self.index_buffer.slices.push(slice);
+                    self.index_buffer
+                        .slices
+                        .push(index_offset..(size + index_offset));
                     index_offset += size;
                 }
             }
@@ -844,10 +858,12 @@ impl RenderState {
             for epaint::ClippedPrimitive { primitive, .. } in paint_jobs {
                 if let Primitive::Mesh(mesh) = primitive {
                     let size = mesh.vertices.len() * std::mem::size_of::<Vertex>();
-                    let slice = vertex_offset..(size + vertex_offset);
-                    vertex_buffer_staging[slice.clone()]
+                    vertex_buffer_staging
+                        .slice(vertex_offset..(size + vertex_offset))
                         .copy_from_slice(bytemuck::cast_slice(&mesh.vertices));
-                    self.vertex_buffer.slices.push(slice);
+                    self.vertex_buffer
+                        .slices
+                        .push(vertex_offset..(size + vertex_offset));
                     vertex_offset += size;
                 }
             }

@@ -92,21 +92,24 @@ impl Keybinds {
 
     pub fn set_open(&self, open: bool, ctx: &Context) {
         self.open.store(open, Ordering::Release);
-        if !self.open() {
+        if open {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
 
     pub fn toggle_open(&self, ctx: &Context) {
-        let _ = self
+        let Ok(open) = self
             .open
-            .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open));
-        if !self.open() {
+            .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open))
+        else {
+            return;
+        };
+        if open {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
 
-    pub fn show(&mut self, ctx: &Context, opts: ViewportOptions, cfg: Config, gamepads: &Gamepads) {
+    pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions, cfg: Config, gamepads: &Gamepads) {
         if !self.open() {
             return;
         }
@@ -137,21 +140,21 @@ impl Keybinds {
             }),
         };
 
-        ctx.show_viewport_deferred(self.id, viewport_builder, move |ctx, class| {
-            if class == ViewportClass::Embedded {
+        ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
+            if class == ViewportClass::EmbeddedWindow {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(Keybinds::TITLE)
                     .open(&mut window_open)
-                    .default_rect(ctx.available_rect().shrink(16.0))
-                    .show(ctx, |ui| {
+                    .default_rect(ui.content_rect().shrink(16.0))
+                    .show(ui, |ui| {
                         state.lock().ui(ui, opts.enabled, &cfg, &gamepad_state);
                     });
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ctx, |ui| {
+                CentralPanel::default().show_inside(ui, |ui| {
                     state.lock().ui(ui, opts.enabled, &cfg, &gamepad_state);
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
             }

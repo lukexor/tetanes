@@ -220,21 +220,21 @@ impl Renderer {
                 Self::on_mouse_button_input(viewport.cursor_pos, viewport, *state, *button);
                 Response {
                     repaint: true,
-                    consumed: self.ctx.wants_pointer_input(),
+                    consumed: self.ctx.egui_wants_pointer_input(),
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 Self::on_mouse_wheel(viewport, pixels_per_point, *delta);
                 Response {
                     repaint: true,
-                    consumed: self.ctx.wants_pointer_input(),
+                    consumed: self.ctx.egui_wants_pointer_input(),
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 Self::on_cursor_moved(viewport, pixels_per_point, *position);
                 Response {
                     repaint: true,
-                    consumed: self.ctx.is_using_pointer(),
+                    consumed: self.ctx.egui_is_using_pointer(),
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -250,9 +250,9 @@ impl Renderer {
                 Self::on_touch(viewport, pointer_touch_id, pixels_per_point, touch);
                 let consumed = match touch.phase {
                     TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled => {
-                        self.ctx.wants_pointer_input()
+                        self.ctx.egui_wants_pointer_input()
                     }
-                    TouchPhase::Moved => self.ctx.is_using_pointer(),
+                    TouchPhase::Moved => self.ctx.egui_is_using_pointer(),
                 };
                 Response {
                     repaint: true,
@@ -277,7 +277,7 @@ impl Renderer {
                     Self::on_keyboard_input(viewport, event);
 
                     // When pressing the Tab key, egui focuses the first focusable element, hence Tab always consumes.
-                    let consumed = self.ctx.wants_keyboard_input()
+                    let consumed = self.ctx.egui_wants_keyboard_input()
                         || event.logical_key == Key::Named(NamedKey::Tab);
                     Response {
                         repaint: true,
@@ -389,7 +389,7 @@ impl Renderer {
                     .push(egui::Event::Zoom(zoom_factor));
                 Response {
                     repaint: true,
-                    consumed: self.ctx.wants_pointer_input(),
+                    consumed: self.ctx.egui_wants_pointer_input(),
                 }
             }
             WindowEvent::Ime(_) => Response::default(),
@@ -494,7 +494,7 @@ impl Renderer {
         {
             // … emit PointerButton resp. PointerMoved events to emulate mouse
             match touch.phase {
-                winit::event::TouchPhase::Started => {
+                TouchPhase::Started => {
                     *pointer_touch_id = Some(touch.id);
                     // First move the pointer to the right location
                     Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
@@ -505,10 +505,10 @@ impl Renderer {
                         MouseButton::Left,
                     );
                 }
-                winit::event::TouchPhase::Moved => {
+                TouchPhase::Moved => {
                     Self::on_cursor_moved(viewport, pixels_per_point, touch.location);
                 }
-                winit::event::TouchPhase::Ended => {
+                TouchPhase::Ended => {
                     *pointer_touch_id = None;
                     Self::on_mouse_button_input(
                         viewport.cursor_pos,
@@ -521,7 +521,7 @@ impl Renderer {
                     viewport.cursor_pos = None;
                     viewport.raw_input.events.push(egui::Event::PointerGone);
                 }
-                winit::event::TouchPhase::Cancelled => {
+                TouchPhase::Cancelled => {
                     *pointer_touch_id = None;
                     viewport.cursor_pos = None;
                     viewport.raw_input.events.push(egui::Event::PointerGone);
@@ -542,6 +542,7 @@ impl Renderer {
         viewport.raw_input.events.push(egui::Event::MouseWheel {
             unit,
             delta,
+            phase: egui::TouchPhase::Move,
             modifiers,
         });
     }

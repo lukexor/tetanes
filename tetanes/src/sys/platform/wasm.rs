@@ -354,9 +354,9 @@ pub mod renderer {
         // For the purposes of processing inputs, we don't need or care about gamepad or cfg state
         let config = Config::default();
         let gamepads = Gamepads::default();
-        let mut output = ctx.run(raw_input, |ctx| match &viewport_ui_cb {
-            Some(viewport_ui_cb) => viewport_ui_cb(ctx),
-            None => gui.borrow_mut().ui(ctx, &config, &gamepads),
+        let mut output = ctx.run_ui(raw_input, |ui| match &viewport_ui_cb {
+            Some(viewport_ui_cb) => viewport_ui_cb(ui),
+            None => gui.borrow_mut().ui(ui, &config, &gamepads),
         });
 
         let State {
