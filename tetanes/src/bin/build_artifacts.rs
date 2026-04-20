@@ -16,7 +16,7 @@ use std::{
 #[must_use]
 pub struct Args {
     /// Target platform to build for. e.g. `x86_64-unknown-linux-gnu`.
-    #[clap(long)]
+    #[clap(long, default_value = env!("DEFAULT_TARGET"))]
     target: String,
     /// Build for a target platform different from the host using
     /// `cross`. e.g. `aarch64-unknown-linux-gnu`.
@@ -35,7 +35,6 @@ struct Build {
     bin_name: &'static str,
     bin_path: PathBuf,
     app_name: &'static str,
-    arch: &'static str,
     target_arch: String,
     #[cfg(target_os = "linux")]
     cross: bool,
@@ -99,15 +98,6 @@ impl Build {
                 .join("release")
                 .join(bin_name),
             app_name: "TetaNES",
-            arch: if target_arch.starts_with("x86_64") {
-                "x86_64"
-            } else if target_arch.starts_with("aarch64") {
-                "aarch64"
-            } else if target_arch.starts_with("wasm32") {
-                "wasm32"
-            } else {
-                panic!("unsupported target_arch: {target_arch}")
-            },
             target_arch,
             #[cfg(target_os = "linux")]
             cross: args.cross,
@@ -216,8 +206,8 @@ impl Build {
 
         self.tar_gz(
             format!(
-                "{}-{}-{}-unknown-linux-gnu.tar.gz",
-                self.bin_name, self.version, self.arch
+                "{}-{}-{}.tar.gz",
+                self.bin_name, self.version, self.target_arch
             ),
             &build_dir,
             ["."],
@@ -251,7 +241,14 @@ impl Build {
             )?;
 
             // AppImage
-            let linuxdeploy_cmd = format!("vendored/linuxdeploy-{}.AppImage", self.arch);
+            let arch = if self.target_arch.starts_with("x86_64") {
+                "x86_64"
+            } else if self.target_arch.starts_with("aarch64") {
+                "aarch64"
+            } else {
+                anyhow::bail!("invalid linux target_arch: {}", self.target_arch);
+            };
+            let linuxdeploy_cmd = format!("vendored/linuxdeploy-{arch}.AppImage");
             let app_dir = build_dir.join("AppDir");
             let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
             cmd_spawn_wait(
@@ -271,9 +268,12 @@ impl Build {
 
             // NOTE: AppImage name is derived from tetanes.desktop
             // Rename to lowercase
-            let app_image_name =
-                format!("{}-{}-{}.AppImage", self.bin_name, self.version, self.arch);
-            let app_image_path = PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.arch));
+            let app_image_name = format!(
+                "{}-{}-{}.AppImage",
+                self.bin_name, self.version, self.target_arch
+            );
+            let app_image_path =
+                PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.target_arch));
             let app_image_path_dist = self.dist_dir.join(&app_image_name);
             rename(&app_image_path, &app_image_path_dist)?;
             self.write_sha256(
@@ -292,7 +292,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("macos")?;
 
-        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.target_arch);
         let volume = PathBuf::from("/Volumes").join(&artifact_name);
         let app_name = format!("{}.app", self.app_name);
         let dmg_name = format!("{artifact_name}-uncompressed.dmg");
@@ -359,8 +359,8 @@ impl Build {
 
         self.tar_gz(
             format!(
-                "{}-{}-{}-apple-darwin.tar.gz",
-                self.bin_name, self.version, self.arch
+                "{}-{}-{}.tar.gz",
+                self.bin_name, self.version, self.target_arch
             ),
             &volume,
             [&app_name],
@@ -404,7 +404,7 @@ impl Build {
 
         let build_dir = self.create_build_dir("windows")?;
 
-        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.arch);
+        let artifact_name = format!("{}-{}-{}", self.bin_name, self.version, self.target_arch);
         let installer_name = format!("{artifact_name}.msi");
         let installer_path_build = build_dir.join(&installer_name);
         let zip_name = format!("{artifact_name}.zip");
