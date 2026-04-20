@@ -80,7 +80,7 @@ impl Build {
     /// dist directory is created.
     fn new(args: Args) -> anyhow::Result<Self> {
         let bin_name = env!("CARGO_PKG_NAME");
-        let dist_dir = PathBuf::from(bin_name).join("dist");
+        let dist_dir = PathBuf::from(bin_name).join("release");
 
         if args.clean {
             let _ = remove_dir_all(&dist_dir); // ignore if not found
@@ -96,7 +96,7 @@ impl Build {
             bin_name,
             bin_path: cargo_target_dir
                 .join(&target_arch)
-                .join("dist")
+                .join("release")
                 .join(bin_name),
             app_name: "TetaNES",
             arch: if target_arch.starts_with("x86_64") {
@@ -236,8 +236,7 @@ impl Build {
                         "-v",
                         "-p",
                         "tetanes",
-                        "--profile",
-                        "dist",
+                        "--release",
                         "--target",
                         &self.target_arch,
                         "--no-build", // already built
@@ -419,8 +418,7 @@ impl Build {
                     "-v",
                     "-p",
                     "tetanes",
-                    "--profile",
-                    "dist",
+                    "--release",
                     "--target",
                     &self.target_arch,
                     "--nocapture",

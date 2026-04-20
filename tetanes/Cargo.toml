@@ -162,7 +162,7 @@ Try it out in your browser (https://lukeworks.tech/tetanes-web)!
 section = "game"
 assets = [
   [
-    'target/dist/tetanes',
+    'target/release/tetanes',
     '/usr/bin/',
     '755',
   ],
