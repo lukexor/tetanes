@@ -1098,6 +1098,7 @@ impl Ppu {
     #[inline]
     fn pixel_palette(&mut self) -> u8 {
         let cycle = self.cycle;
+        let x = cycle - 1;
         let show_left_bg = self.mask.show_left_bg;
         let show_left_spr = self.mask.show_left_spr;
         let show_bg = self.mask.show_bg;
@@ -1105,7 +1106,7 @@ impl Ppu {
         let fine_x = self.scroll.fine_x;
         let bg_shift = 15 - fine_x;
 
-        let min_render_x = cycle >= 9;
+        let min_render_x = x >= 8;
         let bg_mask = u8::from(show_bg & (show_left_bg | min_render_x));
         let bg_color = bg_mask
             * ((((self.tile_shift_hi >> bg_shift) & 0x01) << 1)
@@ -1117,7 +1118,7 @@ impl Ppu {
             & self.spr_present[usize::from(cycle)]
         {
             for (i, sprite) in self.sprites.iter().take(count).enumerate() {
-                let spr_shift = cycle.wrapping_sub(sprite.x).wrapping_sub(1);
+                let spr_shift = x.wrapping_sub(sprite.x);
                 if spr_shift <= 7 {
                     let spr_shift = if sprite.flip_horizontal {
                         spr_shift
@@ -1147,7 +1148,7 @@ impl Ppu {
             }
         }
 
-        let palette_mask = u8::from((fine_x + (cycle & 0x07)) < 9);
+        let palette_mask = u8::from((fine_x + (x & 0x07)) < 8);
         let palette = palette_mask * self.prev_palette + (1 - palette_mask) * self.curr_palette;
         palette + bg_color
     }
