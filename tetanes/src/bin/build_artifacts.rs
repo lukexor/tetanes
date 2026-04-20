@@ -236,7 +236,6 @@ impl Build {
                         "-v",
                         "-p",
                         "tetanes",
-                        "--release",
                         "--target",
                         &self.target_arch,
                         "--no-build", // already built
@@ -418,7 +417,6 @@ impl Build {
                     "-v",
                     "-p",
                     "tetanes",
-                    "--release",
                     "--target",
                     &self.target_arch,
                     "--nocapture",
