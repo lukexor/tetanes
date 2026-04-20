@@ -3946,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -3998,7 +3998,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-core"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4019,7 +4019,7 @@ dependencies = [
 
 [[package]]
 name = "tetanes-utils"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "anyhow",
  "clap",
