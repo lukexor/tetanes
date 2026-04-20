@@ -1,16 +1,18 @@
 [workspace]
+allow_dirty = false
 changelog_config = "cliff.toml"
 changelog_update = true
 dependencies_update = true
-git_tag_enable = true
 git_release_enable = true
+git_tag_enable = true
 pr_labels = ["release"]
-allow_dirty = false
 publish_allow_dirty = false
 semver_check = true
 
 [[package]]
 name = "tetanes"
+git_release_name = "TetaNES v{{ version }}"
 
 [[package]]
 name = "tetanes-core"
+git_release_name = "TetaNES Core v{{ version }}"
