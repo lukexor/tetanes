@@ -80,7 +80,7 @@ impl Build {
     /// dist directory is created.
     fn new(args: Args) -> anyhow::Result<Self> {
         let bin_name = env!("CARGO_PKG_NAME");
-        let dist_dir = PathBuf::from(bin_name).join("release");
+        let dist_dir = PathBuf::from(bin_name).join("dist");
 
         if args.clean {
             let _ = remove_dir_all(&dist_dir); // ignore if not found
