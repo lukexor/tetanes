@@ -7,6 +7,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.14.1) - 2026-04-20
+
+### 🐛 Bug Fixes
+
+
+- Fixed missing debug cfg guards - ([2b64734](https://github.com/lukexor/tetanes/commit/2b647342356cd6ae48b38e28427af47ef62e2186))
+
+### 🎨 Styling
+
+
+- Fixed formatting - ([d7e37de](https://github.com/lukexor/tetanes/commit/d7e37de56a47b475a01b259b9988e1574e75b33e))
+- Fixed nightly lints - ([801bb3c](https://github.com/lukexor/tetanes/commit/801bb3c95a95a7f98efb5a993f2efe7061daf00b))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Update packages - ([439af37](https://github.com/lukexor/tetanes/commit/439af377f93c0fb8af1353d1802da6ab5b8c407d))
+
+
 ## [0.13.0](https://github.com/lukexor/tetanes/compare/0.12.2..0.13.0) - 2026-02-14
 
 ### 🐛 Bug Fixes
