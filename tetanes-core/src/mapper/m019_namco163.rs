@@ -78,7 +78,7 @@ impl Namco163 {
             regs: Regs::default(),
             board: match cart.mapper_num() {
                 19 => {
-                    auto_detect_board = true;
+                    auto_detect_board = cart.game_info.is_none();
                     Board::Namco163
                 }
                 210 => match cart.submapper_num() {
