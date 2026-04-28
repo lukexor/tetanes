@@ -405,6 +405,8 @@ pub struct Audio {
     pub current_channel: i8,
     pub channel_out: [f32; Self::CHANNEL_COUNT],
     pub out: f32,
+    #[serde(skip, default)]
+    phase_ext: [u32; Self::CHANNEL_COUNT],
 }
 
 impl Default for Audio {
@@ -417,12 +419,9 @@ impl Audio {
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
-    const REG_PHASE_LOW: usize = 0x01;
     const REG_FREQ_MID: usize = 0x02;
-    const REG_PHASE_MID: usize = 0x03;
     const REG_FREQ_HIGH: usize = 0x04;
     const REG_WAVE_LEN: usize = 0x04;
-    const REG_PHASE_HIGH: usize = 0x05;
     const REG_WAVE_ADDR: usize = 0x06;
     const REG_VOLUME: usize = 0x07;
 
@@ -436,6 +435,7 @@ impl Audio {
             current_channel: 7,
             channel_out: [0.0; Self::CHANNEL_COUNT],
             out: 0.0,
+            phase_ext: [0; Self::CHANNEL_COUNT],
         }
     }
 
@@ -504,11 +504,7 @@ impl Audio {
     #[must_use]
     #[inline]
     fn phase(&self) -> u32 {
-        let base_addr = self.base_addr();
-        let phase_high = u32::from(self.ram[base_addr + Self::REG_PHASE_HIGH]) << 16;
-        let phase_mid = u32::from(self.ram[base_addr + Self::REG_PHASE_MID]) << 8;
-        let phase_low = u32::from(self.ram[base_addr + Self::REG_PHASE_LOW]);
-        phase_high | phase_mid | phase_low
+        self.phase_ext[self.current_channel as usize]
     }
 
     #[must_use]
@@ -534,12 +530,8 @@ impl Audio {
     }
 
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn set_phase(&mut self, phase: u32) {
-        let base_addr = self.base_addr();
-        self.ram[base_addr + Self::REG_PHASE_HIGH] = ((phase >> 16) & 0xFF) as u8;
-        self.ram[base_addr + Self::REG_PHASE_MID] = ((phase >> 8) & 0xFF) as u8;
-        self.ram[base_addr + Self::REG_PHASE_LOW] = (phase & 0xFF) as u8;
+        self.phase_ext[self.current_channel as usize] = phase;
     }
 
     #[must_use]
