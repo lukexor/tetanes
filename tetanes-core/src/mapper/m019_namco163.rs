@@ -78,7 +78,7 @@ impl Namco163 {
             regs: Regs::default(),
             board: match cart.mapper_num() {
                 19 => {
-                    auto_detect_board = true;
+                    auto_detect_board = cart.game_info.is_none();
                     Board::Namco163
                 }
                 210 => match cart.submapper_num() {
@@ -126,15 +126,7 @@ impl Namco163 {
         let write_protect = self.regs.prg_ram_protect;
         match self.board {
             Board::Namco163 => {
-                let write_enable = write_protect & 0x40 == 0x40;
-                self.prg_ram_banks
-                    .set_access(0, access(write_enable && write_protect & 0x01 == 0x00));
-                self.prg_ram_banks
-                    .set_access(1, access(write_enable && write_protect & 0x02 == 0x00));
-                self.prg_ram_banks
-                    .set_access(2, access(write_enable && write_protect & 0x04 == 0x00));
-                self.prg_ram_banks
-                    .set_access(3, access(write_enable && write_protect & 0x08 == 0x00));
+                self.prg_ram_banks.set_access_range(0, 3, access(true));
             }
             Board::Namco175 => {
                 self.prg_ram_banks
@@ -388,11 +380,16 @@ impl Regional for Namco163 {}
 
 impl Sram for Namco163 {
     fn save(&self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::save(path.as_ref().with_extension("ciram"), &self.audio.ram)
+        fs::save(path.as_ref(), &(&self.prg_ram, &self.audio.ram))
     }
 
     fn load(&mut self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::load(path.as_ref().with_extension("ciram")).map(|data| self.audio.ram = data)
+        fs::load::<(Memory<Box<[u8]>>, ConstArray<u8, 0x80>)>(path.as_ref()).map(
+            |(prg_ram, audio_ram)| {
+                self.prg_ram = prg_ram;
+                self.audio.ram = audio_ram;
+            },
+        )
     }
 }
 
@@ -413,6 +410,8 @@ pub struct Audio {
     pub current_channel: i8,
     pub channel_out: [f32; Self::CHANNEL_COUNT],
     pub out: f32,
+    #[serde(skip, default)]
+    phase_ext: [u32; Self::CHANNEL_COUNT],
 }
 
 impl Default for Audio {
@@ -425,12 +424,9 @@ impl Audio {
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
-    const REG_PHASE_LOW: usize = 0x01;
     const REG_FREQ_MID: usize = 0x02;
-    const REG_PHASE_MID: usize = 0x03;
     const REG_FREQ_HIGH: usize = 0x04;
     const REG_WAVE_LEN: usize = 0x04;
-    const REG_PHASE_HIGH: usize = 0x05;
     const REG_WAVE_ADDR: usize = 0x06;
     const REG_VOLUME: usize = 0x07;
 
@@ -444,6 +440,7 @@ impl Audio {
             current_channel: 7,
             channel_out: [0.0; Self::CHANNEL_COUNT],
             out: 0.0,
+            phase_ext: [0; Self::CHANNEL_COUNT],
         }
     }
 
@@ -512,11 +509,7 @@ impl Audio {
     #[must_use]
     #[inline]
     fn phase(&self) -> u32 {
-        let base_addr = self.base_addr();
-        let phase_high = u32::from(self.ram[base_addr + Self::REG_PHASE_HIGH]) << 16;
-        let phase_mid = u32::from(self.ram[base_addr + Self::REG_PHASE_MID]) << 8;
-        let phase_low = u32::from(self.ram[base_addr + Self::REG_PHASE_LOW]);
-        phase_high | phase_mid | phase_low
+        self.phase_ext[self.current_channel as usize]
     }
 
     #[must_use]
@@ -542,12 +535,8 @@ impl Audio {
     }
 
     #[inline]
-    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     fn set_phase(&mut self, phase: u32) {
-        let base_addr = self.base_addr();
-        self.ram[base_addr + Self::REG_PHASE_HIGH] = ((phase >> 16) & 0xFF) as u8;
-        self.ram[base_addr + Self::REG_PHASE_MID] = ((phase >> 8) & 0xFF) as u8;
-        self.ram[base_addr + Self::REG_PHASE_LOW] = (phase & 0xFF) as u8;
+        self.phase_ext[self.current_channel as usize] = phase;
     }
 
     #[must_use]
