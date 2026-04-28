@@ -380,11 +380,16 @@ impl Regional for Namco163 {}
 
 impl Sram for Namco163 {
     fn save(&self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::save(path.as_ref().with_extension("ciram"), &self.audio.ram)
+        fs::save(path.as_ref(), &(&self.prg_ram, &self.audio.ram))
     }
 
     fn load(&mut self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::load(path.as_ref().with_extension("ciram")).map(|data| self.audio.ram = data)
+        fs::load::<(Memory<Box<[u8]>>, ConstArray<u8, 0x80>)>(path.as_ref()).map(
+            |(prg_ram, audio_ram)| {
+                self.prg_ram = prg_ram;
+                self.audio.ram = audio_ram;
+            },
+        )
     }
 }
 
