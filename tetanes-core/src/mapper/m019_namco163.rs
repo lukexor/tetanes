@@ -126,15 +126,7 @@ impl Namco163 {
         let write_protect = self.regs.prg_ram_protect;
         match self.board {
             Board::Namco163 => {
-                let write_enable = write_protect & 0x40 == 0x40;
-                self.prg_ram_banks
-                    .set_access(0, access(write_enable && write_protect & 0x01 == 0x00));
-                self.prg_ram_banks
-                    .set_access(1, access(write_enable && write_protect & 0x02 == 0x00));
-                self.prg_ram_banks
-                    .set_access(2, access(write_enable && write_protect & 0x04 == 0x00));
-                self.prg_ram_banks
-                    .set_access(3, access(write_enable && write_protect & 0x08 == 0x00));
+                self.prg_ram_banks.set_access_range(0, 3, access(true));
             }
             Board::Namco175 => {
                 self.prg_ram_banks
