@@ -275,8 +275,8 @@ impl PpuViewer {
         else {
             return;
         };
-        self.state.lock().update_debugger(open);
-        if !open {
+        self.state.lock().update_debugger(!open);
+        if open {
             ctx.send_viewport_cmd_to(self.id, egui::ViewportCommand::Close);
         }
     }
