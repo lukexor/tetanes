@@ -460,6 +460,7 @@ pub struct Gamepads {
     connected: HashMap<gilrs::GamepadId, Uuid>,
     inner: Option<gilrs::Gilrs>,
     events: VecDeque<gilrs::Event>,
+    ui_consumes: bool,
 }
 
 impl Gamepads {
@@ -485,6 +486,7 @@ impl Gamepads {
             connected,
             inner: gilrs.ok(),
             events,
+            ui_consumes: false,
         }
     }
 
@@ -600,6 +602,13 @@ impl Gamepads {
 
     pub fn clear_events(&mut self) {
         self.events.clear();
+    }
+
+    pub fn set_ui_consumes(&mut self, consumes: bool) {
+        if self.ui_consumes && !consumes {
+            self.events.clear();
+        }
+        self.ui_consumes = consumes;
     }
 
     pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
