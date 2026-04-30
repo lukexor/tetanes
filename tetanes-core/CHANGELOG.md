@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2](https://github.com/lukexor/tetanes/compare/0.14.1..0.14.2) - 2026-04-30
+
+### 🐛 Bug Fixes
+
+- *(n163)* Persist PRG-RAM as battery save (was audio RAM) - ([1ab150d](https://github.com/lukexor/tetanes/commit/1ab150d25088689b3c7f110bef60fc69da357963))
+- *(n163)* Keep the audio phase accumulator outside the sound RAM - ([85bd35f](https://github.com/lukexor/tetanes/commit/85bd35f0e99134c8f57c1a8f4f50e66a3c31586f))
+- *(n163)* Drop the $F800 PRG-RAM write protect - ([3b91d1a](https://github.com/lukexor/tetanes/commit/3b91d1a0cedf64458c07d5be769230e8fef32107))
+- *(n163)* Disable variant auto detection when ROM is in CRC database - ([3cef338](https://github.com/lukexor/tetanes/commit/3cef3388d8ab01f0bb96cd6dcf295843d1480f70))
+
+
+
 ## [0.14.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.14.1) - 2026-04-20
 
 ### 🐛 Bug Fixes
