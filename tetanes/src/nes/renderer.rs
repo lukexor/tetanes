@@ -324,6 +324,15 @@ impl Renderer {
             .flatten()
     }
 
+    pub fn all_window_ids(&self) -> Vec<WindowId> {
+        let state = self.state.borrow();
+        state
+            .viewports
+            .values()
+            .filter_map(|viewport| viewport.window.as_ref().map(|w| w.id()))
+            .collect()
+    }
+
     pub fn window(&self, window_id: WindowId) -> Option<Arc<Window>> {
         let state = self.state.borrow();
         state.viewport_from_window.get(&window_id).and_then(|id| {

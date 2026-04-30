@@ -673,12 +673,15 @@ impl ApplicationHandler<NesEvent> for Running {
         self.gamepads.update_events();
         if let Some(window_id) = self.renderer.root_window_id() {
             let res = self.renderer.on_gamepad_update(&self.gamepads);
+            self.gamepads.set_ui_consumes(res.consumed);
             if res.repaint {
                 self.repaint_times.insert(window_id, Instant::now());
             }
-
             if res.consumed {
-                self.gamepads.clear_events();
+                let now = Instant::now();
+                for wid in self.renderer.all_window_ids() {
+                    self.repaint_times.insert(wid, now);
+                }
             } else {
                 while let Some(event) = self.gamepads.next_event() {
                     self.on_gamepad_event(window_id, event);

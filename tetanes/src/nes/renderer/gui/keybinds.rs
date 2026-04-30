@@ -1,7 +1,7 @@
 use crate::nes::{
     action::Action,
     config::Config,
-    event::{ConfigEvent, NesEventProxy},
+    event::{ConfigEvent, NesEventProxy, RendererEvent},
     input::{Gamepads, Input},
     renderer::gui::lib::ViewportOptions,
 };
@@ -13,7 +13,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use tetanes_core::input::Player;
+use tetanes_core::{input::Player, time::Instant};
 use uuid::Uuid;
 use winit::event::ElementState;
 
@@ -331,10 +331,6 @@ impl State {
         cfg: &Config,
         gamepad_events: &[(Input, ElementState)],
     ) {
-        if self.pending_input.is_none() {
-            return;
-        }
-
         let mut set_keybind_open = self.pending_input.is_some();
         let res = egui::Window::new("🖮 Set Keybind")
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
@@ -399,7 +395,7 @@ impl State {
                 }
             }
             None => {
-                if let Some(keybind) = &mut self.pending_input {
+                let captured = if let Some(keybind) = &mut self.pending_input {
                     let input = ui.input(|i| {
                         use egui::Event;
 
@@ -450,6 +446,33 @@ impl State {
                                 keybind.conflict = Some(*action);
                             }
                         }
+                        Some(input)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(input) = captured {
+                    if let Some(pending) = self.pending_input.take_if(|p| p.conflict.is_none()) {
+                        self.tx.event(ConfigEvent::ActionBindingSet((
+                            pending.action,
+                            input,
+                            pending.binding,
+                        )));
+                    }
+                    let dialog_viewport = ui.ctx().viewport_id();
+                    let when = Instant::now();
+                    self.tx.event(RendererEvent::RequestRedraw {
+                        viewport_id: dialog_viewport,
+                        when,
+                    });
+                    if dialog_viewport != ViewportId::ROOT {
+                        self.tx.event(RendererEvent::RequestRedraw {
+                            viewport_id: ViewportId::ROOT,
+                            when,
+                        });
                     }
                 }
             }
