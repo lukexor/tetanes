@@ -7,6 +7,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2](https://github.com/lukexor/tetanes/compare/0.14.1..0.14.2) - 2026-04-30
+
+### 🐛 Bug Fixes
+
+- *(input)* Track gamepad event ownership for UI consumption - ([b1d48e2](https://github.com/lukexor/tetanes/commit/b1d48e2b59e5f4cbe920c3edf4630a0681e3e63a))
+- *(keybinds)* Dismiss the Set Keybind dialog on capture - ([80e50cc](https://github.com/lukexor/tetanes/commit/80e50ccf14405aef29b644d98f26271276a8cf41))
+
+- Fixed ppu viewer - ([99d823e](https://github.com/lukexor/tetanes/commit/99d823e821ea014958124c137b7c1909cc2005f6))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Clarify artifact names - ([db285fe](https://github.com/lukexor/tetanes/commit/db285fee0e31fd5a4c3a66ff1c84fa0d25f49666))
+- Fix release flags - ([e9f84d9](https://github.com/lukexor/tetanes/commit/e9f84d96ae42f0553427ed0beb5e22c558782a46))
+- Fix web build - ([d1326a0](https://github.com/lukexor/tetanes/commit/d1326a0bc0e3f0eefa8e18f34e6b1602b72fdf06))
+- Fixed build-artifacts - ([b51d392](https://github.com/lukexor/tetanes/commit/b51d39241aa701e3f6b3638ddaef71dabaeaa9cc))
+
+
 ## [0.14.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.14.1) - 2026-04-20
 
 ### 🐛 Bug Fixes
