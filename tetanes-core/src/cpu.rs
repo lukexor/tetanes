@@ -89,6 +89,11 @@ pub struct Cpu {
     pub bus: Bus,
     #[serde(skip)]
     pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
+    // CPU is in JAM state: keeps cycling at the same address. For addresses in PPU
+    // register space ($2000-$3FFF), PPUDATA auto-increments on each read, so the CPU
+    // eventually sees a non-JAM opcode and resumes. Cleared on reset.
+    #[serde(skip)]
+    pub jammed: bool,
     #[serde(skip)]
     pub disasm: String,
 }
@@ -131,6 +136,7 @@ impl Cpu {
             dma_oam_addr: None,
             bus,
             corrupted: false,
+            jammed: false,
             disasm: String::new(),
         };
         cpu.set_region(cpu.bus.region);
@@ -888,6 +894,7 @@ impl Reset for Cpu {
         self.master_clock = 0;
         self.irq_flags = IrqFlags::default();
         self.corrupted = false;
+        self.jammed = false;
 
         // Read directly from bus so as to not clock other components during reset
         let lo = self.bus.read(Self::RESET_VECTOR);
