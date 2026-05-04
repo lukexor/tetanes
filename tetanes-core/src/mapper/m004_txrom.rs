@@ -50,6 +50,9 @@ pub enum Revision {
 pub struct Regs {
     pub bank_select: u8,
     pub bank_values: [u8; 8],
+    // Mapper 199 (Waixing Type G): extended bank registers for ctrl0 & 0xF = 8..F.
+    // Indices: [0]=exPrg[2] ($C000), [1]=exPrg[3] ($E000), [2]=exChr[1] (slot1), [3]=exChr[3] (slot3).
+    pub bank_values_ext: [u8; 8],
     pub irq_latch: u8,
     pub irq_counter: u8,
     pub irq_enabled: bool,
@@ -67,6 +70,15 @@ pub struct Txrom {
     pub prg_rom: Memory<Box<[u8]>>,
     pub prg_ram: Memory<Box<[u8]>>,
     pub ex_ram: Memory<Box<[u8]>>,
+    // Mapper 199 (Waixing Type G): 4KB WRAM at $5000-$5FFF used for game state
+    // variables. The board maps this range when total WRAM is >= 9KB (1K + 8K
+    // battery). Many mapper-199 pages read and write this range; without it all
+    // reads return 0, breaking game logic.
+    pub wram_5000: Memory<Box<[u8]>>,
+    // Mapper 199 (Waixing Type G): 8KB extra VRAM; CHR bank values > 7 redirect here
+    // instead of CHR-ROM (TypeG: `chr.Source(bank <= 7)`). Initialized to zero (hardware
+    // RAM is uninitialized, but games write custom font/tile data before use).
+    pub ext_vram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub has_chr_ram: bool,
     pub mirroring: Mirroring,
@@ -111,6 +123,16 @@ impl Txrom {
             } else {
                 Memory::empty()
             },
+            wram_5000: if cart.mapper_num() == 199 {
+                Memory::with_ram_state(4096, cart.ram_state)
+            } else {
+                Memory::empty()
+            },
+            ext_vram: if cart.mapper_num() == 199 {
+                Memory::new(8192)
+            } else {
+                Memory::empty()
+            },
             regs: Regs::default(),
             has_chr_ram,
             mirroring: cart.mirroring(),
@@ -122,6 +144,13 @@ impl Txrom {
             prg_rom_banks,
         };
         let last_bank = txrom.prg_rom_banks.last();
+        if txrom.mapper_num == 199 {
+            // TypeG default: exPrg[2]=last-1 ($C000), exPrg[3]=last ($E000). These are the same
+            // as the standard MMC3 fixed-bank defaults, but they're written via exPrg so we init
+            // bank_values_ext accordingly. The game will overwrite via ctrl0=8 and ctrl0=9 writes.
+            txrom.regs.bank_values_ext[0] = (last_bank - 1) as u8; // exPrg[2]
+            txrom.regs.bank_values_ext[1] = last_bank as u8; // exPrg[3]
+        }
         txrom.prg_rom_banks.set(2, last_bank - 1);
         txrom.prg_rom_banks.set(3, last_bank);
         Ok(txrom)
@@ -170,6 +199,28 @@ impl Txrom {
 
     pub fn update_prg_banks(&mut self) {
         let prg_last = self.prg_rom_banks.last();
+        if self.mapper_num == 199 {
+            // TypeG: all 4 PRG slots are explicit (exPrg[0..3]).
+            // exPrg[0]=bv[6], exPrg[1]=bv[7], exPrg[2]=bvx[0], exPrg[3]=bvx[1].
+            // PRG mode bit (bank_select bit 6) swaps exPrg[0] and exPrg[2] between $8000/$C000.
+            let ex_prg = [
+                self.regs.bank_values[6] as usize,     // exPrg[0]
+                self.regs.bank_values[7] as usize,     // exPrg[1]
+                self.regs.bank_values_ext[0] as usize, // exPrg[2]
+                self.regs.bank_values_ext[1] as usize, // exPrg[3]
+            ];
+            if self.regs.bank_select & Self::PRG_MODE_MASK != 0 {
+                self.prg_rom_banks.set(0, ex_prg[2]);
+                self.prg_rom_banks.set(1, ex_prg[1]);
+                self.prg_rom_banks.set(2, ex_prg[0]);
+            } else {
+                self.prg_rom_banks.set(0, ex_prg[0]);
+                self.prg_rom_banks.set(1, ex_prg[1]);
+                self.prg_rom_banks.set(2, ex_prg[2]);
+            }
+            self.prg_rom_banks.set(3, ex_prg[3]);
+            return;
+        }
         let prg_lo = self.regs.bank_values[6] as usize;
         let prg_hi = self.regs.bank_values[7] as usize;
         if self.regs.bank_select & Self::PRG_MODE_MASK == Self::PRG_MODE_MASK {
@@ -189,6 +240,31 @@ impl Txrom {
     }
 
     pub fn update_chr_banks(&mut self) {
+        if self.mapper_num == 199 {
+            // TypeG (mapper 199): 8 independent 1KB CHR slots. exChr sourced from bank_values:
+            //   exChr[0]=bv[0], exChr[1]=bvx[2], exChr[2]=bv[1], exChr[3]=bvx[3],
+            //   exChr[4]=bv[2], exChr[5]=bv[3], exChr[6]=bv[4], exChr[7]=bv[5]
+            // GetChrIndex(addr) = (addr>>10) ^ (bank_select>>5 & 4) -- bit 7 swaps halves.
+            let bv = self.regs.bank_values;
+            let bvx = self.regs.bank_values_ext;
+            let ex_chr = [
+                bv[0] as usize,  // exChr[0]
+                bvx[2] as usize, // exChr[1]
+                bv[1] as usize,  // exChr[2]
+                bvx[3] as usize, // exChr[3]
+                bv[2] as usize,  // exChr[4]
+                bv[3] as usize,  // exChr[5]
+                bv[4] as usize,  // exChr[6]
+                bv[5] as usize,  // exChr[7]
+            ];
+            let invert = self.regs.bank_select & Self::CHR_INVERSION_MASK != 0;
+            for slot in 0..8usize {
+                let idx = if invert { slot ^ 4 } else { slot };
+                self.chr_banks.set(slot, ex_chr[idx]);
+            }
+            return;
+        }
+
         match self.mapper_num {
             76 => {
                 self.set_chr_banks(|banks, regs| {
@@ -279,7 +355,21 @@ impl Map for Txrom {
     #[inline(always)]
     fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)],
+            0x0000..=0x1FFF => {
+                if self.mapper_num == 199 && !self.ext_vram.is_empty() {
+                    let slot = self.chr_banks.get(addr);
+                    let page = self.chr_banks.page(slot);
+                    if page <= 7 {
+                        // TypeG: banks 0-7 -> extra 8KB VRAM (custom Chinese fonts);
+                        // banks >= 8 hit CHR-ROM as usual.
+                        let off = self.chr_banks.translate(addr) % self.ext_vram.len();
+                        return *self.ext_vram.get(off).unwrap_or(&0);
+                    }
+                    // Banks 8+: CHR-ROM. translate() gives the correct 1KB page offset.
+                    return self.chr[self.chr_banks.translate(addr)];
+                }
+                self.chr[self.chr_banks.translate(addr)]
+            }
             0x2000..=0x3EFF => {
                 if self.mirroring == Mirroring::FourScreen {
                     self.ex_ram[usize::from(addr & 0x1FFF)]
@@ -295,6 +385,9 @@ impl Map for Txrom {
     #[inline(always)]
     fn prg_peek(&self, addr: u16) -> u8 {
         match addr {
+            0x5000..=0x5FFF if !self.wram_5000.is_empty() => {
+                self.wram_5000[usize::from(addr - 0x5000)]
+            }
             0x6000..=0x7FFF => self.prg_ram[self.prg_ram_banks.translate(addr)],
             0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
             _ => 0,
@@ -305,7 +398,22 @@ impl Map for Txrom {
     #[inline(always)]
     fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
         match addr {
-            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)] = val,
+            0x0000..=0x1FFF => {
+                if self.mapper_num == 199 && !self.ext_vram.is_empty() {
+                    let slot = self.chr_banks.get(addr);
+                    let page = self.chr_banks.page(slot);
+                    if page <= 7 {
+                        // TypeG: banks 0-7 -> extra VRAM (writable custom-font RAM).
+                        let off = self.chr_banks.translate(addr) % self.ext_vram.len();
+                        if let Some(b) = self.ext_vram.get_mut(off) {
+                            *b = val;
+                        }
+                    }
+                    // Banks 8+: CHR-ROM, read-only -- ignore writes.
+                    return;
+                }
+                self.chr[self.chr_banks.translate(addr)] = val;
+            }
             0x2000..=0x3EFF => {
                 if self.mirroring == Mirroring::FourScreen {
                     self.ex_ram[usize::from(addr & 0x1FFF)] = val;
@@ -333,6 +441,9 @@ impl Map for Txrom {
         }
 
         match addr {
+            0x5000..=0x5FFF if !self.wram_5000.is_empty() => {
+                self.wram_5000[usize::from(addr - 0x5000)] = val;
+            }
             0x6000..=0x7FFF => self.prg_ram[self.prg_ram_banks.translate(addr)] = val,
             0x8000..=0xFFFF => {
                 //  7654 3210
@@ -364,13 +475,37 @@ impl Map for Txrom {
                         self.update_banks();
                     }
                     0x8001 => {
-                        let bank = self.regs.bank_select & 0x07;
-                        self.regs.bank_values[bank as usize] = val;
+                        if self.mapper_num == 199 {
+                            // TypeG uses 4-bit register select (ctrl0 & 0xF):
+                            //   0-5: CHR banks (exChr[0,2,4,5,6,7])
+                            //   6-7: PRG banks 0-1 (exPrg[0,1])
+                            //   8-9: PRG banks 2-3 (exPrg[2,3]) -- stored in bank_values_ext[0,1]
+                            //   A-B: CHR bank slots 1,3 (exChr[1,3]) -- stored in bank_values_ext[2,3]
+                            let reg = self.regs.bank_select & 0x0F;
+                            if reg < 8 {
+                                self.regs.bank_values[reg as usize] = val;
+                            } else {
+                                self.regs.bank_values_ext[(reg - 8) as usize] = val;
+                            }
+                        } else {
+                            let bank = self.regs.bank_select & 0x07;
+                            self.regs.bank_values[bank as usize] = val;
+                        }
                         self.update_banks();
                     }
                     0xA000 => {
                         if self.mirroring != Mirroring::FourScreen {
-                            self.mirroring = if val & 0x01 == 0x01 {
+                            // Mapper 199 (Waixing Type G) decodes $A000 & 0x03 into 4 modes;
+                            // standard MMC3 only honors bit 0. Sangokushi II uses mode 3
+                            // (SingleScreenB) at the screen-split for its bottom-panel UI.
+                            self.mirroring = if self.mapper_num == 199 {
+                                match val & 0x03 {
+                                    0 => Mirroring::Vertical,
+                                    1 => Mirroring::Horizontal,
+                                    2 => Mirroring::SingleScreenA,
+                                    _ => Mirroring::SingleScreenB, // 3
+                                }
+                            } else if val & 0x01 == 0x01 {
                                 Mirroring::Horizontal
                             } else {
                                 Mirroring::Vertical
@@ -445,6 +580,15 @@ impl Map for Txrom {
 impl Reset for Txrom {
     fn reset(&mut self, _kind: ResetKind) {
         self.regs = Regs::default();
+        if self.mapper_num == 199 {
+            // TypeG hardware power-on defaults. exPrg[1]=1 puts page 1 at $A000;
+            // exPrg[2]=last-1 and exPrg[3]=last keep $C000/$E000 pointing to valid
+            // code pages rather than page 0 (which has $FFFF vectors).
+            let last = self.prg_rom_banks.last();
+            self.regs.bank_values[7] = 0x01; // exPrg[1] -> $A000 = page 1
+            self.regs.bank_values_ext[0] = (last - 1) as u8; // exPrg[2] -> $C000
+            self.regs.bank_values_ext[1] = last as u8; // exPrg[3] -> $E000
+        }
         self.update_banks();
         self.update_chr_banks();
     }
