@@ -897,7 +897,7 @@ impl std::fmt::Debug for NesHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         f.debug_struct("NesHeader")
             .field("version", &self.variant)
-            .field("mapper_num", &format_args!("{:03}", &self.mapper_num))
+            .field("mapper_num", &format_args!("{:03}", self.mapper_num))
             .field("submapper_num", &self.submapper_num)
             .field("flags", &format_args!("0b{:08b}", &self.flags))
             .field("prg_rom_banks", &self.prg_rom_banks)
