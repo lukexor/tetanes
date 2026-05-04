@@ -145,11 +145,16 @@ impl Txrom {
         };
         let last_bank = txrom.prg_rom_banks.last();
         if txrom.mapper_num == 199 {
-            // TypeG default: exPrg[2]=last-1 ($C000), exPrg[3]=last ($E000). These are the same
-            // as the standard MMC3 fixed-bank defaults, but they're written via exPrg so we init
-            // bank_values_ext accordingly. The game will overwrite via ctrl0=8 and ctrl0=9 writes.
+            // TypeG hardware power-on defaults:
+            //   exPrg[2]=last-1 ($C000), exPrg[3]=last ($E000) -- same as standard MMC3 fixed
+            //     banks, but written via exPrg in TypeG.
+            //   exChr[1]=1, exChr[3]=3 -- CHR slots 1 and 3 default to CHR-RAM banks 1 and 3
+            //     (banks < 8 redirect to ext_vram). The game overwrites these via ctrl0=A/B,
+            //     but defaults must be sane in case anything reads CHR before init.
             txrom.regs.bank_values_ext[0] = (last_bank - 1) as u8; // exPrg[2]
             txrom.regs.bank_values_ext[1] = last_bank as u8; // exPrg[3]
+            txrom.regs.bank_values_ext[2] = 1; // exChr[1]
+            txrom.regs.bank_values_ext[3] = 3; // exChr[3]
         }
         txrom.prg_rom_banks.set(2, last_bank - 1);
         txrom.prg_rom_banks.set(3, last_bank);
