@@ -1442,22 +1442,30 @@ impl Cpu {
 
     // Unofficial opcodes
 
-    /// HLT: Captures all unimplemented opcodes and halts CPU
+    /// JAM/KIL: Rewinds PC and keeps cycling without stopping emulation.
+    ///
+    /// The CPU stays at the JAM address, re-reading the opcode each cycle. For
+    /// addresses in PPU register space ($2000-$3FFF) this auto-increments PPUDATA,
+    /// so the CPU eventually reads a non-JAM byte and resumes normal execution.
+    /// IRQ/NMI are suppressed while jammed (matches real 6502 hardware).
     #[inline(always)]
     pub fn hlt(&mut self) {
-        // Freezes CPU by rewiding and re-executing the bad opcode.
+        // Rewind PC and keep cycling without stopping emulation.
+        // NMI/IRQ are suppressed every cycle while jammed (matches real 6502 hardware).
         self.pc = self.pc.wrapping_sub(1);
-        // Prevent IRQ/NMI
         self.clear_irq_flags(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI);
 
-        self.corrupted = true;
-        let opcode = usize::from(self.peek(self.pc.wrapping_sub(1)));
-        let instr = Cpu::INSTR_REF[opcode];
-        tracing::error!(
-            "Invalid opcode ${opcode:02X} {:?} #{:?} encountered!",
-            instr.instr,
-            instr.addr_mode,
-        );
+        if !self.jammed {
+            self.jammed = true;
+            let opcode = usize::from(self.peek(self.pc));
+            let instr = Cpu::INSTR_REF[opcode];
+            tracing::debug!(
+                "JAM opcode ${opcode:02X} {:?} #{:?} at ${:04X} - cycling",
+                instr.instr,
+                instr.addr_mode,
+                self.pc,
+            );
+        }
     }
 
     /// ISC/ISB: Shortcut for INC then SBC

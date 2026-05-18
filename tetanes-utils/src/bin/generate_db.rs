@@ -107,6 +107,13 @@ fn apply_corrections(game: &mut Game) {
             game.mirroring = Mirroring::Horizontal;
             game.mapper = 154;
         }
+        0x44C20420 => {
+            // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
+            // Waixing translation). iNES header says mapper 74, but the canonical
+            // attribution for this CRC is mapper 199 (Waixing Type G):
+            // 8KB extra VRAM, 4-bit CHR bank registers.
+            game.mapper = 199;
+        }
         _ => (),
     }
 }
