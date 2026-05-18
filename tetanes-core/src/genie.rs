@@ -149,6 +149,6 @@ impl GenieCode {
 
 impl std::fmt::Display for GenieCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.code)
+        write!(f, "{}", self.code)
     }
 }
