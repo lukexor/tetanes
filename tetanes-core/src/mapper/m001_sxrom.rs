@@ -25,16 +25,16 @@ pub enum Revision {
     BC,
 }
 
-/// `SxROM` registers.
+/// The `MMC1` chip.
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Regs {
+pub struct Mmc1 {
     write_just_occurred: u8,
     write_buffer: u8,       // $8000-$FFFF - 5 bit shift register
     shift_count: u8,        // How many times write_buffer has shifted
     prg_ram_disabled: bool, // $E000-$FFFF bit 4
     chr_mode: bool,         // $8000-$9FFF bit 4
-    prg_mode: bool,         // $8000-$9FFF bits 3
+    prg_mode: bool,         // $8000-$9FFF bit 3
     prg_bank_select: bool,  // $8000-$9FFF bit 2
     last_chr_reg: u16,      // Last chr register written to
     chr0: u8,               // $A000-$BFFF
@@ -52,7 +52,7 @@ pub struct Sxrom {
     pub chr_banks: Banks,
     pub prg_ram_banks: Banks,
     pub prg_rom_banks: Banks,
-    pub regs: Regs,
+    pub mmc1: Mmc1,
     pub has_chr_ram: bool,
     pub submapper_num: u8,
     pub mirroring: Mirroring,
@@ -97,7 +97,7 @@ impl Sxrom {
             chr_banks,
             prg_ram_banks,
             prg_rom_banks,
-            regs: Regs {
+            mmc1: Mmc1 {
                 write_just_occurred: 0x00,
                 write_buffer: 0x00,
                 shift_count: 0,
@@ -127,15 +127,15 @@ impl Sxrom {
                 Self::PRG_RAM_DISABLED
             },
         );
-        sxrom.regs.last_chr_reg = 0xA000;
+        sxrom.mmc1.last_chr_reg = 0xA000;
         sxrom.update_state();
         Ok(sxrom.into())
     }
 
     /// Reset the shift register write buffer.
     const fn reset_buffer(&mut self) {
-        self.regs.shift_count = 0;
-        self.regs.write_buffer = 0;
+        self.mmc1.shift_count = 0;
+        self.mmc1.write_buffer = 0;
     }
 
     /// Process register write, extracting registers into flags.
@@ -148,21 +148,21 @@ impl Sxrom {
                     0b10 => Mirroring::Vertical,
                     _ => Mirroring::Horizontal,
                 };
-                self.regs.prg_bank_select = (val & Self::SLOT_SELECT_MASK) != 0;
-                self.regs.prg_mode = (val & Self::PRG_MODE_MASK) != 0;
-                self.regs.chr_mode = (val & Self::CHR_MODE_MASK) != 0;
+                self.mmc1.prg_bank_select = (val & Self::SLOT_SELECT_MASK) != 0;
+                self.mmc1.prg_mode = (val & Self::PRG_MODE_MASK) != 0;
+                self.mmc1.chr_mode = (val & Self::CHR_MODE_MASK) != 0;
             }
             0xA000 => {
-                self.regs.last_chr_reg = addr;
-                self.regs.chr0 = val & Self::CHR_BANK_MASK;
+                self.mmc1.last_chr_reg = addr;
+                self.mmc1.chr0 = val & Self::CHR_BANK_MASK;
             }
             0xC000 => {
-                self.regs.last_chr_reg = addr;
-                self.regs.chr1 = val & Self::CHR_BANK_MASK;
+                self.mmc1.last_chr_reg = addr;
+                self.mmc1.chr1 = val & Self::CHR_BANK_MASK;
             }
             0xE000 => {
-                self.regs.prg = val & Self::PRG_BANK_MASK;
-                self.regs.prg_ram_disabled = (val & Self::PRG_RAM_DISABLED) != 0;
+                self.mmc1.prg = val & Self::PRG_BANK_MASK;
+                self.mmc1.prg_ram_disabled = (val & Self::PRG_RAM_DISABLED) != 0;
             }
             _ => (),
         }
@@ -170,10 +170,10 @@ impl Sxrom {
 
     /// Update internal state based on register flags.
     pub fn update_state(&mut self) {
-        let extra_reg = if self.regs.last_chr_reg == 0xC000 && self.regs.chr_mode {
-            self.regs.chr1
+        let extra_reg = if self.mmc1.last_chr_reg == 0xC000 && self.mmc1.chr_mode {
+            self.mmc1.chr1
         } else {
-            self.regs.chr0
+            self.mmc1.chr0
         };
         let prg_bank_select = if self.prg_select {
             extra_reg & Self::CHR_MODE_MASK
@@ -184,34 +184,34 @@ impl Sxrom {
         if self.submapper_num == 5 {
             // Fixed PRG SEROM, SHROM, SH1ROM use a fixed 32k PRG-ROM with no banking support.
             self.prg_rom_banks.set_range(0, 1, 0);
-        } else if self.regs.prg_mode {
-            if self.regs.prg_bank_select {
+        } else if self.mmc1.prg_mode {
+            if self.mmc1.prg_bank_select {
                 self.prg_rom_banks
-                    .set(0, (self.regs.prg | prg_bank_select).into());
+                    .set(0, (self.mmc1.prg | prg_bank_select).into());
                 self.prg_rom_banks
                     .set(1, (Self::PRG_BANK_MASK | prg_bank_select).into());
             } else {
                 self.prg_rom_banks.set(1, prg_bank_select.into());
                 self.prg_rom_banks
-                    .set(1, (self.regs.prg | prg_bank_select).into());
+                    .set(1, (self.mmc1.prg | prg_bank_select).into());
             }
         } else {
             self.prg_rom_banks
-                .set_range(0, 1, ((self.regs.prg & 0xFE) | prg_bank_select).into()); // ignore low bit
+                .set_range(0, 1, ((self.mmc1.prg & 0xFE) | prg_bank_select).into()); // ignore low bit
         }
 
-        if self.regs.chr_mode {
-            self.chr_banks.set(0, self.regs.chr0.into());
-            self.chr_banks.set(1, self.regs.chr1.into());
+        if self.mmc1.chr_mode {
+            self.chr_banks.set(0, self.mmc1.chr0.into());
+            self.chr_banks.set(1, self.mmc1.chr1.into());
         } else {
-            self.chr_banks.set(0, (self.regs.chr0 & 0x1E).into()); // ignore low bit
-            self.chr_banks.set(1, ((self.regs.chr0 & 0x1E) + 1).into()); // ignore low bit
+            self.chr_banks.set(0, (self.mmc1.chr0 & 0x1E).into()); // ignore low bit
+            self.chr_banks.set(1, ((self.mmc1.chr0 & 0x1E) + 1).into()); // ignore low bit
         }
     }
 
     #[inline(always)]
     pub fn prg_ram_enabled(&self) -> bool {
-        self.revision == Revision::A || !self.regs.prg_ram_disabled
+        self.revision == Revision::A || !self.mmc1.prg_ram_disabled
     }
 
     pub const fn set_revision(&mut self, revision: Revision) {
@@ -313,25 +313,25 @@ impl Map for Sxrom {
                 // |++++- Select 16K PRG-ROM bank (low bit ignored in 32K mode)
                 // +----- PRG-RAM chip enable (0: enabled; 1: disabled; ignored on MMC1A)
 
-                if self.regs.write_just_occurred > 0 {
+                if self.mmc1.write_just_occurred > 0 {
                     return;
                 }
-                self.regs.write_just_occurred = 2;
+                self.mmc1.write_just_occurred = 2;
 
                 if val & Self::SHIFT_REG_RESET == Self::SHIFT_REG_RESET {
                     self.reset_buffer();
-                    self.regs.prg_mode = true;
-                    self.regs.prg_bank_select = true;
+                    self.mmc1.prg_mode = true;
+                    self.mmc1.prg_bank_select = true;
                     self.update_state();
                 } else {
                     // Move shift register and write lowest bit of val
-                    self.regs.write_buffer >>= 1;
-                    self.regs.write_buffer |= (val << 4) & 0x10;
+                    self.mmc1.write_buffer >>= 1;
+                    self.mmc1.write_buffer |= (val << 4) & 0x10;
 
-                    self.regs.shift_count += 1;
+                    self.mmc1.shift_count += 1;
                     // Check if its time to write
-                    if self.regs.shift_count == 5 {
-                        self.process_register_write(addr, self.regs.write_buffer);
+                    if self.mmc1.shift_count == 5 {
+                        self.process_register_write(addr, self.mmc1.write_buffer);
                         self.update_state();
                         self.reset_buffer();
                     }
@@ -351,20 +351,20 @@ impl Map for Sxrom {
 impl Reset for Sxrom {
     fn reset(&mut self, kind: ResetKind) {
         self.reset_buffer();
-        self.regs.prg_mode = true;
-        self.regs.prg_bank_select = true;
+        self.mmc1.prg_mode = true;
+        self.mmc1.prg_bank_select = true;
         self.update_state();
         if kind == ResetKind::Hard {
-            self.regs.write_just_occurred = 0;
-            self.regs.prg_ram_disabled = false;
+            self.mmc1.write_just_occurred = 0;
+            self.mmc1.prg_ram_disabled = false;
         }
     }
 }
 
 impl Clock for Sxrom {
     fn clock(&mut self) {
-        if self.regs.write_just_occurred > 0 {
-            self.regs.write_just_occurred -= 1;
+        if self.mmc1.write_just_occurred > 0 {
+            self.mmc1.write_just_occurred -= 1;
         }
     }
 }
@@ -386,7 +386,7 @@ impl Regional for Sxrom {}
 impl std::fmt::Debug for Sxrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SxRom")
-            .field("regs", &self.regs)
+            .field("mmc1", &self.mmc1)
             .field("submapper_num", &self.submapper_num)
             .field("mirroring", &self.mirroring)
             .field("revision", &self.revision)
@@ -399,9 +399,9 @@ impl std::fmt::Debug for Sxrom {
     }
 }
 
-impl std::fmt::Debug for Regs {
+impl std::fmt::Debug for Mmc1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SxRegs")
+        f.debug_struct("Mmc1")
             .field("write_just_occurred", &self.write_just_occurred)
             .field("write_buffer", &format_args!("0b{:08b}", self.write_buffer))
             .field("shift_count", &self.shift_count)
