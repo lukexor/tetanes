@@ -12,7 +12,7 @@ use std::path::Path;
 
 pub use bandai_fcg::BandaiFCG; // m016, m153, m157, m159
 pub use m000_nrom::Nrom;
-pub use m001_sxrom::{Revision as Mmc1Revision, Sxrom};
+pub use m001_sxrom::Sxrom;
 pub use m002_uxrom::Uxrom;
 pub use m003_cnrom::Cnrom;
 pub use m004_txrom::{Revision as Mmc3Revision, Txrom};
@@ -30,6 +30,7 @@ pub use m066_gxrom::Gxrom;
 pub use m069_sunsoft_fme7::SunsoftFme7;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 pub use m079_nina003_006::Nina003006;
+pub use mmc1::{Mmc1, Revision as Mmc1Revision};
 
 pub mod bandai_fcg;
 pub mod m000_nrom;
@@ -51,6 +52,7 @@ pub mod m066_gxrom;
 pub mod m069_sunsoft_fme7;
 pub mod m071_bf909x;
 pub mod m079_nina003_006;
+pub mod mmc1;
 pub mod vrc_irq;
 
 /// Errors that mappers can return.
