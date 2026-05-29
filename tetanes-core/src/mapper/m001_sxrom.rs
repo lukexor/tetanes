@@ -73,7 +73,6 @@ impl Sxrom {
     const PRG_MODE_MASK: u8 = 0x08; // 0b01000
     const CHR_MODE_MASK: u8 = 0x10; // 0b10000
 
-    const DEFAULT_PRG_MODE: u8 = 0x0C; // Mode 3, 16k Fixed Last
     const CHR_BANK_MASK: u8 = 0x1F;
     const PRG_BANK_MASK: u8 = 0x0F;
     const PRG_RAM_DISABLED: u8 = 0x10; // 0b10000
@@ -101,10 +100,10 @@ impl Sxrom {
                 write_just_occurred: 0x00,
                 write_buffer: 0x00,
                 shift_count: 0,
-                prg_ram_disabled: false,
+                prg_ram_disabled: revision == Revision::A,
                 chr_mode: false,
-                prg_mode: false,
-                prg_bank_select: false,
+                prg_mode: true,
+                prg_bank_select: true,
                 last_chr_reg: 0xA000,
                 chr0: 0x00,
                 chr1: 0x00,
@@ -116,18 +115,6 @@ impl Sxrom {
             revision,
             prg_select: cart.prg_rom_size == 0x80000,
         };
-        sxrom.process_register_write(0x8000, Self::DEFAULT_PRG_MODE);
-        sxrom.process_register_write(0xA000, 0x00);
-        sxrom.process_register_write(0xC000, 0x00);
-        sxrom.process_register_write(
-            0xE000,
-            if revision == Revision::BC {
-                0x00
-            } else {
-                Self::PRG_RAM_DISABLED
-            },
-        );
-        sxrom.mmc1.last_chr_reg = 0xA000;
         sxrom.update_state();
         Ok(sxrom.into())
     }
