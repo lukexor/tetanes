@@ -400,7 +400,8 @@ impl ControlDeck {
             | Mapper::Nina001(_)
             | Mapper::Gxrom(_)
             | Mapper::SunsoftFme7(_)
-            | Mapper::Nina003006(_) => (),
+            | Mapper::Nina003006(_)
+            | Mapper::NesEvent(_) => (),
         }
     }
 

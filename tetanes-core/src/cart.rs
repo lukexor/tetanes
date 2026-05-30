@@ -5,8 +5,9 @@ use crate::{
     fs,
     mapper::{
         self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
-        JalecoSs88006, Mapper, Mmc1Revision, Namco163, Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom,
-        Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision, m034_nina001::Nina001,
+        JalecoSs88006, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
+        SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
+        m034_nina001::Nina001,
     },
     mem::{Memory, RamState},
     ppu::Mirroring,
@@ -230,6 +231,12 @@ impl Cart {
             69 => SunsoftFme7::load(&cart, chr_rom, prg_rom)?,
             71 => Bf909x::load(&cart, chr_rom, prg_rom)?,
             79 | 113 | 146 => Nina003006::load(&cart, chr_rom, prg_rom)?,
+            105 => NesEvent::load(
+                &mut cart,
+                chr_rom,
+                prg_rom,
+                [false, false, true, false], // configuration used in actual tournament
+            )?,
             155 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };
@@ -330,6 +337,7 @@ impl Cart {
             Mapper::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.chr_rom.len(),
             Mapper::Bf909x(bf909x) => bf909x.chr.len(),
             Mapper::Nina003006(nina003006) => nina003006.chr_rom.len(),
+            Mapper::NesEvent(nes_event) => nes_event.chr.len(),
         }
     }
 
