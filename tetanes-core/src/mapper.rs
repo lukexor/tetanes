@@ -31,6 +31,7 @@ pub use m069_sunsoft_fme7::SunsoftFme7;
 pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 pub use m079_nina003_006::Nina003006;
 pub use m105_nes_event::NesEvent;
+pub use m176_fk23c::Fk23C;
 pub use mmc1::{Mmc1, Revision as Mmc1Revision};
 pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 
@@ -55,6 +56,7 @@ pub mod m069_sunsoft_fme7;
 pub mod m071_bf909x;
 pub mod m079_nina003_006;
 pub mod m105_nes_event;
+pub mod m176_fk23c;
 pub mod mmc1;
 pub mod mmc3;
 pub mod vrc_irq;
@@ -144,6 +146,8 @@ pub enum Mapper {
     Nina003006(Nina003006),
     /// `NES-EVENT` (Mapper 105)
     NesEvent(NesEvent),
+    /// `Waixing FK23C`/`FS303` (Mapper 176)
+    Fk23C(Fk23C),
 }
 
 /// Implement `From<T>` for `Mapper`.
@@ -194,6 +198,7 @@ impl_from_board!(
     Bf909x(Bf909x),
     Nina003006(Nina003006),
     NesEvent(NesEvent),
+    Fk23C(Fk23C),
 );
 
 /// Implement `Map` function for all `Mapper` variants.
@@ -222,6 +227,7 @@ macro_rules! impl_map {
             Mapper::Bf909x(m) => m.$fn($($args),*),
             Mapper::Nina003006(m) => m.$fn($($args),*),
             Mapper::NesEvent(m) => m.$fn($($args),*),
+            Mapper::Fk23C(m) => m.$fn($($args),*),
         }
     };
 }
