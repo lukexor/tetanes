@@ -4,7 +4,7 @@ use crate::{
     common::{NesRegion, Regional},
     fs,
     mapper::{
-        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
+        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
         JalecoSs88006, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
         SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
         m034_nina001::Nina001,
@@ -209,6 +209,7 @@ impl Cart {
             2 => Uxrom::load(&cart, chr_rom, prg_rom)?,
             3 => Cnrom::load(&cart, chr_rom, prg_rom)?,
             4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&cart, chr_rom, prg_rom)?,
+            176 => Fk23C::load(&cart, chr_rom, prg_rom)?,
             5 => Exrom::load(&cart, chr_rom, prg_rom)?,
             7 => Axrom::load(&cart, chr_rom, prg_rom)?,
             9 => Pxrom::load(&cart, chr_rom, prg_rom)?,
@@ -338,6 +339,7 @@ impl Cart {
             Mapper::Bf909x(bf909x) => bf909x.chr.len(),
             Mapper::Nina003006(nina003006) => nina003006.chr_rom.len(),
             Mapper::NesEvent(nes_event) => nes_event.chr.len(),
+            Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }
     }
 

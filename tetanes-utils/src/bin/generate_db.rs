@@ -107,6 +107,14 @@ fn apply_corrections(game: &mut Game) {
             game.mirroring = Mirroring::Horizontal;
             game.mapper = 154;
         }
+        0x44C20420 => {
+            // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
+            // Waixing translation). The iNES header says mapper 74; the NES 2.0
+            // attribution (NewRisingSun's DB, via FCEUX and Mesen2) is mapper 176
+            // submapper 2 (Waixing FK23C/FS303).
+            game.mapper = 176;
+            game.submapper = 2;
+        }
         _ => (),
     }
 }
