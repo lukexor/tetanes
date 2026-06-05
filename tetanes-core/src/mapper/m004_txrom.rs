@@ -44,10 +44,10 @@ pub enum Revision {
     Acc,
 }
 
-/// `TxROM` Registers.
+/// `MMC3` register file.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Regs {
+pub struct Mmc3 {
     pub bank_select: u8,
     pub bank_values: [u8; 8],
     pub irq_latch: u8,
@@ -67,7 +67,7 @@ pub struct Txrom {
     pub prg_rom: Memory<Box<[u8]>>,
     pub prg_ram: Memory<Box<[u8]>>,
     pub ex_ram: Memory<Box<[u8]>>,
-    pub regs: Regs,
+    pub mmc3: Mmc3,
     pub has_chr_ram: bool,
     pub mirroring: Mirroring,
     pub mapper_num: u16,
@@ -111,7 +111,7 @@ impl Txrom {
             } else {
                 Memory::empty()
             },
-            regs: Regs::default(),
+            mmc3: Mmc3::default(),
             has_chr_ram,
             mirroring: cart.mirroring(),
             mapper_num: cart.mapper_num(),
@@ -147,7 +147,7 @@ impl Txrom {
     }
 
     pub const fn bank_register(&self, index: usize) -> u8 {
-        self.regs.bank_values[index]
+        self.mmc3.bank_values[index]
     }
 
     pub const fn set_revision(&mut self, rev: Revision) {
@@ -170,9 +170,9 @@ impl Txrom {
 
     pub fn update_prg_banks(&mut self) {
         let prg_last = self.prg_rom_banks.last();
-        let prg_lo = self.regs.bank_values[6] as usize;
-        let prg_hi = self.regs.bank_values[7] as usize;
-        if self.regs.bank_select & Self::PRG_MODE_MASK == Self::PRG_MODE_MASK {
+        let prg_lo = self.mmc3.bank_values[6] as usize;
+        let prg_hi = self.mmc3.bank_values[7] as usize;
+        if self.mmc3.bank_select & Self::PRG_MODE_MASK == Self::PRG_MODE_MASK {
             self.prg_rom_banks.set(0, prg_last - 1);
             self.prg_rom_banks.set(1, prg_hi);
             self.prg_rom_banks.set(2, prg_lo);
@@ -185,7 +185,7 @@ impl Txrom {
     }
 
     pub fn set_chr_banks(&mut self, f: impl Fn(&mut Banks, &mut [u8])) {
-        f(&mut self.chr_banks, &mut self.regs.bank_values)
+        f(&mut self.chr_banks, &mut self.mmc3.bank_values)
     }
 
     pub fn update_chr_banks(&mut self) {
@@ -214,8 +214,8 @@ impl Txrom {
 
         // 1: two 2K banks at $1000-$1FFF, four 1 KB banks at $0000-$0FFF
         // 0: two 2K banks at $0000-$0FFF, four 1 KB banks at $1000-$1FFF
-        let chr = self.regs.bank_values;
-        if self.regs.bank_select & Self::CHR_INVERSION_MASK == Self::CHR_INVERSION_MASK {
+        let chr = self.mmc3.bank_values;
+        if self.mmc3.bank_select & Self::CHR_INVERSION_MASK == Self::CHR_INVERSION_MASK {
             self.chr_banks.set(0, chr[2] as usize);
             self.chr_banks.set(1, chr[3] as usize);
             self.chr_banks.set(2, chr[4] as usize);
@@ -242,12 +242,12 @@ impl Txrom {
             // NOTE: This is technical 3 falling edges of M2 - but because the mapper doesn't have
             // direct access to the CPUs clock, and is clocked after the PPU runs and calls this
             // method, we're off by 1
-            let is_rising_edge = self.regs.a12_low_clock > 0
-                && self.regs.master_clock.wrapping_sub(self.regs.a12_low_clock) >= 4;
-            self.regs.a12_low_clock = 0;
+            let is_rising_edge = self.mmc3.a12_low_clock > 0
+                && self.mmc3.master_clock.wrapping_sub(self.mmc3.a12_low_clock) >= 4;
+            self.mmc3.a12_low_clock = 0;
             return is_rising_edge;
-        } else if self.regs.a12_low_clock == 0 {
-            self.regs.a12_low_clock = self.regs.master_clock;
+        } else if self.mmc3.a12_low_clock == 0 {
+            self.mmc3.a12_low_clock = self.mmc3.master_clock;
         }
         false
     }
@@ -360,12 +360,12 @@ impl Map for Txrom {
                 // Match only $8000/1, $A000/1, $C000/1, and $E000/1
                 match addr & 0xE001 {
                     0x8000 => {
-                        self.regs.bank_select = val;
+                        self.mmc3.bank_select = val;
                         self.update_banks();
                     }
                     0x8001 => {
-                        let bank = self.regs.bank_select & 0x07;
-                        self.regs.bank_values[bank as usize] = val;
+                        let bank = self.mmc3.bank_select & 0x07;
+                        self.mmc3.bank_values[bank as usize] = val;
                         self.update_banks();
                     }
                     0xA000 => {
@@ -382,13 +382,13 @@ impl Map for Txrom {
                         // TODO RAM protect? Might conflict with MMC6
                     }
                     // IRQ
-                    0xC000 => self.regs.irq_latch = val,
-                    0xC001 => self.regs.irq_reload = true,
+                    0xC000 => self.mmc3.irq_latch = val,
+                    0xC001 => self.mmc3.irq_reload = true,
                     0xE000 => {
-                        self.regs.irq_enabled = false;
-                        self.regs.irq_pending = false;
+                        self.mmc3.irq_enabled = false;
+                        self.mmc3.irq_pending = false;
                     }
-                    0xE001 => self.regs.irq_enabled = true,
+                    0xE001 => self.mmc3.irq_enabled = true,
                     _ => unreachable!("impossible address"),
                 }
             }
@@ -410,29 +410,29 @@ impl Map for Txrom {
     fn ppu_read(&mut self, addr: u16) {
         // Clock on PPU A12 rising edge
         if self.is_a12_rising_edge(addr) {
-            let counter = self.regs.irq_counter;
-            if self.regs.irq_counter == 0 || self.regs.irq_reload {
-                self.regs.irq_counter = self.regs.irq_latch;
+            let counter = self.mmc3.irq_counter;
+            if self.mmc3.irq_counter == 0 || self.mmc3.irq_reload {
+                self.mmc3.irq_counter = self.mmc3.irq_latch;
             } else {
-                self.regs.irq_counter -= 1;
+                self.mmc3.irq_counter -= 1;
             }
             if self.revision == Revision::A {
-                if (counter > 0 || self.regs.irq_reload)
-                    && self.regs.irq_counter == 0
-                    && self.regs.irq_enabled
+                if (counter > 0 || self.mmc3.irq_reload)
+                    && self.mmc3.irq_counter == 0
+                    && self.mmc3.irq_enabled
                 {
-                    self.regs.irq_pending = true;
+                    self.mmc3.irq_pending = true;
                 }
-            } else if self.regs.irq_counter == 0 && self.regs.irq_enabled {
-                self.regs.irq_pending = true;
+            } else if self.mmc3.irq_counter == 0 && self.mmc3.irq_enabled {
+                self.mmc3.irq_pending = true;
             }
-            self.regs.irq_reload = false;
+            self.mmc3.irq_reload = false;
         }
     }
 
     /// Whether an IRQ is pending acknowledgement.
     fn irq_pending(&self) -> bool {
-        self.regs.irq_pending
+        self.mmc3.irq_pending
     }
 
     /// Returns the current [`Mirroring`] mode.
@@ -444,7 +444,7 @@ impl Map for Txrom {
 
 impl Reset for Txrom {
     fn reset(&mut self, _kind: ResetKind) {
-        self.regs = Regs::default();
+        self.mmc3 = Mmc3::default();
         self.update_banks();
         self.update_chr_banks();
     }
@@ -452,7 +452,7 @@ impl Reset for Txrom {
 
 impl Clock for Txrom {
     fn clock(&mut self) {
-        self.regs.master_clock = self.regs.master_clock.wrapping_add(1);
+        self.mmc3.master_clock = self.mmc3.master_clock.wrapping_add(1);
     }
 }
 
