@@ -15,7 +15,7 @@ pub use m000_nrom::Nrom;
 pub use m001_sxrom::Sxrom;
 pub use m002_uxrom::Uxrom;
 pub use m003_cnrom::Cnrom;
-pub use m004_txrom::{Revision as Mmc3Revision, Txrom};
+pub use m004_txrom::Txrom;
 pub use m005_exrom::Exrom;
 pub use m007_axrom::Axrom;
 pub use m009_pxrom::Pxrom;
@@ -32,6 +32,7 @@ pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
 pub use m079_nina003_006::Nina003006;
 pub use m105_nes_event::NesEvent;
 pub use mmc1::{Mmc1, Revision as Mmc1Revision};
+pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 
 pub mod bandai_fcg;
 pub mod m000_nrom;
@@ -55,6 +56,7 @@ pub mod m071_bf909x;
 pub mod m079_nina003_006;
 pub mod m105_nes_event;
 pub mod mmc1;
+pub mod mmc3;
 pub mod vrc_irq;
 
 /// Errors that mappers can return.

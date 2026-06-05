@@ -7,57 +7,15 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     fs,
-    mapper::{self, Map, Mapper},
+    mapper::{
+        self, Map, Mapper,
+        mmc3::{Mmc3, Revision},
+    },
     mem::{Banks, Memory},
     ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
-/// MMC3 Revision.
-///
-/// See: <https://forums.nesdev.org/viewtopic.php?p=62546#p62546>
-///
-/// Known Revisions:
-///
-/// Conquest of the Crystal Palace (MMC3B S 9039 1 DB)
-/// Kickle Cubicle (MMC3B S 9031 3 DA)
-/// M.C. Kids (MMC3B S 9152 3 AB)
-/// Mega Man 3 (MMC3B S 9046 1 DB)
-/// Super Mario Bros. 3 (MMC3B S 9027 5 A)
-/// Startropics (MMC6B P 03'5)
-/// Batman (MMC3B 9006KP006)
-/// Golgo 13: The Mafat Conspiracy (MMC3B 9016KP051)
-/// Crystalis (MMC3B 9024KPO53)
-/// Legacy of the Wizard (MMC3A 8940EP)
-///
-/// Only major difference is the IRQ counter
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[must_use]
-pub enum Revision {
-    /// MMC3 Revision A
-    A,
-    /// MMC3 Revisions B & C
-    #[default]
-    BC,
-    /// Acclaims MMC3 clone - clocks on falling edge
-    Acc,
-}
-
-/// `MMC3` register file.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Mmc3 {
-    pub bank_select: u8,
-    pub bank_values: [u8; 8],
-    pub irq_latch: u8,
-    pub irq_counter: u8,
-    pub irq_enabled: bool,
-    pub irq_pending: bool,
-    pub irq_reload: bool,
-    pub master_clock: u32,
-    pub a12_low_clock: u32,
-}
 
 /// `TxROM`/`MMC3` (Mapper 004).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,7 +30,6 @@ pub struct Txrom {
     pub mirroring: Mirroring,
     pub mapper_num: u16,
     pub submapper_num: u8,
-    pub revision: Revision,
     pub chr_banks: Banks,
     pub prg_ram_banks: Banks,
     pub prg_rom_banks: Banks,
@@ -116,7 +73,6 @@ impl Txrom {
             mirroring: cart.mirroring(),
             mapper_num: cart.mapper_num(),
             submapper_num: cart.submapper_num(),
-            revision: Revision::BC, // TODO compare to known games
             chr_banks,
             prg_ram_banks,
             prg_rom_banks,
@@ -151,7 +107,7 @@ impl Txrom {
     }
 
     pub const fn set_revision(&mut self, rev: Revision) {
-        self.revision = rev;
+        self.mmc3.set_revision(rev);
     }
 
     #[inline]
@@ -235,21 +191,6 @@ impl Txrom {
     pub fn update_banks(&mut self) {
         self.update_prg_banks();
         self.update_chr_banks();
-    }
-
-    const fn is_a12_rising_edge(&mut self, addr: u16) -> bool {
-        if addr & 0x1000 > 0 {
-            // NOTE: This is technical 3 falling edges of M2 - but because the mapper doesn't have
-            // direct access to the CPUs clock, and is clocked after the PPU runs and calls this
-            // method, we're off by 1
-            let is_rising_edge = self.mmc3.a12_low_clock > 0
-                && self.mmc3.master_clock.wrapping_sub(self.mmc3.a12_low_clock) >= 4;
-            self.mmc3.a12_low_clock = 0;
-            return is_rising_edge;
-        } else if self.mmc3.a12_low_clock == 0 {
-            self.mmc3.a12_low_clock = self.mmc3.master_clock;
-        }
-        false
     }
 }
 
@@ -360,12 +301,11 @@ impl Map for Txrom {
                 // Match only $8000/1, $A000/1, $C000/1, and $E000/1
                 match addr & 0xE001 {
                     0x8000 => {
-                        self.mmc3.bank_select = val;
+                        self.mmc3.write_bank_select(val);
                         self.update_banks();
                     }
                     0x8001 => {
-                        let bank = self.mmc3.bank_select & 0x07;
-                        self.mmc3.bank_values[bank as usize] = val;
+                        self.mmc3.write_bank_data(val);
                         self.update_banks();
                     }
                     0xA000 => {
@@ -382,13 +322,10 @@ impl Map for Txrom {
                         // TODO RAM protect? Might conflict with MMC6
                     }
                     // IRQ
-                    0xC000 => self.mmc3.irq_latch = val,
-                    0xC001 => self.mmc3.irq_reload = true,
-                    0xE000 => {
-                        self.mmc3.irq_enabled = false;
-                        self.mmc3.irq_pending = false;
-                    }
-                    0xE001 => self.mmc3.irq_enabled = true,
+                    0xC000 => self.mmc3.write_irq_latch(val),
+                    0xC001 => self.mmc3.write_irq_reload(),
+                    0xE000 => self.mmc3.write_irq_disable(),
+                    0xE001 => self.mmc3.write_irq_enable(),
                     _ => unreachable!("impossible address"),
                 }
             }
@@ -409,30 +346,12 @@ impl Map for Txrom {
     /// Synchronize a read from a PPU address.
     fn ppu_read(&mut self, addr: u16) {
         // Clock on PPU A12 rising edge
-        if self.is_a12_rising_edge(addr) {
-            let counter = self.mmc3.irq_counter;
-            if self.mmc3.irq_counter == 0 || self.mmc3.irq_reload {
-                self.mmc3.irq_counter = self.mmc3.irq_latch;
-            } else {
-                self.mmc3.irq_counter -= 1;
-            }
-            if self.revision == Revision::A {
-                if (counter > 0 || self.mmc3.irq_reload)
-                    && self.mmc3.irq_counter == 0
-                    && self.mmc3.irq_enabled
-                {
-                    self.mmc3.irq_pending = true;
-                }
-            } else if self.mmc3.irq_counter == 0 && self.mmc3.irq_enabled {
-                self.mmc3.irq_pending = true;
-            }
-            self.mmc3.irq_reload = false;
-        }
+        self.mmc3.clock_irq(addr);
     }
 
     /// Whether an IRQ is pending acknowledgement.
     fn irq_pending(&self) -> bool {
-        self.mmc3.irq_pending
+        self.mmc3.irq_pending()
     }
 
     /// Returns the current [`Mirroring`] mode.
@@ -443,8 +362,8 @@ impl Map for Txrom {
 }
 
 impl Reset for Txrom {
-    fn reset(&mut self, _kind: ResetKind) {
-        self.mmc3 = Mmc3::default();
+    fn reset(&mut self, kind: ResetKind) {
+        self.mmc3.reset(kind);
         self.update_banks();
         self.update_chr_banks();
     }
@@ -452,7 +371,7 @@ impl Reset for Txrom {
 
 impl Clock for Txrom {
     fn clock(&mut self) {
-        self.mmc3.master_clock = self.mmc3.master_clock.wrapping_add(1);
+        self.mmc3.clock();
     }
 }
 
