@@ -7,6 +7,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2](https://github.com/lukexor/tetanes/compare/0.14.1..0.14.2) - 2026-06-11
+
+### ⛰️  Features
+
+
+- Map San Guo Zhi 2 CRC to mapper 176 submapper 2 - ([87f14db](https://github.com/lukexor/tetanes/commit/87f14dbf5c4d4f29d3798af8c6a996f377b06616))
+- Add mapper 176 (Waixing FK23C / FS303) - ([978c9fe](https://github.com/lukexor/tetanes/commit/978c9fe1251ef25920472f23f85af5271b1ba859))
+- Add nes-event mapper - ([518087f](https://github.com/lukexor/tetanes/commit/518087f67cb0ce774ce6f691c5c82b7ab61c9cfe))
+
+### 🐛 Bug Fixes
+
+- *(cpu)* JAM/KIL rewinds PC and stays cycling instead of halting - ([55dce2a](https://github.com/lukexor/tetanes/commit/55dce2afec7d949549fec85ff9adad69d65d6a50))
+- *(n163)* Persist PRG-RAM as battery save (was audio RAM) - ([1ab150d](https://github.com/lukexor/tetanes/commit/1ab150d25088689b3c7f110bef60fc69da357963))
+- *(n163)* Keep the audio phase accumulator outside the sound RAM - ([85bd35f](https://github.com/lukexor/tetanes/commit/85bd35f0e99134c8f57c1a8f4f50e66a3c31586f))
+- *(n163)* Drop the $F800 PRG-RAM write protect - ([3b91d1a](https://github.com/lukexor/tetanes/commit/3b91d1a0cedf64458c07d5be769230e8fef32107))
+- *(n163)* Disable variant auto detection when ROM is in CRC database - ([3cef338](https://github.com/lukexor/tetanes/commit/3cef3388d8ab01f0bb96cd6dcf295843d1480f70))
+
+
+### 🚜 Refactor
+
+
+- Move mmc3 to a shared module - ([80ed579](https://github.com/lukexor/tetanes/commit/80ed57953896e736900625c2f0c1de5e0a3b9407))
+- Rename Regs to Mmc3 in mapper::m004_txrom - ([816e6bf](https://github.com/lukexor/tetanes/commit/816e6bf3493f9c97e818fa99787c1cc3c09e18d6))
+- Move mmc1 to new module - ([2bdfc23](https://github.com/lukexor/tetanes/commit/2bdfc23f0664a810a6b18a0ef74cff4bbe36a1bd))
+- Move mmc1-specific functionality from Sxrom to Mmc1 - ([297f4a1](https://github.com/lukexor/tetanes/commit/297f4a17b69f684a022a8eda62e851d64cb11371))
+- Simplify Sxrom initialization - ([5d8a3cf](https://github.com/lukexor/tetanes/commit/5d8a3cf39ea106db59b18cd70b64a1dc05cbfc6a))
+- Rename Regs to Mmc1 in mapper::m001_sxrom - ([35ff708](https://github.com/lukexor/tetanes/commit/35ff708f333fc8f7fbe1853b433869bc93692c3b))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Updated deps - ([7c66287](https://github.com/lukexor/tetanes/commit/7c6628786cc3d6254b498564592dc7c6f63976c1))
+
+
 ## [0.14.1](https://github.com/lukexor/tetanes/compare/0.13.0..0.14.1) - 2026-04-20
 
 ### 🐛 Bug Fixes
