@@ -253,6 +253,7 @@ impl Build {
             let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
             cmd_spawn_wait(
                 Command::new(&linuxdeploy_cmd)
+                    .env("NO_STRIP", "1") // binary is already pre-stripped
                     .arg("-e")
                     .arg(&self.bin_path)
                     .args([
@@ -268,12 +269,8 @@ impl Build {
 
             // NOTE: AppImage name is derived from tetanes.desktop
             // Rename to lowercase
-            let app_image_name = format!(
-                "{}-{}-{}.AppImage",
-                self.bin_name, self.version, self.target_arch
-            );
-            let app_image_path =
-                PathBuf::from(format!("{}-{}.AppImage", self.app_name, self.target_arch));
+            let app_image_name = format!("{}-{}-{arch}.AppImage", self.app_name, self.version);
+            let app_image_path = PathBuf::from(format!("{}-{arch}.AppImage", self.app_name));
             let app_image_path_dist = self.dist_dir.join(&app_image_name);
             rename(&app_image_path, &app_image_path_dist)?;
             self.write_sha256(

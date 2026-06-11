@@ -38,17 +38,18 @@ jobs:
   build-linux:
     name: Build Linux Artifacts (${{ matrix.target }})
     if: >
-      ((startsWith(github.event.release.name, 'tetanes')
-        && !startsWith(github.event.release.name, 'tetanes-core'))
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux')))
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-          # TODO: aarch64 linux having trouble with docker in CI
-          # - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
     defaults:
       run:
         shell: bash
@@ -58,35 +59,23 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
-      - uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cross
-          git: https://github.com/cross-rs/cross
-          commit: 19bc73f
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make,cargo-deb,cargo-pgo
       - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
-      - if: startsWith(matrix.target, 'x86_64')
-        run: |
+      - run: |
           time cargo make build-artifacts -- --target ${{ matrix.target }}
-      # aarch64 requires cross building
-      - if: startsWith(matrix.target, 'aarch64')
-        run: |
-          export CROSS_CONTAINER_IN_CONTAINER=true
-          time cargo make build-artifacts -- --target ${{ matrix.target }} --cross
-      - if: success()
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-artifacts
           path: tetanes/dist/
   build-macos:
     name: Build macOS Artifacts (${{ matrix.target }})
     if: >
-      ((startsWith(github.event.release.name, 'tetanes')
-        && !startsWith(github.event.release.name, 'tetanes-core'))
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'macos')))
     runs-on: macos-latest
     strategy:
@@ -120,17 +109,18 @@ jobs:
   build-windows:
     name: Build Windows Artifacts (${{ matrix.target }})
     if: >
-      ((startsWith(github.event.release.name, 'tetanes')
-        && !startsWith(github.event.release.name, 'tetanes-core'))
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'windows')))
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
-          # TODO: windows aarch64
-          # - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: windows-11-arm
     defaults:
       run:
         shell: bash
@@ -157,8 +147,8 @@ jobs:
   build-web:
     name: Build Web Artifacts (wasm32-unknown-unknown)
     if: >
-      ((startsWith(github.event.release.name, 'tetanes')
-        && !startsWith(github.event.release.name, 'tetanes-core'))
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'web')))
     runs-on: ubuntu-latest
     defaults:
