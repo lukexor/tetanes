@@ -170,6 +170,7 @@ impl Painter {
     pub fn paint(
         &mut self,
         viewport_id: ViewportId,
+        target_size: PhysicalSize<u32>,
         pixels_per_point: f32,
         clipped_primitives: &[epaint::ClippedPrimitive],
         textures_delta: &epaint::textures::TexturesDelta,
@@ -180,6 +181,19 @@ impl Painter {
         let Some(surface) = self.surfaces.get_mut(&viewport_id) else {
             return;
         };
+
+        // Resize the surface to egui's layout size (`inner_size()`). On Wayland a
+        // `request_inner_size()` can resize the window without a `Resized` event,
+        // leaving the surface stale, which stretches the UI and breaks hit-testing.
+        // A zero target (minimized window) keeps the current size.
+        if let (Some(width), Some(height)) = (
+            NonZeroU32::new(target_size.width),
+            NonZeroU32::new(target_size.height),
+        ) && (surface.width != width.get() || surface.height != height.get())
+        {
+            tracing::debug!("reconciling stale surface to {target_size:?}");
+            render_state.resize_surface(surface, width, height);
+        }
 
         let mut encoder =
             render_state

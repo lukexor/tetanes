@@ -1176,11 +1176,18 @@ impl Renderer {
                 return Ok(());
             };
 
+            // Pass the size egui used for layout (`inner_size()`) so the painter
+            // can reconcile its surface to it before rendering. They can drift
+            // under Wayland fractional scaling, which stretches the UI and makes
+            // pointer hit-tests miss; see `Painter::paint`.
+            let inner_size = window.inner_size();
+
             let clipped_primitives = self.ctx.tessellate(output.shapes, output.pixels_per_point);
 
             window.pre_present_notify();
             self.painter.borrow_mut().paint(
                 viewport_id,
+                inner_size,
                 output.pixels_per_point,
                 &clipped_primitives,
                 &output.textures_delta,
