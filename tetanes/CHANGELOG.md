@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.3](https://github.com/lukexor/tetanes/compare/0.14.2..0.14.3) - 2026-07-14
+
+### 🐛 Bug Fixes
+
+- *(renderer)* Sync wgpu surface to window size so menu clicks land - ([a39fede](https://github.com/lukexor/tetanes/commit/a39fede957b41be6e494bbeed5a446289dbc3dc6))
+
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Fixed cd - ([0022029](https://github.com/lukexor/tetanes/commit/002202939ed2ed381d8415040fdea4d113dbabc3))
+
+
 ## [0.14.2](https://github.com/lukexor/tetanes/compare/0.14.1..0.14.2) - 2026-06-11
 
 ### 🐛 Bug Fixes
