@@ -89,6 +89,17 @@ lto = "off"
 debug = true
 strip = false
 
+[workspace.metadata.binstall]
+pkg-url = "{ repo }/releases/download/tetanes-v{ version }/{ name }-{ version }-{ target }.{ archive-format }"
+bin-dir = "{ bin }-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tar.gz"
+
+[workspace.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[workspace.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [workspace.metadata.wix]
 upgrade-guid = "DB76CEB0-15B8-4727-9C3E-55819AB5E7B9"
 path-guid = "5731AE63-80DE-4CD7-ADFA-9E79BEDCE08B"
