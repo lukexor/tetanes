@@ -1080,3 +1080,80 @@ impl Reset for ControlDeck {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs::File,
+        hash::{DefaultHasher, Hash, Hasher},
+    };
+
+    use crate::{common::Sram, memory::Src};
+
+    fn spritecans() -> ControlDeck {
+        let mut deck = ControlDeck::with_config(Config {
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        });
+        let path = "test_roms/spritecans.nes";
+        let mut rom = File::open(path).expect("test rom exists");
+        deck.load_rom(path, &mut rom).expect("test rom loads");
+        deck
+    }
+
+    /// Clock `frames` and return a hash of what ends up on screen.
+    fn run(deck: &mut ControlDeck, frames: u32) -> u64 {
+        for _ in 0..frames {
+            deck.clock_frame().expect("clocks");
+            deck.clear_audio_samples();
+        }
+        let mut hasher = DefaultHasher::new();
+        deck.frame_buffer().hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// A restored state has to resume bit-identically. Page tables are `#[serde(skip)]` derived
+    /// state, so this only holds if `load_cpu` replays the mapper's registers through `Map::sync` -
+    /// without it every page comes back unmapped and the machine reads zeroes.
+    #[test]
+    fn save_state_resumes_identically() {
+        let path = std::env::temp_dir().join("tetanes-save-state-resumes-identically.sav");
+        let _ = std::fs::remove_file(&path);
+
+        let mut deck = spritecans();
+        run(&mut deck, 30);
+        deck.save_state(&path).expect("saves");
+        let expected = run(&mut deck, 30);
+
+        let mut restored = spritecans();
+        run(&mut restored, 5); // somewhere else entirely
+        restored.load_state(&path).expect("loads");
+        assert_eq!(run(&mut restored, 30), expected);
+
+        std::fs::remove_file(&path).expect("cleans up");
+    }
+
+    /// Battery-backed state is written and restored through the board, since what is backed
+    /// varies: PRG-RAM for almost everything, plus internal sound RAM on Namco163, and an EEPROM
+    /// instead of PRG-RAM on Bandai's Datach carts. Driven through `Bus` rather than
+    /// `ControlDeck::save_sram`, which no-ops for a cart without a battery.
+    #[test]
+    fn sram_round_trips_through_the_board() {
+        let path = std::env::temp_dir().join("tetanes-sram-round-trips.sram");
+        let _ = std::fs::remove_file(&path);
+
+        let mut deck = spritecans();
+        deck.cpu_mut().bus.ppu.memory.region_mut(Src::PrgRam)[..4].copy_from_slice(&[1, 2, 3, 4]);
+        deck.cpu().bus.save(&path).expect("saves");
+
+        let mut restored = spritecans();
+        restored.cpu_mut().bus.load(&path).expect("loads");
+        assert_eq!(
+            &restored.cpu().bus.ppu.memory.region_ref(Src::PrgRam)[..4],
+            &[1, 2, 3, 4]
+        );
+
+        std::fs::remove_file(&path).expect("cleans up");
+    }
+}
