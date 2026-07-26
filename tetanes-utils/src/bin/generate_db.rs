@@ -86,7 +86,7 @@ fn apply_corrections(game: &mut Game) {
             game.mapper = 210;
             game.submapper = 1;
         }
-        0x1DC0F740 | 0x429103C9 | 0x46FD7843 | 0x47232739 | 0x6EC51DE5 | 0xADFFD64F
+        0x1DC0F740 | 0x2447E03B | 0x429103C9 | 0x46FD7843 | 0x6EC51DE5 | 0xADFFD64F
         | 0xD323B806 => {
             // Famista '92
             // Famista '93
@@ -163,8 +163,11 @@ impl Game {
         Ok(Game {
             crc32,
             region,
-            mapper: cart.mapper_num(),
-            submapper: cart.submapper_num(),
+            // Read the ROM's own header, not `Cart::mapper_num`/`submapper_num`, which consult
+            // the database this binary generates. Doing otherwise makes the database regenerate
+            // itself from itself, so a wrong entry can never be corrected - it just gets rewritten.
+            mapper: cart.header.mapper_num,
+            submapper: cart.header.submapper_num,
             chr_banks,
             prg_rom_banks,
             prg_ram_banks,

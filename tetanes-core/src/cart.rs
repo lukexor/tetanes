@@ -183,7 +183,7 @@ impl Cart {
         F: Read,
     {
         let name = name.to_string();
-        let mut header = NesHeader::load(&mut rom_data)?;
+        let header = NesHeader::load(&mut rom_data)?;
         debug!("{header:?}");
 
         let prg_rom_size = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
@@ -230,10 +230,11 @@ impl Cart {
             Self::calculate_ram_size(header.chr_ram_shift)?
         };
 
+        // Deliberately does not overwrite `header.mapper_num`: the header records what the ROM
+        // itself claims, and `Cart::mapper_num` layers the database on top. Clobbering it made the
+        // database self-referential, since `generate_db` could then only ever read back its own
+        // previous answer.
         let game_info = Self::lookup_info(&prg_rom, &chr_rom);
-        if let Some(game_info) = &game_info {
-            header.mapper_num = game_info.mapper_num;
-        }
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
             match header.tv_mode {
                 1 => NesRegion::Pal,
@@ -281,7 +282,7 @@ impl Cart {
         // Header mirroring is the default for every board; only boards that override it - either
         // hard-wired or via a register - touch it again.
         cart.memory.set_mirroring(cart.mirroring());
-        cart.mapper = match cart.header.mapper_num {
+        cart.mapper = match cart.mapper_num() {
             0 => Nrom::load(&mut cart)?,
             1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
             2 => Uxrom::load(&mut cart)?,
