@@ -286,7 +286,7 @@ impl Cart {
             1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
             2 => Uxrom::load(&mut cart)?,
             3 => Cnrom::load(&mut cart)?,
-            4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&cart, chr_rom, prg_rom)?,
+            4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&mut cart)?,
             176 => Fk23C::load(&cart, chr_rom, prg_rom)?,
             5 => Exrom::load(&cart, chr_rom, prg_rom)?,
             7 => Axrom::load(&mut cart)?,
@@ -411,9 +411,9 @@ impl Cart {
             | Mapper::Nina001(_)
             | Mapper::Gxrom(_)
             | Mapper::Sxrom(_)
+            | Mapper::Txrom(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
-            Mapper::Txrom(txrom) => txrom.chr.len(),
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
             Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),
             Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),

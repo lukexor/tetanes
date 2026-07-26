@@ -313,6 +313,18 @@ impl Map for Mapper {
         impl_map!(self, write_register, memory, addr, val)
     }
 
+    /// Whether this board must observe every PPU bus address.
+    #[inline(always)]
+    fn watches_ppu_bus(&self) -> bool {
+        impl_map!(self, watches_ppu_bus)
+    }
+
+    /// Observe a PPU bus address.
+    #[inline(always)]
+    fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
+        impl_map!(self, ppu_bus_addr, memory, addr)
+    }
+
     /// Rebuild the page tables from this board's register state.
     fn sync(&mut self, memory: &mut Memory) {
         impl_map!(self, sync, memory)
@@ -471,6 +483,19 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
     /// happened, so this only needs to handle registers.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
+
+    /// Whether this board must observe every PPU bus address.
+    ///
+    /// Boards on page tables no longer see reads, so the A12 rising-edge scanline counters
+    /// (MMC3, FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly. Cached
+    /// at load so the ~20 boards that do not care pay a bool test rather than a dispatch on every
+    /// one of the ~41,000 CHR fetches in a frame.
+    fn watches_ppu_bus(&self) -> bool {
+        false
+    }
+
+    /// Observe a PPU bus address, for boards that returned `true` from `watches_ppu_bus`.
+    fn ppu_bus_addr(&mut self, _memory: &mut Memory, _addr: u16) {}
 
     /// Rebuild the page tables from this board's register state.
     ///

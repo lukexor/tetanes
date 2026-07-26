@@ -275,6 +275,9 @@ pub struct Ppu {
     /// Whether the loaded board serves reads from [`Ppu::memory`] rather than through the mapper.
     /// Cached from `Map::uses_page_tables` at load so the hot path is a bool test, not a dispatch.
     pub mapped: bool,
+    /// Whether the loaded board needs to observe every PPU bus address, for A12 scanline counters
+    /// and CHR latches. Cached from `Map::watches_ppu_bus` for the same reason.
+    pub watches_ppu_bus: bool,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -442,6 +445,7 @@ impl Ppu {
             mapper: Mapper::none(),
             memory: CartMemory::default(),
             mapped: false,
+            watches_ppu_bus: false,
             ciram: CIRam(Box::new(ConstArray::new())),
 
             prev_palette: 0x00,
@@ -494,6 +498,10 @@ impl Ppu {
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
         if self.mapped {
+            if self.watches_ppu_bus {
+                let Self { mapper, memory, .. } = self;
+                mapper.ppu_bus_addr(memory, addr);
+            }
             self.memory.chr_peek(addr)
         } else {
             self.mapper.chr_read(addr, &self.ciram)
@@ -585,6 +593,7 @@ impl Ppu {
     #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.mapped = mapper.uses_page_tables();
+        self.watches_ppu_bus = mapper.watches_ppu_bus();
         self.mapper = mapper;
     }
 
@@ -592,6 +601,23 @@ impl Ppu {
     pub fn load_cart(&mut self, mapper: Mapper, memory: CartMemory) {
         self.memory = memory;
         self.load_mapper(mapper);
+    }
+
+    /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
+    ///
+    /// Every site that observes the PPU bus must go through this: page-table boards implement
+    /// `Map::ppu_bus_addr` and never see `Map::ppu_read`, so calling the latter directly silently
+    /// does nothing for them.
+    #[inline(always)]
+    pub fn notify_ppu_bus(&mut self, addr: u16) {
+        if self.mapped {
+            if self.watches_ppu_bus {
+                let Self { mapper, memory, .. } = self;
+                mapper.ppu_bus_addr(memory, addr);
+            }
+        } else {
+            self.mapper.ppu_read(addr);
+        }
     }
 
     /// Rebuild the page tables from the mapper's register state.
@@ -1502,7 +1528,7 @@ impl Ppu {
         let prev_open_bus = self.open_bus;
         let val = self.bus_read(addr);
         // MMC3 clocks using A12
-        self.mapper.ppu_read(self.scroll.addr());
+        self.notify_ppu_bus(self.scroll.addr());
         self.open_bus = if addr < addr::PALETTE_START {
             let buffer = self.vram_buffer;
             self.vram_buffer = val;
@@ -1548,7 +1574,7 @@ impl Ppu {
         self.increment_vram_addr();
         self.bus_write(addr, val);
         // MMC3 clocks using A12
-        self.mapper.ppu_read(self.scroll.addr());
+        self.notify_ppu_bus(self.scroll.addr());
     }
 }
 
@@ -1662,7 +1688,7 @@ impl Clock for Ppu {
             && (!self.mask.rendering_enabled || self.scanline > scanline::VISIBLE_END)
         {
             // MMC3 clocks using A12
-            self.mapper.ppu_read(self.scroll.addr());
+            self.notify_ppu_bus(self.scroll.addr());
         }
 
         // Pixels should be put even if rendering is disabled, as this is what blanks out the
