@@ -278,6 +278,9 @@ pub struct Ppu {
     /// Whether the loaded board needs to observe every PPU bus address, for A12 scanline counters
     /// and CHR latches. Cached from `Map::watches_ppu_bus` for the same reason.
     pub watches_ppu_bus: bool,
+    /// Whether the loaded board serves some CPU reads itself, for expansion hardware that is not
+    /// memory. Cached from `Map::has_prg_read_hook`.
+    pub has_prg_read_hook: bool,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -446,6 +449,7 @@ impl Ppu {
             memory: CartMemory::default(),
             mapped: false,
             watches_ppu_bus: false,
+            has_prg_read_hook: false,
             ciram: CIRam(Box::new(ConstArray::new())),
 
             prev_palette: 0x00,
@@ -598,6 +602,7 @@ impl Ppu {
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.mapped = mapper.uses_page_tables();
         self.watches_ppu_bus = mapper.watches_ppu_bus();
+        self.has_prg_read_hook = mapper.has_prg_read_hook();
         self.mapper = mapper;
     }
 

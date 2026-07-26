@@ -315,6 +315,34 @@ impl Map for Mapper {
         impl_map!(self, write_register, memory, addr, val)
     }
 
+    /// Battery-backed state beyond PRG-RAM.
+    fn extra_sram(&self) -> Option<Vec<u8>> {
+        impl_map!(self, extra_sram)
+    }
+
+    /// Restore state previously returned by `extra_sram`.
+    fn set_extra_sram(&mut self, data: &[u8]) {
+        impl_map!(self, set_extra_sram, data)
+    }
+
+    /// Whether this board serves some CPU reads itself.
+    #[inline(always)]
+    fn has_prg_read_hook(&self) -> bool {
+        impl_map!(self, has_prg_read_hook)
+    }
+
+    /// Serve a CPU read, returning `None` to fall through to page-table memory.
+    #[inline(always)]
+    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+        impl_map!(self, prg_read_hook, addr)
+    }
+
+    /// Side-effect-free form of [`Map::prg_read_hook`].
+    #[inline(always)]
+    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+        impl_map!(self, prg_peek_hook, addr)
+    }
+
     /// Whether this board must observe every PPU bus address.
     #[inline(always)]
     fn watches_ppu_bus(&self) -> bool {
@@ -485,6 +513,36 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
     /// happened, so this only needs to handle registers.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
+
+    /// Battery-backed state beyond PRG-RAM, such as Namco163's internal sound RAM.
+    ///
+    /// When present it is written alongside PRG-RAM, preserving the two-part on-disk layout those
+    /// boards already used.
+    fn extra_sram(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Restore state previously returned by [`Map::extra_sram`].
+    fn set_extra_sram(&mut self, _data: &[u8]) {}
+
+    /// Whether this board serves some CPU reads itself rather than from page tables.
+    ///
+    /// Expansion hardware - Namco163's audio registers and IRQ counter, Bandai's EEPROM and
+    /// barcode reader - is not memory and cannot be expressed as a page. Cached at load so boards
+    /// without it pay a bool test rather than a call on every PRG read.
+    fn has_prg_read_hook(&self) -> bool {
+        false
+    }
+
+    /// Serve a CPU read, returning `None` to fall through to page-table memory.
+    fn prg_read_hook(&mut self, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Side-effect-free form of [`Map::prg_read_hook`], for debuggers.
+    fn prg_peek_hook(&self, _addr: u16) -> Option<u8> {
+        None
+    }
 
     /// Whether this board must observe every PPU bus address.
     ///

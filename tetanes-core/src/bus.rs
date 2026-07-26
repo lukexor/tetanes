@@ -172,7 +172,11 @@ impl Read for Bus {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
                 let val = if self.ppu.mapped {
-                    self.ppu.memory.prg_peek(addr)
+                    self.ppu
+                        .has_prg_read_hook
+                        .then(|| self.ppu.mapper.prg_read_hook(addr))
+                        .flatten()
+                        .unwrap_or_else(|| self.ppu.memory.prg_peek(addr))
                 } else {
                     self.ppu.mapper.prg_read(addr)
                 };
@@ -200,7 +204,11 @@ impl Read for Bus {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
                 let val = if self.ppu.mapped {
-                    self.ppu.memory.prg_peek(addr)
+                    self.ppu
+                        .has_prg_read_hook
+                        .then(|| self.ppu.mapper.prg_peek_hook(addr))
+                        .flatten()
+                        .unwrap_or_else(|| self.ppu.memory.prg_peek(addr))
                 } else {
                     self.ppu.mapper.prg_peek(addr)
                 };
@@ -314,11 +322,19 @@ impl Sram for Bus {
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         if self.ppu.mapped {
-            fs::load::<Vec<u8>>(path.as_ref()).map(|data| {
-                let ram = self.ppu.memory.region_mut(Src::PrgRam);
-                let len = ram.len().min(data.len());
-                ram[..len].copy_from_slice(&data[..len]);
-            })
+            let (prg_ram, extra) = if self.ppu.mapper.extra_sram().is_some() {
+                let (prg_ram, extra) = fs::load::<(Vec<u8>, Vec<u8>)>(path.as_ref())?;
+                (prg_ram, Some(extra))
+            } else {
+                (fs::load::<Vec<u8>>(path.as_ref())?, None)
+            };
+            let ram = self.ppu.memory.region_mut(Src::PrgRam);
+            let len = ram.len().min(prg_ram.len());
+            ram[..len].copy_from_slice(&prg_ram[..len]);
+            if let Some(extra) = extra {
+                self.ppu.mapper.set_extra_sram(&extra);
+            }
+            Ok(())
         } else {
             self.ppu.mapper.load(path)
         }

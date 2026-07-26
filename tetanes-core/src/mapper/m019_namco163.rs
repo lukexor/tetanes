@@ -5,10 +5,10 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    fs,
     mapper::{self, Map, Mapper},
-    mem::{BankAccess, Banks, ConstArray, Memory},
-    ppu::{CIRam, Mirroring},
+    mem::ConstArray,
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -38,9 +38,6 @@ pub struct Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Namco163 {
-    pub chr_rom: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub board: Board,
     pub mapper_num: u16,
@@ -49,48 +46,39 @@ pub struct Namco163 {
     pub auto_detect_board: bool,
     pub mirroring: Mirroring,
     pub prg_ram_written_to: bool,
+    /// Whether each of the twelve 1K slots covering $0000-$2FFF reads CIRAM instead of CHR-ROM.
     pub nt_bank_enable: [bool; 12],
-    pub chr_banks: Banks,
-    pub prg_ram_banks: Banks,
-    pub prg_rom_banks: Banks,
+    /// Bank selected by each of those twelve slots.
+    pub chr_banks: [u8; 12],
+    /// 3x 8K PRG-ROM banks. $E000 is fixed to the last bank.
+    pub prg_banks: [u8; 3],
 }
 
 impl Namco163 {
     const PRG_WINDOW: usize = 8 * 1024;
-    const PRG_RAM_SIZE: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
     /// Load `Namco163` from `Cart`.
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let mut auto_detect_board = false;
-        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
-        let chr_banks = Banks::new(0x0000, 0x3FFF, chr_rom.len(), Self::CHR_WINDOW)?;
-        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        let mut namco163 = Self {
-            chr_rom,
-            prg_rom,
-            prg_ram,
-            regs: Regs::default(),
-            board: match cart.mapper_num() {
-                19 => {
-                    auto_detect_board = cart.game_info.is_none();
-                    Board::Namco163
+        let board = match cart.mapper_num() {
+            19 => {
+                auto_detect_board = cart.game_info.is_none();
+                Board::Namco163
+            }
+            210 => match cart.submapper_num() {
+                1 => Board::Namco175,
+                2 => Board::Namco340,
+                _ => {
+                    auto_detect_board = true;
+                    Board::Unknown
                 }
-                210 => match cart.submapper_num() {
-                    1 => Board::Namco175,
-                    2 => Board::Namco340,
-                    _ => {
-                        auto_detect_board = true;
-                        Board::Unknown
-                    }
-                },
-                _ => Board::Unknown,
             },
+            _ => Board::Unknown,
+        };
+        let mut board = Self {
+            regs: Regs::default(),
+            board,
             mapper_num: cart.mapper_num(),
             submapper_num: cart.submapper_num(),
             audio: Audio::new(),
@@ -98,44 +86,25 @@ impl Namco163 {
             mirroring: cart.mirroring(),
             prg_ram_written_to: false,
             nt_bank_enable: [false; 12],
-            chr_banks,
-            prg_ram_banks,
-            prg_rom_banks,
+            chr_banks: [0; 12],
+            prg_banks: [0; 3],
         };
-        // Default 0x2000.=0x2FFF to NTRAM
-        for bank in 8..12 {
-            namco163.nt_bank_enable[bank] = true;
-            namco163.chr_banks.set(bank, ((bank - 8) * 0x0400) & 0x03FF);
-        }
-        namco163.prg_rom_banks.set(3, namco163.prg_rom_banks.last());
-        namco163.update_prg_ram_access();
-        Ok(namco163.into())
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 
-    fn update_prg_ram_access(&mut self) {
-        if self.prg_ram_banks.banks_len() == 0 {
-            return;
-        }
-        let access = |read_write| {
-            if read_write {
-                BankAccess::ReadWrite
-            } else {
-                BankAccess::Read
-            }
-        };
-        let write_protect = self.regs.prg_ram_protect;
+    /// Whether PRG-RAM at $6000 currently accepts writes.
+    const fn prg_ram_writable(&self) -> bool {
         match self.board {
-            Board::Namco163 => {
-                self.prg_ram_banks.set_access_range(0, 3, access(true));
-            }
-            Board::Namco175 => {
-                self.prg_ram_banks
-                    .set_access_range(0, 3, access(write_protect & 0x01 == 0x01));
-            }
-            _ => {
-                self.prg_ram_banks.set_access_range(0, 3, BankAccess::None);
-            }
+            Board::Namco163 => true,
+            Board::Namco175 => self.regs.prg_ram_protect & 0x01 == 0x01,
+            _ => false,
         }
+    }
+
+    /// Whether PRG-RAM at $6000 is mapped at all.
+    const fn prg_ram_readable(&self) -> bool {
+        matches!(self.board, Board::Namco163 | Board::Namco175)
     }
 
     #[inline]
@@ -151,98 +120,53 @@ impl Namco163 {
 }
 
 impl Map for Namco163 {
-    // PPU $0000..=$03FF 1K CHR Bank 1 Switchable
-    // PPU $0400..=$07FF 1K CHR Bank 2 Switchable
-    // PPU $0800..=$0BFF 1K CHR Bank 3 Switchable
-    // PPU $0C00..=$0FFF 1K CHR Bank 4 Switchable
-    // PPU $1000..=$13FF 1K CHR Bank 5 Switchable
-    // PPU $1400..=$17FF 1K CHR Bank 6 Switchable
-    // PPU $1800..=$1BFF 1K CHR Bank 7 Switchable
-    // PPU $1C00..=$1FFF 1K CHR Bank 8 Switchable
-    // PPU $2000..=$23FF 1K CHR Bank 9 Switchable
-    // PPU $2400..=$27FF 1K CHR Bank 10 Switchable
-    // PPU $2800..=$2BFF 1K CHR Bank 11 Switchable
-    // PPU $2C00..=$2FFF 1K CHR Bank 12 Switchable
-    //
-    // CPU $6000..=$7FFF 8K PRG-RAM Bank, if WRAM is present
-    // CPU $8000..=$9FFF 8K PRG-ROM Bank 1 Switchable
-    // CPU $A000..=$BFFF 8K PRG-ROM Bank 2 Switchable
-    // CPU $C000..=$DFFF 8K PRG-ROM Bank 3 Switchable
-    // CPU $E000..=$FFFF 8K PRG-ROM Bank 4, fixed to last
+    fn uses_page_tables(&self) -> bool {
+        true
+    }
 
-    // $0400..=$07FF bank 1 > page N -> addr + page * $0400
-    // $0800..=$0BFF bank 2 -> page N -> addr + page * $0400
-    // $0C00..=$0FFF bank 3 -> page N -> addr + page * $0400
-    // $1000..=$13FF bank 4 -> page N -> addr + page * $0400
-    // $1400..=$17FF bank 5 -> page N -> addr + page * $0400
-    // $1800..=$1BFF bank 6 -> page N -> addr + page * $0400
-    // $1C00..=$1FFF bank 7 -> page N -> addr + page * $0400
-    // $2000..=$23FF bank 8 -> page N -> addr + page * $0400
-    // $2400..=$27FF bank 9 -> page N -> addr + page * $0400
-    // $2800..=$2BFF bank 10 -> page N -> addr + page * $0400
-    // $2C00..=$2FFF bank 11 -> page N -> addr + page * $0400
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
 
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
+    /// Internal sound RAM is battery-backed on this board.
+    fn extra_sram(&self) -> Option<Vec<u8>> {
+        Some(self.audio.ram.to_vec())
+    }
+
+    fn set_extra_sram(&mut self, data: &[u8]) {
+        for (dst, src) in self.audio.ram.iter_mut().zip(data) {
+            *dst = *src;
+        }
+    }
+
+    /// Audio registers and the IRQ counter live in the expansion range and are not memory.
+    fn has_prg_read_hook(&self) -> bool {
+        true
+    }
+
+    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
         match addr {
-            0x0000..=0x3EFF => {
-                let bank = addr >> 10;
-                let addr = self.chr_banks.translate(addr);
-                if self.nt_bank_enable[bank as usize] {
-                    ciram[addr]
-                } else {
-                    self.chr_rom[addr]
-                }
-            }
-            _ => 0,
+            0x4800..=0x4FFF => Some(self.audio.read_register(addr)),
+            0x5000..=0x57FF => Some((self.regs.irq_counter & 0xFF) as u8),
+            0x5800..=0x5FFF => Some((self.regs.irq_counter >> 8) as u8),
+            _ => None,
         }
     }
 
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> u8 {
+    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
         match addr {
-            0x4800..=0x4FFF => self.audio.read_register(addr),
-            _ => self.prg_peek(addr),
+            0x4800..=0x4FFF => Some(self.audio.peek_register(addr)),
+            0x5000..=0x57FF => Some((self.regs.irq_counter & 0xFF) as u8),
+            0x5800..=0x5FFF => Some((self.regs.irq_counter >> 8) as u8),
+            _ => None,
         }
     }
 
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_banks.readable(addr) {
-                    self.prg_ram[self.prg_ram_banks.translate(addr)]
-                } else {
-                    0
-                }
-            }
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => match addr & 0xF800 {
-                0x4800 => self.audio.peek_register(addr),
-                0x5000 => (self.regs.irq_counter & 0xFF) as u8,
-                0x5800 => (self.regs.irq_counter >> 8) as u8,
-                _ => 0,
-            },
-        }
-    }
-
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        if let 0x0000..=0x3EFF = addr {
-            let bank = addr >> 10;
-            let addr = self.chr_banks.translate(addr);
-            if self.nt_bank_enable[bank as usize] {
-                ciram[addr] = val;
-            }
-        }
-    }
-
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, addr: u16, val: u8) {
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
             0x4800..=0x4FFF => {
                 self.maybe_set_board(Board::Namco163);
@@ -259,12 +183,10 @@ impl Map for Namco163 {
                 self.regs.irq_pending = false;
             }
             0x6000..=0x7FFF => {
+                // The data store already happened in `Bus`; this only tracks board detection.
                 self.prg_ram_written_to = true;
                 if self.board == Board::Namco340 {
                     self.maybe_set_board(Board::Unknown);
-                }
-                if self.prg_ram_banks.writable(addr) {
-                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
                 }
             }
             0x8000..=0xDFFF => {
@@ -276,7 +198,6 @@ impl Map for Namco163 {
 
                 if addr >= 0xC000 && self.board == Board::Namco175 {
                     self.regs.prg_ram_protect = val;
-                    self.update_prg_ram_access();
                 } else {
                     let bank = ((addr - 0x8000) >> 11) as usize;
                     let nt_select = match addr {
@@ -287,9 +208,9 @@ impl Map for Namco163 {
                     let nt_bank_enable = nt_select && val >= 0xE0 && self.board == Board::Namco163;
                     self.nt_bank_enable[bank] = nt_bank_enable;
                     if nt_bank_enable {
-                        self.chr_banks.set(bank, (val & 0x01).into());
+                        self.chr_banks[bank] = val & 0x01;
                     } else {
-                        self.chr_banks.set(bank, val.into());
+                        self.chr_banks[bank] = val;
                     }
                 }
             }
@@ -298,7 +219,7 @@ impl Map for Namco163 {
                     self.maybe_set_board(Board::Namco340);
                 }
 
-                self.prg_rom_banks.set(0, (val & 0x3F).into());
+                self.prg_banks[0] = val & 0x3F;
 
                 match self.board {
                     Board::Namco340 => {
@@ -314,35 +235,61 @@ impl Map for Namco163 {
                 }
             }
             0xE800..=0xEFFF => {
-                self.prg_rom_banks.set(1, (val & 0x3F).into());
+                self.prg_banks[1] = val & 0x3F;
 
                 if self.board == Board::Namco163 {
                     self.regs.nt_select_lo = (val & 0x40) == 0x40;
                     self.regs.nt_select_hi = (val & 0x80) == 0x80;
                 }
             }
-            0xF000..=0xF7FF => self.prg_rom_banks.set(2, (val & 0x3F).into()),
+            0xF000..=0xF7FF => self.prg_banks[2] = val & 0x3F,
             0xF800..=0xFFFF => {
                 self.maybe_set_board(Board::Namco163);
                 if self.board == Board::Namco163 {
                     self.regs.prg_ram_protect = val;
-                    self.update_prg_ram_access();
+
                     self.audio.write_register(addr, val);
                 }
             }
             _ => (),
         }
+        self.sync(memory);
     }
 
-    /// Whether an IRQ is pending acknowledgement.
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_pending
-    }
+    fn sync(&mut self, memory: &mut Memory) {
+        // Twelve 1K slots cover $0000-$2FFF; each independently selects CHR-ROM or CIRAM, which is
+        // how this board expresses both pattern banking and nametable layout.
+        for slot in 0..12 {
+            let src = if self.nt_bank_enable[slot] {
+                Src::CiRam
+            } else {
+                Src::Chr
+            };
+            let addr = (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, i32::from(self.chr_banks[slot]), src);
+            // $3000-$3FFF mirrors $2000-$2FFF.
+            if slot >= 8 {
+                memory.map_chr(
+                    addr + 0x1000,
+                    Self::CHR_WINDOW,
+                    i32::from(self.chr_banks[slot]),
+                    src,
+                );
+            }
+        }
 
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+        for (slot, bank) in self.prg_banks.iter().enumerate() {
+            let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
+            memory.map_prg(addr, Self::PRG_WINDOW, i32::from(*bank), Src::PrgRom);
+        }
+        memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
+
+        if self.prg_ram_readable() {
+            memory.map_prg(0x6000, Self::PRG_WINDOW, 0, Src::PrgRam);
+            memory.set_prg_writable(0x6000, Self::PRG_WINDOW, self.prg_ram_writable());
+        } else {
+            memory.unmap_prg(0x6000, Self::PRG_WINDOW);
+        }
     }
 }
 
@@ -353,11 +300,12 @@ impl Reset for Namco163 {
         }
         for bank in 8..12 {
             self.nt_bank_enable[bank] = true;
-            self.chr_banks.set(bank, ((bank - 8) * 0x0400) & 0x03FF);
+            // Preserves the previous expression `((bank - 8) * 0x0400) & 0x03FF`, which is zero
+            // for every bank since 0x400 & 0x3FF == 0 - it looks like page indices and byte
+            // offsets were conflated, but games program these registers immediately anyway.
+            self.chr_banks[bank] = 0;
         }
         self.prg_ram_written_to = false;
-        self.prg_rom_banks.set(3, self.prg_rom_banks.last());
-        self.update_prg_ram_access();
         self.audio = Audio::new();
     }
 }
@@ -378,20 +326,7 @@ impl Clock for Namco163 {
 
 impl Regional for Namco163 {}
 
-impl Sram for Namco163 {
-    fn save(&self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::save(path.as_ref(), &(&self.prg_ram, &self.audio.ram))
-    }
-
-    fn load(&mut self, path: impl AsRef<std::path::Path>) -> fs::Result<()> {
-        fs::load::<(Memory<Box<[u8]>>, ConstArray<u8, 0x80>)>(path.as_ref()).map(
-            |(prg_ram, audio_ram)| {
-                self.prg_ram = prg_ram;
-                self.audio.ram = audio_ram;
-            },
-        )
-    }
-}
+impl Sram for Namco163 {}
 
 impl Sample for Namco163 {
     fn output(&self) -> f32 {
