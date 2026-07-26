@@ -39,12 +39,25 @@ use std::{
 };
 use tetanes_core::prelude::*;
 
-/// Frames clocked per timed iteration.
+/// Frames clocked per timed iteration. Override with `TETANES_BENCH_FRAMES`.
 const FRAMES_TO_RUN: u32 = 600;
-/// Timed iterations per ROM. Reported statistics are across these.
+/// Timed iterations per ROM. Reported statistics are across these. Override with
+/// `TETANES_BENCH_ITERS`.
 const ITERATIONS: usize = 10;
-/// Frames clocked before timing starts, to settle caches and get past boot.
+/// Frames clocked before timing starts, to settle caches and get past boot. Override with
+/// `TETANES_BENCH_WARMUP`.
 const WARMUP_FRAMES: u32 = 120;
+
+/// Read a `usize` override from the environment.
+///
+/// Lowering these turns the benchmark into a quick smoke sweep over a large ROM library, where a
+/// board that maps its banks wrongly enough to derail the CPU shows up as a frame-clock error.
+fn env_or(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
 
 /// Timing results for a single ROM.
 struct Report {
@@ -60,12 +73,25 @@ fn main() {
     let roms = resolve_corpus();
     assert!(!roms.is_empty(), "no ROMs to benchmark");
 
+    let frames = env_or("TETANES_BENCH_FRAMES", FRAMES_TO_RUN as usize) as u32;
+    let iterations = env_or("TETANES_BENCH_ITERS", ITERATIONS);
+    let warmup = env_or("TETANES_BENCH_WARMUP", WARMUP_FRAMES as usize) as u32;
+
     println!(
-        "{ITERATIONS} iterations x {FRAMES_TO_RUN} frames ({WARMUP_FRAMES} warmup), {} ROM(s)\n",
+        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s)\n",
         roms.len()
     );
 
-    let reports = roms.iter().map(|rom| bench_rom(rom)).collect::<Vec<_>>();
+    let mut reports = Vec::with_capacity(roms.len());
+    let mut skipped = Vec::new();
+    for rom in &roms {
+        match bench_rom(rom, frames, iterations, warmup) {
+            Ok(report) => reports.push(report),
+            // Sweeping a whole library will turn up boards this emulator does not implement yet.
+            // Report them rather than aborting the run.
+            Err(err) => skipped.push((rom.clone(), err)),
+        }
+    }
 
     println!("\n=== RESULTS ===");
     println!(
@@ -84,6 +110,17 @@ fn main() {
         );
     }
 
+    if !skipped.is_empty() {
+        println!("\n=== SKIPPED ({}) ===", skipped.len());
+        for (path, err) in &skipped {
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            println!("{:<44} {err}", elide(&name, 44));
+        }
+    }
+
     if reports.len() > 1 {
         let total = reports.iter().map(|r| r.mean_ms).sum::<f64>();
         println!("\n{:<44} {:>10.3}", "geometric mean", geomean(&reports));
@@ -96,7 +133,7 @@ fn main() {
 }
 
 /// Benchmark a single ROM, printing per-iteration progress to stderr.
-fn bench_rom(path: &Path) -> Report {
+fn bench_rom(path: &Path, frames: u32, iterations: usize, warmup: u32) -> Result<Report, String> {
     let name = path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
@@ -104,8 +141,8 @@ fn bench_rom(path: &Path) -> Report {
 
     eprintln!("{name}");
 
-    let mut samples = Vec::with_capacity(ITERATIONS);
-    for iter in 0..ITERATIONS {
+    let mut samples = Vec::with_capacity(iterations);
+    for iter in 0..iterations {
         // A fresh deck per iteration, rather than `reset`. `Reset for Bus` clears WRAM but not
         // mapper PRG-RAM/SRAM or mapper bank registers, so resetting would let battery-backed
         // saves and bank state carry over and each iteration would measure a different game
@@ -115,19 +152,19 @@ fn bench_rom(path: &Path) -> Report {
             ram_state: RamState::AllZeros,
             ..Default::default()
         });
-        let mut rom = File::open(path).expect("failed to open rom");
+        let mut rom = File::open(path).map_err(|err| err.to_string())?;
         deck.load_rom(path.to_string_lossy(), &mut rom)
-            .expect("failed to load rom");
+            .map_err(|err| err.to_string())?;
 
         // Warmup is not timed: settles caches, branch predictors, and CPU frequency, and gets
         // past the ROM's boot sequence.
-        run_frames(&mut deck, WARMUP_FRAMES);
+        run_frames(&mut deck, warmup);
 
         let start = Instant::now();
-        run_frames(&mut deck, FRAMES_TO_RUN);
+        run_frames(&mut deck, frames);
         let elapsed = start.elapsed().as_secs_f64();
 
-        let ms_per_frame = (elapsed / f64::from(FRAMES_TO_RUN)) * 1000.0;
+        let ms_per_frame = (elapsed / f64::from(frames)) * 1000.0;
         samples.push(ms_per_frame);
         eprintln!("  iter {iter:>2}: {ms_per_frame:.3} ms/frame");
     }
@@ -136,14 +173,14 @@ fn bench_rom(path: &Path) -> Report {
     let variance = samples.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / samples.len() as f64;
     let stddev = variance.sqrt();
 
-    Report {
+    Ok(Report {
         name,
         mean_ms: mean,
         stddev_ms: stddev,
         cv: (stddev / mean) * 100.0,
         min_ms: samples.iter().copied().fold(f64::INFINITY, f64::min),
         max_ms: samples.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-    }
+    })
 }
 
 fn run_frames(deck: &mut ControlDeck, frames: u32) {
