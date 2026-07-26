@@ -11,7 +11,6 @@ use crate::{
     input::{Input, InputRegisters, Player},
     mapper::{Map, Mapper},
     mem::{ConstArray, RamState, Read, Write},
-    memory::Src,
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
@@ -307,14 +306,8 @@ impl Reset for Bus {
 
 impl Sram for Bus {
     fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        // Ported boards keep battery-backed PRG-RAM in `Memory` rather than owning it, so save it
-        // from there. `Memory<Box<[u8]>>` encoded as its inner buffer, so the on-disk format is
-        // unchanged and existing .sram files still load.
         if self.ppu.mapped {
-            fs::save(
-                path.as_ref(),
-                &self.ppu.memory.region_ref(Src::PrgRam).to_vec(),
-            )
+            self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
         } else {
             self.ppu.mapper.save(path)
         }
@@ -322,19 +315,8 @@ impl Sram for Bus {
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         if self.ppu.mapped {
-            let (prg_ram, extra) = if self.ppu.mapper.extra_sram().is_some() {
-                let (prg_ram, extra) = fs::load::<(Vec<u8>, Vec<u8>)>(path.as_ref())?;
-                (prg_ram, Some(extra))
-            } else {
-                (fs::load::<Vec<u8>>(path.as_ref())?, None)
-            };
-            let ram = self.ppu.memory.region_mut(Src::PrgRam);
-            let len = ram.len().min(prg_ram.len());
-            ram[..len].copy_from_slice(&prg_ram[..len]);
-            if let Some(extra) = extra {
-                self.ppu.mapper.set_extra_sram(&extra);
-            }
-            Ok(())
+            let Ppu { mapper, memory, .. } = &mut self.ppu;
+            mapper.load_sram(memory, path.as_ref())
         } else {
             self.ppu.mapper.load(path)
         }

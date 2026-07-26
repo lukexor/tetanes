@@ -5,7 +5,7 @@
 use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     fs, mem,
-    memory::Memory,
+    memory::{Memory, Src},
     ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
@@ -315,14 +315,14 @@ impl Map for Mapper {
         impl_map!(self, write_register, memory, addr, val)
     }
 
-    /// Battery-backed state beyond PRG-RAM.
-    fn extra_sram(&self) -> Option<Vec<u8>> {
-        impl_map!(self, extra_sram)
+    /// Write this board's battery-backed state.
+    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
+        impl_map!(self, save_sram, memory, path)
     }
 
-    /// Restore state previously returned by `extra_sram`.
-    fn set_extra_sram(&mut self, data: &[u8]) {
-        impl_map!(self, set_extra_sram, data)
+    /// Restore state previously written by `save_sram`.
+    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
+        impl_map!(self, load_sram, memory, path)
     }
 
     /// Whether this board serves some CPU reads itself.
@@ -514,16 +514,24 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// happened, so this only needs to handle registers.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
 
-    /// Battery-backed state beyond PRG-RAM, such as Namco163's internal sound RAM.
+    /// Write this board's battery-backed state.
     ///
-    /// When present it is written alongside PRG-RAM, preserving the two-part on-disk layout those
-    /// boards already used.
-    fn extra_sram(&self) -> Option<Vec<u8>> {
-        None
+    /// The default saves PRG-RAM, which is what almost every board wants. Boards whose battery
+    /// covers something else - Namco163 also keeps internal sound RAM, Bandai's Datach carts have
+    /// EEPROMs and no PRG-RAM at all - override this and keep their own on-disk layout, so `Bus`
+    /// needs no per-board knowledge.
+    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
+        fs::save(path, &memory.region_ref(Src::PrgRam).to_vec())
     }
 
-    /// Restore state previously returned by [`Map::extra_sram`].
-    fn set_extra_sram(&mut self, _data: &[u8]) {}
+    /// Restore state previously written by [`Map::save_sram`].
+    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
+        let data = fs::load::<Vec<u8>>(path)?;
+        let ram = memory.region_mut(Src::PrgRam);
+        let len = ram.len().min(data.len());
+        ram[..len].copy_from_slice(&data[..len]);
+        Ok(())
+    }
 
     /// Whether this board serves some CPU reads itself rather than from page tables.
     ///

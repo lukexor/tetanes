@@ -7,8 +7,9 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     fs,
     mapper::{self, Map, Mapper, Mirroring},
-    mem::{Banks, Memory},
-    ppu::CIRam,
+    // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
+    mem::Memory as Buffer,
+    memory::{Memory, Src},
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, path::Path};
@@ -43,9 +44,6 @@ pub enum MemoryOp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct BandaiFCG {
-    pub chr: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub has_chr_ram: bool,
     pub mirroring: Mirroring,
@@ -56,8 +54,10 @@ pub struct BandaiFCG {
     pub extra_eeprom: Option<Eeprom>,
     pub sram_access: MemoryOp,
     pub reg_access: MemoryOp,
-    pub chr_banks: Banks,
-    pub prg_rom_banks: Banks,
+    /// 8x 1K CHR banks, unused on the boards with fixed CHR.
+    pub chr_banks: [u8; 8],
+    /// Number of 16K PRG banks the cart has, needed by the outer-bank heuristic.
+    pub prg_bank_count: usize,
 }
 
 impl BandaiFCG {
@@ -66,24 +66,10 @@ impl BandaiFCG {
     const CHR_ROM_WINDOW: usize = 1024;
     const CHR_RAM_SIZE: usize = 8 * 1024;
 
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
-        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
-        let chr_window = if has_chr_ram {
-            Self::CHR_RAM_SIZE
-        } else {
-            Self::CHR_ROM_WINDOW
-        };
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr.len(), chr_window)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+        let has_chr_ram = cart.chr_rom_size == 0;
+        let prg_bank_count = cart.prg_rom_size / Self::PRG_WINDOW;
         let mut bandai_fcg = Self {
-            chr,
-            prg_rom,
-            prg_ram,
             regs: Regs::default(),
             has_chr_ram,
             mirroring: cart.mirroring(),
@@ -94,8 +80,8 @@ impl BandaiFCG {
             extra_eeprom: None,
             sram_access: MemoryOp::default(),
             reg_access: MemoryOp::Write,
-            chr_banks,
-            prg_rom_banks,
+            chr_banks: [0; 8],
+            prg_bank_count,
         };
 
         // Mapper 157 is used for Datach Joint ROM System boards
@@ -105,7 +91,7 @@ impl BandaiFCG {
             // CHR-ROM
 
             // Add a 256 byte serial EEPROM (24C02)
-            if matches!(bandai_fcg.submapper_num, 0 | 5) && bandai_fcg.prg_ram.len() == 256 {
+            if matches!(bandai_fcg.submapper_num, 0 | 5) && cart.prg_ram_size == 256 {
                 // Connect a 256-byte EEPROM for iNES roms, and when submapper 5 + 256 bytes of
                 // save ram in header
                 bandai_fcg.standard_eeprom = Some(Eeprom::new(EepromModel::X24C02));
@@ -122,7 +108,7 @@ impl BandaiFCG {
             //
             // The NES 2.0 header's PRG-NVRAM field will only denote whether the game cartridge has
             // an additional 128-byte serial EEPROM
-            if !cart.is_nes2() || bandai_fcg.prg_ram.len() == 128 {
+            if !cart.is_nes2() || cart.prg_ram_size == 128 {
                 bandai_fcg.extra_eeprom = Some(Eeprom::new(EepromModel::X24C01));
             }
 
@@ -152,26 +138,21 @@ impl BandaiFCG {
             }
         }
 
-        let last_bank = bandai_fcg.prg_rom_banks.last();
-        bandai_fcg.prg_rom_banks.set(1, last_bank);
-
+        bandai_fcg.sync(&mut cart.memory);
         Ok(bandai_fcg.into())
     }
 
     fn write_chr_bank(&mut self, addr: u16, val: u8) {
         let bank = usize::from(addr & 0x07);
         self.regs.chr_regs[bank] = val;
-        if self.mapper_num == 153 || self.prg_rom_banks.page_count() >= 0x20 {
+        if self.mapper_num == 153 || self.prg_bank_count >= 0x20 {
+            // On these carts the CHR registers instead supply the high PRG bank bit.
             self.regs.prg_bank_select = 0;
             for reg in self.regs.chr_regs {
                 self.regs.prg_bank_select |= (reg & 0x01) << 4;
             }
-            self.prg_rom_banks
-                .set(0, (self.regs.prg_page | self.regs.prg_bank_select).into());
-            self.prg_rom_banks
-                .set(1, 0x0F | usize::from(self.regs.prg_bank_select));
         } else if !self.has_chr_ram && self.mapper_num != 157 {
-            self.chr_banks.set(bank, val.into());
+            self.chr_banks[bank] = val;
         }
 
         if let Some(eeprom) = &mut self.extra_eeprom {
@@ -181,10 +162,8 @@ impl BandaiFCG {
         }
     }
 
-    fn write_prg_bank(&mut self, val: u8) {
+    const fn write_prg_bank(&mut self, val: u8) {
         self.regs.prg_page = val & 0x0F;
-        self.prg_rom_banks
-            .set(0, (self.regs.prg_page | self.regs.prg_bank_select).into());
     }
 
     const fn write_mirroring(&mut self, val: u8) {
@@ -286,68 +265,76 @@ impl Map for BandaiFCG {
     // CPU $C000..=$FFFF 16K PRG-ROM bank, fixed to the last bank
 
     /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)],
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
-            _ => 0,
-        }
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> u8 {
-        if matches!(addr, 0x6000..=0x7FFF) {
-            if !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite) {
-                return 0;
-            }
-
-            let mut val = 0x00;
-            if let Some(barcode_reader) = &mut self.barcode_reader {
-                val |= barcode_reader.read();
-            }
-            if let (Some(eeprom1), Some(eeprom2)) =
-                (&mut self.standard_eeprom, &mut self.extra_eeprom)
-            {
-                val |= (eeprom1.read() & eeprom2.read()) << 4;
-            } else if let Some(eeprom) = &mut self.standard_eeprom {
-                val |= eeprom.read() << 4;
-            }
-
-            val
-        } else {
-            self.prg_peek(addr)
-        }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF if self.prg_ram_enabled() => self.prg_ram[usize::from(addr - 0x6000)],
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
     }
 
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        match addr {
-            0x0000..=0x1FFF => self.chr[self.chr_banks.translate(addr)] = val,
-            0x2000..=0x3EFF => ciram.write(addr, val, self.mirroring),
-            _ => (),
-        }
+    /// Datach carts answer $6000-$7FFF from a barcode reader and one or two serial EEPROMs.
+    fn has_prg_read_hook(&self) -> bool {
+        true
     }
 
-    /// Write a byte to PRG-RAM at a given address.
-    #[inline(always)]
-    fn prg_write(&mut self, addr: u16, val: u8) {
+    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+        if !matches!(addr, 0x6000..=0x7FFF)
+            || !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite)
+        {
+            // Mapper 153's ordinary PRG-RAM falls through to the page table.
+            return matches!(addr, 0x6000..=0x7FFF).then_some(0);
+        }
+        let mut val = 0x00;
+        if let Some(barcode_reader) = &mut self.barcode_reader {
+            val |= barcode_reader.read();
+        }
+        if let (Some(eeprom1), Some(eeprom2)) = (&mut self.standard_eeprom, &mut self.extra_eeprom)
+        {
+            val |= (eeprom1.read() & eeprom2.read()) << 4;
+        } else if let Some(eeprom) = &mut self.standard_eeprom {
+            val |= eeprom.read() << 4;
+        }
+        Some(val)
+    }
+
+    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+        // Reading the EEPROMs clocks their state machines, so peeking cannot do it. Report open
+        // bus rather than disturb them.
+        (matches!(addr, 0x6000..=0x7FFF)
+            && matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite))
+        .then_some(0)
+    }
+
+    /// The battery covers the EEPROMs, not PRG-RAM.
+    fn save_sram(&self, _memory: &Memory, path: &Path) -> fs::Result<()> {
+        if let Some(eeprom) = &self.standard_eeprom {
+            eeprom.save(path)?;
+        }
+        if let Some(eeprom) = &self.extra_eeprom {
+            eeprom.save(path)?;
+        }
+        Ok(())
+    }
+
+    fn load_sram(&mut self, _memory: &mut Memory, path: &Path) -> fs::Result<()> {
+        if let Some(eeprom) = &mut self.standard_eeprom {
+            eeprom.load(path)?;
+        }
+        if let Some(eeprom) = &mut self.extra_eeprom {
+            eeprom.load(path)?;
+        }
+        Ok(())
+    }
+
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF if self.prg_ram_enabled() => {
-                self.prg_ram[usize::from(addr - 0x6000)] = val;
-            }
+            // PRG-RAM stores already happened in `Bus`.
+            0x6000..=0x7FFF if self.prg_ram_enabled() => (),
             0x6000..=0xFFFF => match addr & 0x0F {
                 0x00..=0x07 => self.write_chr_bank(addr, val),
                 0x08 => self.write_prg_bank(val),
@@ -365,17 +352,34 @@ impl Map for BandaiFCG {
             },
             _ => (),
         }
+        self.sync(memory);
     }
 
-    /// Whether an IRQ is pending acknowledgement.
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_pending
-    }
+    fn sync(&mut self, memory: &mut Memory) {
+        if self.has_chr_ram || self.mapper_num == 157 {
+            memory.map_chr(0x0000, Self::CHR_RAM_SIZE, 0, Src::Chr);
+        } else {
+            for (slot, bank) in self.chr_banks.iter().enumerate() {
+                let addr = (slot * Self::CHR_ROM_WINDOW) as u16;
+                memory.map_chr(addr, Self::CHR_ROM_WINDOW, i32::from(*bank), Src::Chr);
+            }
+        }
 
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+        let outer = i32::from(self.regs.prg_bank_select);
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW,
+            i32::from(self.regs.prg_page) | outer,
+            Src::PrgRom,
+        );
+        memory.map_prg(0xC000, Self::PRG_WINDOW, 0x0F | outer, Src::PrgRom);
+
+        if self.prg_ram_enabled() {
+            memory.map_prg(0x6000, Self::PRG_RAM_SIZE, 0, Src::PrgRam);
+        } else {
+            memory.unmap_prg(0x6000, Self::PRG_RAM_SIZE);
+        }
+        memory.set_mirroring(self.mirroring);
     }
 }
 
@@ -396,27 +400,7 @@ impl Clock for BandaiFCG {
     }
 }
 
-impl Sram for BandaiFCG {
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        if let Some(eeprom) = &self.standard_eeprom {
-            eeprom.save(&path)?;
-        }
-        if let Some(eeprom) = &self.extra_eeprom {
-            eeprom.save(&path)?;
-        }
-        Ok(())
-    }
-
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        if let Some(eeprom) = &mut self.standard_eeprom {
-            eeprom.load(&path)?;
-        }
-        if let Some(eeprom) = &mut self.extra_eeprom {
-            eeprom.load(&path)?;
-        }
-        Ok(())
-    }
-}
+impl Sram for BandaiFCG {}
 
 impl Regional for BandaiFCG {}
 impl Reset for BandaiFCG {}
@@ -627,7 +611,7 @@ pub struct Eeprom {
     pub output: u8,
     pub prev_scl: u8,
     pub prev_sda: u8,
-    pub rom_data: Memory<Box<[u8]>>,
+    pub rom_data: Buffer<Box<[u8]>>,
 }
 
 impl Eeprom {
@@ -647,7 +631,7 @@ impl Eeprom {
             output: 0,
             prev_scl: 0,
             prev_sda: 0,
-            rom_data: Memory::new(rom_size),
+            rom_data: Buffer::new(rom_size),
         }
     }
 

@@ -132,15 +132,26 @@ impl Map for Namco163 {
         self.regs.irq_pending
     }
 
-    /// Internal sound RAM is battery-backed on this board.
-    fn extra_sram(&self) -> Option<Vec<u8>> {
-        Some(self.audio.ram.to_vec())
+    /// Internal sound RAM is battery-backed on this board and shares the PRG-RAM save file.
+    fn save_sram(&self, memory: &Memory, path: &std::path::Path) -> crate::fs::Result<()> {
+        crate::fs::save(
+            path,
+            &(
+                memory.region_ref(Src::PrgRam).to_vec(),
+                self.audio.ram.to_vec(),
+            ),
+        )
     }
 
-    fn set_extra_sram(&mut self, data: &[u8]) {
-        for (dst, src) in self.audio.ram.iter_mut().zip(data) {
+    fn load_sram(&mut self, memory: &mut Memory, path: &std::path::Path) -> crate::fs::Result<()> {
+        let (prg_ram, audio_ram) = crate::fs::load::<(Vec<u8>, Vec<u8>)>(path)?;
+        let ram = memory.region_mut(Src::PrgRam);
+        let len = ram.len().min(prg_ram.len());
+        ram[..len].copy_from_slice(&prg_ram[..len]);
+        for (dst, src) in self.audio.ram.iter_mut().zip(&audio_ram) {
             *dst = *src;
         }
+        Ok(())
     }
 
     /// Audio registers and the IRQ counter live in the expansion range and are not memory.

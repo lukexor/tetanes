@@ -294,7 +294,7 @@ impl Cart {
             9 => Pxrom::load(&mut cart)?,
             10 => Fxrom::load(&mut cart)?,
             11 | 144 => ColorDreams::load(&mut cart)?,
-            16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
+            16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart)?,
             18 => JalecoSs88006::load(&mut cart)?,
             19 | 210 => Namco163::load(&mut cart)?,
             24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
@@ -415,10 +415,10 @@ impl Cart {
             | Mapper::Pxrom(_)
             | Mapper::Fxrom(_)
             | Mapper::Namco163(_)
+            | Mapper::BandaiFCG(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
-            Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }
     }
@@ -444,18 +444,6 @@ impl Cart {
         } else {
             (chr_rom, false)
         }
-    }
-
-    /// Returns PRG-RAM sized based on the Cart header, or defaults to given size.
-    pub(crate) fn prg_ram_or_default(&self, size: usize) -> Memory<Box<[u8]>> {
-        Memory::with_ram_state(
-            if self.prg_ram_size > 0 {
-                self.prg_ram_size
-            } else {
-                size
-            },
-            self.ram_state,
-        )
     }
 
     fn calculate_ram_size(value: u8) -> Result<usize> {
