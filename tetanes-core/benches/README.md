@@ -67,10 +67,11 @@ within noise and were kept for clarity rather than speed.
 after the FIR rewrite measured at or below noise. What remains is structural: `Ppu::clock` at ~32%
 and `FilterChain::consume` at ~12% both need design changes, not tweaks.
 
-### Page table vs `Banks` (`cargo bench --profile perf --bench page_table`)
+### Page table vs `Banks` (historical)
 
+Measured with a `page_table` benchmark that has since been deleted along with `Banks` itself.
 Isolated read cost of the Phase 2 page table against the `Banks` + `Memory<Box<[u8]>>` +
-`CIRam::mirror` path every mapper repeats today, over a PPU background-fetch address pattern:
+`CIRam::mirror` path every mapper repeated at the time, over a PPU background-fetch address pattern:
 
 | Formulation | ns/read |
 |---|---|
@@ -81,7 +82,7 @@ The page table is **1.6x faster per read**. Put in frame-time terms, though, a f
 41,000 CHR fetches and 30,000 PRG reads, so 0.47 ns/read saved is only **~0.03 ms of a ~3 ms frame,
 around 1%**. Real gains will be larger than that because the page table also removes the `Mapper`
 enum dispatch wrapping each read - which this microbenchmark excludes - and because complex boards
-do much more per read (`Exrom::chr_read` alone is 5.1% of Castlevania III).
+do much more per read (MMC5's CHR read alone was 5.1% of Castlevania III).
 
 **The conclusion stands that the mapper rework is justified by code reduction rather than speed.**
 Expect low single-digit percentages on simple boards and more on MMC5. (Measured afterwards: right
@@ -94,23 +95,28 @@ measured back to back in the same session on the same machine, because the 2026-
 was taken on a quieter one and differs from a re-measurement of the same commit by up to 1.5% -
 enough to swamp what is being measured here.
 
-`before` is `e77009b`, the last commit before the page tables landed.
+`before` is `e77009b`, the last commit before the page tables landed. `ported` is with every board
+on page tables but the old path still compiled in beside it; `after` is once that path was deleted,
+which removes a branch from every read, write and CHR fetch.
 
-| ROM | Mapper | before | after | delta |
-|---|---|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 2.959 | 2.845 | -3.9% |
-| Super Mario Bros. | 000 NROM | 2.977 | 2.858 | -4.0% |
-| Legend of Zelda | 001 MMC1 | 2.917 | 2.795 | -4.2% |
-| Super Mario Bros. 3 | 004 MMC3 | 3.068 | 2.990 | -2.5% |
-| Punch-Out!! | 009 MMC2 | 2.791 | 2.785 | -0.2% |
-| Castlevania III | 005 MMC5 | 3.879 | 3.910 | **+0.8%** |
-| Akumajou Densetsu | 024 VRC6 | 3.441 | 3.313 | -3.7% |
-| **geometric mean** | | **3.129** | **3.049** | **-2.6%** |
+| ROM | Mapper | before | ported | after | delta |
+|---|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.959 | 2.845 | 2.791 | -5.7% |
+| Super Mario Bros. | 000 NROM | 2.977 | 2.858 | 2.854 | -4.1% |
+| Legend of Zelda | 001 MMC1 | 2.917 | 2.795 | 2.770 | -5.0% |
+| Super Mario Bros. 3 | 004 MMC3 | 3.068 | 2.990 | 2.984 | -2.7% |
+| Punch-Out!! | 009 MMC2 | 2.791 | 2.785 | 2.733 | -2.1% |
+| Castlevania III | 005 MMC5 | 3.879 | 3.910 | 3.886 | **+0.2%** |
+| Akumajou Densetsu | 024 VRC6 | 3.441 | 3.313 | 3.295 | -4.2% |
+| **geometric mean** | | **3.129** | **3.049** | **3.022** | **-3.4%** |
+
+Deleting the transitional path is worth about 0.9% on its own - individually most of those ROMs
+move within noise, but every one of them moves the same way.
 
 This lands close to the microbenchmark's prediction for simple boards and **contradicts it for
-MMC5**, which the plan expected to gain the most and which instead got marginally slower. Its reads
+MMC5**, which the plan expected to gain the most and which instead came out level. Its reads
 were already cheap; what the port replaced was `Exrom::chr_peek`'s match with a page lookup plus a
-`chr_read_hook` call that MMC5 - alone among the boards - takes on every fetch, because extended
+`Map::chr_read` call that MMC5 - alone among the boards - takes on every fetch, because extended
 attributes, fill mode and the vertical split are all synthesised rather than fetched. The board also
 now re-derives its CHR bank set per fetch instead of latching it, which is what made the sprite-size
 rule correct. Both were paid for with accuracy, not lost to overhead.
@@ -170,7 +176,7 @@ Phase 5.
 
 Notes:
 
-- **MMC5 costs ~1.05 ms/frame over NROM** (3.910 vs 2.858, +37%) and VRC6 ~0.46 ms (+16%). Mapper
+- **MMC5 costs ~1.03 ms/frame over NROM** (3.886 vs 2.854, +36%) and VRC6 ~0.44 ms (+15%). Mapper
   overhead is real on complex boards even though it is nearly invisible on NROM, which is why the
   corpus exists — the previous NROM-only benchmark could not see any of it, and would also have
   missed the 20% MMC2 regression above.
