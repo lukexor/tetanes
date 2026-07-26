@@ -129,6 +129,11 @@ impl Bus {
     }
 
     fn genie_read(&self, addr: u16, val: u8) -> u8 {
+        // This runs on every PRG read, so skip hashing the address entirely in the overwhelmingly
+        // common case of no codes being loaded.
+        if self.genie_codes.is_empty() {
+            return val;
+        }
         self.genie_codes
             .get(&addr)
             .map_or(val, |genie_code| genie_code.read(val))

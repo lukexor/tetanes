@@ -989,7 +989,14 @@ impl Ppu {
             // 1..=64
             cycle::OAM_CLEAR_START..=cycle::OAM_CLEAR_END => {
                 self.oam_fetch = 0xFF;
-                self.secondary_oamdata = ConstArray::filled(0xFF);
+                // Hardware clears secondary OAM one byte at a time across cycles 1-64. Nothing
+                // reads it until sprite evaluation starts at cycle 65, so filling once on the
+                // last cycle of the range leaves identical state - including when rendering is
+                // enabled part way through - while avoiding rewriting all 32 bytes on all 64
+                // cycles of every scanline.
+                if self.cycle == cycle::OAM_CLEAR_END {
+                    self.secondary_oamdata = ConstArray::filled(0xFF);
+                }
             }
             // 2. Read OAM to find first eight sprites on this scanline
             // 3. With > 8 sprites, check (wrongly) for more sprites to set overflow flag

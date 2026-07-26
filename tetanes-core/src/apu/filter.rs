@@ -123,25 +123,48 @@ impl Consume for Fir {
 
 impl Sample for Fir {
     fn output(&self) -> f32 {
-        let kernel = &self.kernel[..];
-        let inputs = &self.inputs[..];
-        let idx = self.input_index;
+        // `inputs` is a ring buffer whose write cursor is `input_index`. The cursor points at the
+        // oldest sample, so the convolution splits into two straight dot products: the samples
+        // from the cursor to the end, then those before it.
+        let idx = self.input_index.min(self.inputs.len());
+        let (recent, oldest) = self.inputs.split_at(idx);
+        let split = oldest.len().min(self.kernel.len());
+        let (kernel_oldest, kernel_recent) = self.kernel.split_at(split);
 
-        let mut sum = 0f32;
-
-        // input_index..inputs.len()
-        let end = (inputs.len() - idx).min(kernel.len());
-        for i in 0..end {
-            sum = kernel[i].mul_add(inputs[i + idx], sum);
-        }
-
-        // 0..input_index
-        for i in 0..idx {
-            sum = kernel[end + i].mul_add(inputs[i], sum);
-        }
-
-        sum
+        dot(kernel_oldest, oldest) + dot(kernel_recent, recent)
     }
+}
+
+/// Dot product of two slices, summed with four independent accumulators.
+///
+/// Float addition is not associative, so LLVM may not split a single running accumulator on its
+/// own; with one the loop is bound by add latency rather than throughput. Four partial sums let
+/// the multiplies and adds pipeline, and let the loop auto-vectorize.
+///
+/// Deliberately avoids [`f32::mul_add`]: it guarantees a single rounding, which without hardware
+/// FMA support means a call into libm's `fmaf`. The default `x86-64` target has no FMA, and no
+/// `target-feature` is set for this crate, so `mul_add` here was measurably more expensive than a
+/// separate multiply and add.
+#[inline]
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let len = a.len().min(b.len());
+    let (a, b) = (&a[..len], &b[..len]);
+
+    let mut acc = [0.0f32; 4];
+    let mut a_chunks = a.chunks_exact(4);
+    let mut b_chunks = b.chunks_exact(4);
+    for (x, y) in a_chunks.by_ref().zip(b_chunks.by_ref()) {
+        acc[0] += x[0] * y[0];
+        acc[1] += x[1] * y[1];
+        acc[2] += x[2] * y[2];
+        acc[3] += x[3] * y[3];
+    }
+
+    let mut sum = (acc[0] + acc[1]) + (acc[2] + acc[3]);
+    for (x, y) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
+        sum += x * y;
+    }
+    sum
 }
 
 /// Generate a windowed sinc kernel.
@@ -310,5 +333,54 @@ impl Consume for FilterChain {
 impl Sample for FilterChain {
     fn output(&self) -> f32 {
         self.filters.last().map_or(0.0, |f| f.filter.output())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Naive circular convolution, matching the definition `Fir::output` optimizes.
+    fn reference_output(fir: &Fir) -> f32 {
+        let mut sum = 0.0;
+        for (i, k) in fir.kernel.iter().enumerate() {
+            sum += k * fir.inputs[(fir.input_index + i) % fir.inputs.len()];
+        }
+        sum
+    }
+
+    #[test]
+    fn fir_output_matches_reference() {
+        let mut fir = Fir::low_pass(48000.0, 20000.0, 160);
+        assert_eq!(
+            fir.kernel.len(),
+            fir.inputs.len(),
+            "kernel and ring buffer must be the same length"
+        );
+
+        // Walk the write cursor all the way around the ring so both the split and the
+        // non-multiple-of-four remainder paths are exercised at every offset.
+        for i in 0..=fir.inputs.len() {
+            fir.consume((i as f32 * 0.37).sin());
+
+            let actual = fir.output();
+            let expected = reference_output(&fir);
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "index {}: {actual} != {expected}",
+                fir.input_index
+            );
+        }
+    }
+
+    #[test]
+    fn dot_handles_empty_and_short_slices() {
+        assert_eq!(dot(&[], &[]), 0.0);
+        assert_eq!(dot(&[1.0, 2.0], &[]), 0.0);
+        assert_eq!(dot(&[2.0, 3.0], &[4.0, 5.0]), 23.0);
+        // Longer than one chunk, with a remainder.
+        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+        let b = [1.0; 7];
+        assert_eq!(dot(&a, &b), 28.0);
     }
 }
