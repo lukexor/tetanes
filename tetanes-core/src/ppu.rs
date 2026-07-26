@@ -281,6 +281,9 @@ pub struct Ppu {
     /// Whether the loaded board serves some CPU reads itself, for expansion hardware that is not
     /// memory. Cached from `Map::has_prg_read_hook`.
     pub has_prg_read_hook: bool,
+    /// Whether the loaded board serves some PPU reads itself, for MMC5's extended attributes and
+    /// fill mode. Cached from `Map::has_chr_read_hook`.
+    pub has_chr_read_hook: bool,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -450,6 +453,7 @@ impl Ppu {
             mapped: false,
             watches_ppu_bus: false,
             has_prg_read_hook: false,
+            has_chr_read_hook: false,
             ciram: CIRam(Box::new(ConstArray::new())),
 
             prev_palette: 0x00,
@@ -502,7 +506,13 @@ impl Ppu {
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
         if self.mapped {
-            let val = self.memory.chr_peek(addr);
+            let val = if self.has_chr_read_hook {
+                let Self { mapper, memory, .. } = self;
+                mapper.chr_read_hook(memory, addr)
+            } else {
+                None
+            }
+            .unwrap_or_else(|| self.memory.chr_peek(addr));
             // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte
             // being read must come from the pre-flip bank. MMC3's A12 counter does not affect the
             // data, so it is unaffected by the ordering.
@@ -523,6 +533,11 @@ impl Ppu {
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
         if self.mapped {
+            if self.has_chr_read_hook
+                && let Some(val) = self.mapper.chr_peek_hook(&self.memory, addr)
+            {
+                return val;
+            }
             self.memory.chr_peek(addr)
         } else {
             self.mapper.chr_peek(addr, &self.ciram)
@@ -603,6 +618,7 @@ impl Ppu {
         self.mapped = mapper.uses_page_tables();
         self.watches_ppu_bus = mapper.watches_ppu_bus();
         self.has_prg_read_hook = mapper.has_prg_read_hook();
+        self.has_chr_read_hook = mapper.has_chr_read_hook();
         self.mapper = mapper;
     }
 

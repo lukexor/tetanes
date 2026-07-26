@@ -343,6 +343,24 @@ impl Map for Mapper {
         impl_map!(self, prg_peek_hook, addr)
     }
 
+    /// Whether this board serves some PPU reads itself.
+    #[inline(always)]
+    fn has_chr_read_hook(&self) -> bool {
+        impl_map!(self, has_chr_read_hook)
+    }
+
+    /// Serve a PPU read, returning `None` to fall through to page-table memory.
+    #[inline(always)]
+    fn chr_read_hook(&mut self, memory: &Memory, addr: u16) -> Option<u8> {
+        impl_map!(self, chr_read_hook, memory, addr)
+    }
+
+    /// Side-effect-free form of `chr_read_hook`.
+    #[inline(always)]
+    fn chr_peek_hook(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        impl_map!(self, chr_peek_hook, memory, addr)
+    }
+
     /// Whether this board must observe every PPU bus address.
     #[inline(always)]
     fn watches_ppu_bus(&self) -> bool {
@@ -549,6 +567,26 @@ pub trait Map: Clock + Regional + Reset + Sram {
 
     /// Side-effect-free form of [`Map::prg_read_hook`], for debuggers.
     fn prg_peek_hook(&self, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Whether this board serves some PPU reads itself rather than from page tables.
+    ///
+    /// MMC5 is the only board that needs this: in extended-attribute mode the CHR bank for a tile
+    /// comes from a byte of ExRAM looked up per tile, and attribute and fill-mode reads are
+    /// synthesised rather than fetched, so neither is expressible as a page entry. Cached at load
+    /// so every other board pays a bool test on the ~41,000 CHR fetches in a frame.
+    fn has_chr_read_hook(&self) -> bool {
+        false
+    }
+
+    /// Serve a PPU read, returning `None` to fall through to page-table memory.
+    fn chr_read_hook(&mut self, _memory: &Memory, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Side-effect-free form of [`Map::chr_read_hook`], for debuggers.
+    fn chr_peek_hook(&self, _memory: &Memory, _addr: u16) -> Option<u8> {
         None
     }
 
