@@ -4028,6 +4028,7 @@ version = "0.14.2"
 dependencies = [
  "anyhow",
  "clap",
+ "image",
  "tetanes-core",
 ]
 
