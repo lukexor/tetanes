@@ -310,12 +310,7 @@ impl Cart {
             69 => SunsoftFme7::load(&mut cart)?,
             71 => Bf909x::load(&mut cart)?,
             79 | 113 | 146 => Nina003006::load(&mut cart)?,
-            105 => NesEvent::load(
-                &mut cart,
-                chr_rom,
-                prg_rom,
-                [false, false, true, false], // configuration used in actual tournament
-            )?,
+            105 => NesEvent::load(&mut cart, [false, false, true, false])?,
             155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };
@@ -415,6 +410,7 @@ impl Cart {
             | Mapper::SunsoftFme7(_)
             | Mapper::JalecoSs88006(_)
             | Mapper::Vrc6(_)
+            | Mapper::NesEvent(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
@@ -422,7 +418,6 @@ impl Cart {
             Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
             Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
             Mapper::Namco163(namco163) => namco163.chr_rom.len(),
-            Mapper::NesEvent(nes_event) => nes_event.chr.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }
     }

@@ -10,7 +10,8 @@ use crate::{
         self, Map, Mapper,
         mmc1::{self, Mmc1},
     },
-    mem::{Banks, Memory},
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,49 +114,38 @@ impl Clock for Timer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct NesEvent {
-    pub chr: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
-    pub prg_rom_banks: Banks,
     pub mmc1: Mmc1,
     pub bank_switching_lock: BankSwitchingLock,
     pub timer: Timer,
-    pub has_chr_ram: bool,
+    /// The two 16K PRG-ROM banks at $8000 and $C000.
+    pub prg_banks: [u8; 2],
 }
 
 impl NesEvent {
     const PRG_WINDOW: usize = 16 * 1024;
-    const PRG_RAM_SIZE: usize = 8 * 1024;
-    const CHR_RAM_SIZE: usize = 8 * 1024;
-
+    const PRG_RAM_WINDOW: usize = 8 * 1024;
+    const CHR_WINDOW: usize = 8 * 1024;
     const INNER_BANK_MASK: u8 = 0b111;
     const OUTER_BANK_MASK: u8 = 0b1000;
 
-    /// Load `NesEvent` from `Cart`.
-    pub fn load(
-        cart: &mut Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-        switches: [bool; 4],
-    ) -> Result<Mapper, mapper::Error> {
-        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
-        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
-        let mut nes_event = Self {
-            chr,
-            prg_rom,
-            prg_ram,
-            prg_rom_banks: Banks::new(0x8000, 0xFFFF, cart.prg_rom.len(), Self::PRG_WINDOW)?,
+    // PPU $0000..=$1FFF 8K Fixed CHR-RAM
+    // CPU $6000..=$7FFF 8K PRG-RAM
+    // CPU $8000..=$FFFF 2x 16K PRG-ROM Banks, selected through the MMC1 shift register and gated
+    //                   by the tournament timer's bank-switching lock
+    pub fn load(cart: &mut Cart, switches: [bool; 4]) -> Result<Mapper, mapper::Error> {
+        let mut board = Self {
             mmc1: Mmc1::new(mmc1::Revision::BC),
             bank_switching_lock: BankSwitchingLock::new(),
             timer: Timer::new(switches),
-            has_chr_ram,
+            prg_banks: [0; 2],
         };
-        nes_event.update_state();
-        Ok(nes_event.into())
+        board.update_state();
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 
-    /// Update internal state based on register flags.
-    pub fn update_state(&mut self) {
+    /// Recompute the PRG bank selections from the MMC1 registers and the tournament lock.
+    pub const fn update_state(&mut self) {
         let timer_control = self.mmc1.chr0 & 0b10000 != 0;
         if timer_control {
             self.timer.stop();
@@ -163,13 +153,15 @@ impl NesEvent {
             self.timer.start();
         }
         self.bank_switching_lock.write(timer_control);
+
         if self.bank_switching_lock.locked() {
-            self.prg_rom_banks.set_range(0, 1, 0);
+            // The first 32K, i.e. two consecutive 16K banks - not bank 0 twice, which would put
+            // the wrong half at $C000 and so the wrong reset vectors.
+            self.prg_banks = [0, 1];
             return;
         }
 
         let outer_bank = self.mmc1.chr0 & Self::OUTER_BANK_MASK;
-
         let inner_bank = if outer_bank == 0 {
             self.mmc1.chr0
         } else {
@@ -178,68 +170,54 @@ impl NesEvent {
 
         if self.mmc1.prg_mode && outer_bank != 0 {
             if self.mmc1.prg_bank_select {
-                self.prg_rom_banks.set(0, (inner_bank | outer_bank).into());
-                self.prg_rom_banks
-                    .set(1, (Self::INNER_BANK_MASK | outer_bank).into());
+                self.prg_banks = [inner_bank | outer_bank, Self::INNER_BANK_MASK | outer_bank];
             } else {
-                self.prg_rom_banks.set(0, outer_bank.into());
-                self.prg_rom_banks.set(1, (inner_bank | outer_bank).into());
+                self.prg_banks = [outer_bank, inner_bank | outer_bank];
             }
         } else {
-            self.prg_rom_banks
-                .set_range(0, 1, ((inner_bank & !0b1) | outer_bank).into()); // ignore low bit
+            // 32K mode ignores the low bank bit.
+            let bank = (inner_bank & !0b1) | outer_bank;
+            self.prg_banks = [bank, bank + 1];
         }
     }
 }
 
 impl Map for NesEvent {
-    fn chr_peek(&self, addr: u16, ciram: &crate::ppu::CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.chr[usize::from(addr)],
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring()),
-            _ => 0,
-        }
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF if self.mmc1.prg_ram_enabled() => {
-                self.prg_ram[usize::from(addr) & (Self::PRG_RAM_SIZE - 1)]
-            }
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
-    }
-
-    fn mirroring(&self) -> crate::prelude::Mirroring {
+    fn mirroring(&self) -> Mirroring {
         self.mmc1.mirroring
-    }
-
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut crate::ppu::CIRam) {
-        match addr {
-            0x0000..=0x1FFF => self.chr[usize::from(addr)] = val,
-            0x2000..=0x3EFF => ciram.write(addr, val, self.mirroring()),
-            _ => (),
-        }
-    }
-
-    fn prg_write(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x6000..=0x7FFF if self.mmc1.prg_ram_enabled() => {
-                self.prg_ram[usize::from(addr) & (Self::PRG_RAM_SIZE - 1)] = val;
-            }
-            0x8000..=0xFFFF => {
-                let written = self.mmc1.process_shift_register_write(addr, val);
-                if written {
-                    self.update_state();
-                }
-            }
-            _ => (),
-        }
     }
 
     fn irq_pending(&self) -> bool {
         self.timer.irq_pending()
+    }
+
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+        if addr >= 0x8000 && self.mmc1.process_shift_register_write(addr, val) {
+            self.update_state();
+            self.sync(memory);
+        }
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW,
+            i32::from(self.prg_banks[0]),
+            Src::PrgRom,
+        );
+        memory.map_prg(
+            0xC000,
+            Self::PRG_WINDOW,
+            i32::from(self.prg_banks[1]),
+            Src::PrgRom,
+        );
+        memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
+        memory.set_mirroring(self.mmc1.mirroring);
     }
 }
 
