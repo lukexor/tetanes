@@ -303,7 +303,10 @@ impl Sram for Bus {
         // from there. `Memory<Box<[u8]>>` encoded as its inner buffer, so the on-disk format is
         // unchanged and existing .sram files still load.
         if self.ppu.mapped {
-            fs::save(path.as_ref(), self.ppu.memory.region_ref(Src::PrgRam))
+            fs::save(
+                path.as_ref(),
+                &self.ppu.memory.region_ref(Src::PrgRam).to_vec(),
+            )
         } else {
             self.ppu.mapper.save(path)
         }

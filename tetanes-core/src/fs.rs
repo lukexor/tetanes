@@ -14,6 +14,11 @@ const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.
 const SAVE_VERSION: &str = "2";
+/// Version for the bundled game database.
+///
+/// Deliberately independent of [`SAVE_VERSION`]: the database is not save-state data, so bumping
+/// the save format must not invalidate it.
+pub const GAME_DB_VERSION: &str = "1";
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -61,9 +66,9 @@ impl Error {
 /// # Errors
 ///
 /// If the header fails to write to disk, then an error is returned.
-pub(crate) fn write_header(f: &mut impl Write) -> std::io::Result<()> {
+pub(crate) fn write_header(f: &mut impl Write, version: &str) -> std::io::Result<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
-    f.write_all(SAVE_VERSION.as_bytes())
+    f.write_all(version.as_bytes())
 }
 
 /// Verifies a `TetaNES` saved state header.
@@ -71,7 +76,7 @@ pub(crate) fn write_header(f: &mut impl Write) -> std::io::Result<()> {
 /// # Errors
 ///
 /// If the header fails to validate, then an error is returned.
-pub(crate) fn validate_header(f: &mut impl Read) -> Result<()> {
+pub(crate) fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
     f.read_exact(&mut magic)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
@@ -84,11 +89,11 @@ pub(crate) fn validate_header(f: &mut impl Read) -> Result<()> {
     let mut version = [0u8];
     f.read_exact(&mut version)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
-    if version == SAVE_VERSION.as_bytes() {
+    if version == expected.as_bytes() {
         Ok(())
     } else {
         Err(Error::InvalidHeader(format!(
-            "invalid version (expected {SAVE_VERSION:?}, found: {version:?}",
+            "invalid version (expected {expected:?}, found: {version:?}",
         )))
     }
 }
@@ -109,13 +114,25 @@ pub fn decode(data: impl Read) -> std::io::Result<Vec<u8>> {
 
 pub fn save<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
 where
+    T: Serialize,
+{
+    save_version(path, value, SAVE_VERSION)
+}
+
+/// Save data with an explicit format version.
+///
+/// # Errors
+///
+/// If the data fails to serialize or write, then an error is returned.
+pub fn save_version<T>(path: impl AsRef<Path>, value: &T, version: &str) -> Result<()>
+where
     T: ?Sized + Serialize,
 {
     let config = bincode::config::legacy();
     let data = bincode::serde::encode_to_vec(value, config)
         .map_err(|err| Error::SerializationFailed(err.to_string()))?;
     let mut writer = fs::writer_impl(path)?;
-    write_header(&mut writer).map_err(Error::WriteHeaderFailed)?;
+    write_header(&mut writer, version).map_err(Error::WriteHeaderFailed)?;
     encode(&mut writer, &data).map_err(Error::EncodingFailed)?;
     writer
         .flush()
@@ -139,7 +156,7 @@ where
     T: DeserializeOwned,
 {
     let mut reader = fs::reader_impl(path)?;
-    validate_header(&mut reader)?;
+    validate_header(&mut reader, SAVE_VERSION)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
     let config = bincode::config::legacy();
     let (res, _) = bincode::serde::decode_from_slice(&data, config)
@@ -147,12 +164,12 @@ where
     Ok(res)
 }
 
-pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>
+pub fn load_bytes<T>(bytes: &[u8], version: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
     let mut reader = Cursor::new(bytes);
-    validate_header(&mut reader)?;
+    validate_header(&mut reader, version)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
     let config = bincode::config::legacy();
     let (res, _) = bincode::serde::decode_from_slice(&data, config)
@@ -243,9 +260,12 @@ mod tests {
     #[test]
     fn save_header() {
         let mut file = Vec::new();
-        assert!(write_header(&mut file).is_ok(), "write header");
         assert!(
-            validate_header(&mut file.as_slice()).is_ok(),
+            write_header(&mut file, SAVE_VERSION).is_ok(),
+            "write header"
+        );
+        assert!(
+            validate_header(&mut file.as_slice(), SAVE_VERSION).is_ok(),
             "validate header"
         );
     }

@@ -58,6 +58,7 @@ impl Map for Nrom {
         // index wrapping within the region rather than needing a `mirror_prg_rom` flag.
         memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
         memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

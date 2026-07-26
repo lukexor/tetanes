@@ -479,8 +479,8 @@ impl Cart {
     fn lookup_info(prg_rom: &[u8], chr: &[u8]) -> Option<GameInfo> {
         const GAME_DB: &[u8] = include_bytes!("../game_db.dat");
 
-        let Ok(games) = fs::load_bytes::<Vec<GameInfo>>(GAME_DB) else {
-            error!("failed to load `game_regions.dat`");
+        let Ok(games) = fs::load_bytes::<Vec<GameInfo>>(GAME_DB, fs::GAME_DB_VERSION) else {
+            error!("failed to load `game_db.dat`");
             return None;
         };
 

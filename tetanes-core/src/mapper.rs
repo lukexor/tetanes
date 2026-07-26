@@ -547,4 +547,36 @@ mod tests {
             "sync must rebuild the mapping from mapper registers"
         );
     }
+
+    /// Nametable mapping lives in the CHR page table, which is also skipped by serde, so a board
+    /// that does not restore mirroring in `sync` comes back with unmapped nametables and renders
+    /// from a zero-filled page.
+    #[test]
+    fn sync_restores_nametable_mirroring() {
+        for four_screen in [false, true] {
+            let mut cart = Cart::empty_sized(0x8000, 0x2000);
+            if four_screen {
+                cart.header.flags |= 0x08;
+            }
+            cart.memory.set_mirroring(cart.mirroring());
+            let mut mapper = Nrom::load(&mut cart).expect("valid mapper");
+
+            cart.memory.chr_write(0x2000, 0x5A);
+            assert_eq!(cart.memory.chr_peek(0x2000), 0x5A);
+
+            let config = bincode::config::legacy();
+            let bytes =
+                bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
+            let (mut restored, _) =
+                bincode::serde::decode_from_slice::<crate::memory::Memory, _>(&bytes, config)
+                    .expect("memory deserializes");
+
+            mapper.sync(&mut restored);
+            assert_eq!(
+                restored.chr_peek(0x2000),
+                0x5A,
+                "sync must restore nametable mirroring (four_screen: {four_screen})"
+            );
+        }
+    }
 }

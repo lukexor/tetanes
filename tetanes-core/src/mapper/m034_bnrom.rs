@@ -59,6 +59,7 @@ impl Map for Bnrom {
             Src::PrgRom,
         );
         memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

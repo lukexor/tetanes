@@ -76,6 +76,7 @@ impl Map for ColorDreams {
             Src::PrgRom,
         );
         memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(self.chr_bank), Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

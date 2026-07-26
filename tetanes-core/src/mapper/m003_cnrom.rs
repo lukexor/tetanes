@@ -59,6 +59,7 @@ impl Map for Cnrom {
         memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
         memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
         memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(self.chr_bank), Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 
