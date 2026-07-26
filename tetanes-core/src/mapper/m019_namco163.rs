@@ -200,12 +200,21 @@ impl Map for Namco163 {
                     self.regs.prg_ram_protect = val;
                 } else {
                     let bank = ((addr - 0x8000) >> 11) as usize;
-                    let nt_select = match addr {
-                        0x8000..=0x9FFF => !self.regs.nt_select_lo,
-                        0xA000..=0xBFFF => !self.regs.nt_select_hi,
-                        _ => true,
-                    };
-                    let nt_bank_enable = nt_select && val >= 0xE0 && self.board == Board::Namco163;
+                    // The eight CHR registers at $8000-$BFFF can only redirect a bank to CIRAM on
+                    // a Namco163, and only when the matching nametable mode bit allows it. The
+                    // four nametable registers at $C000-$DFFF apply the >= $E0 rule on every
+                    // variant - gating those on Namco163 too left the 340 reading CHR-ROM for its
+                    // nametables.
+                    let nt_bank_enable = val >= 0xE0
+                        && match addr {
+                            0x8000..=0x9FFF => {
+                                !self.regs.nt_select_lo && self.board == Board::Namco163
+                            }
+                            0xA000..=0xBFFF => {
+                                !self.regs.nt_select_hi && self.board == Board::Namco163
+                            }
+                            _ => true,
+                        };
                     self.nt_bank_enable[bank] = nt_bank_enable;
                     if nt_bank_enable {
                         self.chr_banks[bank] = val & 0x01;
