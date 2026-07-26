@@ -63,9 +63,6 @@ impl SunsoftFme7 {
 }
 
 impl Map for SunsoftFme7 {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

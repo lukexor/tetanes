@@ -134,9 +134,6 @@ impl Txrom {
 }
 
 impl Map for Txrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     /// MMC3 counts scanlines from A12 rising edges on the PPU bus.
     fn watches_ppu_bus(&self) -> bool {

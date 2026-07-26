@@ -10,7 +10,7 @@ use crate::{
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
     mapper::{Map, Mapper},
-    mem::{ConstArray, RamState, Read, Write},
+    memory::{ConstArray, RamState, Read, Write},
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
@@ -170,15 +170,12 @@ impl Read for Bus {
         self.open_bus = match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
-                let val = if self.ppu.mapped {
-                    self.ppu
-                        .has_prg_read_hook
-                        .then(|| self.ppu.mapper.prg_read_hook(addr))
-                        .flatten()
-                        .unwrap_or_else(|| self.ppu.memory.prg_peek(addr))
-                } else {
-                    self.ppu.mapper.prg_read(addr)
-                };
+                let val = self
+                    .ppu
+                    .serves_prg_reads
+                    .then(|| self.ppu.mapper.prg_read(addr))
+                    .flatten()
+                    .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.read_status(),
@@ -202,15 +199,12 @@ impl Read for Bus {
         match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
-                let val = if self.ppu.mapped {
-                    self.ppu
-                        .has_prg_read_hook
-                        .then(|| self.ppu.mapper.prg_peek_hook(addr))
-                        .flatten()
-                        .unwrap_or_else(|| self.ppu.memory.prg_peek(addr))
-                } else {
-                    self.ppu.mapper.prg_peek(addr)
-                };
+                let val = self
+                    .ppu
+                    .serves_prg_reads
+                    .then(|| self.ppu.mapper.prg_peek(addr))
+                    .flatten()
+                    .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.peek_status(),
@@ -236,15 +230,11 @@ impl Write for Bus {
         match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)] = val,
             0x4100..=0xFFFF => {
-                if self.ppu.mapped {
-                    // Data store first, then let the board act on any register the write hit.
-                    // Destructured so both fields can be borrowed at once.
-                    let Ppu { mapper, memory, .. } = &mut self.ppu;
-                    memory.prg_write(addr, val);
-                    mapper.write_register(memory, addr, val);
-                } else {
-                    self.ppu.mapper.prg_write(addr, val);
-                }
+                // Data store first, then let the board act on any register the write hit.
+                // Destructured so both fields can be borrowed at once.
+                let Ppu { mapper, memory, .. } = &mut self.ppu;
+                memory.prg_write(addr, val);
+                mapper.write_register(memory, addr, val);
             }
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
@@ -306,20 +296,12 @@ impl Reset for Bus {
 
 impl Sram for Bus {
     fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        if self.ppu.mapped {
-            self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
-        } else {
-            self.ppu.mapper.save(path)
-        }
+        self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
     }
 
     fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        if self.ppu.mapped {
-            let Ppu { mapper, memory, .. } = &mut self.ppu;
-            mapper.load_sram(memory, path.as_ref())
-        } else {
-            self.ppu.mapper.load(path)
-        }
+        let Ppu { mapper, memory, .. } = &mut self.ppu;
+        mapper.load_sram(memory, path.as_ref())
     }
 }
 

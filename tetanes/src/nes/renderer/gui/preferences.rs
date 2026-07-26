@@ -24,7 +24,7 @@ use std::sync::{
 };
 use tetanes_core::{
     action::Action as DeckAction, apu::Channel, common::NesRegion,
-    control_deck::Config as DeckConfig, fs, genie::GenieCode, input::FourPlayer, mem::RamState,
+    control_deck::Config as DeckConfig, fs, genie::GenieCode, input::FourPlayer, memory::RamState,
     time::Duration, video::VideoFilter,
 };
 

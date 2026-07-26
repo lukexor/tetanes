@@ -183,9 +183,6 @@ impl NesEvent {
 }
 
 impl Map for NesEvent {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mmc1.mirroring

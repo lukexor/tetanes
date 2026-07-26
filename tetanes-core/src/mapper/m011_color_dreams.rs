@@ -42,9 +42,6 @@ impl ColorDreams {
 }
 
 impl Map for ColorDreams {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

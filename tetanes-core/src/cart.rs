@@ -9,7 +9,7 @@ use crate::{
         SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
         m034_nina001::Nina001,
     },
-    mem::{Memory, RamState},
+    memory::RamState,
     memory::{Memory as CartMemory, MemoryLayout, Src},
     ppu::Mirroring,
 };
@@ -87,12 +87,8 @@ pub struct Cart {
     pub region: NesRegion,
     pub ram_state: RamState,
     pub mapper: Mapper,
-    /// Page-table backed cartridge memory. Boards are being ported onto this a tier at a time; the
-    /// `chr_rom`/`prg_rom` copies below serve the boards that still own their own memory and go
-    /// away once every board is ported.
+    /// All of the cart's memory, and the page tables that address it.
     pub memory: CartMemory,
-    pub chr_rom: Memory<Box<[u8]>>, // Character ROM
-    pub prg_rom: Memory<Box<[u8]>>, // Program ROM
     pub chr_rom_size: usize,
     pub chr_ram_size: usize,
     pub prg_rom_size: usize,
@@ -132,8 +128,6 @@ impl Cart {
                 false,
                 RamState::default(),
             ),
-            chr_rom: Memory::new(chr_rom_size),
-            prg_rom: Memory::new(prg_rom_size),
             chr_rom_size,
             chr_ram_size,
             prg_rom_size,
@@ -172,8 +166,6 @@ impl Cart {
             ram_state.fill(memory.region_mut(Src::Chr));
         }
         ram_state.fill(memory.region_mut(Src::PrgRam));
-        // A sane default so a cart is usable before the header mirroring is applied.
-        memory.set_mirroring(Mirroring::default());
         memory
     }
 
@@ -207,8 +199,11 @@ impl Cart {
         let header = NesHeader::load(&mut rom_data)?;
         debug!("{header:?}");
 
+        // Read into exactly-sized buffers first: the CRC lookup that picks the board needs the ROM
+        // contents, and the board decides how much PRG-RAM to allocate, so the arena cannot be
+        // built until afterwards.
         let prg_rom_size = (header.prg_rom_banks as usize) * PRG_ROM_BANK_SIZE;
-        let mut prg_rom = Memory::new(prg_rom_size);
+        let mut prg_rom = vec![0u8; prg_rom_size];
         rom_data.read_exact(&mut prg_rom).map_err(|err| {
             if let std::io::ErrorKind::UnexpectedEof = err.kind() {
                 Error::InvalidHeader {
@@ -227,7 +222,7 @@ impl Cart {
         let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
 
         let chr_rom_size = (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE;
-        let mut chr_rom = Memory::new(chr_rom_size);
+        let mut chr_rom = vec![0u8; chr_rom_size];
         if chr_rom_size > 0 {
             rom_data.read_exact(&mut chr_rom).map_err(|err| {
                 if let std::io::ErrorKind::UnexpectedEof = err.kind() {
@@ -284,9 +279,9 @@ impl Cart {
             header.flags & 0x08 == 0x08,
             ram_state,
         );
-        memory.region_mut(Src::PrgRom)[..prg_rom.len()].copy_from_slice(&prg_rom);
+        memory.region_mut(Src::PrgRom)[..prg_rom_size].copy_from_slice(&prg_rom);
         if chr_rom_size > 0 {
-            memory.region_mut(Src::Chr)[..chr_rom.len()].copy_from_slice(&chr_rom);
+            memory.region_mut(Src::Chr)[..chr_rom_size].copy_from_slice(&chr_rom);
         }
 
         let mut cart = Self {
@@ -296,8 +291,6 @@ impl Cart {
             ram_state,
             mapper: Mapper::none(),
             memory,
-            chr_rom: chr_rom.clone(),
-            prg_rom: prg_rom.clone(),
             chr_rom_size,
             chr_ram_size,
             prg_rom_size,
@@ -412,6 +405,21 @@ impl Cart {
     #[must_use]
     pub fn mapper_board(&self) -> &'static str {
         NesHeader::mapper_board(self.mapper_num())
+    }
+
+    /// The cart's PRG-ROM, exactly as the file contained it.
+    ///
+    /// [`Cart::memory`] pads each region out to whole pages, so this trims that padding back off
+    /// for the callers that need the ROM itself - CRC lookups and the debugger.
+    #[must_use]
+    pub fn prg_rom(&self) -> &[u8] {
+        &self.memory.region_ref(Src::PrgRom)[..self.prg_rom_size]
+    }
+
+    /// The cart's CHR-ROM, exactly as the file contained it. Empty for a CHR-RAM cart.
+    #[must_use]
+    pub fn chr_rom(&self) -> &[u8] {
+        &self.memory.region_ref(Src::Chr)[..self.chr_rom_size]
     }
 
     /// Size of the cart's CHR region, or zero when no board is loaded.

@@ -8,7 +8,7 @@ use crate::{
     fs,
     mapper::{self, Map, Mapper, Mirroring},
     // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
-    mem::Memory as Buffer,
+    memory::Buffer,
     memory::{Memory, Src},
 };
 use serde::{Deserialize, Serialize};
@@ -264,11 +264,6 @@ impl Map for BandaiFCG {
     // CPU $8000..=$BFFF 16K switchable PRG-ROM bank
     // CPU $C000..=$FFFF 16K PRG-ROM bank, fixed to the last bank
 
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -278,11 +273,11 @@ impl Map for BandaiFCG {
     }
 
     /// Datach carts answer $6000-$7FFF from a barcode reader and one or two serial EEPROMs.
-    fn has_prg_read_hook(&self) -> bool {
+    fn serves_prg_reads(&self) -> bool {
         true
     }
 
-    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+    fn prg_read(&mut self, addr: u16) -> Option<u8> {
         if !matches!(addr, 0x6000..=0x7FFF)
             || !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite)
         {
@@ -302,7 +297,7 @@ impl Map for BandaiFCG {
         Some(val)
     }
 
-    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+    fn prg_peek(&self, addr: u16) -> Option<u8> {
         // Reading the EEPROMs clocks their state machines, so peeking cannot do it. Report open
         // bus rather than disturb them.
         (matches!(addr, 0x6000..=0x7FFF)

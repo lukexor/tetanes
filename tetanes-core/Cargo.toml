@@ -19,10 +19,6 @@ crate-type = ["cdylib", "rlib"]
 name = "clock_frame"
 harness = false
 
-[[bench]]
-name = "page_table"
-harness = false
-
 [lints]
 workspace = true
 

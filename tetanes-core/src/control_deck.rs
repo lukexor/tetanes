@@ -11,7 +11,7 @@ use crate::{
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
     mapper::{Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
-    mem::RamState,
+    memory::RamState,
     ppu::Ppu,
     video::{Video, VideoFilter},
 };

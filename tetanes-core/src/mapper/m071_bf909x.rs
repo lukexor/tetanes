@@ -57,9 +57,6 @@ impl Bf909x {
 }
 
 impl Map for Bf909x {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

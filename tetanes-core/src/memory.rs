@@ -20,10 +20,25 @@
 //! Nametable mirroring is expressed as page entries pointing into the CIRAM region rather than as
 //! an address-munging function, which makes four-screen, MMC5 ExRAM-as-nametable, and boards that
 //! map CHR-ROM into the nametable range fall out for free.
+//!
+//! Alongside the arena this module holds the small memory primitives the rest of the emulator
+//! shares: [`Buffer`] and [`ConstArray`] for plain byte storage, the [`Read`]/[`Write`] bus traits,
+//! and [`RamState`] for power-on fill.
 
 use crate::ppu::Mirroring;
-use serde::{Deserialize, Serialize};
-use std::{fmt, ops::Range};
+use rand::Rng;
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{SeqAccess, Visitor},
+    ser::SerializeTuple,
+};
+use std::{
+    fmt,
+    marker::PhantomData,
+    ops::{Deref, DerefMut, Index, IndexMut, Range, RangeInclusive},
+    str::FromStr,
+};
+use tracing::warn;
 
 /// Address bits translated within a single page. 1 KiB granularity.
 pub const PAGE_SHIFT: usize = 10;
@@ -61,7 +76,7 @@ pub enum Src {
 ///
 /// An unmapped entry is all zeroes, which points at the reserved zero-filled page at offset 0 and
 /// is not writable. That keeps reads branchless - an unmapped read yields 0, matching what the
-/// per-mapper `_ => 0` fallbacks returned - while writes still have to test [`Page::WRITABLE`].
+/// per-mapper `_ => 0` fallbacks returned - while writes still have to test the writable flag.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Page(u32);
@@ -195,7 +210,7 @@ impl Memory {
         let ciram = alloc(ciram, &mut offset);
         let ex_ram = alloc(layout.ex_ram, &mut offset);
 
-        Self {
+        let mut memory = Self {
             data: vec![0; offset].into_boxed_slice(),
             ram_start,
             prg_rom,
@@ -206,7 +221,12 @@ impl Memory {
             ex_ram,
             prg_pages: [Page::UNMAPPED; PRG_PAGES],
             chr_pages: [Page::UNMAPPED; CHR_PAGES],
-        }
+        };
+        // CIRAM is console-internal, not part of the cart, so the nametables are readable before
+        // any board has mapped anything. Boards that route them elsewhere - MMC5 picks a source
+        // per nametable - overwrite these entries in their `sync`.
+        memory.set_mirroring(Mirroring::default());
+        memory
     }
 
     /// Read a byte from the CPU address space.
@@ -414,6 +434,439 @@ impl Memory {
     /// CHR page table, for debuggers.
     pub const fn chr_pages(&self) -> &[Page; CHR_PAGES] {
         &self.chr_pages
+    }
+}
+
+/// A plain byte buffer with a `Debug` impl that reports its length instead of its contents, and
+/// an `Index` impl that masks rather than panics.
+///
+/// Distinct from [`Memory`]: this is a container, not an address space. It backs the console's own
+/// RAM and the odd board-private buffer, neither of which is reachable through the page tables.
+#[derive(Default, Copy, Clone, Serialize, Deserialize)]
+pub struct Buffer<D> {
+    data: D,
+}
+
+impl Buffer<Box<[u8]>> {
+    /// Create an empty `Buffer`.
+    pub fn empty() -> Self {
+        Self {
+            data: Vec::new().into_boxed_slice(),
+        }
+    }
+
+    /// Create a zeroed `Buffer` of `size` bytes.
+    pub fn new(mut size: usize) -> Self {
+        if size > 0 && !size.is_power_of_two() {
+            warn!("memory size {size} must be a power of two");
+            size = size.next_power_of_two();
+        }
+        Self {
+            data: vec![0; size].into_boxed_slice(),
+        }
+    }
+
+    pub fn with_ram_state(size: usize, state: RamState) -> Self {
+        let mut mem = Self::new(size);
+        state.fill(&mut mem.data);
+        mem
+    }
+
+    /// Shortens the `Buffer` by keeping the first `size` bytes and dropping the rest.
+    pub fn truncate(&mut self, size: usize) {
+        let mut data = std::mem::take(&mut self.data).to_vec();
+        data.truncate(size);
+        self.data = data.into_boxed_slice();
+    }
+}
+
+impl<T, const N: usize> Buffer<ConstArray<T, N>> {
+    /// Create a zeroed `Buffer`.
+    pub fn new_const() -> Self
+    where
+        T: Default + Copy,
+    {
+        Self::default()
+    }
+}
+
+impl<const N: usize> Buffer<ConstArray<u8, N>> {
+    /// Fill memory based on [`RamState`].
+    pub fn with_ram_state_const(state: RamState) -> Self {
+        let mut mem = Self::default();
+        state.fill(&mut *mem.data);
+        mem
+    }
+}
+
+impl fmt::Debug for Buffer<Box<[u8]>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl<T, const N: usize> fmt::Debug for Buffer<ConstArray<T, N>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl<D> Deref for Buffer<D> {
+    type Target = D;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<D: DerefMut> DerefMut for Buffer<D> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<T, D: AsRef<[T]>> AsRef<[T]> for Buffer<D> {
+    fn as_ref(&self) -> &[T] {
+        self.data.as_ref()
+    }
+}
+
+impl<T, D: AsMut<[T]>> AsMut<[T]> for Buffer<D> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.data.as_mut()
+    }
+}
+
+impl<T> Index<usize> for Buffer<Box<[T]>> {
+    type Output = T;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        self.data.index(index & (self.data.len() - 1))
+    }
+}
+
+impl<T> IndexMut<usize> for Buffer<Box<[T]>> {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.data.index_mut(index & (self.data.len() - 1))
+    }
+}
+
+impl<T> Index<Range<usize>> for Buffer<Box<[T]>> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: Range<usize>) -> &Self::Output {
+        self.data
+            .index((range.start & (self.data.len() - 1))..range.end.min(self.len()))
+    }
+}
+
+impl<T> IndexMut<Range<usize>> for Buffer<Box<[T]>> {
+    #[inline]
+    fn index_mut(&mut self, range: Range<usize>) -> &mut Self::Output {
+        self.data
+            .index_mut((range.start & (self.data.len() - 1))..range.end.min(self.len()))
+    }
+}
+
+impl<T> Index<RangeInclusive<usize>> for Buffer<Box<[T]>> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: RangeInclusive<usize>) -> &Self::Output {
+        self.data.index(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
+    }
+}
+
+impl<T> IndexMut<RangeInclusive<usize>> for Buffer<Box<[T]>> {
+    #[inline]
+    fn index_mut(&mut self, range: RangeInclusive<usize>) -> &mut Self::Output {
+        self.data.index_mut(
+            (range.start() & (self.data.len() - 1))..=*range.end().min(&(self.data.len() - 1)),
+        )
+    }
+}
+
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct ConstArray<T, const N: usize> {
+    data: [T; N],
+}
+
+impl<T, const N: usize> ConstArray<T, N> {
+    /// Create a new `ConstSlice` instance.
+    pub fn new() -> Self
+    where
+        T: Default + Copy,
+    {
+        Self::default()
+    }
+
+    /// Create a new `ConstSlice` instance filled with `val`.
+    pub const fn filled(val: T) -> Self
+    where
+        T: Copy,
+    {
+        Self { data: [val; N] }
+    }
+}
+
+impl<T, const N: usize> fmt::Debug for ConstArray<T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConstArray")
+            .field("len", &self.data.len())
+            .finish()
+    }
+}
+
+impl<T: Default + Copy, const N: usize> Default for ConstArray<T, N> {
+    fn default() -> Self {
+        Self {
+            data: [T::default(); N],
+        }
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for ConstArray<T, N> {
+    fn from(data: [T; N]) -> Self {
+        Self { data }
+    }
+}
+
+impl<T, const N: usize> Deref for ConstArray<T, N> {
+    type Target = [T; N];
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T, const N: usize> DerefMut for ConstArray<T, N> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<T, const N: usize> AsRef<[T]> for ConstArray<T, N> {
+    #[inline]
+    fn as_ref(&self) -> &[T] {
+        self.data.as_ref()
+    }
+}
+
+impl<T, const N: usize> AsMut<[T]> for ConstArray<T, N> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [T] {
+        self.data.as_mut()
+    }
+}
+
+impl<T, const N: usize> Index<usize> for ConstArray<T, N> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        self.data.index(index & (N - 1))
+    }
+}
+
+impl<T, const N: usize> IndexMut<usize> for ConstArray<T, N> {
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.data.index_mut(index & (N - 1))
+    }
+}
+
+impl<T, const N: usize> Index<Range<usize>> for ConstArray<T, N> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: Range<usize>) -> &Self::Output {
+        self.data.index(range.start & (N - 1)..range.end.min(N))
+    }
+}
+
+impl<T, const N: usize> IndexMut<Range<usize>> for ConstArray<T, N> {
+    #[inline]
+    fn index_mut(&mut self, range: Range<usize>) -> &mut Self::Output {
+        self.data.index_mut(range.start & (N - 1)..range.end.min(N))
+    }
+}
+
+impl<T, const N: usize> Index<RangeInclusive<usize>> for ConstArray<T, N> {
+    type Output = [T];
+
+    #[inline]
+    fn index(&self, range: RangeInclusive<usize>) -> &Self::Output {
+        self.data
+            .index(range.start() & (N - 1)..=*range.end().min(&(N - 1)))
+    }
+}
+
+impl<T, const N: usize> IndexMut<RangeInclusive<usize>> for ConstArray<T, N> {
+    #[inline]
+    fn index_mut(&mut self, range: RangeInclusive<usize>) -> &mut Self::Output {
+        self.data
+            .index_mut(range.start() & (N - 1)..=*range.end().min(&(N - 1)))
+    }
+}
+
+impl<T: Serialize, const N: usize> Serialize for ConstArray<T, N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_tuple(N)?;
+        for item in &self.data {
+            s.serialize_element(item)?;
+        }
+        s.end()
+    }
+}
+
+impl<'de, T, const N: usize> Deserialize<'de> for ConstArray<T, N>
+where
+    T: Deserialize<'de> + Default + Copy,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ArrayVisitor<T, const N: usize>(PhantomData<T>);
+
+        impl<'de, T, const N: usize> Visitor<'de> for ArrayVisitor<T, N>
+        where
+            T: Deserialize<'de> + Default + Copy,
+        {
+            type Value = [T; N];
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(&format!("an array of length {N}"))
+            }
+
+            #[inline]
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut data = [T::default(); N];
+                for data in &mut data {
+                    match (seq.next_element())? {
+                        Some(val) => *data = val,
+                        None => return Err(serde::de::Error::invalid_length(N, &self)),
+                    }
+                }
+                Ok(data)
+            }
+        }
+
+        deserializer
+            .deserialize_tuple(N, ArrayVisitor(PhantomData))
+            .map(|data| Self { data })
+    }
+}
+
+/// A trait that represents memory read operations. Reads typically have side-effects.
+pub trait Read {
+    /// Read from the given address.
+    #[inline(always)]
+    fn read(&mut self, addr: u16) -> u8 {
+        self.peek(addr)
+    }
+
+    /// Peek from the given address.
+    fn peek(&self, addr: u16) -> u8;
+}
+
+/// A trait that represents memory write operations.
+pub trait Write {
+    /// Write value to the given address.
+    fn write(&mut self, addr: u16, val: u8);
+}
+
+/// RAM in a given state on startup.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[must_use]
+pub enum RamState {
+    #[default]
+    AllZeros,
+    AllOnes,
+    Random,
+}
+
+impl RamState {
+    /// Return `RamState` options as a slice.
+    pub const fn as_slice() -> &'static [Self] {
+        &[Self::AllZeros, Self::AllOnes, Self::Random]
+    }
+
+    /// Return `RamState` as a `str`.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::AllZeros => "all-zeros",
+            Self::AllOnes => "all-ones",
+            Self::Random => "random",
+        }
+    }
+
+    /// Fills data slice based on `RamState`.
+    pub fn fill(&self, data: &mut [u8]) {
+        match self {
+            RamState::AllZeros => data.fill(0x00),
+            RamState::AllOnes => data.fill(0xFF),
+            RamState::Random => {
+                rand::rng().fill_bytes(data);
+            }
+        }
+    }
+}
+
+impl From<usize> for RamState {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Self::AllZeros,
+            1 => Self::AllOnes,
+            _ => Self::Random,
+        }
+    }
+}
+
+impl AsRef<str> for RamState {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for RamState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::AllZeros => "All $00",
+            Self::AllOnes => "All $FF",
+            Self::Random => "Random",
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl FromStr for RamState {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "all-zeros" => Ok(Self::AllZeros),
+            "all-ones" => Ok(Self::AllOnes),
+            "random" => Ok(Self::Random),
+            _ => Err("invalid RamState value. valid options: `all-zeros`, `all-ones`, or `random`"),
+        }
     }
 }
 

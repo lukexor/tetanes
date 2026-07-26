@@ -4,7 +4,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
 };
-use tetanes_core::{cart::Cart, mem::RamState};
+use tetanes_core::{cart::Cart, memory::RamState};
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();

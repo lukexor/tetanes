@@ -18,11 +18,11 @@ impl ValueEnum for FourPlayer {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RamState(tetanes_core::mem::RamState);
+pub(crate) struct RamState(tetanes_core::memory::RamState);
 
 impl ValueEnum for RamState {
     fn value_variants<'a>() -> &'a [Self] {
-        use tetanes_core::mem::RamState::*;
+        use tetanes_core::memory::RamState::*;
         &[Self(AllZeros), Self(AllOnes), Self(Random)]
     }
 

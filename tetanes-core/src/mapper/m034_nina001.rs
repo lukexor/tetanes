@@ -41,9 +41,6 @@ impl Nina001 {
 }
 
 impl Map for Nina001 {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

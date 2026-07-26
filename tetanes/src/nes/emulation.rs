@@ -356,7 +356,7 @@ impl State {
     }
 
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
-        use tetanes_core::mem::Read;
+        use tetanes_core::memory::Read;
 
         let err = err.into();
         error!("Emulation error: {err:?}");

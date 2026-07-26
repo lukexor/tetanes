@@ -194,9 +194,6 @@ impl Vrc6 {
 }
 
 impl Map for Vrc6 {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

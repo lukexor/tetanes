@@ -57,9 +57,6 @@ impl Pxrom {
 }
 
 impl Map for Pxrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     /// The CHR latch is driven by which tile addresses the PPU fetches.
     fn watches_ppu_bus(&self) -> bool {

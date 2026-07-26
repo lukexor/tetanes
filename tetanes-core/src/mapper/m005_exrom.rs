@@ -531,7 +531,7 @@ impl Exrom {
                     Nametable::ExRam if nametable_mode => {
                         memory.map_chr(addr, Self::CHR_WINDOW, 0, Src::ExRam);
                     }
-                    // Fill mode is synthesised by `chr_read_hook`, and outside ExRAM nametable
+                    // Fill mode is synthesised by `chr_read`, and outside ExRAM nametable
                     // mode both remaining selections read back as zero - which is what an unmapped
                     // page gives. Either way there is nothing for a page entry to point at.
                     _ => memory.unmap_chr(addr, Self::CHR_WINDOW),
@@ -767,9 +767,6 @@ impl Map for Exrom {
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
 
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
@@ -788,12 +785,12 @@ impl Map for Exrom {
     }
 
     /// The register file and ExRAM in modes 0/1 are not memory, and every PPU fetch has side
-    /// effects, so MMC5 is the one board that takes both read hooks.
-    fn has_prg_read_hook(&self) -> bool {
+    /// effects, so MMC5 is the one board that serves both kinds of read itself.
+    fn serves_prg_reads(&self) -> bool {
         true
     }
 
-    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+    fn prg_read(&mut self, addr: u16) -> Option<u8> {
         if let 0xFFFA | 0xFFFB = addr {
             // Reading the NMI vector clears the in-frame flag.
             self.irq_state.in_frame = false;
@@ -801,7 +798,7 @@ impl Map for Exrom {
             self.irq_state.pending = false;
             self.regs.irq_pending = false;
         }
-        let val = self.prg_peek_hook(addr);
+        let val = self.prg_peek(addr);
         match addr {
             // Reading $5204 acknowledges the scanline IRQ, and $5010 the DMC IRQ.
             0x5204 => {
@@ -814,7 +811,7 @@ impl Map for Exrom {
         val
     }
 
-    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+    fn prg_peek(&self, addr: u16) -> Option<u8> {
         let val = match addr {
             0x5010 => {
                 // [I... ...M] DMC
@@ -852,7 +849,7 @@ impl Map for Exrom {
                 //   I = "In Frame" signal
 
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
-                // Clearing is done in `prg_read_hook`.
+                // Clearing is done in `prg_read`.
                 (u8::from(self.regs.irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
             }
             0x5205 => (self.regs.mult_result & 0xFF) as u8,
@@ -864,13 +861,13 @@ impl Map for Exrom {
     }
 
     /// Every PPU fetch drives the scanline detector, the CHR bank-set switch and, in extended
-    /// attribute mode, the tile lookup - so unlike every other board MMC5 hooks reads rather than
+    /// attribute mode, the tile lookup - so unlike every other board MMC5 serves reads rather than
     /// just watching the bus.
-    fn has_chr_read_hook(&self) -> bool {
+    fn serves_chr_reads(&self) -> bool {
         true
     }
 
-    fn chr_read_hook(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
+    fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => {
                 self.update_chr_banks(memory, false);
@@ -932,7 +929,7 @@ impl Map for Exrom {
         }
     }
 
-    fn chr_peek_hook(&self, memory: &Memory, addr: u16) -> Option<u8> {
+    fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => self
                 .split_chr_read(memory, addr)
@@ -1284,14 +1281,14 @@ mod tests {
     /// Mirrors `Bus::peek`'s routing for a page-table board.
     fn prg_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
         mapper
-            .prg_peek_hook(addr)
+            .prg_peek(addr)
             .unwrap_or_else(|| cart.memory.prg_peek(addr))
     }
 
     /// Mirrors `Ppu::chr_peek`'s routing for a page-table board.
     fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
         mapper
-            .chr_peek_hook(&cart.memory, addr)
+            .chr_peek(&cart.memory, addr)
             .unwrap_or_else(|| cart.memory.chr_peek(addr))
     }
 
@@ -1407,7 +1404,7 @@ mod tests {
     /// One pattern fetch at the given point in the scanline, which is what re-evaluates the set.
     fn pattern_fetch(mapper: &mut Mapper, cart: &mut Cart, tile_number: u32) {
         exrom(mapper).ppu_status.tile_number = tile_number;
-        mapper.chr_read_hook(&mut cart.memory, 0x0000);
+        mapper.chr_read(&mut cart.memory, 0x0000);
     }
 
     /// With 8x16 sprites the pattern fetches for sprites come from the 'A' set and those for the
@@ -1539,7 +1536,7 @@ mod tests {
         cart.memory.region_write(Src::ExRam, 5, 0x41);
 
         // The nametable fetch caches which ExRAM byte the following fetches use.
-        mapper.chr_read_hook(&mut cart.memory, 0x2005);
+        mapper.chr_read(&mut cart.memory, 0x2005);
 
         assert_eq!(chr_peek(&mapper, &cart, 0x23C0), 0x55, "palette 1, mirrored");
         // 4K bank 1 starts at CHR 1K page 4.
@@ -1592,14 +1589,14 @@ mod tests {
 
         cart.memory.region_write(Src::ExRam, 0x0000, 0x5C); // the split's tile
         cart.memory.region_write(Src::ExRam, 0x03C0, 0b01); // and its attribute
-        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x2000), Some(0x5C));
-        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x23C0), Some(0x55));
+        assert_eq!(mapper.chr_peek(&cart.memory, 0x2000), Some(0x5C));
+        assert_eq!(mapper.chr_peek(&cart.memory, 0x23C0), Some(0x55));
         // 4K bank 2 of the test cart's CHR starts at 1K page 8.
-        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x0000), Some(0x80 | 8));
+        assert_eq!(mapper.chr_peek(&cart.memory, 0x0000), Some(0x80 | 8));
 
         // Outside the split, everything falls back to the ordinary sources.
         exrom(&mut mapper).regs.vsplit.in_region = false;
-        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x0000), None);
+        assert_eq!(mapper.chr_peek(&cart.memory, 0x0000), None);
     }
 
     /// Page tables are derived state that save states do not carry, so `sync` has to rebuild every

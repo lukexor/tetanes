@@ -2,7 +2,7 @@
 
 use crate::{
     cpu::{Cpu, IrqFlags, Status},
-    mem::{Read, Write},
+    memory::{Read, Write},
 };
 use serde::{Deserialize, Serialize};
 

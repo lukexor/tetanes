@@ -12,7 +12,7 @@ use clap::Parser;
 use std::{fs::File, path::PathBuf};
 use tetanes_core::{
     control_deck::{Config, ControlDeck},
-    mem::RamState,
+    memory::RamState,
     ppu::size,
 };
 

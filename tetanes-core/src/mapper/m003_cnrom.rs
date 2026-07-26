@@ -38,9 +38,6 @@ impl Cnrom {
 }
 
 impl Map for Cnrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

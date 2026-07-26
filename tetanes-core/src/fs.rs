@@ -16,7 +16,7 @@ const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 const SAVE_VERSION: &str = "2";
 /// Version for the bundled game database.
 ///
-/// Deliberately independent of [`SAVE_VERSION`]: the database is not save-state data, so bumping
+/// Deliberately independent of `SAVE_VERSION`: the database is not save-state data, so bumping
 /// the save format must not invalidate it.
 pub const GAME_DB_VERSION: &str = "1";
 

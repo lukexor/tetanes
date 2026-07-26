@@ -4,9 +4,9 @@
 
 use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
-    fs, mem,
+    fs,
     memory::{Memory, Src},
-    ppu::{CIRam, Mirroring},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -62,14 +62,15 @@ pub mod mmc1;
 pub mod mmc3;
 pub mod vrc_irq;
 
-/// Errors that mappers can return.
+/// Errors that mappers can return while loading.
+///
+/// Empty for now: banking used to validate window sizes against a `Banks` table and could fail,
+/// but a board on page tables only writes page entries, and every out-of-range bank wraps within
+/// its region by construction. The type and the `Result` stay so that a board needing to reject a
+/// cart - a bad NES 2.0 submapper, say - can do so without a breaking change.
 #[derive(thiserror::Error, Debug)]
 #[must_use]
-pub enum Error {
-    /// A mapper banking error.
-    #[error(transparent)]
-    Bank(#[from] mem::Error),
-}
+pub enum Error {}
 
 /// Allow user-controlled mapper revision for mappers that are difficult to auto-detect correctly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -236,47 +237,6 @@ macro_rules! impl_map {
 }
 
 impl Map for Mapper {
-    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
-        impl_map!(self, chr_read, addr, ciram)
-    }
-
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        impl_map!(self, chr_peek, addr, ciram)
-    }
-
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> u8 {
-        impl_map!(self, prg_read, addr)
-    }
-
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        impl_map!(self, prg_peek, addr)
-    }
-
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        impl_map!(self, chr_write, addr, val, ciram)
-    }
-
-    /// Write a byte to PRG-RAM at a given address.
-    #[inline(always)]
-    fn prg_write(&mut self, addr: u16, val: u8) {
-        impl_map!(self, prg_write, addr, val)
-    }
-
-    /// Synchronize a read from a PPU address.
-    fn ppu_read(&mut self, addr: u16) {
-        impl_map!(self, ppu_read, addr)
-    }
-
     /// Synchronize a write to a PPU address.
     fn ppu_write(&mut self, addr: u16, val: u8) {
         impl_map!(self, ppu_write, addr, val)
@@ -303,12 +263,6 @@ impl Map for Mapper {
         impl_map!(self, mirroring)
     }
 
-    /// Whether this board has been ported to page-table [`Memory`].
-    #[inline(always)]
-    fn uses_page_tables(&self) -> bool {
-        impl_map!(self, uses_page_tables)
-    }
-
     /// Handle a CPU-space write for a page-table board, re-banking as needed.
     #[inline(always)]
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
@@ -327,38 +281,38 @@ impl Map for Mapper {
 
     /// Whether this board serves some CPU reads itself.
     #[inline(always)]
-    fn has_prg_read_hook(&self) -> bool {
-        impl_map!(self, has_prg_read_hook)
+    fn serves_prg_reads(&self) -> bool {
+        impl_map!(self, serves_prg_reads)
     }
 
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
-    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
-        impl_map!(self, prg_read_hook, addr)
+    fn prg_read(&mut self, addr: u16) -> Option<u8> {
+        impl_map!(self, prg_read, addr)
     }
 
-    /// Side-effect-free form of [`Map::prg_read_hook`].
+    /// Side-effect-free form of [`Map::prg_read`].
     #[inline(always)]
-    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
-        impl_map!(self, prg_peek_hook, addr)
+    fn prg_peek(&self, addr: u16) -> Option<u8> {
+        impl_map!(self, prg_peek, addr)
     }
 
     /// Whether this board serves some PPU reads itself.
     #[inline(always)]
-    fn has_chr_read_hook(&self) -> bool {
-        impl_map!(self, has_chr_read_hook)
+    fn serves_chr_reads(&self) -> bool {
+        impl_map!(self, serves_chr_reads)
     }
 
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
-    fn chr_read_hook(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
-        impl_map!(self, chr_read_hook, memory, addr)
+    fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
+        impl_map!(self, chr_read, memory, addr)
     }
 
-    /// Side-effect-free form of `chr_read_hook`.
+    /// Side-effect-free form of [`Map::chr_read`].
     #[inline(always)]
-    fn chr_peek_hook(&self, memory: &Memory, addr: u16) -> Option<u8> {
-        impl_map!(self, chr_peek_hook, memory, addr)
+    fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        impl_map!(self, chr_peek, memory, addr)
     }
 
     /// Whether this board must observe every PPU bus address.
@@ -451,51 +405,14 @@ impl Default for Mapper {
 }
 
 /// Trait implemented for all [`Mapper`]s.
+///
+/// Boards are pure register state: every read is served from [`Memory`]'s page tables, which a
+/// board rewrites from [`Map::write_register`] and [`Map::sync`]. The only reads that reach a
+/// board are the ones no page entry can describe - expansion hardware and MMC5's synthesised
+/// fetches - and those go through [`Map::prg_read`] and [`Map::chr_read`], which return `None` to
+/// mean "ordinary memory, read the page table". Each is gated on a cached `serves_*` flag so the
+/// boards without any pay a bool test rather than a dispatch.
 pub trait Map: Clock + Regional + Reset + Sram {
-    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
-        self.chr_peek(addr, ciram)
-    }
-
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    ///
-    /// Boards serving reads from page-table [`Memory`] never see this; routing is the caller's
-    /// job, so the default is inert rather than a panic.
-    fn chr_peek(&self, _addr: u16, _ciram: &CIRam) -> u8 {
-        0
-    }
-
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    ///
-    /// Defaults to `prg_peek`.
-    #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> u8 {
-        self.prg_peek(addr)
-    }
-
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    ///
-    /// Boards serving reads from page-table [`Memory`] never see this.
-    fn prg_peek(&self, _addr: u16) -> u8 {
-        0
-    }
-
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    // `chr_write` has to be implemented at least to write to CIRam.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        if let 0x2000..=0x3EFF = addr {
-            ciram.write(addr, val, self.mirroring());
-        }
-    }
-
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, _addr: u16, _val: u8) {}
-
-    /// Synchronize a read from a PPU address.
-    fn ppu_read(&mut self, _addr: u16) {}
-
     /// Synchronize a write to a PPU address.
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 
@@ -513,18 +430,11 @@ pub trait Map: Clock + Regional + Reset + Sram {
     }
 
     /// Returns the current [`Mirroring`] mode.
+    ///
+    /// Reported for debuggers and for boards to read back; the nametables themselves are page
+    /// entries, applied through [`Memory::set_mirroring`] from a board's `sync`.
     // All mappers have mirroring, even if it's hard-wired.
     fn mirroring(&self) -> Mirroring;
-
-    /// Whether this board has been ported to page-table [`Memory`].
-    ///
-    /// Boards are ported a tier at a time, so both paths coexist. A board returning `true` owns no
-    /// memory of its own: its reads are served directly from [`Memory`] and `chr_peek`/`prg_peek`
-    /// are never called on it. Once every board is ported this, and the read methods above, go
-    /// away.
-    fn uses_page_tables(&self) -> bool {
-        false
-    }
 
     /// Handle a CPU-space write for a page-table board, re-banking as needed.
     ///
@@ -556,17 +466,17 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Expansion hardware - Namco163's audio registers and IRQ counter, Bandai's EEPROM and
     /// barcode reader - is not memory and cannot be expressed as a page. Cached at load so boards
     /// without it pay a bool test rather than a call on every PRG read.
-    fn has_prg_read_hook(&self) -> bool {
+    fn serves_prg_reads(&self) -> bool {
         false
     }
 
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
-    fn prg_read_hook(&mut self, _addr: u16) -> Option<u8> {
+    fn prg_read(&mut self, _addr: u16) -> Option<u8> {
         None
     }
 
-    /// Side-effect-free form of [`Map::prg_read_hook`], for debuggers.
-    fn prg_peek_hook(&self, _addr: u16) -> Option<u8> {
+    /// Side-effect-free form of [`Map::prg_read`], for debuggers.
+    fn prg_peek(&self, _addr: u16) -> Option<u8> {
         None
     }
 
@@ -576,7 +486,7 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// comes from a byte of ExRAM looked up per tile, and attribute and fill-mode reads are
     /// synthesised rather than fetched, so neither is expressible as a page entry. Cached at load
     /// so every other board pays a bool test on the ~41,000 CHR fetches in a frame.
-    fn has_chr_read_hook(&self) -> bool {
+    fn serves_chr_reads(&self) -> bool {
         false
     }
 
@@ -585,12 +495,12 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Runs *before* the page-table read, so a board may also re-bank here: MMC5 swaps its sprite
     /// and background CHR bank sets partway through a scanline, and the swap has to apply to the
     /// fetch that triggered it.
-    fn chr_read_hook(&mut self, _memory: &mut Memory, _addr: u16) -> Option<u8> {
+    fn chr_read(&mut self, _memory: &mut Memory, _addr: u16) -> Option<u8> {
         None
     }
 
-    /// Side-effect-free form of [`Map::chr_read_hook`], for debuggers.
-    fn chr_peek_hook(&self, _memory: &Memory, _addr: u16) -> Option<u8> {
+    /// Side-effect-free form of [`Map::chr_read`], for debuggers.
+    fn chr_peek(&self, _memory: &Memory, _addr: u16) -> Option<u8> {
         None
     }
 
@@ -617,17 +527,6 @@ pub trait Map: Clock + Regional + Reset + Sram {
 }
 
 impl Map for () {
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring()),
-            _ => 0,
-        }
-    }
-
-    fn prg_peek(&self, _addr: u16) -> u8 {
-        0
-    }
-
     fn mirroring(&self) -> Mirroring {
         Mirroring::default()
     }

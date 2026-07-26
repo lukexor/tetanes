@@ -5,7 +5,7 @@
 use crate::{
     bus::Bus,
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
-    mem::{Read, Write},
+    memory::{Read, Write},
 };
 use crate::{
     cpu::instr::{

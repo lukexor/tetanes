@@ -36,9 +36,6 @@ impl Bnrom {
 }
 
 impl Map for Bnrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

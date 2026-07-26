@@ -246,9 +246,6 @@ impl Fk23C {
 }
 
 impl Map for Fk23C {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     /// MMC3-derived, so it counts scanlines from A12 rising edges.
     fn watches_ppu_bus(&self) -> bool {

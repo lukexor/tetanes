@@ -37,9 +37,6 @@ impl Axrom {
 }
 
 impl Map for Axrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

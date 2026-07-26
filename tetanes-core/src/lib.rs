@@ -20,7 +20,6 @@ pub mod error;
 pub mod genie;
 pub mod input;
 pub mod mapper;
-pub mod mem;
 pub mod memory;
 pub mod ppu;
 pub mod sys;
@@ -39,7 +38,7 @@ pub mod prelude {
         genie::GenieCode,
         input::{FourPlayer, Input, Player},
         mapper::{Map, Mapper, MapperRevision},
-        mem::RamState,
+        memory::RamState,
         ppu::{Mirroring, Ppu},
         video::Frame,
     };
@@ -58,12 +57,13 @@ mod tests {
         debug::PpuDebugger,
         mapper::{
             Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
-            JalecoSs88006, Namco163, Nina001, Nina003006, Nrom, Pxrom, SunsoftFme7, Sxrom, Txrom,
-            Uxrom, Vrc6,
+            Fk23C, JalecoSs88006, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
+            SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
         },
-        mem::{ConstArray, Memory},
+        memory::ConstArray,
+        memory::Memory as CartMemory,
         ppu::{
-            CIRam, PaletteRam, ctrl::Ctrl, mask::Mask, scroll::Scroll, sprite::Sprite,
+            PaletteRam, ctrl::Ctrl, mask::Mask, scroll::Scroll, sprite::Sprite,
             status::Status as PpuStatus,
         },
     };
@@ -126,7 +126,7 @@ mod tests {
 
         print_struct_layout!(
             Bus,
-            wram: Memory<ConstArray<u8, { bus::size::WRAM }>>,
+            wram: Box<ConstArray<u8, { bus::size::WRAM }>>,
             open_bus: u8,
             ram_state: RamState,
             region: NesRegion,
@@ -180,7 +180,6 @@ mod tests {
             status: PpuStatus,
 
             frame: Frame,
-            ciram: CIRam,
 
             secondary_oamdata: ConstArray<u8, 32>,
             sprites: Box<[Sprite]>,
@@ -189,6 +188,11 @@ mod tests {
 
             palette: PaletteRam,
             mapper: Mapper,
+            memory: CartMemory,
+            watches_ppu_bus: bool,
+            serves_prg_reads: bool,
+            serves_chr_reads: bool,
+            nmi_pending: bool,
 
             vram_buffer: u8,
             prevent_vbl: bool,
@@ -246,6 +250,8 @@ mod tests {
             SunsoftFme7(SunsoftFme7),
             Bf909x(Bf909x),
             Nina003006(Nina003006),
+            NesEvent(NesEvent),
+            Fk23C(Fk23C),
         );
     }
 }

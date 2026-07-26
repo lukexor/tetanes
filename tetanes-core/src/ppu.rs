@@ -4,8 +4,7 @@ use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     debug::PpuDebugger,
     mapper::{Map, Mapper},
-    mem::{ConstArray, Read, Write},
-    memory::Memory as CartMemory,
+    memory::{ConstArray, Memory as CartMemory, Read, Write},
     ppu::frame::Frame,
 };
 use ctrl::Ctrl;
@@ -16,7 +15,6 @@ use sprite::Sprite;
 use status::Status;
 use std::{
     cmp::Ordering,
-    ops::{Index, IndexMut},
 };
 use tracing::{error, trace};
 
@@ -70,68 +68,6 @@ impl Write for PaletteRam {
     #[inline(always)]
     fn write(&mut self, addr: u16, val: u8) {
         self.0[Self::mirror(addr)] = val;
-    }
-}
-
-/// Console-Internal RAM (VRAM) which enforces mirroring.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-#[repr(transparent)]
-pub struct CIRam(Box<ConstArray<u8, { size::VRAM }>>);
-
-impl CIRam {
-    // Maps addresses to nametable pages based on mirroring mode
-    //
-    // Vram:            [ A ] [ B ]
-    //
-    // Horizontal:      [ A ] [ a ]
-    //                  [ B ] [ b ]
-    //
-    // Vertical:        [ A ] [ B ]
-    //                  [ a ] [ b ]
-    //
-    // Single Screen A: [ A ] [ a ]
-    //                  [ a ] [ a ]
-    //
-    // Single Screen B: [ b ] [ B ]
-    //                  [ b ] [ b ]
-    //
-    // Fourscreen should not use this method and instead should rely on mapper translation.
-    #[inline(always)]
-    pub const fn mirror(addr: u16, mirroring: Mirroring) -> usize {
-        let nametable = (addr >> mirroring as u16) & size::NAMETABLE;
-        (nametable | (!nametable & addr & 0x03FF)) as usize
-    }
-
-    #[inline(always)]
-    pub fn read(&mut self, addr: u16, mirroring: Mirroring) -> u8 {
-        self.0[Self::mirror(addr, mirroring)]
-    }
-
-    #[inline(always)]
-    pub fn peek(&self, addr: u16, mirroring: Mirroring) -> u8 {
-        self.0[Self::mirror(addr, mirroring)]
-    }
-
-    #[inline(always)]
-    pub fn write(&mut self, addr: u16, val: u8, mirroring: Mirroring) {
-        self.0[Self::mirror(addr, mirroring)] = val
-    }
-}
-
-impl Index<usize> for CIRam {
-    type Output = u8;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        self.0.index(index)
-    }
-}
-
-impl IndexMut<usize> for CIRam {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.0.index_mut(index)
     }
 }
 
@@ -247,9 +183,6 @@ pub struct Ppu {
 
     /// Current PPU frame buffer.
     pub frame: Frame,
-    /// Console-Internal RAM (CIRAM).
-    pub ciram: CIRam,
-
     // === 128 : end of cache line ===
     // Palette RAM
     pub palette: PaletteRam,
@@ -272,18 +205,15 @@ pub struct Ppu {
     pub mapper: Mapper,
     /// Page-table backed cartridge memory, for boards that have been ported onto it.
     pub memory: CartMemory,
-    /// Whether the loaded board serves reads from [`Ppu::memory`] rather than through the mapper.
-    /// Cached from `Map::uses_page_tables` at load so the hot path is a bool test, not a dispatch.
-    pub mapped: bool,
     /// Whether the loaded board needs to observe every PPU bus address, for A12 scanline counters
     /// and CHR latches. Cached from `Map::watches_ppu_bus` for the same reason.
     pub watches_ppu_bus: bool,
     /// Whether the loaded board serves some CPU reads itself, for expansion hardware that is not
-    /// memory. Cached from `Map::has_prg_read_hook`.
-    pub has_prg_read_hook: bool,
+    /// memory. Cached from `Map::serves_prg_reads`.
+    pub serves_prg_reads: bool,
     /// Whether the loaded board serves some PPU reads itself, for MMC5's extended attributes and
-    /// fill mode. Cached from `Map::has_chr_read_hook`.
-    pub has_chr_read_hook: bool,
+    /// fill mode. Cached from `Map::serves_chr_reads`.
+    pub serves_chr_reads: bool,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -450,11 +380,9 @@ impl Ppu {
             palette: PaletteRam(ConstArray::new()),
             mapper: Mapper::none(),
             memory: CartMemory::default(),
-            mapped: false,
             watches_ppu_bus: false,
-            has_prg_read_hook: false,
-            has_chr_read_hook: false,
-            ciram: CIRam(Box::new(ConstArray::new())),
+            serves_prg_reads: false,
+            serves_chr_reads: false,
 
             prev_palette: 0x00,
             curr_palette: 0x00,
@@ -505,25 +433,21 @@ impl Ppu {
     /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
-        if self.mapped {
-            let hooked = if self.has_chr_read_hook {
-                let Self { mapper, memory, .. } = self;
-                mapper.chr_read_hook(memory, addr)
-            } else {
-                None
-            };
-            let val = hooked.unwrap_or_else(|| self.memory.chr_peek(addr));
-            // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte
-            // being read must come from the pre-flip bank. MMC3's A12 counter does not affect the
-            // data, so it is unaffected by the ordering.
-            if self.watches_ppu_bus {
-                let Self { mapper, memory, .. } = self;
-                mapper.ppu_bus_addr(memory, addr);
-            }
-            val
+        let served = if self.serves_chr_reads {
+            let Self { mapper, memory, .. } = self;
+            mapper.chr_read(memory, addr)
         } else {
-            self.mapper.chr_read(addr, &self.ciram)
+            None
+        };
+        let val = served.unwrap_or_else(|| self.memory.chr_peek(addr));
+        // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte being
+        // read must come from the pre-flip bank. MMC3's A12 counter does not affect the data, so
+        // it is unaffected by the ordering.
+        if self.watches_ppu_bus {
+            let Self { mapper, memory, .. } = self;
+            mapper.ppu_bus_addr(memory, addr);
         }
+        val
     }
 
     /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
@@ -532,26 +456,18 @@ impl Ppu {
     /// `mapper` directly bypasses page-table boards and yields garbage.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
-        if self.mapped {
-            if self.has_chr_read_hook
-                && let Some(val) = self.mapper.chr_peek_hook(&self.memory, addr)
-            {
-                return val;
-            }
-            self.memory.chr_peek(addr)
-        } else {
-            self.mapper.chr_peek(addr, &self.ciram)
+        if self.serves_chr_reads
+            && let Some(val) = self.mapper.chr_peek(&self.memory, addr)
+        {
+            return val;
         }
+        self.memory.chr_peek(addr)
     }
 
     /// Write a byte to CHR-RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_write(&mut self, addr: u16, val: u8) {
-        if self.mapped {
-            self.memory.chr_write(addr, val);
-        } else {
-            self.mapper.chr_write(addr, val, &mut self.ciram);
-        }
+        self.memory.chr_write(addr, val);
     }
 
     /// Read from `addr` on Ppu bus.
@@ -615,10 +531,9 @@ impl Ppu {
     /// Load a Mapper into the PPU.
     #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
-        self.mapped = mapper.uses_page_tables();
         self.watches_ppu_bus = mapper.watches_ppu_bus();
-        self.has_prg_read_hook = mapper.has_prg_read_hook();
-        self.has_chr_read_hook = mapper.has_chr_read_hook();
+        self.serves_prg_reads = mapper.serves_prg_reads();
+        self.serves_chr_reads = mapper.serves_chr_reads();
         self.mapper = mapper;
     }
 
@@ -630,18 +545,13 @@ impl Ppu {
 
     /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
     ///
-    /// Every site that observes the PPU bus must go through this: page-table boards implement
-    /// `Map::ppu_bus_addr` and never see `Map::ppu_read`, so calling the latter directly silently
-    /// does nothing for them.
+    /// Reads made through `chr_read` notify the board themselves; this exists for the sites that
+    /// move the PPU address without fetching through it, such as `$2006` writes.
     #[inline(always)]
     pub fn notify_ppu_bus(&mut self, addr: u16) {
-        if self.mapped {
-            if self.watches_ppu_bus {
-                let Self { mapper, memory, .. } = self;
-                mapper.ppu_bus_addr(memory, addr);
-            }
-        } else {
-            self.mapper.ppu_read(addr);
+        if self.watches_ppu_bus {
+            let Self { mapper, memory, .. } = self;
+            mapper.ppu_bus_addr(memory, addr);
         }
     }
 
@@ -680,7 +590,6 @@ impl Ppu {
             ctrl: self.ctrl,
 
             palette: self.palette,
-            ciram: self.ciram.clone(),
             mapper: self.mapper.clone(),
 
             curr_palette: self.curr_palette,
@@ -1828,70 +1737,6 @@ mod tests {
         cart::Cart,
         mapper::{Mmc1Revision, Sxrom},
     };
-
-    #[test]
-    fn ciram_mirror_horizontal() {
-        assert_eq!(CIRam::mirror(0x2000, Mirroring::Horizontal), 0x0000);
-        assert_eq!(CIRam::mirror(0x2005, Mirroring::Horizontal), 0x0005);
-        assert_eq!(CIRam::mirror(0x23FF, Mirroring::Horizontal), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2400, Mirroring::Horizontal), 0x0000);
-        assert_eq!(CIRam::mirror(0x2405, Mirroring::Horizontal), 0x0005);
-        assert_eq!(CIRam::mirror(0x27FF, Mirroring::Horizontal), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2800, Mirroring::Horizontal), 0x0400);
-        assert_eq!(CIRam::mirror(0x2805, Mirroring::Horizontal), 0x0405);
-        assert_eq!(CIRam::mirror(0x2BFF, Mirroring::Horizontal), 0x07FF);
-        assert_eq!(CIRam::mirror(0x2C00, Mirroring::Horizontal), 0x0400);
-        assert_eq!(CIRam::mirror(0x2C05, Mirroring::Horizontal), 0x0405);
-        assert_eq!(CIRam::mirror(0x2FFF, Mirroring::Horizontal), 0x07FF);
-    }
-
-    #[test]
-    fn ciram_mirror_vertical() {
-        assert_eq!(CIRam::mirror(0x2000, Mirroring::Vertical), 0x0000);
-        assert_eq!(CIRam::mirror(0x2005, Mirroring::Vertical), 0x0005);
-        assert_eq!(CIRam::mirror(0x23FF, Mirroring::Vertical), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2800, Mirroring::Vertical), 0x0000);
-        assert_eq!(CIRam::mirror(0x2805, Mirroring::Vertical), 0x0005);
-        assert_eq!(CIRam::mirror(0x2BFF, Mirroring::Vertical), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2400, Mirroring::Vertical), 0x0400);
-        assert_eq!(CIRam::mirror(0x2405, Mirroring::Vertical), 0x0405);
-        assert_eq!(CIRam::mirror(0x27FF, Mirroring::Vertical), 0x07FF);
-        assert_eq!(CIRam::mirror(0x2C00, Mirroring::Vertical), 0x0400);
-        assert_eq!(CIRam::mirror(0x2C05, Mirroring::Vertical), 0x0405);
-        assert_eq!(CIRam::mirror(0x2FFF, Mirroring::Vertical), 0x07FF);
-    }
-
-    #[test]
-    fn ciram_mirror_single_screen_a() {
-        assert_eq!(CIRam::mirror(0x2000, Mirroring::SingleScreenA), 0x0000);
-        assert_eq!(CIRam::mirror(0x2005, Mirroring::SingleScreenA), 0x0005);
-        assert_eq!(CIRam::mirror(0x23FF, Mirroring::SingleScreenA), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2800, Mirroring::SingleScreenA), 0x0000);
-        assert_eq!(CIRam::mirror(0x2805, Mirroring::SingleScreenA), 0x0005);
-        assert_eq!(CIRam::mirror(0x2BFF, Mirroring::SingleScreenA), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2400, Mirroring::SingleScreenA), 0x0000);
-        assert_eq!(CIRam::mirror(0x2405, Mirroring::SingleScreenA), 0x0005);
-        assert_eq!(CIRam::mirror(0x27FF, Mirroring::SingleScreenA), 0x03FF);
-        assert_eq!(CIRam::mirror(0x2C00, Mirroring::SingleScreenA), 0x0000);
-        assert_eq!(CIRam::mirror(0x2C05, Mirroring::SingleScreenA), 0x0005);
-        assert_eq!(CIRam::mirror(0x2FFF, Mirroring::SingleScreenA), 0x03FF);
-    }
-
-    #[test]
-    fn ciram_mirror_single_screen_b() {
-        assert_eq!(CIRam::mirror(0x2000, Mirroring::SingleScreenB), 0x0400);
-        assert_eq!(CIRam::mirror(0x2005, Mirroring::SingleScreenB), 0x0405);
-        assert_eq!(CIRam::mirror(0x23FF, Mirroring::SingleScreenB), 0x07FF);
-        assert_eq!(CIRam::mirror(0x2800, Mirroring::SingleScreenB), 0x0400);
-        assert_eq!(CIRam::mirror(0x2805, Mirroring::SingleScreenB), 0x0405);
-        assert_eq!(CIRam::mirror(0x2BFF, Mirroring::SingleScreenB), 0x07FF);
-        assert_eq!(CIRam::mirror(0x2400, Mirroring::SingleScreenB), 0x0400);
-        assert_eq!(CIRam::mirror(0x2405, Mirroring::SingleScreenB), 0x0405);
-        assert_eq!(CIRam::mirror(0x27FF, Mirroring::SingleScreenB), 0x07FF);
-        assert_eq!(CIRam::mirror(0x2C00, Mirroring::SingleScreenB), 0x0400);
-        assert_eq!(CIRam::mirror(0x2C05, Mirroring::SingleScreenB), 0x0405);
-        assert_eq!(CIRam::mirror(0x2FFF, Mirroring::SingleScreenB), 0x07FF);
-    }
 
     #[test]
     fn vram_writes() {

@@ -6,7 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     mapper::{self, Map, Mapper},
-    mem::ConstArray,
+    memory::ConstArray,
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -120,9 +120,6 @@ impl Namco163 {
 }
 
 impl Map for Namco163 {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
@@ -155,11 +152,11 @@ impl Map for Namco163 {
     }
 
     /// Audio registers and the IRQ counter live in the expansion range and are not memory.
-    fn has_prg_read_hook(&self) -> bool {
+    fn serves_prg_reads(&self) -> bool {
         true
     }
 
-    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+    fn prg_read(&mut self, addr: u16) -> Option<u8> {
         match addr {
             0x4800..=0x4FFF => Some(self.audio.read_register(addr)),
             0x5000..=0x57FF => Some((self.regs.irq_counter & 0xFF) as u8),
@@ -168,7 +165,7 @@ impl Map for Namco163 {
         }
     }
 
-    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+    fn prg_peek(&self, addr: u16) -> Option<u8> {
         match addr {
             0x4800..=0x4FFF => Some(self.audio.peek_register(addr)),
             0x5000..=0x57FF => Some((self.regs.irq_counter & 0xFF) as u8),

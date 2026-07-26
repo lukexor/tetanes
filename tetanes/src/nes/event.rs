@@ -26,7 +26,7 @@ use tetanes_core::{
     debug::Debugger,
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
-    mem::RamState,
+    memory::RamState,
     ppu::Ppu,
     time::{Duration, Instant},
     video::VideoFilter,

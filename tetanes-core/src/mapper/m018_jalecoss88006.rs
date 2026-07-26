@@ -92,9 +92,6 @@ impl JalecoSs88006 {
 }
 
 impl Map for JalecoSs88006 {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

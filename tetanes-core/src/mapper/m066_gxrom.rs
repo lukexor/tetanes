@@ -40,9 +40,6 @@ impl Gxrom {
 }
 
 impl Map for Gxrom {
-    fn uses_page_tables(&self) -> bool {
-        true
-    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

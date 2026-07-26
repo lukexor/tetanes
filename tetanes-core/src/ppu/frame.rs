@@ -2,7 +2,7 @@
 
 use crate::{
     common::{Reset, ResetKind},
-    mem::ConstArray,
+    memory::ConstArray,
     ppu::{self, Ppu},
 };
 use serde::{Deserialize, Serialize};

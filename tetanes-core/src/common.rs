@@ -241,7 +241,7 @@ pub(crate) mod tests {
         common::{Regional, Reset, ResetKind},
         control_deck::{Config, ControlDeck},
         input::Player,
-        mem::RamState,
+        memory::RamState,
         ppu::size,
         video::VideoFilter,
     };

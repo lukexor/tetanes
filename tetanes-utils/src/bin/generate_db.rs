@@ -11,7 +11,7 @@ use tetanes_core::{
     cart::{Cart, GameInfo},
     common::NesRegion,
     fs,
-    mem::RamState,
+    memory::RamState,
     ppu::Mirroring,
 };
 
@@ -138,9 +138,9 @@ impl Game {
     fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Game> {
         let path = path.as_ref();
         let cart = Cart::from_path(path, RamState::default())?;
-        let mut crc32 = fs::compute_crc32(&cart.prg_rom);
-        if !cart.chr_rom.is_empty() {
-            crc32 = fs::compute_combine_crc32(crc32, &cart.chr_rom);
+        let mut crc32 = fs::compute_crc32(cart.prg_rom());
+        if !cart.chr_rom().is_empty() {
+            crc32 = fs::compute_combine_crc32(crc32, cart.chr_rom());
         }
         let filename = path.file_name().unwrap_or_default();
         let region = match filename.to_str() {
