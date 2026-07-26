@@ -164,7 +164,19 @@ where
     Ok(res)
 }
 
-pub fn load_bytes<T>(bytes: &[u8], version: &str) -> Result<T>
+pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    load_bytes_version(bytes, SAVE_VERSION)
+}
+
+/// Load data from bytes written with an explicit format version.
+///
+/// # Errors
+///
+/// If the header is invalid or the data fails to deserialize, then an error is returned.
+pub fn load_bytes_version<T>(bytes: &[u8], version: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
