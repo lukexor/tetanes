@@ -20,6 +20,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "chrdump"
+test = false
+bench = false
+
+[[bin]]
 name = "generate_db"
 test = false
 bench = false
