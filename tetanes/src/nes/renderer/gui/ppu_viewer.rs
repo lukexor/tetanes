@@ -17,7 +17,6 @@ use std::sync::{
 };
 use tetanes_core::{
     debug::PpuDebugger,
-    mapper::Map,
     ppu::{self, Ppu, addr, cycle, scanline, scroll::Scroll, sprite::Sprite},
 };
 
@@ -655,12 +654,12 @@ impl State {
         let base_attr_addr = base_nametable_addr + addr::ATTR_OFFSET;
 
         let nametable_addr = base_nametable_addr + nametable_index;
-        let tile_index = u16::from(self.ppu.mapper.chr_peek(nametable_addr, &self.ppu.ciram));
+        let tile_index = u16::from(self.ppu.chr_peek(nametable_addr));
         let tile_addr = self.ppu.ctrl.bg_select + (tile_index << 4);
 
         let supertile = ((row & 0xFC) << 1) + (col >> 2);
         let attr_addr = base_attr_addr + supertile;
-        let attr_val = self.ppu.mapper.chr_peek(attr_addr, &self.ppu.ciram);
+        let attr_val = self.ppu.chr_peek(attr_addr);
 
         let attr_shift = (col & 0x02) | ((row & 0x02) << 1);
         // TODO: handle mmc5 extended attributes

@@ -311,7 +311,6 @@ mod test {
     use super::*;
     use crate::{
         mapper::{Cnrom, Nrom},
-        mem::Memory,
         memory::Src,
     };
 
@@ -345,11 +344,10 @@ mod test {
     #[test]
     fn load_cart_chr_rom() {
         let mut bus = Bus::default();
-        let mut cart = Cart::empty();
-        let mut chr_rom = Memory::new(0x2000);
-        chr_rom.fill(0x66);
         // Cnrom doesn't provide CHR-RAM
-        cart.mapper = Cnrom::load(&cart, chr_rom, Memory::new(0x4000)).unwrap();
+        let mut cart = Cart::empty_sized(0x4000, 0x2000);
+        cart.mapper = Cnrom::load(&mut cart).unwrap();
+        cart.memory.region_mut(Src::Chr).fill(0x66);
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00);

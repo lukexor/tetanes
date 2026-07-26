@@ -279,15 +279,15 @@ impl Cart {
         cart.mapper = match cart.header.mapper_num {
             0 => Nrom::load(&mut cart)?,
             1 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::BC)?,
-            2 => Uxrom::load(&cart, chr_rom, prg_rom)?,
-            3 => Cnrom::load(&cart, chr_rom, prg_rom)?,
+            2 => Uxrom::load(&mut cart)?,
+            3 => Cnrom::load(&mut cart)?,
             4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&cart, chr_rom, prg_rom)?,
             176 => Fk23C::load(&cart, chr_rom, prg_rom)?,
             5 => Exrom::load(&cart, chr_rom, prg_rom)?,
-            7 => Axrom::load(&cart, chr_rom, prg_rom)?,
+            7 => Axrom::load(&mut cart)?,
             9 => Pxrom::load(&cart, chr_rom, prg_rom)?,
             10 => Fxrom::load(&cart, chr_rom, prg_rom)?,
-            11 | 144 => ColorDreams::load(&cart, chr_rom, prg_rom)?,
+            11 | 144 => ColorDreams::load(&mut cart)?,
             16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
             18 => JalecoSs88006::load(&cart, chr_rom, prg_rom)?,
             19 | 210 => Namco163::load(&cart, chr_rom, prg_rom)?,
@@ -296,15 +296,15 @@ impl Cart {
             34 => {
                 // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
                 if chr_rom_size >= 0x4000 {
-                    Nina001::load(&cart, chr_rom, prg_rom)?
+                    Nina001::load(&mut cart)?
                 } else {
-                    Bnrom::load(&cart, chr_rom, prg_rom)?
+                    Bnrom::load(&mut cart)?
                 }
             }
-            66 => Gxrom::load(&cart, chr_rom, prg_rom)?,
+            66 => Gxrom::load(&mut cart)?,
             69 => SunsoftFme7::load(&cart, chr_rom, prg_rom)?,
-            71 => Bf909x::load(&cart, chr_rom, prg_rom)?,
-            79 | 113 | 146 => Nina003006::load(&cart, chr_rom, prg_rom)?,
+            71 => Bf909x::load(&mut cart)?,
+            79 | 113 | 146 => Nina003006::load(&mut cart)?,
             105 => NesEvent::load(
                 &mut cart,
                 chr_rom,
@@ -395,26 +395,28 @@ impl Cart {
             return self.memory.region_ref(Src::Chr).len();
         }
         match &self.mapper {
-            Mapper::None(_) | Mapper::Nrom(_) => 0,
+            // Ported boards are handled by the short-circuit above.
+            Mapper::None(_)
+            | Mapper::Nrom(_)
+            | Mapper::Uxrom(_)
+            | Mapper::Cnrom(_)
+            | Mapper::Axrom(_)
+            | Mapper::ColorDreams(_)
+            | Mapper::Bnrom(_)
+            | Mapper::Nina001(_)
+            | Mapper::Gxrom(_)
+            | Mapper::Bf909x(_)
+            | Mapper::Nina003006(_) => 0,
             Mapper::Sxrom(sxrom) => sxrom.chr.len(),
-            Mapper::Uxrom(uxrom) => uxrom.chr.len(),
-            Mapper::Cnrom(cnrom) => cnrom.chr_rom.len(),
             Mapper::Txrom(txrom) => txrom.chr.len(),
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
-            Mapper::Axrom(axrom) => axrom.chr.len(),
             Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),
             Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
-            Mapper::ColorDreams(color_dreams) => color_dreams.chr_rom.len(),
             Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
             Mapper::JalecoSs88006(jaleco_ss88006) => jaleco_ss88006.chr_rom.len(),
             Mapper::Namco163(namco163) => namco163.chr_rom.len(),
             Mapper::Vrc6(vrc6) => vrc6.chr_rom.len(),
-            Mapper::Bnrom(bnrom) => bnrom.chr.len(),
-            Mapper::Gxrom(gxrom) => gxrom.chr_rom.len(),
-            Mapper::Nina001(nina001) => nina001.chr_rom.len(),
             Mapper::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.chr_rom.len(),
-            Mapper::Bf909x(bf909x) => bf909x.chr.len(),
-            Mapper::Nina003006(nina003006) => nina003006.chr_rom.len(),
             Mapper::NesEvent(nes_event) => nes_event.chr.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }

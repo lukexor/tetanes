@@ -501,8 +501,11 @@ impl Ppu {
     }
 
     /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
+    ///
+    /// Public so debuggers read through the same routing the emulation uses; reaching into
+    /// `mapper` directly bypasses page-table boards and yields garbage.
     #[inline(always)]
-    fn chr_peek(&self, addr: u16) -> u8 {
+    pub fn chr_peek(&self, addr: u16) -> u8 {
         if self.mapped {
             self.memory.chr_peek(addr)
         } else {

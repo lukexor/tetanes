@@ -7,7 +7,7 @@ use crate::{
     common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::Src,
-    ppu::{CIRam, Mirroring},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,9 +16,11 @@ use serde::{Deserialize, Serialize};
 /// The board has no registers at all - the entire cartridge is fixed at power-on - so it holds no
 /// state and exists only to configure the page tables in [`Memory::map_prg`]/[`Memory::map_chr`]
 /// when the cart is loaded.
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
-pub struct Nrom;
+pub struct Nrom {
+    pub mirroring: Mirroring,
+}
 
 impl Nrom {
     const PRG_WINDOW: usize = 16 * 1024;
@@ -39,7 +41,10 @@ impl Nrom {
             .map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
         cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
         cart.memory.set_mirroring(cart.mirroring());
-        Ok(Self.into())
+        Ok(Self {
+            mirroring: cart.mirroring(),
+        }
+        .into())
     }
 }
 
@@ -49,16 +54,7 @@ impl Map for Nrom {
     }
 
     fn mirroring(&self) -> Mirroring {
-        // Hard-wired by the cart at load; the page tables hold the real mapping.
-        Mirroring::default()
-    }
-
-    fn chr_peek(&self, _addr: u16, _ciram: &CIRam) -> u8 {
-        unreachable!("NROM reads are served from page tables")
-    }
-
-    fn prg_peek(&self, _addr: u16) -> u8 {
-        unreachable!("NROM reads are served from page tables")
+        self.mirroring
     }
 }
 

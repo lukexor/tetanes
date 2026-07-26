@@ -394,8 +394,12 @@ pub trait Map: Clock + Regional + Reset + Sram {
     }
 
     /// Peek a byte from CHR-ROM/RAM at a given address.
-    // `chr_peek` has to be implemented at read from CHR and CIRam.
-    fn chr_peek(&self, _addr: u16, _ciram: &CIRam) -> u8;
+    ///
+    /// Boards serving reads from page-table [`Memory`] never see this; routing is the caller's
+    /// job, so the default is inert rather than a panic.
+    fn chr_peek(&self, _addr: u16, _ciram: &CIRam) -> u8 {
+        0
+    }
 
     /// Read a byte from PRG-ROM/RAM at a given address.
     ///
@@ -406,8 +410,11 @@ pub trait Map: Clock + Regional + Reset + Sram {
     }
 
     /// Peek a byte from PRG-ROM/RAM at a given address.
-    // `prg_peek` has to be implemented to read PRG-ROM.
-    fn prg_peek(&self, _addr: u16) -> u8;
+    ///
+    /// Boards serving reads from page-table [`Memory`] never see this.
+    fn prg_peek(&self, _addr: u16) -> u8 {
+        0
+    }
 
     /// Write a byte to CHR-RAM/CIRAM at a given address.
     // `chr_write` has to be implemented at least to write to CIRam.
