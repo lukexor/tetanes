@@ -29,17 +29,14 @@ impl Nina003006 {
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
     // Registers are decoded at $4100..=$5FFF with mask $E100.
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.memory
-            .map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
-        cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
-        cart.memory.set_mirroring(cart.mirroring());
-        Ok(Self {
+        let mut board = Self {
             mapper_num: cart.mapper_num(),
             mirroring: cart.mirroring(),
             chr_bank: 0,
             prg_bank: 0,
-        }
-        .into())
+        };
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
@@ -76,6 +73,17 @@ impl Map for Nina003006 {
             Src::PrgRom,
         );
         memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(self.chr_bank), Src::Chr);
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW,
+            i32::from(self.prg_bank),
+            Src::PrgRom,
+        );
+        memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(self.chr_bank), Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

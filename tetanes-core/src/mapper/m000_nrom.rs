@@ -6,7 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
-    memory::Src,
+    memory::{Memory, Src},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -32,19 +32,13 @@ impl Nrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
     // CPU $C000..=$FFFF 16K PRG-ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.memory.map_prg(0x6000, 8 * 1024, 0, Src::PrgRam);
-        cart.memory
-            .map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
         // NROM-128 has a single 16K bank mirrored into both slots, which falls out of the bank
         // index wrapping within the region rather than needing a `mirror_prg_rom` flag.
-        cart.memory
-            .map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
-        cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
-        cart.memory.set_mirroring(cart.mirroring());
-        Ok(Self {
+        let mut board = Self {
             mirroring: cart.mirroring(),
-        }
-        .into())
+        };
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
@@ -55,6 +49,15 @@ impl Map for Nrom {
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        memory.map_prg(0x6000, 8 * 1024, 0, Src::PrgRam);
+        memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
+        // NROM-128 has a single 16K bank mirrored into both slots, which falls out of the bank
+        // index wrapping within the region rather than needing a `mirror_prg_rom` flag.
+        memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
+        memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
     }
 }
 

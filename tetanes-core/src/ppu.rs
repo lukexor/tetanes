@@ -594,6 +594,15 @@ impl Ppu {
         self.load_mapper(mapper);
     }
 
+    /// Rebuild the page tables from the mapper's register state.
+    ///
+    /// Required after loading a save state: page tables are derived state and are not serialized,
+    /// so without this a restored state would have every page unmapped.
+    pub fn sync_mapper(&mut self) {
+        let Self { mapper, memory, .. } = self;
+        mapper.sync(memory);
+    }
+
     /// Return the current Nametable mirroring mode.
     #[inline]
     pub fn mirroring(&self) -> Mirroring {
@@ -1732,6 +1741,8 @@ impl Reset for Ppu {
         self.ctrl.reset(kind);
 
         self.mapper.reset(kind);
+        // Reset can change banking, and `Reset` has no access to `Memory`.
+        self.sync_mapper();
 
         self.status.reset(kind);
         self.nmi_pending = false;

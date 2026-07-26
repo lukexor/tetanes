@@ -354,6 +354,9 @@ impl ControlDeck {
     #[inline]
     pub fn load_cpu(&mut self, cpu: Cpu) {
         self.cpu.load(cpu);
+        // Page tables are derived state and aren't serialized, so rebuild them from the restored
+        // mapper registers.
+        self.cpu.bus.ppu.sync_mapper();
     }
 
     /// Set the [`MapperRevision`] to emulate for the any ROM loaded that uses this mapper.

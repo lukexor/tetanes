@@ -30,19 +30,13 @@ impl Nina001 {
     // CPU $6000..=$7FFF 8K PRG-RAM, with registers at $7FFD..=$7FFF
     // CPU $8000..=$FFFF 32K PRG-ROM Bank Switchable
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.memory
-            .map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
-        cart.memory
-            .map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
-        cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
-        cart.memory.map_chr(0x1000, Self::CHR_WINDOW, 1, Src::Chr);
-        cart.memory.set_mirroring(Mirroring::Horizontal);
-        Ok(Self {
+        let mut board = Self {
             mirroring: Mirroring::Horizontal,
             prg_bank: 0,
             chr_banks: [0, 1],
-        }
-        .into())
+        };
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
@@ -87,6 +81,29 @@ impl Map for Nina001 {
             }
             _ => (),
         }
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW,
+            i32::from(self.prg_bank),
+            Src::PrgRom,
+        );
+        memory.map_chr(
+            0x0000,
+            Self::CHR_WINDOW,
+            i32::from(self.chr_banks[0]),
+            Src::Chr,
+        );
+        memory.map_chr(
+            0x1000,
+            Self::CHR_WINDOW,
+            i32::from(self.chr_banks[1]),
+            Src::Chr,
+        );
+        memory.set_mirroring(self.mirroring);
     }
 }
 

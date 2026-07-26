@@ -28,17 +28,12 @@ impl Cnrom {
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         // A 16K cart maps the same bank into both slots, which falls out of the bank index
         // wrapping within the region.
-        cart.memory
-            .map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
-        cart.memory
-            .map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
-        cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
-        cart.memory.set_mirroring(cart.mirroring());
-        Ok(Self {
+        let mut board = Self {
             mirroring: cart.mirroring(),
             chr_bank: 0,
-        }
-        .into())
+        };
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
@@ -56,6 +51,14 @@ impl Map for Cnrom {
             self.chr_bank = val;
             memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(val), Src::Chr);
         }
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        // A 16K cart maps the same bank into both slots, which falls out of the bank index
+        // wrapping within the region.
+        memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
+        memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
+        memory.map_chr(0x0000, Self::CHR_WINDOW, i32::from(self.chr_bank), Src::Chr);
     }
 }
 

@@ -38,13 +38,7 @@ impl Bf909x {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
     // CPU $C000..=$FFFF 16K PRG-ROM Fixed to Last Bank
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        cart.memory
-            .map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
-        cart.memory
-            .map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
-        cart.memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
-        cart.memory.set_mirroring(cart.mirroring());
-        Ok(Self {
+        let mut board = Self {
             revision: if cart.submapper_num() == 1 {
                 Revision::Bf9097
             } else {
@@ -52,8 +46,9 @@ impl Bf909x {
             },
             mirroring: cart.mirroring(),
             prg_bank: 0,
-        }
-        .into())
+        };
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 
     pub const fn set_revision(&mut self, rev: Revision) {
@@ -89,6 +84,18 @@ impl Map for Bf909x {
             };
             memory.set_mirroring(self.mirroring);
         }
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW,
+            i32::from(self.prg_bank),
+            Src::PrgRom,
+        );
+        memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
+        memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

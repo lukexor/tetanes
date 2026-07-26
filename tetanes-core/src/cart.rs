@@ -151,6 +151,8 @@ impl Cart {
             ram_state.fill(memory.region_mut(Src::Chr));
         }
         ram_state.fill(memory.region_mut(Src::PrgRam));
+        // A sane default so a cart is usable before the header mirroring is applied.
+        memory.set_mirroring(Mirroring::default());
         memory
     }
 
@@ -276,6 +278,9 @@ impl Cart {
             prg_ram_size,
             game_info,
         };
+        // Header mirroring is the default for every board; only boards that override it - either
+        // hard-wired or via a register - touch it again.
+        cart.memory.set_mirroring(cart.mirroring());
         cart.mapper = match cart.header.mapper_num {
             0 => Nrom::load(&mut cart)?,
             1 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::BC)?,

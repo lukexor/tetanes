@@ -312,6 +312,11 @@ impl Map for Mapper {
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         impl_map!(self, write_register, memory, addr, val)
     }
+
+    /// Rebuild the page tables from this board's register state.
+    fn sync(&mut self, memory: &mut Memory) {
+        impl_map!(self, sync, memory)
+    }
 }
 
 impl Sample for Mapper {
@@ -466,6 +471,14 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
     /// happened, so this only needs to handle registers.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
+
+    /// Rebuild the page tables from this board's register state.
+    ///
+    /// Page tables are derived state and are not serialized, so they must be reconstructed after
+    /// loading a save state; a board's registers survive, the mapping does not. Also called after
+    /// reset, where `Reset` has no access to [`Memory`]. Boards implement their initial mapping
+    /// here and call it from `load`, so a fresh cart and a restored save state take the same path.
+    fn sync(&mut self, _memory: &mut Memory) {}
 }
 
 impl Map for () {
@@ -490,3 +503,48 @@ impl Reset for () {}
 impl Clock for () {}
 impl Regional for () {}
 impl Sram for () {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{cart::Cart, memory::Src};
+
+    /// Page tables are `#[serde(skip)]` derived state, and `Cpu::load` replaces the whole console
+    /// when a save state is loaded. Without a `sync` on the way back in, every page comes back
+    /// unmapped and a restored state reads zeroes.
+    #[test]
+    fn sync_rebuilds_page_tables_after_a_save_state_round_trip() {
+        let mut cart = Cart::empty_sized(0x8000, 0x2000);
+        for (i, page) in cart
+            .memory
+            .region_mut(Src::PrgRom)
+            .chunks_mut(1024)
+            .enumerate()
+        {
+            page.fill(i as u8);
+        }
+        let mut mapper = Uxrom::load(&mut cart).expect("valid mapper");
+
+        // Switch $8000 to bank 1, which starts 16 KiB in.
+        mapper.write_register(&mut cart.memory, 0x8000, 1);
+        assert_eq!(cart.memory.prg_peek(0x8000), 16, "bank switched");
+
+        let config = bincode::config::legacy();
+        let bytes = bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
+        let (mut restored, _) =
+            bincode::serde::decode_from_slice::<crate::memory::Memory, _>(&bytes, config)
+                .expect("memory deserializes");
+
+        assert_eq!(
+            restored.prg_peek(0x8000),
+            0,
+            "page tables must not survive serialization"
+        );
+        mapper.sync(&mut restored);
+        assert_eq!(
+            restored.prg_peek(0x8000),
+            16,
+            "sync must rebuild the mapping from mapper registers"
+        );
+    }
+}
