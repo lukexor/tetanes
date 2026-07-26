@@ -183,7 +183,7 @@ mod tests {
             frame: Frame,
 
             secondary_oamdata: ConstArray<u8, 32>,
-            sprites: Box<[Sprite]>,
+            sprites: [Sprite; 8],
             spr_present: ConstArray<bool, 256>,
             oamdata: ConstArray<u8, 256>,
 

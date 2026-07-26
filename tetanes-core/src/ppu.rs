@@ -194,7 +194,7 @@ pub struct Ppu {
 
     // === 192 : end of cache line ===
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
-    pub sprites: Box<[Sprite; 8]>,
+    pub sprites: [Sprite; 8],
     /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
     // This is a per-frame optimization, shouldn't need to be saved
     #[serde(skip)]
@@ -414,7 +414,7 @@ impl Ppu {
 
             oamdata: ConstArray::new(),
             secondary_oamdata: ConstArray::new(),
-            sprites: [Sprite::new(); 8].into(),
+            sprites: [Sprite::new(); 8],
             spr_present: ConstArray::new(),
 
             prevent_vbl: false,
@@ -617,7 +617,7 @@ impl Ppu {
             oamdata: self.oamdata,
             secondary_oamdata: self.secondary_oamdata,
 
-            sprites: self.sprites.clone(),
+            sprites: self.sprites,
 
             ..Default::default()
         }
@@ -1769,7 +1769,7 @@ impl Reset for Ppu {
         } else {
             self.reset_signal = self.emulate_warmup;
         }
-        *self.sprites = [Sprite::new(); 8];
+        self.sprites = [Sprite::new(); 8];
         self.spr_present = ConstArray::new();
         self.prevent_vbl = false;
         self.frame.reset(kind);

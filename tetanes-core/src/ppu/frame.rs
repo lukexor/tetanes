@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
 /// PPU frame.
+///
+/// Boxed rather than inline: at 120 KiB (`FRAME` u16s), embedding it directly in `Ppu` blows the
+/// stack wherever a `Ppu`/`Cpu`/`ControlDeck` is built or moved by value (save-state round trips
+/// clone through several stack frames) - confirmed by `control_deck::tests::
+/// save_state_resumes_identically` overflowing when this was tried un-boxed.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 #[repr(transparent)]

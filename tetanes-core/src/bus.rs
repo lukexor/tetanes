@@ -56,6 +56,10 @@ pub struct Bus {
     /// Joypad and Zapper inputs.
     pub input: Input,
     // 2K NES Work Ram available to the CPU.
+    //
+    // Measured un-boxed (embedded directly in `Bus`): ~1.2% slower on the bench corpus, not
+    // faster, despite removing a pointer chase - inlining it grows `Bus`'s footprint enough to
+    // outweigh that. Keep it boxed.
     pub wram: Box<ConstArray<u8, { size::WRAM }>>,
     /// Game GENIE codes.
     pub genie_codes: HashMap<u16, GenieCode>,
