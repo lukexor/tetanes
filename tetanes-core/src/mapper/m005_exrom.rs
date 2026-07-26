@@ -280,10 +280,12 @@ pub struct IrqState {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct PpuStatus {
-    pub fetch_count: u32,
     /// Nametable fetches so far this scanline, counting the garbage fetches during sprite
-    /// evaluation and the two prefetched tiles. Only the vertical split uses it, to work out
-    /// which screen column a fetch belongs to.
+    /// evaluation and the two prefetched tiles.
+    ///
+    /// It says which screen column a fetch belongs to, which is what the vertical split needs,
+    /// and which part of the scanline the PPU is in, which is what tells sprite fetches from
+    /// background fetches.
     pub tile_number: u32,
     pub reading: bool,
     pub idle_count: u8,
@@ -301,9 +303,11 @@ pub struct Exrom {
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
     pub tile_cache: u16,
-    /// Which of the two CHR bank sets is currently mapped. 8x16-sprite games alternate between
-    /// them partway through each scanline; 8x8 games only ever use the set they last wrote.
+    /// Which of the two CHR bank sets the page tables currently hold.
     pub chr_set: ChrBank,
+    /// Which set the last CHR register write belonged to, which decides the set outside a
+    /// rendered frame - there is no scanline to key on then.
+    pub last_chr_write: ChrBank,
     pub region: NesRegion,
     pub pulse1: Pulse,
     pub pulse2: Pulse,
@@ -323,8 +327,10 @@ impl Exrom {
     /// PRG-RAM is emulated as a single 64K block, i.e. eight 8K banks.
     const PRG_RAM_BANK_MASK: usize = 0x07;
 
-    const SPR_FETCH_START: u32 = 64;
-    const SPR_FETCH_END: u32 = 81;
+    /// Nametable fetches 32-39 of a scanline are the eight garbage fetches the PPU makes while
+    /// fetching sprite patterns.
+    const SPR_TILE_START: u32 = 32;
+    const SPR_TILE_END: u32 = 40;
 
     /// Nametable fetches in a scanline: 32 visible tiles, 8 garbage fetches during sprite
     /// evaluation, and 2 tiles prefetched for the next scanline.
@@ -346,7 +352,6 @@ impl Exrom {
                 pending: false,
             },
             ppu_status: PpuStatus {
-                fetch_count: 0x00,
                 tile_number: 0x00,
                 reading: false,
                 idle_count: 0x00,
@@ -356,6 +361,7 @@ impl Exrom {
             },
             tile_cache: 0,
             chr_set: ChrBank::Spr,
+            last_chr_write: ChrBank::Spr,
             region: cart.region(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
@@ -547,30 +553,48 @@ impl Exrom {
         }
     }
 
-    /// Switch to the given CHR bank set and re-map the pattern tables.
-    fn set_chr_set(&mut self, memory: &mut Memory, chr_set: ChrBank) {
-        self.chr_set = chr_set;
-        self.sync_chr(memory);
+    /// Which CHR bank set the fetch in progress must use.
+    ///
+    /// With 8x8 sprites the 'B' registers are ignored entirely and everything comes from 'A'.
+    /// With 8x16 sprites the PPU fetches sprite patterns from 'A' and background patterns from
+    /// 'B', which the nametable-fetch counter distinguishes. Outside a rendered frame there is no
+    /// scanline to key on, so the set follows whichever register was written last.
+    const fn required_chr_set(&self) -> ChrBank {
+        let spr_fetch = self.spr_fetch();
+        let idle = !self.irq_state.in_frame && matches!(self.last_chr_write, ChrBank::Spr);
+        if !self.ppu_status.sprite8x16 || spr_fetch || idle {
+            ChrBank::Spr
+        } else {
+            ChrBank::Bg
+        }
+    }
+
+    /// Re-map the pattern tables if the set they should come from has changed.
+    fn update_chr_banks(&mut self, memory: &mut Memory, force: bool) {
+        if !self.ppu_status.sprite8x16 {
+            // 8x8 sprites ignore $5128-$512B completely, so a write to one of them cannot leave
+            // the 'B' set selected.
+            self.last_chr_write = ChrBank::Spr;
+        }
+        let chr_set = self.required_chr_set();
+        if force || chr_set != self.chr_set {
+            self.chr_set = chr_set;
+            self.sync_chr(memory);
+        }
     }
 
     fn read_ex_ram(&self, memory: &Memory, addr: u16) -> u8 {
         memory.region_peek(Src::ExRam, (addr & 0x03FF) as usize)
     }
 
-    pub const fn inc_fetch_count(&mut self) {
-        self.ppu_status.fetch_count += 1;
-    }
-
-    pub const fn fetch_count(&self) -> u32 {
-        self.ppu_status.fetch_count
-    }
-
     pub const fn sprite8x16(&self) -> bool {
         self.ppu_status.sprite8x16
     }
 
-    pub fn spr_fetch(&self) -> bool {
-        (Self::SPR_FETCH_START..Self::SPR_FETCH_END).contains(&self.fetch_count())
+    /// Whether the PPU is fetching sprite patterns rather than background ones.
+    pub const fn spr_fetch(&self) -> bool {
+        self.ppu_status.tile_number >= Self::SPR_TILE_START
+            && self.ppu_status.tile_number < Self::SPR_TILE_END
     }
 
     pub const fn nametable_select(&self, addr: u16) -> Nametable {
@@ -849,16 +873,7 @@ impl Map for Exrom {
     fn chr_read_hook(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => {
-                self.inc_fetch_count();
-                if self.sprite8x16() {
-                    // 8x16 sprites fetch their patterns from the 'A' set and the background from
-                    // 'B', which the fetch counter distinguishes.
-                    match self.fetch_count() {
-                        Self::SPR_FETCH_START => self.set_chr_set(memory, ChrBank::Spr),
-                        Self::SPR_FETCH_END => self.set_chr_set(memory, ChrBank::Bg),
-                        _ => (),
-                    }
-                }
+                self.update_chr_banks(memory, false);
                 self.split_chr_read(memory, addr)
                     .or_else(|| self.ex_attr_chr_read(memory, addr))
             }
@@ -881,7 +896,6 @@ impl Map for Exrom {
                 // at the end of the render scanlines fetching dummy NT bytes
                 if addr <= 0x2FFF && Some(addr) == irq_state.prev_addr {
                     irq_state.match_count = irq_state.match_count.saturating_add(1);
-                    status.fetch_count = 0;
                     if irq_state.match_count >= 2 {
                         // The dummy fetches run into the first fetch of the next scanline, so the
                         // column counter restarts here rather than at the scanline boundary.
@@ -990,7 +1004,7 @@ impl Map for Exrom {
                         }
                     };
                 }
-                self.sync_chr(memory);
+                self.update_chr_banks(memory, true);
             }
             0x5102 | 0x5103 => {
                 // To allow writing to PRG-RAM you must set:
@@ -1066,12 +1080,13 @@ impl Map for Exrom {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] = val as usize;
                 if addr < 0x5128 {
-                    self.set_chr_set(memory, ChrBank::Spr);
+                    self.last_chr_write = ChrBank::Spr;
                 } else {
                     // Mirroring BG
                     self.regs.chr_banks[bank + 4] = self.regs.chr_banks[bank];
-                    self.set_chr_set(memory, ChrBank::Bg);
+                    self.last_chr_write = ChrBank::Bg;
                 }
+                self.update_chr_banks(memory, true);
             }
             0x5130 => {
                 // [.... ..HH]  CHR Bank Hi bits
@@ -1143,7 +1158,7 @@ impl Map for Exrom {
 
     fn sync(&mut self, memory: &mut Memory) {
         self.sync_prg(memory);
-        self.sync_chr(memory);
+        self.update_chr_banks(memory, true);
         self.sync_nametables(memory);
         self.sync_ex_ram(memory);
     }
@@ -1360,6 +1375,8 @@ mod tests {
     fn chr_1k_mode_maps_all_eight_registers_of_the_written_set() {
         let (mut mapper, mut cart) = load();
         write(&mut mapper, &mut cart, 0x5101, 3); // 1K banks
+        mapper.ppu_write(0x2000, 0x20); // 8x16 sprites, so the 'B' set exists at all
+        exrom(&mut mapper).irq_state.in_frame = false;
         for i in 0..8u16 {
             write(&mut mapper, &mut cart, 0x5120 + i, i as u8);
         }
@@ -1377,30 +1394,65 @@ mod tests {
         }
     }
 
-    /// With 8x16 sprites the pattern fetches for sprites come from the 'A' set and those for the
-    /// background from 'B', keyed on how far into the scanline the PPU has fetched.
-    #[test]
-    fn sprite_and_background_bank_sets_swap_partway_through_a_scanline() {
+    /// Set up a board with distinguishable 'A' and 'B' CHR bank sets, mid-frame.
+    fn chr_sets() -> (Mapper, Cart) {
         let (mut mapper, mut cart) = load();
         write(&mut mapper, &mut cart, 0x5101, 3); // 1K banks
         write(&mut mapper, &mut cart, 0x5120, 1); // 'A' set
-        write(&mut mapper, &mut cart, 0x5128, 2); // 'B' set, which is now active
+        write(&mut mapper, &mut cart, 0x5128, 2); // 'B' set, written last
+        exrom(&mut mapper).irq_state.in_frame = true;
+        (mapper, cart)
+    }
+
+    /// One pattern fetch at the given point in the scanline, which is what re-evaluates the set.
+    fn pattern_fetch(mapper: &mut Mapper, cart: &mut Cart, tile_number: u32) {
+        exrom(mapper).ppu_status.tile_number = tile_number;
+        mapper.chr_read_hook(&mut cart.memory, 0x0000);
+    }
+
+    /// With 8x16 sprites the pattern fetches for sprites come from the 'A' set and those for the
+    /// background from 'B'. The eight garbage nametable fetches at tiles 32-39 of a scanline mark
+    /// where the PPU is fetching sprites.
+    #[test]
+    fn sprite_and_background_bank_sets_swap_partway_through_a_scanline() {
+        let (mut mapper, mut cart) = chr_sets();
         mapper.ppu_write(0x2000, 0x20); // 8x16 sprites
+
+        pattern_fetch(&mut mapper, &mut cart, 0);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 2, "background");
+
+        pattern_fetch(&mut mapper, &mut cart, Exrom::SPR_TILE_START);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "sprites");
+
+        pattern_fetch(&mut mapper, &mut cart, Exrom::SPR_TILE_END);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 2, "background again");
+    }
+
+    /// "When using 8x8 sprites, only registers $5120-$5127 are used. Registers $5128-$512B are
+    /// completely ignored." Selecting the 'B' set by writing one of them must not stick.
+    #[test]
+    fn eight_by_eight_sprites_ignore_the_background_bank_set() {
+        let (mut mapper, mut cart) = chr_sets();
+        mapper.ppu_write(0x2000, 0x00); // 8x8 sprites
+
+        for tile_number in [0, Exrom::SPR_TILE_START, Exrom::SPR_TILE_END] {
+            pattern_fetch(&mut mapper, &mut cart, tile_number);
+            assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "tile {tile_number}");
+        }
+    }
+
+    /// Outside a rendered frame there is no scanline to key on, so the set follows whichever
+    /// register was written last.
+    #[test]
+    fn outside_a_frame_the_last_written_bank_set_wins() {
+        let (mut mapper, mut cart) = chr_sets();
+        mapper.ppu_write(0x2000, 0x20); // 8x16 sprites
+        exrom(&mut mapper).irq_state.in_frame = false;
+
+        write(&mut mapper, &mut cart, 0x5120, 1);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1);
+        write(&mut mapper, &mut cart, 0x5128, 2);
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 2);
-
-        for _ in 0..Exrom::SPR_FETCH_START {
-            mapper.chr_read_hook(&mut cart.memory, 0x0000);
-        }
-        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "sprite fetches");
-
-        for _ in Exrom::SPR_FETCH_START..Exrom::SPR_FETCH_END {
-            mapper.chr_read_hook(&mut cart.memory, 0x0000);
-        }
-        assert_eq!(
-            chr_peek(&mapper, &cart, 0x0000),
-            0x80 | 2,
-            "background fetches"
-        );
     }
 
     #[test]
@@ -1588,6 +1640,7 @@ impl std::fmt::Debug for Exrom {
             .field("irq_state", &self.irq_state)
             .field("tile_cache", &self.tile_cache)
             .field("chr_set", &self.chr_set)
+            .field("last_chr_write", &self.last_chr_write)
             .field("region", &self.region)
             .field("pulse1", &self.pulse1)
             .field("pulse2", &self.pulse2)
