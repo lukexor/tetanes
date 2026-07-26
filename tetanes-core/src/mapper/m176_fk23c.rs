@@ -50,6 +50,9 @@ pub struct Fk23C {
     pub mirroring_reg: u8,
 
     pub has_chr_ram: bool,
+    /// Whether the cart carries CHR-RAM *alongside* CHR-ROM, which only an NES 2.0 header can
+    /// declare. Without it the RAM-select and first-bank-RAM bits have nothing to select.
+    pub has_chr_ram_overlay: bool,
     /// Power-on `prg_base_bits`: the 1MB-PRG subtype-1 boot quirk selects the
     /// upper 512KB; everything else boots at 0.
     pub init_prg_base: u16,
@@ -67,6 +70,7 @@ impl Fk23C {
     /// Load `Fk23C` from `Cart`.
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let has_chr_ram = cart.chr_rom_size == 0;
+        let has_chr_ram_overlay = !has_chr_ram && cart.header.chr_ram_shift > 0;
         let init_prg_base =
             if cart.prg_rom_size == 1024 * 1024 && cart.prg_rom_size == cart.chr_rom_size {
                 0x20
@@ -96,10 +100,12 @@ impl Fk23C {
             cnrom_chr_reg: 0,
             mirroring_reg: 0,
             has_chr_ram,
+            has_chr_ram_overlay,
             init_prg_base,
             mirroring: cart.mirroring(),
         };
         fk23c.reset(ResetKind::Hard);
+        fk23c.sync(&mut cart.memory);
         Ok(fk23c.into())
     }
 
@@ -108,7 +114,10 @@ impl Fk23C {
     /// The RAM-config register routes bank values 0-7 to RAM (custom fonts); `$5xx0.5` forces all
     /// CHR to RAM. Always false for CHR-RAM-only carts, whose CHR region is already RAM.
     const fn chr_page_uses_overlay(&self, page: usize) -> bool {
-        if self.has_chr_ram {
+        // A CHR-RAM-only cart has no separate overlay - its CHR region is already RAM - and a cart
+        // that declares no CHR-RAM has nothing for the RAM-select bit to select. Honouring the bit
+        // anyway pointed every CHR fetch at an empty buffer and rendered a black screen.
+        if self.has_chr_ram || !self.has_chr_ram_overlay {
             return false;
         }
         if self.select_chr_ram {
