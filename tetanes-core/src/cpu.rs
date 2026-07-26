@@ -141,6 +141,7 @@ impl Cpu {
     pub fn load(&mut self, mut cpu: Self) {
         // Doesn't make sense to load a debugger from a previous state
         cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
+        cpu.bus.ppu.debugger_active = self.bus.ppu.debugger_active;
         *self = cpu;
     }
 

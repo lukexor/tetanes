@@ -157,6 +157,7 @@ mod tests {
             prev_palette: u8,
             next_palette: u8,
             skip_rendering: bool,
+            debugger_active: bool,
 
             spr_count: u8,
             spr_in_range: bool,

@@ -143,6 +143,9 @@ pub struct Ppu {
     /// Whether PPU is skipping rendering (used for
     /// [`HeadlessMode`](crate::control_deck::HeadlessMode)).
     pub skip_rendering: bool,
+    /// Whether a [`PpuDebugger`] is attached, cached so `Clock::clock` can skip touching the
+    /// (cold) `debugger` field on every dot when nothing is attached.
+    pub debugger_active: bool,
 
     /// Scanline is visible.
     pub is_visible_scanline: bool,
@@ -423,6 +426,7 @@ impl Ppu {
             emulate_warmup: false,
 
             debugger: Default::default(),
+            debugger_active: false,
         };
 
         ppu.set_region(ppu.region);
@@ -553,6 +557,18 @@ impl Ppu {
             let Self { mapper, memory, .. } = self;
             mapper.ppu_bus_addr(memory, addr);
         }
+    }
+
+    /// Attach (or clear, via `PpuDebugger::default()`) a debugger callback.
+    ///
+    /// Recomputes the cached `debugger_active` flag so `Clock::clock` can skip the `debugger`
+    /// field entirely - a single always-false bool check instead of two compares against a
+    /// struct that otherwise sits cold relative to the per-dot hot fields - when nothing is
+    /// attached.
+    #[inline]
+    pub fn set_debugger(&mut self, debugger: PpuDebugger) {
+        self.debugger_active = debugger != PpuDebugger::default();
+        self.debugger = debugger;
     }
 
     /// Rebuild the page tables from the mapper's register state.
@@ -1512,38 +1528,129 @@ impl Ppu {
     }
 }
 
+impl Ppu {
+    /// Advance to the next scanline. Taken once every 341 dots, so kept out of line to keep it
+    /// out of the hot path's instruction footprint.
+    #[cold]
+    #[inline(never)]
+    fn end_scanline(&mut self) {
+        self.cycle = 0;
+        self.scanline += 1;
+        // === POST-RENDER (240/261) ===
+        match self.scanline {
+            s if s == self.vblank_scanline - 1 => {
+                self.frame.increment();
+            }
+            s if s > self.prerender_scanline => {
+                // Wrap scanline back to 0
+                self.scanline = 0;
+                // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
+                // shaking in Ninja Gaiden 3 stage 1 after beating boss)
+                self.spr_count = 0;
+            }
+            _ => (),
+        }
+
+        self.is_visible_scanline = self.scanline <= scanline::VISIBLE_END;
+        self.is_prerender_scanline = self.scanline == self.prerender_scanline;
+        self.is_render_scanline = self.is_visible_scanline | self.is_prerender_scanline;
+        // PAL refreshes OAM later due to extended vblank to avoid OAM decay
+        self.is_pal_spr_eval_scanline =
+            self.region.is_pal() && self.scanline >= self.vblank_scanline + 24;
+
+        self.check_debugger();
+    }
+
+    /// Sprite evaluation on PAL's extra vblank scanlines. Never taken on NTSC, so kept out of
+    /// line rather than interleaved with the render-scanline path.
+    #[cold]
+    #[inline(never)]
+    fn clock_pal_spr_eval(&mut self) {
+        self.spr_eval_cycle();
+        // 257..=320
+        if cycle::SPR_FETCH_RANGE.contains(&self.cycle) {
+            self.write_oamaddr(0x00);
+        }
+    }
+
+    /// The visible and pre-render scanlines: background/sprite fetches for every dot. This is
+    /// the hot path - ~92% of scanlines land here.
+    #[inline]
+    fn clock_render_scanline(&mut self) {
+        if self.cycle <= cycle::VISIBLE_END {
+            if self.is_visible_scanline {
+                self.spr_eval_cycle();
+            }
+
+            self.bg_fetch_cycle();
+
+            if self.is_prerender_scanline && self.cycle <= 8 && self.oamaddr >= 0x08 {
+                // If OAMADDR is not less than eight when rendering starts, the eight bytes
+                // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
+                let addr = (self.cycle as usize) - 1;
+                let oamindex = (self.oamaddr as usize & 0xF8) + addr;
+                self.oamdata[addr] = self.oamdata[oamindex];
+            }
+        } else if self.cycle <= cycle::SPR_FETCH_END {
+            if self.mask.prev_rendering_enabled && self.cycle == cycle::SPR_FETCH_START {
+                // Copy X bits at the start of a new line since we're going to start writing
+                // new x values to t
+                self.scroll.copy_x();
+                self.spr_present = ConstArray::new();
+            }
+            // 280..=304
+            if self.is_prerender_scanline && cycle::COPY_Y_RANGE.contains(&self.cycle) {
+                // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
+                // if rendering is enabled
+                // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
+                self.scroll.copy_y();
+            }
+            self.spr_fetch_cycle();
+        } else {
+            // 336
+            if self.cycle <= cycle::BG_PREFETCH_END {
+                self.bg_fetch_cycle();
+            } else {
+                // 337..=340
+                self.fetch_bg_nt_byte();
+            }
+
+            self.oam_fetch = self.secondary_oamdata[0];
+
+            if self.region.is_ntsc()
+                && self.is_prerender_scanline
+                && self.cycle == cycle::ODD_SKIP
+                && self.frame.is_odd()
+            {
+                // NTSC behavior while rendering - each odd PPU frame is one clock shorter
+                // (skipping from 339 over 340 to 0)
+                trace!(
+                    "Skipped odd frame cycle: {} - PPU:{:3},{:3}",
+                    self.frame_number(),
+                    self.cycle,
+                    self.scanline
+                );
+                self.cycle = cycle::END;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn check_debugger(&mut self) {
+        if self.debugger_active
+            && self.scanline == self.debugger.scanline
+            && self.cycle == self.debugger.cycle
+        {
+            (*self.debugger.callback)(self.snapshot());
+        }
+    }
+}
+
 impl Clock for Ppu {
     fn clock(&mut self) {
         // === SCANLINE TRANSITION (cycle 340) ===
         if self.cycle >= cycle::END {
-            self.cycle = 0;
-            self.scanline += 1;
-            // === POST-RENDER (240/261) ===
-            match self.scanline {
-                s if s == self.vblank_scanline - 1 => {
-                    self.frame.increment();
-                }
-                s if s > self.prerender_scanline => {
-                    // Wrap scanline back to 0
-                    self.scanline = 0;
-                    // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
-                    // shaking in Ninja Gaiden 3 stage 1 after beating boss)
-                    self.spr_count = 0;
-                }
-                _ => (),
-            }
-
-            self.is_visible_scanline = self.scanline <= scanline::VISIBLE_END;
-            self.is_prerender_scanline = self.scanline == self.prerender_scanline;
-            self.is_render_scanline = self.is_visible_scanline | self.is_prerender_scanline;
-            // PAL refreshes OAM later due to extended vblank to avoid OAM decay
-            self.is_pal_spr_eval_scanline =
-                self.region.is_pal() && self.scanline >= self.vblank_scanline + 24;
-
-            if self.scanline == self.debugger.scanline && self.cycle == self.debugger.cycle {
-                (*self.debugger.callback)(self.snapshot());
-            }
-
+            self.end_scanline();
             return;
         }
 
@@ -1552,68 +1659,9 @@ impl Clock for Ppu {
         // === RENDER LINE (scanlins 0-239, 261) ===
         if self.mask.rendering_enabled {
             if self.is_render_scanline {
-                if self.cycle <= cycle::VISIBLE_END {
-                    if self.is_visible_scanline {
-                        self.spr_eval_cycle();
-                    }
-
-                    self.bg_fetch_cycle();
-
-                    if self.is_prerender_scanline && self.cycle <= 8 && self.oamaddr >= 0x08 {
-                        // If OAMADDR is not less than eight when rendering starts, the eight bytes
-                        // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
-                        let addr = (self.cycle as usize) - 1;
-                        let oamindex = (self.oamaddr as usize & 0xF8) + addr;
-                        self.oamdata[addr] = self.oamdata[oamindex];
-                    }
-                } else if self.cycle <= cycle::SPR_FETCH_END {
-                    if self.mask.prev_rendering_enabled && self.cycle == cycle::SPR_FETCH_START {
-                        // Copy X bits at the start of a new line since we're going to start writing
-                        // new x values to t
-                        self.scroll.copy_x();
-                        self.spr_present = ConstArray::new();
-                    }
-                    // 280..=304
-                    if self.is_prerender_scanline && cycle::COPY_Y_RANGE.contains(&self.cycle) {
-                        // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
-                        // if rendering is enabled
-                        // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
-                        self.scroll.copy_y();
-                    }
-                    self.spr_fetch_cycle();
-                } else {
-                    // 336
-                    if self.cycle <= cycle::BG_PREFETCH_END {
-                        self.bg_fetch_cycle();
-                    } else {
-                        // 337..=340
-                        self.fetch_bg_nt_byte();
-                    }
-
-                    self.oam_fetch = self.secondary_oamdata[0];
-
-                    if self.region.is_ntsc()
-                        && self.is_prerender_scanline
-                        && self.cycle == cycle::ODD_SKIP
-                        && self.frame.is_odd()
-                    {
-                        // NTSC behavior while rendering - each odd PPU frame is one clock shorter
-                        // (skipping from 339 over 340 to 0)
-                        trace!(
-                            "Skipped odd frame cycle: {} - PPU:{:3},{:3}",
-                            self.frame_number(),
-                            self.cycle,
-                            self.scanline
-                        );
-                        self.cycle = cycle::END;
-                    }
-                }
+                self.clock_render_scanline();
             } else if self.is_pal_spr_eval_scanline {
-                self.spr_eval_cycle();
-                // 257..=320
-                if cycle::SPR_FETCH_RANGE.contains(&self.cycle) {
-                    self.write_oamaddr(0x00);
-                }
+                self.clock_pal_spr_eval();
             }
         }
 
@@ -1647,9 +1695,7 @@ impl Clock for Ppu {
             self.stop_vblank();
         }
 
-        if self.scanline == self.debugger.scanline && self.cycle == self.debugger.cycle {
-            (*self.debugger.callback)(self.snapshot());
-        }
+        self.check_debugger();
     }
 }
 

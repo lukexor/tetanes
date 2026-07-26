@@ -442,14 +442,14 @@ impl ControlDeck {
     /// match.
     pub fn add_debugger(&mut self, debugger: Debugger) {
         match debugger {
-            Debugger::Ppu(debugger) => self.cpu.bus.ppu.debugger = debugger,
+            Debugger::Ppu(debugger) => self.cpu.bus.ppu.set_debugger(debugger),
         }
     }
 
     /// Removes a debugger callback.
     pub fn remove_debugger(&mut self, debugger: Debugger) {
         match debugger {
-            Debugger::Ppu(_) => self.cpu.bus.ppu.debugger = Default::default(),
+            Debugger::Ppu(_) => self.cpu.bus.ppu.set_debugger(Default::default()),
         }
     }
 
