@@ -84,7 +84,43 @@ enum dispatch wrapping each read - which this microbenchmark excludes - and beca
 do much more per read (`Exrom::chr_read` alone is 5.1% of Castlevania III).
 
 **The conclusion stands that the mapper rework is justified by code reduction rather than speed.**
-Expect low single-digit percentages on simple boards and more on MMC5.
+Expect low single-digit percentages on simple boards and more on MMC5. (Measured afterwards: right
+about the simple boards, wrong about MMC5 — see below.)
+
+### After the mapper rework
+
+Recorded 2026-07-26, once every board was serving reads from page tables. Both columns were
+measured back to back in the same session on the same machine, because the 2026-07-25 table above
+was taken on a quieter one and differs from a re-measurement of the same commit by up to 1.5% -
+enough to swamp what is being measured here.
+
+`before` is `e77009b`, the last commit before the page tables landed.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.959 | 2.845 | -3.9% |
+| Super Mario Bros. | 000 NROM | 2.977 | 2.858 | -4.0% |
+| Legend of Zelda | 001 MMC1 | 2.917 | 2.795 | -4.2% |
+| Super Mario Bros. 3 | 004 MMC3 | 3.068 | 2.990 | -2.5% |
+| Punch-Out!! | 009 MMC2 | 2.791 | 2.785 | -0.2% |
+| Castlevania III | 005 MMC5 | 3.879 | 3.910 | **+0.8%** |
+| Akumajou Densetsu | 024 VRC6 | 3.441 | 3.313 | -3.7% |
+| **geometric mean** | | **3.129** | **3.049** | **-2.6%** |
+
+This lands close to the microbenchmark's prediction for simple boards and **contradicts it for
+MMC5**, which the plan expected to gain the most and which instead got marginally slower. Its reads
+were already cheap; what the port replaced was `Exrom::chr_peek`'s match with a page lookup plus a
+`chr_read_hook` call that MMC5 - alone among the boards - takes on every fetch, because extended
+attributes, fill mode and the vertical split are all synthesised rather than fetched. The board also
+now re-derives its CHR bank set per fetch instead of latching it, which is what made the sprite-size
+rule correct. Both were paid for with accuracy, not lost to overhead.
+
+MMC2 is the cautionary tale. Its first ported form called `sync` from `ppu_bus_addr`, which the CHR
+latch triggers thousands of times a frame, so every latch flip rebuilt 32 PRG pages, 8 CHR pages and
+the nametables: Punch-Out!! went from 2.791 to **3.336 ms/frame, a 20% regression** that the corpus
+caught and an NROM-only benchmark never would have. Re-mapping only the 4K window whose latch moved
+restored it. **A board's `sync` is a cold-path routine; anything reachable from a per-fetch hook has
+to touch only what changed.**
 
 ### Machine noise
 
@@ -100,22 +136,27 @@ first:
 
 | Function | Share |
 |---|---|
-| `Ppu::clock` | 32.1% |
-| `Ppu::bg_fetch_cycle` | 17.3% |
-| `FilterChain::consume` | 11.7% |
-| `ControlDeck::clock_instr` | 6.7% |
-| `Apu::clock_sync` | 4.6% |
-| `Ppu::oam_eval_cycle` | 4.2% |
-| `Bus::read` | 4.1% |
-| `Bus::cpu_clock` | 3.4% |
+| `Ppu::clock` | 33.5% |
+| `FilterChain::consume` | 13.6% |
+| `Ppu::bg_fetch_cycle` | 13.4% |
+| `ControlDeck::clock_instr` | 7.1% |
+| `Apu::clock_sync` | 6.3% |
+| `Ppu::oam_eval_cycle` | 4.1% |
+| `Bus::cpu_clock` | 3.5% |
+| `Ppu::fetch_bg_nt_byte` | 2.4% |
+| `Bus::read` | 2.3% |
 
-Roughly: PPU ~56%, APU ~24%, CPU ~10%, Bus ~7.5%. `fmaf`/`fmaf_with_fma`, previously 5.2%
-combined, no longer appear at all, and `Fir::output` fell from 4.5% to 1.25%.
+Roughly: PPU ~54%, APU ~26%, CPU ~10%, Bus ~6%. `fmaf`/`fmaf_with_fma`, previously 5.2% combined,
+no longer appear at all, and `Fir::output` fell from 4.5% to ~1%. **No MMC3 symbol appears at all**
+now that `Txrom` holds only registers - the board's entire contribution is the `Mmc3::clock_irq`
+call inlined into the PPU fetch path.
 
 Mapper cost varies enormously by board, which is the whole reason the corpus exists. On
-Castlevania III, **MMC5-specific code is 18.2% of frame time**: `Exrom::output` 9.0% (called every
-CPU cycle for expansion audio), `Exrom::chr_read` 5.1%, `Exrom::clock` 4.1%. On Super Mario Bros.
-no mapper symbol appears at all.
+Castlevania III, **MMC5-specific code is 13.2% of frame time**, down from 18.2% before the port:
+`Exrom::chr_read_hook` 4.6%, `Exrom::output` 4.5% (called every CPU cycle for expansion audio),
+`Exrom::clock` 4.1%. The hook is the one that did not shrink, because it now runs on every PPU
+fetch rather than only on the reads MMC5 had to synthesise. On Super Mario Bros. no mapper symbol
+appears at all.
 
 Note that `bg_fetch_cycle` is 13.9% even on NROM, where `Nrom::chr_peek` is two match arms - so it
 is mostly genuine PPU fetch work, **not** mapper dispatch. Removing dispatch will not reclaim most
@@ -129,9 +170,10 @@ Phase 5.
 
 Notes:
 
-- **MMC5 costs ~1.04 ms/frame over NROM** (4.277 vs 3.237, +32%) and VRC6 ~0.50 ms (+15%). Mapper
+- **MMC5 costs ~1.05 ms/frame over NROM** (3.910 vs 2.858, +37%) and VRC6 ~0.46 ms (+16%). Mapper
   overhead is real on complex boards even though it is nearly invisible on NROM, which is why the
-  corpus exists — the previous NROM-only benchmark could not see any of it.
+  corpus exists — the previous NROM-only benchmark could not see any of it, and would also have
+  missed the 20% MMC2 regression above.
 - Full-LTO `--profile release` measured 3.007 vs `--profile perf` 3.014 on spritecans under the old
   benchmark: **LTO buys nothing here** because `tetanes-core` is a single crate. The `perf` profile
   (LTO off, debug symbols) is a faithful stand-in for release, so profiles are representative.
