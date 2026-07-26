@@ -351,7 +351,7 @@ impl Map for Mapper {
 
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
-    fn chr_read_hook(&mut self, memory: &Memory, addr: u16) -> Option<u8> {
+    fn chr_read_hook(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         impl_map!(self, chr_read_hook, memory, addr)
     }
 
@@ -581,7 +581,11 @@ pub trait Map: Clock + Regional + Reset + Sram {
     }
 
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
-    fn chr_read_hook(&mut self, _memory: &Memory, _addr: u16) -> Option<u8> {
+    ///
+    /// Runs *before* the page-table read, so a board may also re-bank here: MMC5 swaps its sprite
+    /// and background CHR bank sets partway through a scanline, and the swap has to apply to the
+    /// fetch that triggered it.
+    fn chr_read_hook(&mut self, _memory: &mut Memory, _addr: u16) -> Option<u8> {
         None
     }
 

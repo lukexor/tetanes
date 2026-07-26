@@ -12,14 +12,12 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::Cpu,
-    fs,
     mapper::{self, Map, Mapper},
-    mem::{Banks, Memory},
-    ppu::{self, CIRam, Mirroring, PpuAddr},
+    memory::{Memory, Src},
+    ppu::{Mirroring, PpuAddr},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tracing::warn;
 
 /// PRG banking mode.
@@ -289,19 +287,14 @@ pub struct PpuStatus {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Exrom {
-    pub chr_rom: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
-    pub ex_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub mirroring: Mirroring,
     pub ppu_status: PpuStatus,
     pub irq_state: IrqState,
-    pub chr_banks: Banks,
-    pub prg_ram_banks: Banks,
-    pub prg_rom_banks: Banks,
     pub tile_cache: u16,
-    pub last_chr_write: ChrBank,
+    /// Which of the two CHR bank sets is currently mapped. 8x16-sprite games alternate between
+    /// them partway through each scanline; 8x8 games only ever use the set they last wrote.
+    pub chr_set: ChrBank,
     pub region: NesRegion,
     pub pulse1: Pulse,
     pub pulse2: Pulse,
@@ -312,13 +305,14 @@ pub struct Exrom {
 }
 
 impl Exrom {
-    const PRG_WINDOW: usize = 0x2000;
-    const PRG_RAM_SIZE: usize = 0x10000; // Provide 64K since mappers don't always specify
-    const EXRAM_SIZE: usize = 0x0400;
-    const CHR_WINDOW: usize = 0x0400;
+    const PRG_WINDOW: usize = 8 * 1024;
+    const CHR_WINDOW: usize = 1024;
+    const EX_RAM_WINDOW: usize = 1024;
 
     const ROM_SELECT_MASK: usize = 0x80; // High bit targets ROM bank switching
     const BANK_MASK: usize = 0x7F; // Ignore high bit for ROM select
+    /// PRG-RAM is emulated as a single 64K block, i.e. eight 8K banks.
+    const PRG_RAM_BANK_MASK: usize = 0x07;
 
     const SPR_FETCH_START: u32 = 64;
     const SPR_FETCH_END: u32 = 81;
@@ -327,50 +321,9 @@ impl Exrom {
     // https://www.nesdev.org/wiki/MMC5#Fill-mode_color_($5107)
     const ATTR_MIRROR: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
 
-    // // TODO: See about generating these using oncecell
-    // const ATTR_LOC: [u8; 256] = [
-    //     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
-    //     0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-    //     0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
-    //     0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x08, 0x09, 0x0A, 0x0B,
-    //     0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12,
-    //     0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x10, 0x11,
-    //     0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18,
-    //     0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
-    //     0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
-    //     0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25,
-    //     0x26, 0x27, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
-    //     0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B,
-    //     0x2C, 0x2D, 0x2E, 0x2F, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32,
-    //     0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31,
-    //     0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
-    //     0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
-    //     0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
-    //     0x3F,
-    // ];
-    // const ATTR_SHIFT: [u8; 128] = [
-    //     0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0,
-    //     2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2,
-    //     0, 0, 2, 2, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4,
-    //     6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6, 4, 4, 6, 6,
-    //     4, 4, 6, 6, 4, 4, 6, 6,
-    // ];
-
     /// Load `Exrom` from `Cart`.
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
-        let prg_ram = Memory::with_ram_state(Self::PRG_RAM_SIZE, cart.ram_state);
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
-        let prg_ram_banks = Banks::new(0x6000, 0xFFFF, prg_ram.len(), Self::PRG_WINDOW)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
         let mut exrom = Self {
-            chr_rom,
-            prg_rom,
-            prg_ram,
-            ex_ram: Memory::new(Self::EXRAM_SIZE),
             regs: Regs::new(),
             mirroring: cart.mirroring(),
             irq_state: IrqState {
@@ -387,11 +340,8 @@ impl Exrom {
                 rendering: false,
                 scanline: 0x0000,
             },
-            chr_banks,
-            prg_ram_banks,
-            prg_rom_banks,
             tile_cache: 0,
-            last_chr_write: ChrBank::Spr,
+            chr_set: ChrBank::Spr,
             region: cart.region(),
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
@@ -400,9 +350,51 @@ impl Exrom {
             cpu_cycle: 0,
             pulse_timer: 0.0,
         };
-        exrom.regs.prg_banks[4] = exrom.prg_rom_banks.last() | Self::ROM_SELECT_MASK;
-        exrom.update_prg_banks();
+        // "Games seem to expect $5117 to be $FF on powerup (last PRG page swapped in)."
+        let last_prg_bank = (cart.memory.region_ref(Src::PrgRom).len() / Self::PRG_WINDOW)
+            .saturating_sub(1)
+            & Self::BANK_MASK;
+        exrom.regs.prg_banks[4] = last_prg_bank | Self::ROM_SELECT_MASK;
+        exrom.sync(&mut cart.memory);
         Ok(exrom.into())
+    }
+
+    /// Whether PRG-RAM currently accepts writes.
+    ///
+    /// $5102 must hold %10 and $5103 %01; any other combination write-protects it.
+    const fn prg_ram_writable(&self) -> bool {
+        self.regs.prg_ram_protect[0] == 0x02 && self.regs.prg_ram_protect[1] == 0x01
+    }
+
+    /// Map one 8K PRG window from a bank register value.
+    ///
+    /// Bit 7 of $5114-$5116 picks ROM over RAM. $5113 is always RAM and $5117 always ROM, which
+    /// callers force with `rom`.
+    fn map_prg_bank(&self, memory: &mut Memory, addr: u16, val: usize, rom: bool) {
+        if rom || val & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK {
+            memory.map_prg(
+                addr,
+                Self::PRG_WINDOW,
+                (val & Self::BANK_MASK) as i32,
+                Src::PrgRom,
+            );
+        } else {
+            memory.map_prg(
+                addr,
+                Self::PRG_WINDOW,
+                (val & Self::PRG_RAM_BANK_MASK) as i32,
+                Src::PrgRam,
+            );
+            memory.set_prg_writable(addr, Self::PRG_WINDOW, self.prg_ram_writable());
+        }
+    }
+
+    /// Map a 16K PRG window as two 8K pages. The low bank bit is ignored, as on hardware.
+    fn map_prg_bank_16k(&self, memory: &mut Memory, addr: u16, val: usize, rom: bool) {
+        let select = val & Self::ROM_SELECT_MASK;
+        let bank = val & Self::BANK_MASK & !0x01;
+        self.map_prg_bank(memory, addr, select | bank, rom);
+        self.map_prg_bank(memory, addr + 0x2000, select | (bank + 1), rom);
     }
 
     //              $6000   $8000   $A000   $C000   $E000
@@ -415,65 +407,33 @@ impl Exrom {
     //            +-------+---------------+-------+-------+
     // P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
     //            +-------+-------+-------+-------+-------+
-    pub fn update_prg_banks(&mut self) {
-        let mode = self.regs.prg_mode;
+    fn sync_prg(&self, memory: &mut Memory) {
         let banks = self.regs.prg_banks;
-
-        self.prg_ram_banks.set(0, banks[0]); // $5113 always selects RAM
-        match mode {
-            // $5117 always selects ROM
-            PrgMode::Bank32k => self.prg_rom_banks.set_range(0, 3, banks[4]),
+        // $5113 always selects PRG-RAM.
+        self.map_prg_bank(memory, 0x6000, banks[0] & Self::PRG_RAM_BANK_MASK, false);
+        match self.regs.prg_mode {
+            PrgMode::Bank32k => {
+                // A 32K window, so the low two bank bits are ignored.
+                let base = banks[4] & Self::BANK_MASK & !0x03;
+                for slot in 0..4 {
+                    let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
+                    self.map_prg_bank(memory, addr, base + slot, true);
+                }
+            }
             PrgMode::Bank16k => {
-                self.set_prg_bank_range(0, 1, banks[2]);
-                self.prg_rom_banks
-                    .set_range(2, 3, banks[4] & Self::BANK_MASK);
+                self.map_prg_bank_16k(memory, 0x8000, banks[2], false);
+                self.map_prg_bank_16k(memory, 0xC000, banks[4], true);
             }
             PrgMode::Bank16_8k => {
-                self.set_prg_bank_range(0, 1, banks[2]);
-                self.set_prg_bank_range(2, 2, banks[3]);
-                self.prg_rom_banks.set(3, banks[4] & Self::BANK_MASK);
+                self.map_prg_bank_16k(memory, 0x8000, banks[2], false);
+                self.map_prg_bank(memory, 0xC000, banks[3], false);
+                self.map_prg_bank(memory, 0xE000, banks[4], true);
             }
             PrgMode::Bank8k => {
-                self.set_prg_bank_range(0, 0, banks[1]);
-                self.set_prg_bank_range(1, 1, banks[2]);
-                self.set_prg_bank_range(2, 2, banks[3]);
-                self.prg_rom_banks.set(3, banks[4] & Self::BANK_MASK);
-            }
-        };
-    }
-
-    pub fn set_prg_bank_range(&mut self, start: usize, end: usize, bank: usize) {
-        let rom = bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK;
-        let bank = bank & Self::BANK_MASK;
-        if rom {
-            self.prg_rom_banks.set_range(start, end, bank);
-        } else {
-            self.prg_ram_banks.set_range(start + 1, end + 1, bank);
-        }
-    }
-
-    pub fn rom_select(&self, addr: u16) -> bool {
-        let mode = self.regs.prg_mode;
-        match addr {
-            0x6000..=0x7FFF => false,
-            0xE000..=0xFFFF => true,
-            _ => {
-                if mode == PrgMode::Bank32k {
-                    true
-                } else {
-                    use PrgMode::{Bank8k, Bank16_8k, Bank16k};
-                    let banks = self.regs.prg_banks;
-                    let bank = match (addr, mode) {
-                        (0x8000..=0x9FFF, Bank8k) => banks[1],
-                        (0x8000..=0xBFFF, Bank16k | Bank16_8k) | (0xA000..=0xBFFF, Bank8k) => {
-                            banks[2]
-                        }
-                        (0xC000..=0xDFFF, Bank8k | Bank16_8k) => banks[3],
-                        (0xC000..=0xDFFF, Bank16k) => banks[4],
-                        _ => 0x00,
-                    };
-                    bank & Self::ROM_SELECT_MASK == Self::ROM_SELECT_MASK
-                }
+                self.map_prg_bank(memory, 0x8000, banks[1], false);
+                self.map_prg_bank(memory, 0xA000, banks[2], false);
+                self.map_prg_bank(memory, 0xC000, banks[3], false);
+                self.map_prg_bank(memory, 0xE000, banks[4], true);
             }
         }
     }
@@ -501,44 +461,86 @@ impl Exrom {
     //             +---------------+---------------+---------------+---------------+
     //   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
     //             +-------+-------+-------+-------+-------+-------+-------+-------+
-    pub fn update_chr_banks(&mut self, chr_bank: ChrBank) {
+    fn sync_chr(&self, memory: &mut Memory) {
         let hi = self.regs.chr_hi;
-        let banks = match chr_bank {
+        let banks = match self.chr_set {
             ChrBank::Spr => &self.regs.chr_banks[0..8],
             ChrBank::Bg => &self.regs.chr_banks[8..16],
         };
-        // CHR banks are in actual page sizes which means they need to be shifted appropriately
-        match self.regs.chr_mode {
-            ChrMode::Bank8k => self.chr_banks.set_range(0, 7, hi | (banks[7] << 3)),
-            ChrMode::Bank4k => {
-                self.chr_banks.set_range(0, 3, hi | (banks[3] << 2));
-                self.chr_banks.set_range(4, 7, hi | (banks[7] << 2));
-            }
-            ChrMode::Bank2k => {
-                self.chr_banks.set_range(0, 1, hi | (banks[1] << 1));
-                self.chr_banks.set_range(2, 3, hi | (banks[3] << 1));
-                self.chr_banks.set_range(4, 5, hi | (banks[5] << 1));
-                self.chr_banks.set_range(6, 7, hi | (banks[7] << 1));
-            }
-            ChrMode::Bank1k => {
-                self.chr_banks.set(0, hi | banks[0]);
-                self.chr_banks.set(1, hi | banks[1]);
-                self.chr_banks.set(2, hi | banks[2]);
-                self.chr_banks.set(3, hi | banks[3]);
-                self.chr_banks.set(4, hi | banks[4]);
-                self.chr_banks.set(5, hi | banks[5]);
-                self.chr_banks.set(6, hi | banks[6]);
-                self.chr_banks.set(7, hi | banks[7]);
+        // $5130's two bits extend the bank *number*, which is counted in whatever window size the
+        // current CHR mode uses, so they are folded in before the shift down to 1K pages.
+        let map = |memory: &mut Memory, slot: usize, count: usize, bank: usize, shift: usize| {
+            let base = (bank | hi) << shift;
+            for i in 0..count {
+                let addr = ((slot + i) * Self::CHR_WINDOW) as u16;
+                memory.map_chr(addr, Self::CHR_WINDOW, (base + i) as i32, Src::Chr);
             }
         };
+        match self.regs.chr_mode {
+            ChrMode::Bank8k => map(memory, 0, 8, banks[7], 3),
+            ChrMode::Bank4k => {
+                map(memory, 0, 4, banks[3], 2);
+                map(memory, 4, 4, banks[7], 2);
+            }
+            ChrMode::Bank2k => {
+                for (slot, reg) in [(0, 1), (2, 3), (4, 5), (6, 7)] {
+                    map(memory, slot, 2, banks[reg], 1);
+                }
+            }
+            ChrMode::Bank1k => {
+                for (slot, &bank) in banks.iter().enumerate() {
+                    map(memory, slot, 1, bank, 0);
+                }
+            }
+        }
     }
 
-    pub fn read_ex_ram(&self, addr: u16) -> u8 {
-        self.ex_ram[(addr & 0x03FF) as usize]
+    /// Point each of the four nametable slots at whatever $5105 selects for it.
+    ///
+    /// This is why MMC5 does not call [`Memory::set_mirroring`]: the four slots are independent
+    /// and two of the four sources are not CIRAM at all.
+    fn sync_nametables(&self, memory: &mut Memory) {
+        let nametable_mode = self.regs.exram_mode.nametable;
+        for (i, select) in self.regs.nametable_mapping.select.into_iter().enumerate() {
+            let addr = 0x2000 + (i * Self::CHR_WINDOW) as u16;
+            // $3000-$3EFF mirrors $2000-$2EFF.
+            for addr in [addr, addr + 0x1000] {
+                match select {
+                    Nametable::ScreenA => memory.map_chr(addr, Self::CHR_WINDOW, 0, Src::CiRam),
+                    Nametable::ScreenB => memory.map_chr(addr, Self::CHR_WINDOW, 1, Src::CiRam),
+                    Nametable::ExRam if nametable_mode => {
+                        memory.map_chr(addr, Self::CHR_WINDOW, 0, Src::ExRam);
+                    }
+                    // Fill mode is synthesised by `chr_read_hook`, and outside ExRAM nametable
+                    // mode both remaining selections read back as zero - which is what an unmapped
+                    // page gives. Either way there is nothing for a page entry to point at.
+                    _ => memory.unmap_chr(addr, Self::CHR_WINDOW),
+                }
+            }
+        }
     }
 
-    pub fn write_ex_ram(&mut self, addr: u16, val: u8) {
-        self.ex_ram[(addr & 0x03FF) as usize] = val;
+    /// Map ExRAM into the CPU window at $5C00-$5FFF according to the current ExRAM mode.
+    fn sync_ex_ram(&self, memory: &mut Memory) {
+        if self.regs.exram_mode.rw.contains(ExRamRW::R) {
+            memory.map_prg(0x5C00, Self::EX_RAM_WINDOW, 0, Src::ExRam);
+            let writable = self.regs.exram_mode.rw.contains(ExRamRW::W);
+            memory.set_prg_writable(0x5C00, Self::EX_RAM_WINDOW, writable);
+        } else {
+            // Modes 0 and 1 are write-only, which a page entry cannot express, so the window stays
+            // unmapped (reads yield zero) and `write_register` stores the byte itself.
+            memory.unmap_prg(0x5C00, Self::EX_RAM_WINDOW);
+        }
+    }
+
+    /// Switch to the given CHR bank set and re-map the pattern tables.
+    fn set_chr_set(&mut self, memory: &mut Memory, chr_set: ChrBank) {
+        self.chr_set = chr_set;
+        self.sync_chr(memory);
+    }
+
+    fn read_ex_ram(&self, memory: &Memory, addr: u16) -> u8 {
+        memory.region_peek(Src::ExRam, (addr & 0x03FF) as usize)
     }
 
     pub const fn inc_fetch_count(&mut self) {
@@ -559,6 +561,41 @@ impl Exrom {
 
     pub const fn nametable_select(&self, addr: u16) -> Nametable {
         self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
+    }
+
+    /// Pattern-table byte for a tile whose CHR bank came from ExRAM.
+    ///
+    /// In extended-attribute mode the bank is chosen per tile by the ExRAM byte matching the
+    /// nametable entry, ignoring the CHR bank registers entirely, so no page entry can serve it.
+    /// Returns `None` when normal banking applies.
+    fn ex_attr_chr_read(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        (self.regs.exram_mode.attr && !self.spr_fetch()).then(|| {
+            // Bits 6-7 of the 4K CHR bank, already shifted left by 8.
+            let bank_hi = self.regs.chr_hi << 10;
+            // Bits 0-5 of the 4K CHR bank.
+            let bank_lo = ((self.read_ex_ram(memory, self.tile_cache) & 0x3F) as usize) << 12;
+            memory.region_peek(Src::Chr, bank_hi | bank_lo | (addr as usize & 0x0FFF))
+        })
+    }
+
+    /// Nametable byte for reads the page tables cannot serve: extended attributes and fill mode.
+    ///
+    /// Returns `None` for the ordinary CIRAM and ExRAM nametable sources, which are page entries.
+    fn nametable_read(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        let is_attr = addr.is_attr();
+        if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
+            // ExAttr mode returns attr bits for all nametables, regardless of mapping
+            let attr = (self.read_ex_ram(memory, self.tile_cache) >> 6) & 0x03;
+            return Some(Self::ATTR_MIRROR[attr as usize]);
+        }
+        match self.nametable_select(addr) {
+            Nametable::Fill if self.regs.exram_mode.nametable => Some(if is_attr {
+                Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
+            } else {
+                self.regs.fill.tile
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -610,18 +647,123 @@ impl Map for Exrom {
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
 
-    /// Read a byte from CHR-ROM/RAM at a given address.
-    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
+    fn uses_page_tables(&self) -> bool {
+        true
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending || self.dmc.irq_pending
+    }
+
+    fn dma_pending(&self) -> bool {
+        self.dmc.dma_pending
+    }
+
+    fn clear_dma_pending(&mut self) {
+        self.dmc.dma_pending = false;
+    }
+
+    /// The register file and ExRAM in modes 0/1 are not memory, and every PPU fetch has side
+    /// effects, so MMC5 is the one board that takes both read hooks.
+    fn has_prg_read_hook(&self) -> bool {
+        true
+    }
+
+    fn prg_read_hook(&mut self, addr: u16) -> Option<u8> {
+        if let 0xFFFA | 0xFFFB = addr {
+            // Reading the NMI vector clears the in-frame flag.
+            self.irq_state.in_frame = false;
+            self.irq_state.prev_addr = None;
+            self.irq_state.pending = false;
+            self.regs.irq_pending = false;
+        }
+        let val = self.prg_peek_hook(addr);
+        match addr {
+            // Reading $5204 acknowledges the scanline IRQ, and $5010 the DMC IRQ.
+            0x5204 => {
+                self.irq_state.pending = false;
+                self.regs.irq_pending = false;
+            }
+            0x5010 => self.dmc.irq_pending = false,
+            _ => (),
+        }
+        val
+    }
+
+    fn prg_peek_hook(&self, addr: u16) -> Option<u8> {
+        let val = match addr {
+            0x5010 => {
+                // [I... ...M] DMC
+                // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
+                // M = Mode select (0 = write mode. 1 = read mode.)
+                (u8::from(self.dmc.irq_pending) << 7) | self.dmc_mode
+            }
+            0x5015 => {
+                // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
+                let mut status = 0x00;
+                if self.pulse1.length.counter > 0 {
+                    status |= 0x01;
+                }
+                if self.pulse2.length.counter > 0 {
+                    status |= 0x02;
+                }
+                status
+            }
+            0x5100 => self.regs.prg_mode as u8,
+            0x5101 => self.regs.chr_mode as u8,
+            0x5104 => self.regs.exram_mode.bits,
+            0x5105 => self.regs.nametable_mapping.mode,
+            0x5106 => self.regs.fill.tile,
+            0x5107 => self.regs.fill.attr as u8,
+            0x5113..=0x5117 => self.regs.prg_banks[(addr - 0x5113) as usize] as u8,
+            0x5120..=0x512B => self.regs.chr_banks[(addr - 0x5120) as usize] as u8,
+            0x5130 => self.regs.chr_hi as u8,
+            0x5200 => self.regs.vsplit.mode,
+            0x5201 => self.regs.vsplit.scroll,
+            0x5202 => self.regs.vsplit.bank,
+            0x5203 => self.regs.irq_scanline as u8,
+            0x5204 => {
+                // $5204:  [PI.. ....]
+                //   P = IRQ currently pending
+                //   I = "In Frame" signal
+
+                // Reading $5204 will clear the pending flag (acknowledging the IRQ).
+                // Clearing is done in `prg_read_hook`.
+                (u8::from(self.regs.irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
+            }
+            0x5205 => (self.regs.mult_result & 0xFF) as u8,
+            0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
+            // ExRAM is a page entry whenever it is readable, so it never reaches here.
+            _ => return None,
+        };
+        Some(val)
+    }
+
+    /// Every PPU fetch drives the scanline detector, the CHR bank-set switch and, in extended
+    /// attribute mode, the tile lookup - so unlike every other board MMC5 hooks reads rather than
+    /// just watching the bus.
+    fn has_chr_read_hook(&self) -> bool {
+        true
+    }
+
+    fn chr_read_hook(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => {
                 self.inc_fetch_count();
                 if self.sprite8x16() {
+                    // 8x16 sprites fetch their patterns from the 'A' set and the background from
+                    // 'B', which the fetch counter distinguishes.
                     match self.fetch_count() {
-                        Self::SPR_FETCH_START => self.update_chr_banks(ChrBank::Spr),
-                        Self::SPR_FETCH_END => self.update_chr_banks(ChrBank::Bg),
+                        Self::SPR_FETCH_START => self.set_chr_set(memory, ChrBank::Spr),
+                        Self::SPR_FETCH_END => self.set_chr_set(memory, ChrBank::Bg),
                         _ => (),
                     }
                 }
+                self.ex_attr_chr_read(memory, addr)
             }
             0x2000..=0x3EFF => {
                 let is_attr = addr.is_attr();
@@ -665,174 +807,22 @@ impl Map for Exrom {
                 }
                 irq_state.prev_addr = Some(addr);
                 status.reading = true;
-            }
-            _ => (),
-        }
-        self.chr_peek(addr, ciram)
-    }
 
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => {
-                if self.regs.exram_mode.attr && !self.spr_fetch() {
-                    // Bits 6-7 of 4K CHR bank. Already shifted left by 8
-                    let bank_hi = self.regs.chr_hi << 10;
-                    // Bits 0-5 of 4k CHR bank
-                    let bank_lo = ((self.read_ex_ram(self.tile_cache) & 0x3F) as usize) << 12;
-                    let addr = bank_hi | bank_lo | (addr as usize) & 0x0FFF;
-                    self.chr_rom[addr]
-                } else {
-                    self.chr_rom[self.chr_banks.translate(addr)]
-                }
+                self.nametable_read(memory, addr)
             }
-            0x2000..=0x3EFF => {
-                let is_attr = addr.is_attr();
-                // TODO: vsplit
-                // if self.regs.vsplit.in_region {
-                //     if is_attr {
-                //         // let addr =
-                //         //     Self::ATTR_OFFSET | u16::from(ATTR_LOC[(self.regs.vsplit.tile as usize) >> 2]);
-                //         // let attr = self.read_exram(addr - 0x2000) as usize;
-                //         // let shift = ATTR_SHIFT[(self.regs.vsplit.tile as usize) & 0x7F] as usize;
-                //         // MappedRead::Data(ATTR_BITS[(attr >> shift) & 0x03])
-                //     } else {
-                //         MappedRead::Data(self.read_exram(self.regs.vsplit.tile.into()))
-                //     }
-                // }
-                if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
-                    // ExAttr mode returns attr bits for all nametables, regardless of mapping
-                    let attr = (self.read_ex_ram(self.tile_cache) >> 6) & 0x03;
-                    Self::ATTR_MIRROR[attr as usize]
-                } else {
-                    let nametable_mode = self.regs.exram_mode.nametable;
-                    match self.nametable_select(addr) {
-                        Nametable::ScreenA => ciram[(addr & 0x03FF).into()],
-                        Nametable::ScreenB => {
-                            ciram[(ppu::size::NAMETABLE | (addr & 0x03FF)).into()]
-                        }
-                        Nametable::ExRam if nametable_mode => self.read_ex_ram(addr),
-                        Nametable::Fill if nametable_mode => {
-                            if is_attr {
-                                Self::ATTR_MIRROR[self.regs.fill.attr & 0x03]
-                            } else {
-                                self.regs.fill.tile
-                            }
-                        }
-                        // If nametable mode is not set, zero is read back
-                        _ => 0,
-                    }
-                }
-            }
-            _ => 0,
+            _ => None,
         }
     }
 
-    /// Read a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> u8 {
+    fn chr_peek_hook(&self, memory: &Memory, addr: u16) -> Option<u8> {
         match addr {
-            0xFFFA | 0xFFFB => {
-                self.irq_state.in_frame = false; // NMI clears in_frame
-                self.irq_state.prev_addr = None;
-                self.irq_state.pending = false;
-                self.regs.irq_pending = false;
-            }
-            _ => (),
-        }
-        let val = self.prg_peek(addr);
-        match addr {
-            0x5204 => {
-                self.irq_state.pending = false;
-                self.regs.irq_pending = false;
-            }
-            0x5010 => self.dmc.irq_pending = false,
-            _ => (),
-        }
-        val
-    }
-
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x5010 => {
-                // [I... ...M] DMC
-                // I = IRQ (0 = No IRQ triggered. 1 = IRQ was triggered.) Reading $5010 acknowledges the IRQ and clears this flag.
-                // M = Mode select (0 = write mode. 1 = read mode.)
-                (u8::from(self.dmc.irq_pending) << 7) | self.dmc_mode
-            }
-            0x5100 => self.regs.prg_mode as u8,
-            0x5101 => self.regs.chr_mode as u8,
-            0x5104 => self.regs.exram_mode.bits,
-            0x5105 => self.regs.nametable_mapping.mode,
-            0x5106 => self.regs.fill.tile,
-            0x5107 => self.regs.fill.attr as u8,
-            0x5015 => {
-                // [.... ..BA]   Length status for Pulse 1 (A), 2 (B)
-                let mut status = 0x00;
-                if self.pulse1.length.counter > 0 {
-                    status |= 0x01;
-                }
-                if self.pulse2.length.counter > 0 {
-                    status |= 0x02;
-                }
-                status
-            }
-            0x5113..=0x5117 => self.regs.prg_banks[(addr - 0x5113) as usize] as u8,
-            0x5120..=0x512B => self.regs.chr_banks[(addr - 0x5120) as usize] as u8,
-            0x5130 => self.regs.chr_hi as u8,
-            0x5200 => self.regs.vsplit.mode,
-            0x5201 => self.regs.vsplit.scroll,
-            0x5202 => self.regs.vsplit.bank,
-            0x5203 => self.regs.irq_scanline as u8,
-            0x5204 => {
-                // $5204:  [PI.. ....]
-                //   P = IRQ currently pending
-                //   I = "In Frame" signal
-
-                // Reading $5204 will clear the pending flag (acknowledging the IRQ).
-                // Clearing is done in the read() function
-                (u8::from(self.regs.irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
-            }
-            0x5205 => (self.regs.mult_result & 0xFF) as u8,
-            0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
-            0x5C00..=0x5FFF if self.regs.exram_mode.rw != ExRamRW::W => {
-                // Nametable/Attr modes are not used for RAM, thus are not readable
-                self.read_ex_ram(addr)
-            }
-            0x6000..=0xDFFF => {
-                if self.rom_select(addr) {
-                    self.prg_rom[self.prg_rom_banks.translate(addr)]
-                } else {
-                    self.prg_ram[self.prg_ram_banks.translate(addr)]
-                }
-            }
-            0xE000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
+            0x0000..=0x1FFF => self.ex_attr_chr_read(memory, addr),
+            0x2000..=0x3EFF => self.nametable_read(memory, addr),
+            _ => None,
         }
     }
 
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        match addr {
-            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)] = val,
-            0x2000..=0x3EFF => match self.nametable_select(addr) {
-                Nametable::ScreenA => ciram[(addr & 0x03FF).into()] = val,
-                Nametable::ScreenB => ciram[(ppu::size::NAMETABLE | (addr & 0x03FF)).into()] = val,
-                Nametable::ExRam if self.regs.exram_mode.nametable => {
-                    self.write_ex_ram(addr, val);
-                }
-                _ => (),
-            },
-            _ => (),
-        }
-    }
-
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, addr: u16, val: u8) {
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
             0x5000 => self.pulse1.write_ctrl(val),
             // 0x5001 Has no effect since there is no Sweep unit
@@ -871,7 +861,7 @@ impl Map for Exrom {
                         self.regs.prg_mode
                     }
                 };
-                self.update_prg_banks();
+                self.sync_prg(memory);
             }
             0x5101 => {
                 // [.... ..CC] CHR Mode
@@ -890,7 +880,7 @@ impl Map for Exrom {
                         }
                     };
                 }
-                self.update_chr_banks(self.last_chr_write);
+                self.sync_chr(memory);
             }
             0x5102 | 0x5103 => {
                 // To allow writing to PRG-RAM you must set:
@@ -900,6 +890,7 @@ impl Map for Exrom {
                 // [.... ..AA]    PRG-RAM Protect A
                 // [.... ..BB]    PRG-RAM Protect B
                 self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
+                self.sync_prg(memory);
             }
             0x5104 => {
                 // [.... ..XX] ExRam mode
@@ -909,6 +900,8 @@ impl Map for Exrom {
                 //   %10    Read/Write       No             No
                 //   %11    Read Only        No             No
                 self.regs.exram_mode.set(val);
+                self.sync_ex_ram(memory);
+                self.sync_nametables(memory);
             }
             0x5105 => {
                 // [.... ..HH]
@@ -933,6 +926,9 @@ impl Map for Exrom {
                 //   SingleScreenB:  $55    01 01 01 01
                 //   SingleScreen ExRAM:   $AA    10 10 10 10
                 //   SingleScreen Fill:    $FF    11 11 11 11
+                //
+                // Only reported, never applied: the four slots are mapped individually below,
+                // since two of the four sources are not CIRAM.
                 self.mirroring = match val {
                     0x50 => Mirroring::Horizontal,
                     0x44 => Mirroring::Vertical,
@@ -941,6 +937,7 @@ impl Map for Exrom {
                     // Any other combination means Mapper provides nametables
                     _ => Mirroring::FourScreen,
                 };
+                self.sync_nametables(memory);
             }
             0x5106 => self.regs.fill.tile = val, // [TTTT TTTT] Fill Tile
             0x5107 => self.regs.fill.attr = (val & 0x03).into(), // [.... ..AA] Fill Attribute bits
@@ -953,20 +950,24 @@ impl Map for Exrom {
                 //      P = PRG page
                 let bank = (addr - 0x5113) as usize;
                 self.regs.prg_banks[bank] = val as usize;
-                self.update_prg_banks();
+                self.sync_prg(memory);
             }
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
                 self.regs.chr_banks[bank] = val as usize;
                 if addr < 0x5128 {
-                    self.update_chr_banks(ChrBank::Spr);
+                    self.set_chr_set(memory, ChrBank::Spr);
                 } else {
                     // Mirroring BG
                     self.regs.chr_banks[bank + 4] = self.regs.chr_banks[bank];
-                    self.update_chr_banks(ChrBank::Bg);
+                    self.set_chr_set(memory, ChrBank::Bg);
                 }
             }
-            0x5130 => self.regs.chr_hi = (val as usize & 0x03) << 8, // [.... ..HH]  CHR Bank Hi bits
+            0x5130 => {
+                // [.... ..HH]  CHR Bank Hi bits
+                self.regs.chr_hi = (val as usize & 0x03) << 8;
+                self.sync_chr(memory);
+            }
             0x5200 => {
                 // [ES.T TTTT]    Split control
                 //   E = Enable  (0=split mode disabled, 1=split mode enabled)
@@ -1001,18 +1002,15 @@ impl Map for Exrom {
                 self.regs.mult_result =
                     u16::from(self.regs.multiplicand) * u16::from(self.regs.multiplier);
             }
-            0x5207..=0x5209 => {}
-            0x5C00..=0x5FFF => match self.regs.exram_mode.rw {
-                ExRamRW::W => {
-                    let val = if self.ppu_status.rendering { val } else { 0x00 };
-                    self.write_ex_ram(addr, val);
-                }
-                ExRamRW::RW => self.write_ex_ram(addr, val),
-                _ => (),
-            },
-            0x6000..=0xDFFF if !self.rom_select(addr) => {
-                self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
+            0x5207..=0x5209 => (),
+            // Modes 2 and 3 are served by the page mapping, which already stored or discarded the
+            // byte. Modes 0 and 1 leave the window unmapped, so the store happens here - and only
+            // latches the value while the PPU is rendering.
+            0x5C00..=0x5FFF if !self.regs.exram_mode.rw.contains(ExRamRW::R) => {
+                let val = if self.ppu_status.rendering { val } else { 0x00 };
+                memory.region_write(Src::ExRam, (addr & 0x03FF) as usize, val);
             }
+            // PRG-RAM stores already happened in `Bus`, gated by the page's writable flag.
             _ => (),
         }
     }
@@ -1032,25 +1030,11 @@ impl Map for Exrom {
         }
     }
 
-    /// Whether an IRQ is pending acknowledgement.
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_pending || self.dmc.irq_pending
-    }
-
-    /// Whether an DMA is pending acknowledgement.
-    fn dma_pending(&self) -> bool {
-        self.dmc.dma_pending
-    }
-
-    /// Clear pending DMA.
-    fn clear_dma_pending(&mut self) {
-        self.dmc.dma_pending = false;
-    }
-
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+    fn sync(&mut self, memory: &mut Memory) {
+        self.sync_prg(memory);
+        self.sync_chr(memory);
+        self.sync_nametables(memory);
+        self.sync_ex_ram(memory);
     }
 }
 
@@ -1103,17 +1087,7 @@ impl Regional for Exrom {
     }
 }
 
-impl Sram for Exrom {
-    /// Save RAM to a given path.
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::save(path.as_ref(), &self.prg_ram)
-    }
-
-    /// Load save RAM from a given path.
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.prg_ram = data)
-    }
-}
+impl Sram for Exrom {}
 
 impl Sample for Exrom {
     fn output(&self) -> f32 {
@@ -1126,6 +1100,312 @@ impl Sample for Exrom {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::{MemoryLayout, PAGE_SIZE};
+
+    /// 128K PRG-ROM, 64K PRG-RAM, 32K CHR-ROM, with every 1K page of ROM filled with its own
+    /// index so that a read identifies the bank it came from.
+    fn test_cart() -> Cart {
+        let mut cart = Cart::empty_sized(128 * 1024, 32 * 1024);
+        cart.memory = Memory::new(MemoryLayout {
+            prg_rom: 128 * 1024,
+            prg_ram: 64 * 1024,
+            chr: 32 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 1024,
+        });
+        for (i, page) in cart
+            .memory
+            .region_mut(Src::PrgRom)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            page.fill(i as u8);
+        }
+        for (i, page) in cart
+            .memory
+            .region_mut(Src::Chr)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            page.fill(0x80 | i as u8);
+        }
+        cart
+    }
+
+    fn load() -> (Mapper, Cart) {
+        let mut cart = test_cart();
+        let mapper = Exrom::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// Mirrors `Bus::write`: the data store happens first, then the board acts on the register.
+    fn write(mapper: &mut Mapper, cart: &mut Cart, addr: u16, val: u8) {
+        cart.memory.prg_write(addr, val);
+        mapper.write_register(&mut cart.memory, addr, val);
+    }
+
+    /// Mirrors `Bus::peek`'s routing for a page-table board.
+    fn prg_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        mapper
+            .prg_peek_hook(addr)
+            .unwrap_or_else(|| cart.memory.prg_peek(addr))
+    }
+
+    /// Mirrors `Ppu::chr_peek`'s routing for a page-table board.
+    fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        mapper
+            .chr_peek_hook(&cart.memory, addr)
+            .unwrap_or_else(|| cart.memory.chr_peek(addr))
+    }
+
+    #[test]
+    fn powers_on_with_the_last_prg_bank_fixed_at_e000() {
+        let (mapper, cart) = load();
+        // 128K of PRG-ROM in 8K banks is 16 banks; the last starts at 1K page 120.
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120);
+        // $5114-$5116 power on with the ROM-select bit clear, so the rest of the space is RAM.
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0);
+    }
+
+    #[test]
+    fn prg_mode_8k_maps_each_register_independently() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5100, 3); // 8K mode
+        write(&mut mapper, &mut cart, 0x5114, 0x80 | 2);
+        write(&mut mapper, &mut cart, 0x5115, 0x80 | 3);
+        write(&mut mapper, &mut cart, 0x5116, 0x80 | 4);
+        // $5117 has no ROM-select bit; it is always ROM.
+        write(&mut mapper, &mut cart, 0x5117, 5);
+
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 3 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 4 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 5 * 8);
+    }
+
+    #[test]
+    fn prg_mode_32k_ignores_the_low_two_bank_bits() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5100, 0); // 32K mode
+        // Bank 11 aligns down to 8, covering banks 8-11.
+        write(&mut mapper, &mut cart, 0x5117, 11);
+
+        for (i, addr) in [0x8000, 0xA000, 0xC000, 0xE000].into_iter().enumerate() {
+            assert_eq!(prg_peek(&mapper, &cart, addr), ((8 + i) * 8) as u8);
+        }
+    }
+
+    #[test]
+    fn prg_mode_16k_ignores_the_low_bank_bit() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5100, 1); // 16K mode
+        write(&mut mapper, &mut cart, 0x5115, 0x80 | 5); // aligns down to banks 4-5
+        write(&mut mapper, &mut cart, 0x5117, 11); // aligns down to banks 10-11
+
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 4 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 5 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 10 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 11 * 8);
+    }
+
+    /// PRG-RAM banks are selectable in the `$8000-$DFFF` windows too, not just at `$6000`.
+    #[test]
+    fn prg_ram_banks_are_write_protected_until_5102_and_5103_agree() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5100, 3); // 8K mode
+        write(&mut mapper, &mut cart, 0x5114, 1); // RAM bank 1 at $8000
+
+        write(&mut mapper, &mut cart, 0x8000, 0xAA);
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x8000),
+            0,
+            "PRG-RAM writes are discarded until unlocked"
+        );
+
+        write(&mut mapper, &mut cart, 0x5102, 0x02);
+        write(&mut mapper, &mut cart, 0x5103, 0x01);
+        write(&mut mapper, &mut cart, 0x8000, 0xAA);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0xAA);
+
+        // The same RAM bank seen through $6000 - and a different one that must not alias it.
+        write(&mut mapper, &mut cart, 0x5113, 1);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0xAA);
+        write(&mut mapper, &mut cart, 0x5113, 0);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x00);
+    }
+
+    #[test]
+    fn chr_1k_mode_maps_all_eight_registers_of_the_written_set() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5101, 3); // 1K banks
+        for i in 0..8u16 {
+            write(&mut mapper, &mut cart, 0x5120 + i, i as u8);
+        }
+        for i in 0..8u16 {
+            assert_eq!(chr_peek(&mapper, &cart, i * 0x0400), 0x80 | i as u8);
+        }
+
+        // The 'B' set only has four registers; they repeat across both pattern tables.
+        for i in 0..4u16 {
+            write(&mut mapper, &mut cart, 0x5128 + i, 8 + i as u8);
+        }
+        for i in 0..8u16 {
+            let expected = 0x80 | (8 + (i & 0x03)) as u8;
+            assert_eq!(chr_peek(&mapper, &cart, i * 0x0400), expected);
+        }
+    }
+
+    /// With 8x16 sprites the pattern fetches for sprites come from the 'A' set and those for the
+    /// background from 'B', keyed on how far into the scanline the PPU has fetched.
+    #[test]
+    fn sprite_and_background_bank_sets_swap_partway_through_a_scanline() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5101, 3); // 1K banks
+        write(&mut mapper, &mut cart, 0x5120, 1); // 'A' set
+        write(&mut mapper, &mut cart, 0x5128, 2); // 'B' set, which is now active
+        mapper.ppu_write(0x2000, 0x20); // 8x16 sprites
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 2);
+
+        for _ in 0..Exrom::SPR_FETCH_START {
+            mapper.chr_read_hook(&mut cart.memory, 0x0000);
+        }
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "sprite fetches");
+
+        for _ in Exrom::SPR_FETCH_START..Exrom::SPR_FETCH_END {
+            mapper.chr_read_hook(&mut cart.memory, 0x0000);
+        }
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0x80 | 2,
+            "background fetches"
+        );
+    }
+
+    #[test]
+    fn each_nametable_slot_selects_its_own_source() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5104, 0); // ExRAM usable as a nametable
+        // [DDCC BBAA]: A=ScreenA, B=ScreenB, C=ExRAM, D=Fill
+        write(&mut mapper, &mut cart, 0x5105, 0b11_10_01_00);
+        write(&mut mapper, &mut cart, 0x5106, 0x5A); // fill tile
+        write(&mut mapper, &mut cart, 0x5107, 0x02); // fill attribute
+
+        cart.memory.chr_write(0x2000, 0x11);
+        cart.memory.chr_write(0x2400, 0x22);
+        cart.memory.chr_write(0x2800, 0x33);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2400), 0x22);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x33);
+        assert_eq!(
+            cart.memory.region_ref(Src::ExRam)[0],
+            0x33,
+            "the third slot must be ExRAM, not CIRAM"
+        );
+
+        // Fill mode is synthesised rather than stored, so it ignores writes.
+        cart.memory.chr_write(0x2C00, 0x99);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2C00), 0x5A);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2C00 | 0x03C0), 0xAA);
+
+        // $3000-$3EFF mirrors $2000-$2EFF.
+        assert_eq!(chr_peek(&mapper, &cart, 0x3000), 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x3400), 0x22);
+    }
+
+    /// ExRAM is not a nametable outside modes 0 and 1, and reads back as zero when selected.
+    #[test]
+    fn exram_nametables_read_zero_outside_nametable_modes() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5104, 0);
+        write(&mut mapper, &mut cart, 0x5105, 0b10_10_10_10);
+        cart.memory.chr_write(0x2000, 0x77);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x77);
+
+        write(&mut mapper, &mut cart, 0x5104, 2);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x00);
+    }
+
+    #[test]
+    fn exram_window_follows_its_access_mode() {
+        let (mut mapper, mut cart) = load();
+
+        // Mode 2: read/write.
+        write(&mut mapper, &mut cart, 0x5104, 2);
+        write(&mut mapper, &mut cart, 0x5C00, 0x37);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x37);
+
+        // Mode 3: read-only.
+        write(&mut mapper, &mut cart, 0x5104, 3);
+        write(&mut mapper, &mut cart, 0x5C00, 0x99);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x37);
+
+        // Modes 0/1: write-only, and the byte only latches while the PPU is rendering.
+        write(&mut mapper, &mut cart, 0x5104, 0);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x00, "not readable");
+        write(&mut mapper, &mut cart, 0x5C00, 0x42);
+        mapper.ppu_write(0x2001, 0x18); // enable rendering
+        write(&mut mapper, &mut cart, 0x5C01, 0x42);
+
+        write(&mut mapper, &mut cart, 0x5104, 2);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x00, "written while idle");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x5C01),
+            0x42,
+            "written while rendering"
+        );
+    }
+
+    /// In extended-attribute mode a byte of ExRAM per nametable entry supplies both the palette
+    /// and a 4K CHR bank, so neither the attribute fetch nor the pattern fetch can be a page.
+    #[test]
+    fn extended_attribute_mode_sources_the_bank_and_palette_from_exram() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5104, 1);
+        // Palette 1 in the top two bits, CHR bank 1 in the bottom six.
+        cart.memory.region_write(Src::ExRam, 5, 0x41);
+
+        // The nametable fetch caches which ExRAM byte the following fetches use.
+        mapper.chr_read_hook(&mut cart.memory, 0x2005);
+
+        assert_eq!(chr_peek(&mapper, &cart, 0x23C0), 0x55, "palette 1, mirrored");
+        // 4K bank 1 starts at CHR 1K page 4.
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 4);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0400), 0x80 | 5);
+    }
+
+    /// Page tables are derived state that save states do not carry, so `sync` has to rebuild every
+    /// one of MMC5's mappings from its registers alone.
+    #[test]
+    fn sync_rebuilds_every_mapping_from_register_state() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5100, 3);
+        write(&mut mapper, &mut cart, 0x5114, 0x80 | 2);
+        write(&mut mapper, &mut cart, 0x5101, 3);
+        write(&mut mapper, &mut cart, 0x5120, 6);
+        write(&mut mapper, &mut cart, 0x5104, 2);
+        write(&mut mapper, &mut cart, 0x5105, 0b01_01_00_00);
+        write(&mut mapper, &mut cart, 0x5C00, 0x37);
+        cart.memory.chr_write(0x2800, 0x64);
+
+        let config = bincode::config::legacy();
+        let bytes =
+            bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
+        let (restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
+            .expect("memory deserializes");
+        cart.memory = restored;
+        mapper.sync(&mut cart.memory);
+
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 8, "PRG");
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 6, "CHR");
+        assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x37, "ExRAM window");
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x64, "nametables");
+    }
+}
+
 impl std::fmt::Debug for Exrom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Exrom")
@@ -1133,12 +1413,8 @@ impl std::fmt::Debug for Exrom {
             .field("mirroring", &self.mirroring)
             .field("ppu_status", &self.ppu_status)
             .field("irq_state", &self.irq_state)
-            .field("exram_len", &self.ex_ram.len())
-            .field("prg_ram_banks", &self.prg_ram_banks)
-            .field("prg_rom_banks", &self.prg_rom_banks)
-            .field("chr_banks", &self.chr_banks)
             .field("tile_cache", &self.tile_cache)
-            .field("last_chr_write", &self.last_chr_write)
+            .field("chr_set", &self.chr_set)
             .field("region", &self.region)
             .field("pulse1", &self.pulse1)
             .field("pulse2", &self.pulse2)

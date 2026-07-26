@@ -266,6 +266,14 @@ impl Memory {
         }
     }
 
+    /// Unmap a window of the PPU address space, so it reads as zero and ignores writes.
+    pub fn unmap_chr(&mut self, addr: u16, size: usize) {
+        let slot = (addr as usize >> PAGE_SHIFT) & CHR_PAGE_MASK;
+        for i in 0..(size >> PAGE_SHIFT).max(1) {
+            self.chr_pages[(slot + i) & CHR_PAGE_MASK] = Page::UNMAPPED;
+        }
+    }
+
     /// Override whether a mapped CPU window accepts writes, for boards that can write-protect
     /// PRG-RAM.
     pub fn set_prg_writable(&mut self, addr: u16, size: usize, writable: bool) {
@@ -351,6 +359,28 @@ impl Memory {
             Src::Chr => self.chr_writable,
             Src::PrgRam | Src::CiRam | Src::ExRam => true,
         }
+    }
+
+    /// Read a byte from a region by raw offset, wrapping within the region.
+    ///
+    /// For the rare access a page entry cannot express: MMC5's extended-attribute mode picks a
+    /// 4 KiB CHR bank per *tile* from a byte of ExRAM, so the bank is not known until the fetch.
+    #[must_use]
+    pub fn region_peek(&self, src: Src, offset: usize) -> u8 {
+        let region = self.region(src);
+        if region.is_empty() {
+            return 0;
+        }
+        self.data[region.start + offset % region.len()]
+    }
+
+    /// Write a byte to a region by raw offset, wrapping within the region.
+    pub fn region_write(&mut self, src: Src, offset: usize, val: u8) {
+        let region = self.region(src);
+        if region.is_empty() {
+            return;
+        }
+        self.data[region.start + offset % region.len()] = val;
     }
 
     /// Bytes of a region, for loading ROM contents and for save-state and debugger access.

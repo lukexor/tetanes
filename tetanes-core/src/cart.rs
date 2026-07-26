@@ -5,7 +5,7 @@ use crate::{
     fs,
     mapper::{
         self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
-        JalecoSs88006, Map, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
+        JalecoSs88006, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
         SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
         m034_nina001::Nina001,
     },
@@ -35,6 +35,9 @@ const fn min_prg_ram(mapper_num: u16) -> usize {
     match mapper_num {
         // SxROM's 32K PRG-RAM variants (SOROM/SXROM).
         1 | 155 => 32 * 1024,
+        // MMC5 banks PRG-RAM in eight 8K pages; emulated as one 64K block, as Mesen does, since
+        // the real split between work and save RAM is per-board and not in the header.
+        5 => 64 * 1024,
         // FK23C banks WRAM in four 8K pages.
         176 => 32 * 1024,
         _ => DEFAULT_PRG_RAM_SIZE,
@@ -311,7 +314,7 @@ impl Cart {
             3 => Cnrom::load(&mut cart)?,
             4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&mut cart)?,
             176 => Fk23C::load(&mut cart)?,
-            5 => Exrom::load(&cart, chr_rom, prg_rom)?,
+            5 => Exrom::load(&mut cart)?,
             7 => Axrom::load(&mut cart)?,
             9 => Pxrom::load(&mut cart)?,
             10 => Fxrom::load(&mut cart)?,
@@ -411,37 +414,12 @@ impl Cart {
         NesHeader::mapper_board(self.mapper_num())
     }
 
+    /// Size of the cart's CHR region, or zero when no board is loaded.
     pub fn chr_size(&self) -> usize {
-        // Ported boards read their CHR size straight from the page-table memory; this match
-        // shrinks by one arm per board and disappears entirely at the end of the port.
-        if self.mapper.uses_page_tables() {
-            return self.memory.region_ref(Src::Chr).len();
-        }
-        match &self.mapper {
-            // Ported boards are handled by the short-circuit above.
-            Mapper::None(_)
-            | Mapper::Nrom(_)
-            | Mapper::Uxrom(_)
-            | Mapper::Cnrom(_)
-            | Mapper::Axrom(_)
-            | Mapper::ColorDreams(_)
-            | Mapper::Bnrom(_)
-            | Mapper::Nina001(_)
-            | Mapper::Gxrom(_)
-            | Mapper::Sxrom(_)
-            | Mapper::Txrom(_)
-            | Mapper::SunsoftFme7(_)
-            | Mapper::JalecoSs88006(_)
-            | Mapper::Vrc6(_)
-            | Mapper::NesEvent(_)
-            | Mapper::Pxrom(_)
-            | Mapper::Fxrom(_)
-            | Mapper::Namco163(_)
-            | Mapper::BandaiFCG(_)
-            | Mapper::Fk23C(_)
-            | Mapper::Bf909x(_)
-            | Mapper::Nina003006(_) => 0,
-            Mapper::Exrom(exrom) => exrom.chr_rom.len(),
+        if self.mapper.is_none() {
+            0
+        } else {
+            self.memory.region_ref(Src::Chr).len()
         }
     }
 
