@@ -23,7 +23,7 @@
 
 use crate::ppu::Mirroring;
 use serde::{Deserialize, Serialize};
-use std::ops::Range;
+use std::{fmt, ops::Range};
 
 /// Address bits translated within a single page. 1 KiB granularity.
 pub const PAGE_SHIFT: usize = 10;
@@ -96,7 +96,7 @@ impl Page {
 }
 
 /// Cartridge and console memory, plus the PRG and CHR page tables that address it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Memory {
     data: Box<[u8]>,
@@ -120,6 +120,22 @@ pub struct Memory {
 impl Default for Memory {
     fn default() -> Self {
         Self::new(MemoryLayout::default())
+    }
+}
+
+/// Reports region sizes rather than their contents, which would be megabytes of ROM.
+impl fmt::Debug for Memory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Memory")
+            .field("len", &self.data.len())
+            .field("ram_start", &self.ram_start)
+            .field("prg_rom", &self.prg_rom.len())
+            .field("prg_ram", &self.prg_ram.len())
+            .field("chr", &self.chr.len())
+            .field("chr_writable", &self.chr_writable)
+            .field("ciram", &self.ciram.len())
+            .field("ex_ram", &self.ex_ram.len())
+            .finish_non_exhaustive()
     }
 }
 
@@ -159,9 +175,12 @@ impl Memory {
         // special case on the read path.
         let mut offset = PAGE_SIZE;
 
+        // Every region is a whole number of pages. Wrapping an offset within a region then always
+        // leaves a full page behind it, which is what lets the read path index without bounds
+        // masking while still tolerating games that read past the end of their own banks.
         let alloc = |size: usize, offset: &mut usize| {
             let start = *offset;
-            *offset += size;
+            *offset += size.div_ceil(PAGE_SIZE) * PAGE_SIZE;
             start..*offset
         };
 
@@ -228,8 +247,7 @@ impl Memory {
     /// at `$C000`. `size` is rounded down to a whole number of pages.
     pub fn map_prg(&mut self, addr: u16, size: usize, bank: i32, src: Src) {
         let slot = (addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK;
-        let pages = Self::resolve(self.region(src), size, bank, self.is_writable(src));
-        self.write_pages(slot, size, pages, true);
+        self.map_pages(slot, size, bank, src, true);
     }
 
     /// Map a window of the PPU address space to `bank` of `src`.
@@ -237,8 +255,7 @@ impl Memory {
     /// Also used for the nametable range; see [`Memory::set_mirroring`] for the common cases.
     pub fn map_chr(&mut self, addr: u16, size: usize, bank: i32, src: Src) {
         let slot = (addr as usize >> PAGE_SHIFT) & CHR_PAGE_MASK;
-        let pages = Self::resolve(self.region(src), size, bank, self.is_writable(src));
-        self.write_pages(slot, size, pages, false);
+        self.map_pages(slot, size, bank, src, false);
     }
 
     /// Override whether a mapped CPU window accepts writes, for boards that can write-protect
@@ -277,38 +294,29 @@ impl Memory {
         }
     }
 
-    /// Resolve a window to its first byte offset, wrapping `bank` within the region.
-    fn resolve(
-        region: Range<usize>,
-        size: usize,
-        bank: i32,
-        writable: bool,
-    ) -> Option<(usize, bool)> {
+    /// Fill `size` bytes of a page table starting at `slot` with `bank` of `src`.
+    ///
+    /// Every page offset is wrapped within its region. Regions are allocated in whole pages, so a
+    /// wrapped offset always has a full page behind it and the read path can never index outside
+    /// `data`. This matters beyond tidiness: several games read past the end of their own banks,
+    /// and the old `Memory<D>` newtype existed partly to mask those accesses rather than panic.
+    /// Wrapping here preserves that behaviour without a mask on every read.
+    fn map_pages(&mut self, slot: usize, size: usize, bank: i32, src: Src, prg: bool) {
+        let region = self.region(src);
+        let writable = self.is_writable(src);
         let len = region.len();
-        if len == 0 || size == 0 {
-            return None;
-        }
-        // A window larger than the region collapses to the whole region.
-        let window = size.min(len);
-        let bank_count = (len / window).max(1) as i32;
-        let bank = bank.rem_euclid(bank_count) as usize;
-        Some((region.start + bank * window, writable))
-    }
-
-    fn write_pages(
-        &mut self,
-        slot: usize,
-        size: usize,
-        resolved: Option<(usize, bool)>,
-        prg: bool,
-    ) {
         let count = (size >> PAGE_SHIFT).max(1);
+
+        // Number of whole `size` banks available. A window at least as large as the region leaves
+        // one bank, so the window repeats the region instead of running off its end.
+        let banks = (len / size.max(1)).max(1) as i32;
+        let base = bank.rem_euclid(banks) as usize * size;
+
         for i in 0..count {
-            let page = match resolved {
-                // Wrap within the window so a window larger than its region repeats, matching the
-                // power-of-two masking the old `Banks` did.
-                Some((base, writable)) => Page::new(base + (i * PAGE_SIZE), writable),
-                None => Page::UNMAPPED,
+            let page = if len == 0 {
+                Page::UNMAPPED
+            } else {
+                Page::new(region.start + ((base + (i * PAGE_SIZE)) % len), writable)
             };
             let (table, mask): (&mut [Page], usize) = if prg {
                 (&mut self.prg_pages, PRG_PAGE_MASK)
@@ -552,6 +560,82 @@ mod tests {
         assert_eq!(memory.ram().len(), memory.data.len() - memory.ram_start);
         assert!(memory.prg_rom.end <= memory.ram_start);
         assert!(memory.prg_ram.start >= memory.ram_start);
+    }
+
+    /// Games that read past the end of their own banks must wrap rather than panic. This is the
+    /// behaviour `mem::Memory<D>`'s masking `Index` impl provided, reproduced here by wrapping
+    /// page offsets at map time so the read path stays free of bounds masking.
+    #[test]
+    fn window_larger_than_region_repeats_instead_of_overrunning() {
+        let mut memory = Memory::new(MemoryLayout {
+            chr: 2 * 1024,
+            ..Default::default()
+        });
+        for (i, page) in memory
+            .region_mut(Src::Chr)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            page.fill(i as u8 + 1);
+        }
+
+        // An 8 KiB window over a 2 KiB region: must repeat the region four times, and critically
+        // must not index past it.
+        memory.map_chr(0x0000, 8 * 1024, 0, Src::Chr);
+        let read: Vec<u8> = (0..8).map(|i| memory.chr_peek(i * 1024)).collect();
+        assert_eq!(read, vec![1, 2, 1, 2, 1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn every_addressable_byte_is_in_bounds_for_odd_region_sizes() {
+        // Deliberately awkward sizes: not powers of two, not multiples of the page size.
+        for size in [1, 100, 1024, 1500, 3 * 1024, 5 * 1024, 40 * 1024] {
+            let mut memory = Memory::new(MemoryLayout {
+                prg_rom: size,
+                chr: size,
+                ..Default::default()
+            });
+            for bank in [-2, -1, 0, 1, 7, 1000] {
+                for window in [1024, 8 * 1024, 16 * 1024, 32 * 1024] {
+                    memory.map_prg(0x8000, window, bank, Src::PrgRom);
+                    memory.map_chr(0x0000, window.min(8 * 1024), bank, Src::Chr);
+                    // Sweeping the whole address space must never panic.
+                    for addr in (0..=0xFFFFu32).step_by(64) {
+                        let _ = memory.prg_peek(addr as u16);
+                    }
+                    for addr in (0..0x4000u32).step_by(64) {
+                        let _ = memory.chr_peek(addr as u16);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn regions_are_whole_pages_so_offsets_always_have_a_full_page_behind_them() {
+        let memory = Memory::new(MemoryLayout {
+            prg_rom: 1500,
+            prg_ram: 100,
+            chr: 1,
+            ex_ram: 1023,
+            ..Default::default()
+        });
+        for src in [Src::PrgRom, Src::PrgRam, Src::Chr, Src::CiRam, Src::ExRam] {
+            let len = memory.region_ref(src).len();
+            assert_eq!(len % PAGE_SIZE, 0, "{src:?} region must be whole pages");
+            assert!(len > 0, "{src:?} region must be at least one page");
+        }
+    }
+
+    #[test]
+    fn debug_does_not_print_contents() {
+        let memory = Memory::new(MemoryLayout {
+            prg_rom: 64 * 1024,
+            ..Default::default()
+        });
+        let debug = format!("{memory:?}");
+        assert!(debug.len() < 512, "Debug must summarize, not dump: {debug}");
+        assert!(debug.contains("prg_rom"));
     }
 
     #[test]
