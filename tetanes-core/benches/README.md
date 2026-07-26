@@ -35,7 +35,9 @@ regression testing needs, but it under-reports a busy gameplay frame. `spritecan
 stress ROM and serves as the pessimistic end of the range.
 
 The benchmark calls `clock_frame()`, **not** `clock_frame_output()`, so `Video::apply_filter` and
-the NTSC filter are **not** measured.
+the NTSC filter are **not** measured by default. Set `TETANES_BENCH_OUTPUT=1` to switch to
+`clock_frame_output()` and include it - needed to see any change to `Video::apply_ntsc_filter` or
+`Video::decode_buffer`, neither of which `clock_frame()` ever calls.
 
 ## Reading the output
 
@@ -185,3 +187,71 @@ Notes:
   (LTO off, debug symbols) is a faithful stand-in for release, so profiles are representative.
 - `spritecans.nes` is also currently the sole PGO training workload, which biases branch layout
   toward mapper 0.
+
+### Phase 1b — PPU (2026-07-26)
+
+`--profile perf`, 10 iterations x 600 frames, `taskset -c 0`, quiet machine (cv < 0.5% on every ROM
+in the table below). `before` is the last commit before this section's changes.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.767 | 2.710 | -2.1% |
+| Super Mario Bros. | 000 NROM | 2.860 | 2.716 | -5.0% |
+| Legend of Zelda | 001 MMC1 | 2.767 | 2.683 | -3.0% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.976 | 2.854 | -4.1% |
+| Punch-Out!! | 009 MMC2 | 2.702 | 2.613 | -3.3% |
+| Castlevania III | 005 MMC5 | 3.849 | 3.783 | -1.7% |
+| Akumajou Densetsu | 024 VRC6 | 3.288 | 3.204 | -2.6% |
+| **geometric mean** | | **3.008** | **2.914** | **-3.1%** |
+
+Changes, in the order they were made and measured:
+
+1. **Split `Ppu::clock`'s branch chain.** Extracted the scanline-transition path (taken once every
+   341 dots) and the PAL-only sprite-eval path into their own `#[cold] #[inline(never)]` functions,
+   leaving the render-scanline path (~92% of scanlines) as the only thing inlined into the hot
+   function. Pure code motion, no logic changes.
+2. **Flag-gate `PpuDebugger`.** The two per-dot `scanline`/`cycle` compares against `self.debugger`
+   are pure and side-effect-free, so LLVM was free to (and did) evaluate both unconditionally every
+   dot rather than short-circuiting - touching a struct that otherwise sits cold relative to the
+   hot per-dot fields. Added a cached `debugger_active: bool`, recomputed only when
+   `add_debugger`/`remove_debugger` is called, so the common (no debugger attached) case is a single
+   bool check that never touches `debugger`.
+3. **Un-box hot arrays - measured, not assumed.** All three of `Ppu::sprites`, `Bus::wram`, and
+   `Frame::buffer` were tried un-boxed (removing a pointer chase per access). Results disagreed with
+   the "fewer indirections is always faster" prior:
+   - `Ppu::sprites` (`[Sprite; 8]`, ~112 bytes, chased per visible pixel by `pixel_palette`):
+     un-boxing measured neutral-to-slightly-positive. Kept un-boxed.
+   - `Bus::wram` (2 KiB): un-boxing measured **~1.2% slower**, reproducing across repeated back-to-back
+     A/B runs. Inlining it grows `Bus`'s footprint enough to outweigh the removed indirection. Kept
+     boxed.
+   - `Frame::buffer` (120 KiB): un-boxing **overflowed the stack** in
+     `control_deck::tests::save_state_resumes_identically`, which moves a `Cpu` (and therefore
+     `Bus`/`Ppu`/`Frame`) through several stack frames during a save-state round trip. Kept boxed.
+4. **Hoist per-pixel invariants out of `Video::apply_ntsc_filter`.** `NTSC_PALETTE.get_or_init(..)`
+   and `even_phase` were recomputed every pixel despite being frame-invariant; the per-pixel
+   `(2 + y * 341 + x + even_phase) % 3` was replaced with a rolling counter incremented once per
+   pixel and recomputed from scratch only at the start of each row. Verified bit-for-bit identical
+   to the original formula via a synthetic regression test
+   (`video::tests::ntsc_filter_matches_reference_formula`), since no ROM snapshot test exercises the
+   filter. **Invisible to the table above** - `clock_frame()` never calls `apply_filter`, so this
+   needed `TETANES_BENCH_OUTPUT=1` to measure at all: 3.162 -> 2.988 ms/frame on the same corpus, a
+   further **-5.5%** on top of everything above, on the path real gameplay actually takes.
+
+### Catch-up clocking - investigated, not pursued
+
+Before starting the above, considered whether a `Apu::clock_lazy`-style catch-up (clock the PPU
+only when the CPU can observe a change, per <https://www.nesdev.org/wiki/Catch-up>) would apply to
+the PPU the way it does the APU. It does not, for two independent reasons:
+
+1. **The PPU is already driven at maximum catch-up granularity.** `Cpu::start_cycle`/`end_cycle`
+   call `Ppu::clock_to` twice per CPU cycle, which itself loops `Ppu::clock()` up to the target
+   master clock - there is no batching left on the table between CPU cycles to claim back.
+2. **PPU work isn't deferrable the way APU sample synthesis is.** `Apu::clock_lazy` can skip
+   ticking channels because nothing observes their intermediate state until a frame-counter/DMC
+   event or a register read forces a catch-up - the audio math only has to be right at those
+   observation points. The PPU has no equivalent: every dot's pixel is either written to the frame
+   buffer now or never (there is no "catch up the pixel later"), and mid-scanline register writes
+   for raster effects are exactly the case the NesDev page's "prediction"/"timestamping" approaches
+   have to get right or corrupt sprite-0-hit and IRQ timing - the accuracy reference (Nintendulator)
+   clocks every component every cycle for this reason. So the real win available here was making the
+   unavoidable per-dot work itself cheaper, which is what the branch-chain split above does.
