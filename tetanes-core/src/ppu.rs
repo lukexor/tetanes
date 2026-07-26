@@ -498,11 +498,15 @@ impl Ppu {
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
         if self.mapped {
+            let val = self.memory.chr_peek(addr);
+            // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte
+            // being read must come from the pre-flip bank. MMC3's A12 counter does not affect the
+            // data, so it is unaffected by the ordering.
             if self.watches_ppu_bus {
                 let Self { mapper, memory, .. } = self;
                 mapper.ppu_bus_addr(memory, addr);
             }
-            self.memory.chr_peek(addr)
+            val
         } else {
             self.mapper.chr_read(addr, &self.ciram)
         }

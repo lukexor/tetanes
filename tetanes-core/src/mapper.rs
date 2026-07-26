@@ -148,7 +148,9 @@ pub enum Mapper {
     /// `NES-EVENT` (Mapper 105)
     NesEvent(NesEvent),
     /// `Waixing FK23C`/`FS303` (Mapper 176)
-    Fk23C(Fk23C),
+    // Boxed: at 280 bytes it is now several times the size of any other variant, since the ported
+    // boards hold only registers. The remaining unported boards will shrink the same way.
+    Fk23C(Box<Fk23C>),
 }
 
 /// Implement `From<T>` for `Mapper`.
@@ -199,7 +201,7 @@ impl_from_board!(
     Bf909x(Bf909x),
     Nina003006(Nina003006),
     NesEvent(NesEvent),
-    Fk23C(Fk23C),
+    Fk23C(Box<Fk23C>),
 );
 
 /// Implement `Map` function for all `Mapper` variants.

@@ -290,8 +290,8 @@ impl Cart {
             176 => Fk23C::load(&cart, chr_rom, prg_rom)?,
             5 => Exrom::load(&cart, chr_rom, prg_rom)?,
             7 => Axrom::load(&mut cart)?,
-            9 => Pxrom::load(&cart, chr_rom, prg_rom)?,
-            10 => Fxrom::load(&cart, chr_rom, prg_rom)?,
+            9 => Pxrom::load(&mut cart)?,
+            10 => Fxrom::load(&mut cart)?,
             11 | 144 => ColorDreams::load(&mut cart)?,
             16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
             18 => JalecoSs88006::load(&mut cart)?,
@@ -411,11 +411,11 @@ impl Cart {
             | Mapper::JalecoSs88006(_)
             | Mapper::Vrc6(_)
             | Mapper::NesEvent(_)
+            | Mapper::Pxrom(_)
+            | Mapper::Fxrom(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
-            Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),
-            Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
             Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
             Mapper::Namco163(namco163) => namco163.chr_rom.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
