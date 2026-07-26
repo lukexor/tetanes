@@ -86,12 +86,12 @@ impl Vrc6 {
         self.nt_banks[bank] = page;
     }
 
-    pub fn set_nametables(&mut self, nametables: &[usize; 4]) {
+    pub const fn set_nametables(&mut self, nametables: &[usize; 4]) {
         self.nt_banks = *nametables;
     }
 
     /// Translate a mirroring mode into the four nametable page selections.
-    pub fn set_mirroring(&mut self, mirroring: Mirroring) {
+    pub const fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;
         self.nt_banks = match mirroring {
             Mirroring::Vertical => [0, 1, 0, 1],
@@ -103,7 +103,7 @@ impl Vrc6 {
     }
 
     /// Compute the eight 1K CHR bank selections for the current banking mode.
-    fn chr_banks(&self) -> [usize; 8] {
+    const fn chr_banks(&self) -> [usize; 8] {
         let chr = &self.regs.chr;
         // Bit 5 forces bank pairs to be aligned, ignoring the low bit.
         let (mask, or_mask) = if self.regs.banking_mode & 0x20 == 0x20 {
@@ -142,7 +142,7 @@ impl Vrc6 {
     }
 
     /// Recompute the nametable page selections from the banking mode.
-    fn update_nametables(&mut self) {
+    const fn update_nametables(&mut self) {
         let chr = self.regs.chr;
         if self.regs.banking_mode & 0x10 == 0x10 {
             // Nametables come from CHR-ROM, so every slot is independently selectable.
