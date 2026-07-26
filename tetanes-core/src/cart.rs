@@ -294,7 +294,7 @@ impl Cart {
             10 => Fxrom::load(&cart, chr_rom, prg_rom)?,
             11 | 144 => ColorDreams::load(&mut cart)?,
             16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
-            18 => JalecoSs88006::load(&cart, chr_rom, prg_rom)?,
+            18 => JalecoSs88006::load(&mut cart)?,
             19 | 210 => Namco163::load(&cart, chr_rom, prg_rom)?,
             24 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::A)?,
             26 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::B)?,
@@ -307,7 +307,7 @@ impl Cart {
                 }
             }
             66 => Gxrom::load(&mut cart)?,
-            69 => SunsoftFme7::load(&cart, chr_rom, prg_rom)?,
+            69 => SunsoftFme7::load(&mut cart)?,
             71 => Bf909x::load(&mut cart)?,
             79 | 113 | 146 => Nina003006::load(&mut cart)?,
             105 => NesEvent::load(
@@ -412,16 +412,16 @@ impl Cart {
             | Mapper::Gxrom(_)
             | Mapper::Sxrom(_)
             | Mapper::Txrom(_)
+            | Mapper::SunsoftFme7(_)
+            | Mapper::JalecoSs88006(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
             Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),
             Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
             Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
-            Mapper::JalecoSs88006(jaleco_ss88006) => jaleco_ss88006.chr_rom.len(),
             Mapper::Namco163(namco163) => namco163.chr_rom.len(),
             Mapper::Vrc6(vrc6) => vrc6.chr_rom.len(),
-            Mapper::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.chr_rom.len(),
             Mapper::NesEvent(nes_event) => nes_event.chr.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }

@@ -7,8 +7,8 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
     mapper::{self, Map, Mapper},
-    mem::{Banks, Memory},
-    ppu::{CIRam, Mirroring},
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,109 +29,63 @@ pub struct Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct SunsoftFme7 {
-    pub chr_rom: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub mirroring: Mirroring,
     pub audio: Audio,
-    pub chr_banks: Banks,
-    pub prg_banks: Banks,
-    pub prg_rom_banks: Banks,
+    /// 8x 1K CHR banks.
+    pub chr_banks: [u8; 8],
+    /// 3x 8K PRG-ROM banks at $8000/$A000/$C000. $E000 is fixed to the last bank.
+    pub prg_banks: [u8; 3],
+    /// Bank selected into the $6000 window, from PRG-RAM or PRG-ROM per `regs.prg_ram_enabled`.
+    pub prg_ram_bank: u8,
 }
 
 impl SunsoftFme7 {
     const PRG_WINDOW: usize = 8 * 1024;
-    const PRG_RAM_SIZE: usize = 32 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
-        let prg_ram = Memory::with_ram_state(Self::PRG_RAM_SIZE, cart.ram_state);
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
-        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        let mut sunsoft_fme7 = Self {
-            chr_rom,
-            prg_rom,
-            prg_ram,
+    // PPU $0000..=$1FFF 8x 1K CHR Banks
+    // CPU $6000..=$7FFF 8K PRG-RAM or PRG-ROM Bank Switchable
+    // CPU $8000..=$DFFF 3x 8K PRG-ROM Banks Switchable
+    // CPU $E000..=$FFFF 8K PRG-ROM Fixed to Last Bank
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+        let mut board = Self {
             regs: Regs::default(),
             mirroring: cart.mirroring(),
             audio: Audio::new(),
-            chr_banks,
-            prg_banks: prg_ram_banks,
-            prg_rom_banks,
+            chr_banks: [0; 8],
+            prg_banks: [0; 3],
+            prg_ram_bank: 0,
         };
-        sunsoft_fme7
-            .prg_rom_banks
-            .set(3, sunsoft_fme7.prg_rom_banks.last());
-        Ok(sunsoft_fme7.into())
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
 impl Map for SunsoftFme7 {
-    // PPU $0000..=$03FF 1K CHR-ROM Bank 1 Switchable
-    // PPU $0400..=$07FF 1K CHR-ROM Bank 2 Switchable
-    // PPU $0800..=$0BFF 1K CHR-ROM Bank 3 Switchable
-    // PPU $0C00..=$0FFF 1K CHR-ROM Bank 4 Switchable
-    // PPU $1000..=$13FF 1K CHR-ROM Bank 5 Switchable
-    // PPU $1400..=$17FF 1K CHR-ROM Bank 6 Switchable
-    // PPU $1800..=$1BFF 1K CHR-ROM Bank 7 Switchable
-    // PPU $1C00..=$1FFF 1K CHR-ROM Bank 8 Switchable
-
-    // CPU $6000..=$7FFF 8K PRG-ROM or PRG-RAM Bank 1 Switchable
-    // CPU $8000..=$9FFF 8K PRG-ROM Bank 1 Switchable
-    // CPU $A000..=$BFFF 8K PRG-ROM Bank 2 Switchable
-    // CPU $C000..=$DFFF 8K PRG-ROM Bank 3 Switchable
-    // CPU $E000..=$FFFF 8K PRG-ROM Bank 4 fixed to last
-
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
-            _ => 0,
-        }
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF => {
-                if self.regs.prg_ram_enabled {
-                    self.prg_ram[self.prg_banks.translate(addr)]
-                } else {
-                    self.prg_rom[self.prg_banks.translate(addr)]
-                }
-            }
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, addr: u16, val: u8) {
+    fn irq_pending(&self) -> bool {
+        self.regs.irq_pending
+    }
+
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
-            0x6000..=0x7FFF if self.regs.prg_ram_enabled => {
-                self.prg_ram[self.prg_banks.translate(addr)] = val;
-            }
             0x8000..=0x9FFF => self.regs.command = val & 0x0F,
             0xA000..=0xBFFF => match self.regs.command {
-                0..=7 => self.chr_banks.set(self.regs.command.into(), val.into()),
+                0..=7 => self.chr_banks[usize::from(self.regs.command)] = val,
                 8 => {
                     self.regs.parameter = val;
                     self.regs.prg_ram_enabled = val & 0x80 == 0x80;
-                    self.prg_banks.set(0, (val & 0x3F).into());
+                    self.prg_ram_bank = val & 0x3F;
                 }
-                9..=0xB => {
-                    let bank = self.regs.command - 9;
-                    self.prg_rom_banks.set(bank.into(), (val & 0x3F).into());
-                }
+                9..=0xB => self.prg_banks[usize::from(self.regs.command - 9)] = val & 0x3F,
                 0xC => {
                     self.mirroring = match val & 0x03 {
                         0b00 => Mirroring::Vertical,
@@ -152,19 +106,29 @@ impl Map for SunsoftFme7 {
                 _ => (),
             },
             0xC000..=0xFFFF => self.audio.write_register(addr, val),
-            _ => (),
+            _ => return,
         }
+        self.sync(memory);
     }
 
-    /// Whether an IRQ is pending acknowledgement.
-    fn irq_pending(&self) -> bool {
-        self.regs.irq_pending
-    }
-
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+    fn sync(&mut self, memory: &mut Memory) {
+        for (slot, bank) in self.chr_banks.iter().enumerate() {
+            let addr = (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, i32::from(*bank), Src::Chr);
+        }
+        // The $6000 window selects the same bank index from either PRG-RAM or PRG-ROM.
+        let src = if self.regs.prg_ram_enabled {
+            Src::PrgRam
+        } else {
+            Src::PrgRom
+        };
+        memory.map_prg(0x6000, Self::PRG_WINDOW, i32::from(self.prg_ram_bank), src);
+        for (slot, bank) in self.prg_banks.iter().enumerate() {
+            let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
+            memory.map_prg(addr, Self::PRG_WINDOW, i32::from(*bank), Src::PrgRom);
+        }
+        memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
+        memory.set_mirroring(self.mirroring);
     }
 }
 

@@ -6,8 +6,8 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     mapper::{self, Map, Mapper},
-    mem::{BankAccess, Banks, Memory},
-    ppu::{CIRam, Mirroring},
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +20,9 @@ enum PageBit {
 }
 
 impl PageBit {
-    const fn page(&self, page: usize, val: u8) -> usize {
-        let val = (val as usize) & 0x0F;
+    /// Merge a 4-bit write into the low or high nibble of an existing bank index.
+    const fn page(&self, page: u16, val: u8) -> u16 {
+        let val = (val as u16) & 0x0F;
         match self {
             PageBit::Low => (page & 0xF0) | val,
             PageBit::High => (val << 4) | (page & 0x0F),
@@ -53,187 +54,138 @@ pub struct Regs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct JalecoSs88006 {
-    pub chr_rom: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub irq_counter: u16,
     pub mirroring: Mirroring,
-    pub chr_banks: Banks,
-    pub prg_ram_banks: Banks,
-    pub prg_rom_banks: Banks,
+    /// 8x 1K CHR banks, each written as two 4-bit halves.
+    pub chr_banks: [u16; 8],
+    /// 3x 8K PRG-ROM banks, likewise written in halves. $E000 is fixed to the last bank.
+    pub prg_banks: [u16; 3],
+    /// PRG-RAM access, from the $9002 register.
+    pub prg_ram_readable: bool,
+    pub prg_ram_writable: bool,
 }
 
 impl JalecoSs88006 {
     const PRG_WINDOW: usize = 8 * 1024;
-    const PRG_RAM_SIZE: usize = 8 * 1024;
+    const PRG_RAM_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
-
     const IRQ_MASKS: [u16; 4] = [0xFFFF, 0x0FFF, 0x00FF, 0x000F];
 
-    /// Load `JalecoSs88006` from `Cart`.
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
-        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
-        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_WINDOW)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        let mut jalecoss88006 = Self {
-            chr_rom,
-            prg_rom,
-            prg_ram,
+    // PPU $0000..=$1FFF 8x 1K CHR Banks
+    // CPU $6000..=$7FFF 8K PRG-RAM, access controlled by $9002
+    // CPU $8000..=$DFFF 3x 8K PRG-ROM Banks Switchable
+    // CPU $E000..=$FFFF 8K PRG-ROM Fixed to Last Bank
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+        let mut board = Self {
             regs: Regs::default(),
             irq_counter: 0,
             mirroring: cart.mirroring(),
-            chr_banks,
-            prg_ram_banks,
-            prg_rom_banks,
+            chr_banks: [0; 8],
+            prg_banks: [0; 3],
+            prg_ram_readable: true,
+            prg_ram_writable: true,
         };
-        jalecoss88006
-            .prg_rom_banks
-            .set(3, jalecoss88006.prg_rom_banks.last());
-        Ok(jalecoss88006.into())
-    }
-
-    fn update_prg_bank(&mut self, bank: usize, val: u8, bits: PageBit) {
-        self.prg_rom_banks
-            .set(bank, bits.page(self.prg_rom_banks.page(bank), val));
-    }
-
-    fn update_chr_bank(&mut self, bank: usize, val: u8, bits: PageBit) {
-        self.chr_banks
-            .set(bank, bits.page(self.chr_banks.page(bank), val));
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 }
 
 impl Map for JalecoSs88006 {
-    // PPU $0000..=$03FF: 1K CHR Bank 1 Switchable
-    // PPU $0400..=$07FF: 1K CHR Bank 2 Switchable
-    // PPU $0800..=$0BFF: 1K CHR Bank 3 Switchable
-    // PPU $0C00..=$0FFF: 1K CHR Bank 4 Switchable
-    // PPU $1000..=$13FF: 1K CHR Bank 5 Switchable
-    // PPU $1400..=$17FF: 1K CHR Bank 6 Switchable
-    // PPU $1800..=$1BFF: 1K CHR Bank 7 Switchable
-    // PPU $1C00..=$1FFF: 1K CHR Bank 8 Switchable
-    //
-    // CPU $6000..=$7FFF: 8K PRG-RAM Bank, if WRAM is present
-    // CPU $8000..=$9FFF: 8K PRG-ROM Bank 1 Switchable
-    // CPU $A000..=$BFFF: 8K PRG-ROM Bank 2 Switchable
-    // CPU $C000..=$DFFF: 8K PRG-ROM Bank 3 Switchable
-    // CPU $E000..=$FFFF: 8K PRG-ROM Bank 4 Fixed to last
-
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
-            _ => 0,
-        }
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF if self.prg_ram_banks.readable(addr) => {
-                self.prg_ram[self.prg_ram_banks.translate(addr)]
-            }
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, addr: u16, val: u8) {
-        match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_banks.writable(addr) {
-                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
-                }
-            }
-            _ => match addr & 0xF003 {
-                0x8000 | 0x8001 => self.update_prg_bank(0, val, PageBit::from(addr)),
-                0x8002 | 0x8003 => self.update_prg_bank(1, val, PageBit::from(addr)),
-                0x9000 | 0x9001 => self.update_prg_bank(2, val, PageBit::from(addr)),
-                0x9002 => {
-                    let prg_ram_access = if val & 0x01 == 0x01 {
-                        if val & 0x02 == 0x02 {
-                            BankAccess::ReadWrite
-                        } else {
-                            BankAccess::Read
-                        }
-                    } else {
-                        BankAccess::None
-                    };
-                    self.prg_ram_banks.set_access(0, prg_ram_access);
-                }
-                0xA000 | 0xA001 => self.update_chr_bank(0, val, PageBit::from(addr)),
-                0xA002 | 0xA003 => self.update_chr_bank(1, val, PageBit::from(addr)),
-                0xB000 | 0xB001 => self.update_chr_bank(2, val, PageBit::from(addr)),
-                0xB002 | 0xB003 => self.update_chr_bank(3, val, PageBit::from(addr)),
-                0xC000 | 0xC001 => self.update_chr_bank(4, val, PageBit::from(addr)),
-                0xC002 | 0xC003 => self.update_chr_bank(5, val, PageBit::from(addr)),
-                0xD000 | 0xD001 => self.update_chr_bank(6, val, PageBit::from(addr)),
-                0xD002 | 0xD003 => self.update_chr_bank(7, val, PageBit::from(addr)),
-                0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
-                0xF000 => {
-                    self.regs.irq_pending = false;
-                    self.irq_counter = u16::from(self.regs.irq_reload[0])
-                        | (u16::from(self.regs.irq_reload[1]) << 4)
-                        | (u16::from(self.regs.irq_reload[2]) << 8)
-                        | (u16::from(self.regs.irq_reload[3]) << 12);
-                }
-                0xF001 => {
-                    self.regs.irq_enabled = val & 0x01 == 0x01;
-                    self.regs.irq_pending = false;
-                    if val & 0x08 == 0x08 {
-                        self.regs.irq_counter_size = 3;
-                    } else if val & 0x04 == 0x04 {
-                        self.regs.irq_counter_size = 2;
-                    } else if val & 0x02 == 0x02 {
-                        self.regs.irq_counter_size = 1;
-                    } else {
-                        self.regs.irq_counter_size = 0;
-                    }
-                }
-                0xF002 => {
-                    self.mirroring = match val & 0x03 {
-                        0b00 => Mirroring::Horizontal,
-                        0b01 => Mirroring::Vertical,
-                        0b10 => Mirroring::SingleScreenA,
-                        _ => Mirroring::SingleScreenB,
-                    };
-                }
-                0xF003 => {
-                    // TODO: Expansion audio
-                }
-                _ => (),
-            },
-        }
-    }
-
-    /// Whether an IRQ is pending acknowledgement.
     fn irq_pending(&self) -> bool {
         self.regs.irq_pending
     }
 
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+        if addr < 0x8000 {
+            return;
+        }
+        let bits = PageBit::from(addr);
+        match addr & 0xF003 {
+            0x8000 | 0x8001 => self.prg_banks[0] = bits.page(self.prg_banks[0], val),
+            0x8002 | 0x8003 => self.prg_banks[1] = bits.page(self.prg_banks[1], val),
+            0x9000 | 0x9001 => self.prg_banks[2] = bits.page(self.prg_banks[2], val),
+            0x9002 => {
+                self.prg_ram_readable = val & 0x01 == 0x01;
+                self.prg_ram_writable = self.prg_ram_readable && val & 0x02 == 0x02;
+            }
+            0xA000 | 0xA001 => self.chr_banks[0] = bits.page(self.chr_banks[0], val),
+            0xA002 | 0xA003 => self.chr_banks[1] = bits.page(self.chr_banks[1], val),
+            0xB000 | 0xB001 => self.chr_banks[2] = bits.page(self.chr_banks[2], val),
+            0xB002 | 0xB003 => self.chr_banks[3] = bits.page(self.chr_banks[3], val),
+            0xC000 | 0xC001 => self.chr_banks[4] = bits.page(self.chr_banks[4], val),
+            0xC002 | 0xC003 => self.chr_banks[5] = bits.page(self.chr_banks[5], val),
+            0xD000 | 0xD001 => self.chr_banks[6] = bits.page(self.chr_banks[6], val),
+            0xD002 | 0xD003 => self.chr_banks[7] = bits.page(self.chr_banks[7], val),
+            0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
+            0xF000 => {
+                self.regs.irq_pending = false;
+                self.irq_counter = u16::from(self.regs.irq_reload[0])
+                    | (u16::from(self.regs.irq_reload[1]) << 4)
+                    | (u16::from(self.regs.irq_reload[2]) << 8)
+                    | (u16::from(self.regs.irq_reload[3]) << 12);
+            }
+            0xF001 => {
+                self.regs.irq_enabled = val & 0x01 == 0x01;
+                self.regs.irq_pending = false;
+                self.regs.irq_counter_size = if val & 0x08 == 0x08 {
+                    3
+                } else if val & 0x04 == 0x04 {
+                    2
+                } else if val & 0x02 == 0x02 {
+                    1
+                } else {
+                    0
+                };
+            }
+            0xF002 => {
+                self.mirroring = match val & 0x03 {
+                    0b00 => Mirroring::Horizontal,
+                    0b01 => Mirroring::Vertical,
+                    0b10 => Mirroring::SingleScreenA,
+                    _ => Mirroring::SingleScreenB,
+                };
+            }
+            // $F003 selects expansion audio, which is not emulated.
+            0xF003 => (),
+            _ => (),
+        }
+        self.sync(memory);
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        for (slot, bank) in self.chr_banks.iter().enumerate() {
+            let addr = (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, i32::from(*bank), Src::Chr);
+        }
+        for (slot, bank) in self.prg_banks.iter().enumerate() {
+            let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
+            memory.map_prg(addr, Self::PRG_WINDOW, i32::from(*bank), Src::PrgRom);
+        }
+        memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
+
+        if self.prg_ram_readable {
+            memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
+            memory.set_prg_writable(0x6000, Self::PRG_RAM_WINDOW, self.prg_ram_writable);
+        } else {
+            memory.unmap_prg(0x6000, Self::PRG_RAM_WINDOW);
+        }
+        memory.set_mirroring(self.mirroring);
     }
 }
 
 impl Reset for JalecoSs88006 {
-    fn reset(&mut self, kind: ResetKind) {
+    fn reset(&mut self, _kind: ResetKind) {
+        // The last PRG slot is fixed in `sync`, which the caller runs after reset.
         self.regs = Regs::default();
-        if kind == ResetKind::Hard {
-            self.prg_rom_banks.set(3, self.prg_rom_banks.last());
-        }
     }
 }
 
