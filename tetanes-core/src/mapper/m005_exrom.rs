@@ -187,7 +187,11 @@ pub struct VSplit {
     pub tile: u8,      // $5200 [...T TTTT]
     pub scroll: u8,    // $5201
     pub bank: u8,      // $5202
+    /// Whether the tile currently being fetched falls inside the split region.
     pub in_region: bool,
+    /// ExRAM offset of the split tile the last nametable fetch selected. The attribute and
+    /// pattern fetches that follow it are derived from this rather than from the PPU's address.
+    pub tile_addr: u16,
 }
 
 impl Default for VSplit {
@@ -206,6 +210,7 @@ impl VSplit {
             scroll: 0x00,
             bank: 0x00,
             in_region: false,
+            tile_addr: 0x0000,
         }
     }
 }
@@ -276,6 +281,10 @@ pub struct IrqState {
 #[must_use]
 pub struct PpuStatus {
     pub fetch_count: u32,
+    /// Nametable fetches so far this scanline, counting the garbage fetches during sprite
+    /// evaluation and the two prefetched tiles. Only the vertical split uses it, to work out
+    /// which screen column a fetch belongs to.
+    pub tile_number: u32,
     pub reading: bool,
     pub idle_count: u8,
     pub sprite8x16: bool, // $2000 PPUCTRL: false = 8x8, true = 8x16
@@ -317,6 +326,10 @@ impl Exrom {
     const SPR_FETCH_START: u32 = 64;
     const SPR_FETCH_END: u32 = 81;
 
+    /// Nametable fetches in a scanline: 32 visible tiles, 8 garbage fetches during sprite
+    /// evaluation, and 2 tiles prefetched for the next scanline.
+    const SPLIT_COLUMNS: u32 = 42;
+
     // This conveniently mirrors a 2-bit palette attribute to all four indexes
     // https://www.nesdev.org/wiki/MMC5#Fill-mode_color_($5107)
     const ATTR_MIRROR: [u8; 4] = [0x00, 0x55, 0xAA, 0xFF];
@@ -334,6 +347,7 @@ impl Exrom {
             },
             ppu_status: PpuStatus {
                 fetch_count: 0x00,
+                tile_number: 0x00,
                 reading: false,
                 idle_count: 0x00,
                 sprite8x16: false,
@@ -563,6 +577,88 @@ impl Exrom {
         self.regs.nametable_mapping.select[((addr >> 10) & 0x03) as usize]
     }
 
+    /// Whether the vertical split can affect the fetch in progress.
+    ///
+    /// It shares ExRAM with the nametable modes, so it only exists in ExRAM modes 0 and 1, and it
+    /// tracks screen columns, so it means nothing outside a rendered frame.
+    const fn split_active(&self) -> bool {
+        self.regs.vsplit.enabled && self.regs.exram_mode.nametable && self.irq_state.in_frame
+    }
+
+    /// The split region's own vertical scroll for the scanline being fetched.
+    ///
+    /// The last two nametable fetches of a scanline prefetch the next one, so they scroll by a
+    /// scanline more than the counter says.
+    fn split_scroll(&self) -> u16 {
+        let scanline = if self.ppu_status.tile_number >= 41 {
+            self.ppu_status.scanline + 1
+        } else {
+            self.ppu_status.scanline
+        };
+        (scanline + u16::from(self.regs.vsplit.scroll)) % 240
+    }
+
+    /// Screen column the nametable fetch in progress will be displayed at.
+    ///
+    /// The PPU fetches two tiles ahead, so the counter runs two columns behind - which also puts
+    /// the two prefetched tiles of the previous scanline at columns 0 and 1.
+    const fn split_column(&self) -> u32 {
+        (self.ppu_status.tile_number + 2) % Self::SPLIT_COLUMNS
+    }
+
+    /// Track whether the nametable fetch in progress falls inside the split region, and which
+    /// ExRAM tile it selects.
+    fn update_split_region(&mut self) {
+        let column = self.split_column();
+        if column == 0 {
+            // A fresh scanline's worth of tiles starts here, on whichever side $5200 selects.
+            self.regs.vsplit.in_region = self.regs.vsplit.side == Side::Left;
+        }
+        if column == u32::from(self.regs.vsplit.tile)
+            && self.ppu_status.tile_number < Self::SPLIT_COLUMNS
+        {
+            // Crossing the delimiter column swaps which side of it is being drawn.
+            self.regs.vsplit.in_region = !self.regs.vsplit.in_region;
+        } else if column > 32 {
+            // Sprite-evaluation garbage fetches, which are not screen columns at all.
+            self.regs.vsplit.in_region = false;
+        }
+        if self.regs.vsplit.in_region {
+            self.regs.vsplit.tile_addr = ((self.split_scroll() & 0xF8) << 2) | column as u16;
+        }
+    }
+
+    /// Nametable or attribute byte for a fetch inside the split region, which comes from ExRAM
+    /// laid out as a nametable of its own rather than from the selected nametable source.
+    fn split_nametable_read(&self, memory: &Memory, is_nt_fetch: bool) -> Option<u8> {
+        if !self.split_active() || !self.regs.vsplit.in_region {
+            return None;
+        }
+        let tile = self.regs.vsplit.tile_addr;
+        Some(if is_nt_fetch {
+            memory.region_peek(Src::ExRam, tile as usize)
+        } else {
+            let shift = ((tile >> 4) & 0x04) | (tile & 0x02);
+            let attr_addr = 0x03C0 | ((tile & 0x0380) >> 4) | ((tile & 0x001F) >> 2);
+            let attr = memory.region_peek(Src::ExRam, attr_addr as usize);
+            Self::ATTR_MIRROR[((attr >> shift) & 0x03) as usize]
+        })
+    }
+
+    /// Pattern byte for a fetch inside the split region, which uses the split's own 4K CHR bank
+    /// and its own fine Y rather than the PPU's.
+    fn split_chr_read(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        if !self.split_active() || !self.regs.vsplit.in_region {
+            return None;
+        }
+        let bank = (self.regs.vsplit.bank as usize) << 12;
+        let fine_y = self.split_scroll() as usize & 0x07;
+        Some(memory.region_peek(
+            Src::Chr,
+            bank | ((addr as usize & !0x07) | fine_y) & 0x0FFF,
+        ))
+    }
+
     /// Pattern-table byte for a tile whose CHR bank came from ExRAM.
     ///
     /// In extended-attribute mode the bank is chosen per tile by the ExRAM byte matching the
@@ -763,20 +859,19 @@ impl Map for Exrom {
                         _ => (),
                     }
                 }
-                self.ex_attr_chr_read(memory, addr)
+                self.split_chr_read(memory, addr)
+                    .or_else(|| self.ex_attr_chr_read(memory, addr))
             }
             0x2000..=0x3EFF => {
                 let is_attr = addr.is_attr();
+                let is_nt_fetch = addr <= 0x2FFF && !is_attr;
+                if is_nt_fetch {
+                    self.ppu_status.tile_number += 1;
+                }
                 // Cache BG tile fetch for later attribute byte fetch
                 if self.regs.exram_mode.attr && !is_attr && !self.spr_fetch() {
                     self.tile_cache = addr & 0x03FF;
                 }
-
-                // TODO: Detect split
-                // if self.regs.vsplit.in_region && !is_attr {
-                //     self.regs.vsplit.tile = ((self.regs.vsplit.scroll & 0xF8) << 2)
-                //         | ((self.fetch_count() / 4) & 0x1F) as u8;
-                // }
 
                 // Monitor tile fetches to trigger IRQs
                 // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
@@ -785,8 +880,13 @@ impl Map for Exrom {
                 // Wait for three consecutive fetches to match the same address, which means we're
                 // at the end of the render scanlines fetching dummy NT bytes
                 if addr <= 0x2FFF && Some(addr) == irq_state.prev_addr {
-                    irq_state.match_count += 1;
+                    irq_state.match_count = irq_state.match_count.saturating_add(1);
                     status.fetch_count = 0;
+                    if irq_state.match_count >= 2 {
+                        // The dummy fetches run into the first fetch of the next scanline, so the
+                        // column counter restarts here rather than at the scanline boundary.
+                        status.tile_number = 0;
+                    }
                     if irq_state.match_count == 2 {
                         if irq_state.in_frame {
                             // Scanline IRQ detected
@@ -808,7 +908,11 @@ impl Map for Exrom {
                 irq_state.prev_addr = Some(addr);
                 status.reading = true;
 
-                self.nametable_read(memory, addr)
+                if self.split_active() && is_nt_fetch {
+                    self.update_split_region();
+                }
+                self.split_nametable_read(memory, is_nt_fetch)
+                    .or_else(|| self.nametable_read(memory, addr))
             }
             _ => None,
         }
@@ -816,8 +920,14 @@ impl Map for Exrom {
 
     fn chr_peek_hook(&self, memory: &Memory, addr: u16) -> Option<u8> {
         match addr {
-            0x0000..=0x1FFF => self.ex_attr_chr_read(memory, addr),
-            0x2000..=0x3EFF => self.nametable_read(memory, addr),
+            0x0000..=0x1FFF => self
+                .split_chr_read(memory, addr)
+                .or_else(|| self.ex_attr_chr_read(memory, addr)),
+            0x2000..=0x3EFF => {
+                let is_nt_fetch = addr <= 0x2FFF && !addr.is_attr();
+                self.split_nametable_read(memory, is_nt_fetch)
+                    .or_else(|| self.nametable_read(memory, addr))
+            }
             _ => None,
         }
     }
@@ -973,6 +1083,7 @@ impl Map for Exrom {
                 //   E = Enable  (0=split mode disabled, 1=split mode enabled)
                 //   S = Vsplit side  (0=split will be on left side, 1=split will be on right)
                 //   T = tile number to split at
+                self.regs.vsplit.mode = val;
                 self.regs.vsplit.enabled = val & 0x80 == 0x80;
                 self.regs.vsplit.side = if val & 0x40 == 0x40 {
                     Side::Right
@@ -1140,6 +1251,13 @@ mod tests {
         let mut cart = test_cart();
         let mapper = Exrom::load(&mut cart).expect("valid mapper");
         (mapper, cart)
+    }
+
+    fn exrom(mapper: &mut Mapper) -> &mut Exrom {
+        match mapper {
+            Mapper::Exrom(exrom) => exrom,
+            _ => unreachable!("mapper is an Exrom"),
+        }
     }
 
     /// Mirrors `Bus::write`: the data store happens first, then the board acts on the register.
@@ -1375,6 +1493,61 @@ mod tests {
         // 4K bank 1 starts at CHR 1K page 4.
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 4);
         assert_eq!(chr_peek(&mapper, &cart, 0x0400), 0x80 | 5);
+    }
+
+    /// The split covers the columns on one side of the delimiter written to $5200, which the board
+    /// tracks by counting nametable fetches rather than by any address the PPU puts on the bus.
+    #[test]
+    fn vertical_split_covers_the_columns_on_the_selected_side() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5104, 0); // ExRAM nametable mode
+        write(&mut mapper, &mut cart, 0x5200, 0x80 | 0x40 | 20); // enabled, right side, column 20
+
+        let exrom = exrom(&mut mapper);
+        exrom.irq_state.in_frame = true;
+        // Chronological order: the last two fetches of a scanline prefetch columns 0 and 1 of the
+        // next one, so they come first.
+        for tile_number in (40..42).chain(0..40) {
+            exrom.ppu_status.tile_number = tile_number;
+            exrom.update_split_region();
+            let column = exrom.split_column();
+            // Columns 20 onwards are the split; 33 and up are sprite-fetch garbage, not columns.
+            assert_eq!(
+                exrom.regs.vsplit.in_region,
+                (20..=32).contains(&column),
+                "column {column} (tile {tile_number})"
+            );
+        }
+    }
+
+    /// Inside the split, nametable and attribute bytes come from ExRAM laid out as a nametable of
+    /// its own, and patterns from the 4K bank in $5202 - none of which the page tables can express.
+    #[test]
+    fn vertical_split_reads_its_own_nametable_attributes_and_patterns() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5104, 0); // ExRAM nametable mode
+        write(&mut mapper, &mut cart, 0x5200, 0x80 | 20); // enabled, left side, column 20
+        write(&mut mapper, &mut cart, 0x5201, 0); // no split scroll
+        write(&mut mapper, &mut cart, 0x5202, 2); // 4K CHR bank 2
+        {
+            let exrom = exrom(&mut mapper);
+            exrom.irq_state.in_frame = true;
+            exrom.ppu_status.tile_number = 40; // column 0, where the left side enters the split
+            exrom.update_split_region();
+            assert!(exrom.regs.vsplit.in_region);
+            assert_eq!(exrom.regs.vsplit.tile_addr, 0);
+        }
+
+        cart.memory.region_write(Src::ExRam, 0x0000, 0x5C); // the split's tile
+        cart.memory.region_write(Src::ExRam, 0x03C0, 0b01); // and its attribute
+        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x2000), Some(0x5C));
+        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x23C0), Some(0x55));
+        // 4K bank 2 of the test cart's CHR starts at 1K page 8.
+        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x0000), Some(0x80 | 8));
+
+        // Outside the split, everything falls back to the ordinary sources.
+        exrom(&mut mapper).regs.vsplit.in_region = false;
+        assert_eq!(mapper.chr_peek_hook(&cart.memory, 0x0000), None);
     }
 
     /// Page tables are derived state that save states do not carry, so `sync` has to rebuild every
