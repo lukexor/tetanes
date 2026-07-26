@@ -165,7 +165,9 @@ impl Apu {
                 return;
             };
             let pulse_idx = (pulse1 + pulse2) as usize;
-            let tnd_idx = (3.0f32.mul_add(*triangle, 2.0 * noise) + dmc) as usize;
+            // Not `mul_add`: it guarantees a single rounding, so without hardware FMA it lowers to
+            // a libm `fmaf` call. See `apu::filter::dot`.
+            let tnd_idx = ((3.0 * triangle) + (2.0 * noise) + dmc) as usize;
             let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
             let mapper_output = self.mapper_enabled as u8 as f32 * *mapper;
 

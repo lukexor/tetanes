@@ -193,13 +193,20 @@ impl Dmc {
     }
 }
 
+impl Dmc {
+    /// Raw channel level before conversion to a float sample.
+    ///
+    /// Callers that only need to index a mixer lookup table should use this rather than casting
+    /// [`Sample::output`] back to an integer, which costs a saturating float-to-int conversion.
+    #[inline]
+    pub const fn level(&self) -> u8 {
+        if self.silent() { 0 } else { self.output_level }
+    }
+}
+
 impl Sample for Dmc {
     fn output(&self) -> f32 {
-        if self.silent() {
-            0.0
-        } else {
-            f32::from(self.output_level)
-        }
+        f32::from(self.level())
     }
 }
 

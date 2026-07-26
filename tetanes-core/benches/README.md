@@ -46,22 +46,33 @@ climbs, suspect background load, CPU frequency scaling, or non-deterministic emu
 
 Recorded 2026-07-25. `--profile perf`, 10 iterations x 600 frames, 120 warmup.
 
-`before` is the pre-optimization baseline; `now` is after the APU FIR filter rewrite plus the
-secondary-OAM and Game Genie fixes.
+`before` is the pre-optimization baseline; `now` is after the APU filter and mixer work.
 
 | ROM | Mapper | before | now | delta |
 |---|---|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 3.197 | 2.938 | -8.1% |
-| Super Mario Bros. | 000 NROM | 3.237 | 2.927 | -9.6% |
-| Legend of Zelda | 001 MMC1 | 3.187 | 2.895 | -9.2% |
-| Super Mario Bros. 3 | 004 MMC3 | 3.360 | 3.028 | -9.9% |
-| Punch-Out!! | 009 MMC2 | 3.074 | 2.780 | -9.6% |
-| Castlevania III | 005 MMC5 | 4.277 | 3.965 | -7.3% |
-| Akumajou Densetsu | 024 VRC6 | 3.737 | 3.416 | -8.6% |
-| **geometric mean** | | **3.418** | **3.114** | **-8.9%** |
+| spritecans | 000 NROM (sprite stress) | 3.197 | 2.924 | -8.5% |
+| Super Mario Bros. | 000 NROM | 3.237 | 2.960 | -8.6% |
+| Legend of Zelda | 001 MMC1 | 3.187 | 2.880 | -9.6% |
+| Super Mario Bros. 3 | 004 MMC3 | 3.360 | 3.040 | -9.5% |
+| Punch-Out!! | 009 MMC2 | 3.074 | 2.756 | -10.3% |
+| Castlevania III | 005 MMC5 | 4.277 | 3.863 | -9.7% |
+| Akumajou Densetsu | 024 VRC6 | 3.737 | 3.428 | -8.3% |
+| **geometric mean** | | **3.418** | **3.102** | **-9.2%** |
 
-Nearly all of that came from `Fir::output`; the secondary-OAM and Game Genie changes measured
-within noise (~0.3% combined) and were kept for clarity rather than speed.
+Nearly all of that came from `Fir::output`. Of the rest, only the MMC5 integer mixer path moved a
+number it was aimed at (Castlevania III, -2.6%). The secondary-OAM and Game Genie changes measured
+within noise and were kept for clarity rather than speed.
+
+**Micro-optimization is now well past the point of diminishing returns.** Three of the four changes
+after the FIR rewrite measured at or below noise. What remains is structural: `Ppu::clock` at ~32%
+and `FilterChain::consume` at ~12% both need design changes, not tweaks.
+
+### Machine noise
+
+These numbers need a quiet machine. A run taken while the load average was ~6 reported Punch-Out at
+21.8% cv and Castlevania III at 13.9% with a max of 6.5 ms - roughly 70% above its true figure. The
+`cv` column is what catches this: **treat any ROM above ~2% cv as an invalid measurement and re-run**
+rather than reading its mean.
 
 ### Current profile
 
@@ -81,6 +92,15 @@ first:
 
 Roughly: PPU ~56%, APU ~24%, CPU ~10%, Bus ~7.5%. `fmaf`/`fmaf_with_fma`, previously 5.2%
 combined, no longer appear at all, and `Fir::output` fell from 4.5% to 1.25%.
+
+Mapper cost varies enormously by board, which is the whole reason the corpus exists. On
+Castlevania III, **MMC5-specific code is 18.2% of frame time**: `Exrom::output` 9.0% (called every
+CPU cycle for expansion audio), `Exrom::chr_read` 5.1%, `Exrom::clock` 4.1%. On Super Mario Bros.
+no mapper symbol appears at all.
+
+Note that `bg_fetch_cycle` is 13.9% even on NROM, where `Nrom::chr_peek` is two match arms - so it
+is mostly genuine PPU fetch work, **not** mapper dispatch. Removing dispatch will not reclaim most
+of it.
 
 `FilterChain::consume` runs at CPU clock rate and walks six `SampledFilter` entries per cycle,
 each ~64 bytes apart, so it touches five scattered cache lines per CPU cycle to do little more

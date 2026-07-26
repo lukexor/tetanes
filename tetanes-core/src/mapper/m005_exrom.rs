@@ -1117,10 +1117,11 @@ impl Sram for Exrom {
 
 impl Sample for Exrom {
     fn output(&self) -> f32 {
-        let pulse1 = self.pulse1.output();
-        let pulse2 = self.pulse2.output();
-        let pulse = PULSE_TABLE[(pulse1 + pulse2) as usize];
-        let dmc = TND_TABLE[self.dmc.output() as usize];
+        // Runs once per CPU cycle, so index the mixer tables straight from the integer channel
+        // levels. Going through `Sample::output` would convert each level to a float only to
+        // convert it back with a saturating float-to-int cast.
+        let pulse = PULSE_TABLE[usize::from(self.pulse1.level() + self.pulse2.level())];
+        let dmc = TND_TABLE[usize::from(self.dmc.level())];
         -(pulse + dmc)
     }
 }

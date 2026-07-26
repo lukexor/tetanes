@@ -184,15 +184,24 @@ impl Pulse {
     }
 }
 
+impl Pulse {
+    /// Raw channel level, 0-15, before conversion to a float sample.
+    ///
+    /// Callers that only need to index a mixer lookup table should use this rather than casting
+    /// [`Sample::output`] back to an integer, which costs a saturating float-to-int conversion.
+    #[inline]
+    pub fn level(&self) -> u8 {
+        if self.is_muted() {
+            0
+        } else {
+            Self::DUTY_TABLE[self.duty as usize][self.duty_cycle as usize] * self.volume()
+        }
+    }
+}
+
 impl Sample for Pulse {
     fn output(&self) -> f32 {
-        if self.is_muted() {
-            0.0
-        } else {
-            f32::from(
-                Self::DUTY_TABLE[self.duty as usize][self.duty_cycle as usize] * self.volume(),
-            )
-        }
+        f32::from(self.level())
     }
 }
 
