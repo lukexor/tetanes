@@ -263,7 +263,7 @@ impl Map for Mapper {
         impl_map!(self, mirroring)
     }
 
-    /// Handle a CPU-space write for a page-table board, re-banking as needed.
+    /// Handle a CPU-space write, re-banking as needed.
     #[inline(always)]
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         impl_map!(self, write_register, memory, addr, val)
@@ -436,7 +436,7 @@ pub trait Map: Clock + Regional + Reset + Sram {
     // All mappers have mirroring, even if it's hard-wired.
     fn mirroring(&self) -> Mirroring;
 
-    /// Handle a CPU-space write for a page-table board, re-banking as needed.
+    /// Handle a CPU-space write, re-banking as needed.
     ///
     /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
     /// happened, so this only needs to handle registers.
@@ -506,10 +506,13 @@ pub trait Map: Clock + Regional + Reset + Sram {
 
     /// Whether this board must observe every PPU bus address.
     ///
-    /// Boards on page tables no longer see reads, so the A12 rising-edge scanline counters
-    /// (MMC3, FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly. Cached
-    /// at load so the ~20 boards that do not care pay a bool test rather than a dispatch on every
-    /// one of the ~41,000 CHR fetches in a frame.
+    /// A board does not see the reads themselves, so the A12 rising-edge scanline counters (MMC3,
+    /// FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly. Cached at load
+    /// so the ~20 boards that do not care pay a bool test rather than a dispatch on every one of
+    /// the ~41,000 CHR fetches in a frame.
+    ///
+    /// Whatever this reaches runs thousands of times a frame: re-map only what changed, never
+    /// [`Map::sync`].
     fn watches_ppu_bus(&self) -> bool {
         false
     }
