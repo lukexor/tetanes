@@ -5,11 +5,12 @@ use crate::{
     fs,
     mapper::{
         self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
-        JalecoSs88006, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
+        JalecoSs88006, Map, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
         SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
         m034_nina001::Nina001,
     },
     mem::{Memory, RamState},
+    memory::{Memory as CartMemory, MemoryLayout, Src},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,12 @@ use std::{
 };
 use thiserror::Error;
 use tracing::{debug, error, info};
+
+/// Default PRG-RAM provided when a header declares none. Family Basic used 2-4K; boards that want
+/// more request it explicitly.
+const DEFAULT_PRG_RAM_SIZE: usize = 8 * 1024;
+/// Default CHR-RAM provided when a cart has no CHR-ROM.
+const DEFAULT_CHR_RAM_SIZE: usize = 8 * 1024;
 
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
@@ -62,6 +69,10 @@ pub struct Cart {
     pub region: NesRegion,
     pub ram_state: RamState,
     pub mapper: Mapper,
+    /// Page-table backed cartridge memory. Boards are being ported onto this a tier at a time; the
+    /// `chr_rom`/`prg_rom` copies below serve the boards that still own their own memory and go
+    /// away once every board is ported.
+    pub memory: CartMemory,
     pub chr_rom: Memory<Box<[u8]>>, // Character ROM
     pub prg_rom: Memory<Box<[u8]>>, // Program ROM
     pub chr_rom_size: usize,
@@ -79,20 +90,68 @@ impl Default for Cart {
 
 impl Cart {
     pub fn empty() -> Self {
+        Self::empty_sized(PRG_ROM_BANK_SIZE, CHR_ROM_BANK_SIZE)
+    }
+
+    /// An empty `Cart` with the given ROM sizes. A `chr_rom_size` of zero yields CHR-RAM instead.
+    pub fn empty_sized(prg_rom_size: usize, chr_rom_size: usize) -> Self {
+        let chr_ram_size = if chr_rom_size == 0 {
+            DEFAULT_CHR_RAM_SIZE
+        } else {
+            0
+        };
         Self {
             name: "Empty Cart".to_string(),
             header: NesHeader::default(),
             region: NesRegion::default(),
             ram_state: RamState::default(),
             mapper: Mapper::none(),
-            chr_rom: Memory::new(CHR_ROM_BANK_SIZE),
-            prg_rom: Memory::new(PRG_ROM_BANK_SIZE),
-            chr_rom_size: CHR_ROM_BANK_SIZE,
-            chr_ram_size: 0,
-            prg_rom_size: PRG_ROM_BANK_SIZE,
+            memory: Self::build_memory(
+                prg_rom_size,
+                0,
+                chr_rom_size,
+                chr_ram_size,
+                false,
+                RamState::default(),
+            ),
+            chr_rom: Memory::new(chr_rom_size),
+            prg_rom: Memory::new(prg_rom_size),
+            chr_rom_size,
+            chr_ram_size,
+            prg_rom_size,
             prg_ram_size: 0,
             game_info: None,
         }
+    }
+
+    /// Allocate page-table memory sized for a cart.
+    fn build_memory(
+        prg_rom_size: usize,
+        prg_ram_size: usize,
+        chr_rom_size: usize,
+        chr_ram_size: usize,
+        four_screen: bool,
+        ram_state: RamState,
+    ) -> CartMemory {
+        let mut memory = CartMemory::new(MemoryLayout {
+            prg_rom: prg_rom_size,
+            prg_ram: prg_ram_size.max(DEFAULT_PRG_RAM_SIZE),
+            // `chr_ram_size` is only non-zero when there is no CHR-ROM, so exactly one of the two
+            // backs the CHR region.
+            chr: if chr_rom_size > 0 {
+                chr_rom_size
+            } else {
+                chr_ram_size.max(DEFAULT_CHR_RAM_SIZE)
+            },
+            chr_writable: chr_rom_size == 0,
+            ciram: if four_screen { 4 * 1024 } else { 2 * 1024 },
+            ex_ram: 0,
+        });
+        if chr_rom_size == 0 {
+            ram_state.fill(memory.region_mut(Src::Chr));
+        }
+        ram_state.fill(memory.region_mut(Src::PrgRam));
+        memory
     }
 
     /// Load `Cart` from a ROM path.
@@ -189,12 +248,26 @@ impl Cart {
                 .unwrap_or_default()
         };
 
+        let mut memory = Self::build_memory(
+            prg_rom_size,
+            prg_ram_size,
+            chr_rom_size,
+            chr_ram_size,
+            header.flags & 0x08 == 0x08,
+            ram_state,
+        );
+        memory.region_mut(Src::PrgRom)[..prg_rom.len()].copy_from_slice(&prg_rom);
+        if chr_rom_size > 0 {
+            memory.region_mut(Src::Chr)[..chr_rom.len()].copy_from_slice(&chr_rom);
+        }
+
         let mut cart = Self {
             name,
             header,
             region,
             ram_state,
             mapper: Mapper::none(),
+            memory,
             chr_rom: chr_rom.clone(),
             prg_rom: prg_rom.clone(),
             chr_rom_size,
@@ -204,7 +277,7 @@ impl Cart {
             game_info,
         };
         cart.mapper = match cart.header.mapper_num {
-            0 => Nrom::load(&cart, chr_rom, prg_rom)?,
+            0 => Nrom::load(&mut cart)?,
             1 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::BC)?,
             2 => Uxrom::load(&cart, chr_rom, prg_rom)?,
             3 => Cnrom::load(&cart, chr_rom, prg_rom)?,
@@ -316,9 +389,13 @@ impl Cart {
     }
 
     pub fn chr_size(&self) -> usize {
+        // Ported boards read their CHR size straight from the page-table memory; this match
+        // shrinks by one arm per board and disappears entirely at the end of the port.
+        if self.mapper.uses_page_tables() {
+            return self.memory.region_ref(Src::Chr).len();
+        }
         match &self.mapper {
-            Mapper::None(_) => 0,
-            Mapper::Nrom(nrom) => nrom.chr.len(),
+            Mapper::None(_) | Mapper::Nrom(_) => 0,
             Mapper::Sxrom(sxrom) => sxrom.chr.len(),
             Mapper::Uxrom(uxrom) => uxrom.chr.len(),
             Mapper::Cnrom(cnrom) => cnrom.chr_rom.len(),

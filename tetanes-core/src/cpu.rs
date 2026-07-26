@@ -923,19 +923,14 @@ impl fmt::Debug for Cpu {
 
 #[cfg(test)]
 mod tests {
-    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom, mem::Memory};
+    use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom};
 
     #[test]
     fn cycle_timing() {
         use super::*;
         let mut cpu = Cpu::new(Bus::default());
         let mut cart = Cart::empty();
-        cart.mapper = Nrom::load(
-            &cart,
-            Memory::new(cart.chr_rom_size),
-            Memory::new(cart.prg_rom_size),
-        )
-        .unwrap();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
         cpu.bus.load_cart(cart);
         cpu.reset(ResetKind::Hard);
         cpu.clock();

@@ -5,6 +5,7 @@
 use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     fs, mem,
+    memory::Memory,
     ppu::{CIRam, Mirroring},
 };
 use serde::{Deserialize, Serialize};
@@ -299,6 +300,18 @@ impl Map for Mapper {
     fn mirroring(&self) -> Mirroring {
         impl_map!(self, mirroring)
     }
+
+    /// Whether this board has been ported to page-table [`Memory`].
+    #[inline(always)]
+    fn uses_page_tables(&self) -> bool {
+        impl_map!(self, uses_page_tables)
+    }
+
+    /// Handle a CPU-space write for a page-table board, re-banking as needed.
+    #[inline(always)]
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+        impl_map!(self, write_register, memory, addr, val)
+    }
 }
 
 impl Sample for Mapper {
@@ -430,6 +443,22 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// Returns the current [`Mirroring`] mode.
     // All mappers have mirroring, even if it's hard-wired.
     fn mirroring(&self) -> Mirroring;
+
+    /// Whether this board has been ported to page-table [`Memory`].
+    ///
+    /// Boards are ported a tier at a time, so both paths coexist. A board returning `true` owns no
+    /// memory of its own: its reads are served directly from [`Memory`] and `chr_peek`/`prg_peek`
+    /// are never called on it. Once every board is ported this, and the read methods above, go
+    /// away.
+    fn uses_page_tables(&self) -> bool {
+        false
+    }
+
+    /// Handle a CPU-space write for a page-table board, re-banking as needed.
+    ///
+    /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
+    /// happened, so this only needs to handle registers.
+    fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
 }
 
 impl Map for () {

@@ -5,6 +5,7 @@ use crate::{
     debug::PpuDebugger,
     mapper::{Map, Mapper},
     mem::{ConstArray, Read, Write},
+    memory::Memory as CartMemory,
     ppu::frame::Frame,
 };
 use ctrl::Ctrl;
@@ -269,6 +270,11 @@ pub struct Ppu {
     // === 640 : end of cache line
     /// Mapper.
     pub mapper: Mapper,
+    /// Page-table backed cartridge memory, for boards that have been ported onto it.
+    pub memory: CartMemory,
+    /// Whether the loaded board serves reads from [`Ppu::memory`] rather than through the mapper.
+    /// Cached from `Map::uses_page_tables` at load so the hot path is a bool test, not a dispatch.
+    pub mapped: bool,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -434,6 +440,8 @@ impl Ppu {
             // randomizing CIRAM.
             palette: PaletteRam(ConstArray::new()),
             mapper: Mapper::none(),
+            memory: CartMemory::default(),
+            mapped: false,
             ciram: CIRam(Box::new(ConstArray::new())),
 
             prev_palette: 0x00,
@@ -485,19 +493,31 @@ impl Ppu {
     /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
-        self.mapper.chr_read(addr, &self.ciram)
+        if self.mapped {
+            self.memory.chr_peek(addr)
+        } else {
+            self.mapper.chr_read(addr, &self.ciram)
+        }
     }
 
     /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_peek(&self, addr: u16) -> u8 {
-        self.mapper.chr_peek(addr, &self.ciram)
+        if self.mapped {
+            self.memory.chr_peek(addr)
+        } else {
+            self.mapper.chr_peek(addr, &self.ciram)
+        }
     }
 
     /// Write a byte to CHR-RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_write(&mut self, addr: u16, val: u8) {
-        self.mapper.chr_write(addr, val, &mut self.ciram)
+        if self.mapped {
+            self.memory.chr_write(addr, val);
+        } else {
+            self.mapper.chr_write(addr, val, &mut self.ciram);
+        }
     }
 
     /// Read from `addr` on Ppu bus.
@@ -561,7 +581,14 @@ impl Ppu {
     /// Load a Mapper into the PPU.
     #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
+        self.mapped = mapper.uses_page_tables();
         self.mapper = mapper;
+    }
+
+    /// Load a cart's mapper and its page-table memory.
+    pub fn load_cart(&mut self, mapper: Mapper, memory: CartMemory) {
+        self.memory = memory;
+        self.load_mapper(mapper);
     }
 
     /// Return the current Nametable mirroring mode.

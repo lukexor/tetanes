@@ -94,7 +94,7 @@ impl Bus {
     }
 
     pub fn load_cart(&mut self, cart: Cart) {
-        self.ppu.load_mapper(cart.mapper);
+        self.ppu.load_cart(cart.mapper, cart.memory);
     }
 
     pub fn unload_cart(&mut self) {
@@ -170,7 +170,11 @@ impl Read for Bus {
         self.open_bus = match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
-                let val = self.ppu.mapper.prg_read(addr);
+                let val = if self.ppu.mapped {
+                    self.ppu.memory.prg_peek(addr)
+                } else {
+                    self.ppu.mapper.prg_read(addr)
+                };
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.read_status(),
@@ -194,7 +198,11 @@ impl Read for Bus {
         match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
-                let val = self.ppu.mapper.prg_peek(addr);
+                let val = if self.ppu.mapped {
+                    self.ppu.memory.prg_peek(addr)
+                } else {
+                    self.ppu.mapper.prg_peek(addr)
+                };
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.peek_status(),
@@ -219,7 +227,17 @@ impl Write for Bus {
         };
         match addr {
             0x0000..=0x07FF => self.wram[usize::from(addr)] = val,
-            0x4100..=0xFFFF => self.ppu.mapper.prg_write(addr, val),
+            0x4100..=0xFFFF => {
+                if self.ppu.mapped {
+                    // Data store first, then let the board act on any register the write hit.
+                    // Destructured so both fields can be borrowed at once.
+                    let Ppu { mapper, memory, .. } = &mut self.ppu;
+                    memory.prg_write(addr, val);
+                    mapper.write_register(memory, addr, val);
+                } else {
+                    self.ppu.mapper.prg_write(addr, val);
+                }
+            }
             0x2000 => self.ppu.write_ctrl(val),
             0x2001 => self.ppu.write_mask(val),
             0x2002 => self.ppu.open_bus = val,
@@ -294,6 +312,7 @@ mod test {
     use crate::{
         mapper::{Cnrom, Nrom},
         mem::Memory,
+        memory::Src,
     };
 
     #[test]
@@ -356,11 +375,10 @@ mod test {
     #[test]
     fn load_cart_chr_ram() {
         let mut bus = Bus::default();
-        let mut cart = Cart::empty();
-        cart.mapper = Nrom::load(&cart, Memory::empty(), Memory::new(cart.prg_rom_size)).unwrap();
-        if let Mapper::Nrom(nrom) = &mut cart.mapper {
-            nrom.chr.fill(0x66);
-        }
+        // A zero-sized CHR-ROM yields CHR-RAM.
+        let mut cart = Cart::empty_sized(0x4000, 0);
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        cart.memory.region_mut(Src::Chr).fill(0x66);
         bus.load_cart(cart);
 
         bus.write(0x2006, 0x00);
@@ -392,16 +410,15 @@ mod test {
     #[test]
     fn genie_codes() {
         let mut bus = Bus::default();
-        let mut cart = Cart::empty();
-        let mut prg_rom = Memory::new(0x8000);
+        let mut cart = Cart::empty_sized(0x8000, 0x2000);
 
         let code = "YYKPOYZZ"; // The Legend of Zelda: New character with 8 Hearts
         let addr = 0x9F41;
         let orig_value = 0x22; // 3 Hearts
         let new_value = 0x77; // 8 Hearts
 
-        prg_rom[(addr & 0x7FFF) as usize] = orig_value;
-        cart.mapper = Nrom::load(&cart, Memory::new(cart.chr_rom_size), prg_rom).unwrap();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        cart.memory.region_mut(Src::PrgRom)[(addr & 0x7FFF) as usize] = orig_value;
 
         bus.load_cart(cart);
         bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
