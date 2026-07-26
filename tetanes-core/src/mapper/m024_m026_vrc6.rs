@@ -7,8 +7,8 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
     mapper::{self, Map, Mapper, vrc_irq::VrcIrq},
-    mem::{Banks, Memory},
-    ppu::{CIRam, Mirroring},
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,55 +33,47 @@ pub struct Regs {
 }
 
 /// `VRC6` (Mapper 024).
+/// `VRC6` (Mapper 024).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
-    pub chr_rom: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    pub prg_ram: Memory<Box<[u8]>>,
     pub regs: Regs,
     pub revision: Revision,
     pub mirroring: Mirroring,
     pub irq: VrcIrq,
     pub audio: Audio,
+    /// Page selected by each of the four nametable slots, indexing CIRAM or CHR-ROM depending on
+    /// bit 4 of the banking mode.
     pub nt_banks: [usize; 4],
-    pub chr_banks: Banks,
-    pub prg_ram_banks: Banks,
-    pub prg_rom_banks: Banks,
+    /// 16K bank at $8000 and 8K bank at $C000. $E000 is fixed to the last bank.
+    pub prg_banks: [usize; 2],
 }
 
 impl Vrc6 {
-    const PRG_RAM_SIZE: usize = 8 * 1024;
     const PRG_WINDOW: usize = 8 * 1024;
+    const PRG_WINDOW_16K: usize = 16 * 1024;
+    const PRG_RAM_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
 
-    /// Load `Vrc6` from `Cart`.
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-        revision: Revision,
-    ) -> Result<Mapper, mapper::Error> {
-        let prg_ram = cart.prg_ram_or_default(Self::PRG_RAM_SIZE);
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr_rom.len(), Self::CHR_WINDOW)?;
-        let prg_ram_banks = Banks::new(0x6000, 0x7FFF, prg_ram.len(), Self::PRG_RAM_SIZE)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        let mut vrc6 = Self {
-            chr_rom,
-            prg_rom,
-            prg_ram,
+    // PPU $0000..=$1FFF 8x 1K CHR Banks, grouped by banking mode
+    // PPU $2000..=$3FFF 4x 1K Nametables, from CIRAM or from CHR-ROM
+    // CPU $6000..=$7FFF 8K PRG-RAM, enabled by bit 7 of the banking mode
+    // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
+    // CPU $C000..=$DFFF 8K PRG-ROM Bank Switchable
+    // CPU $E000..=$FFFF 8K PRG-ROM Fixed to Last Bank
+    pub fn load(cart: &mut Cart, revision: Revision) -> Result<Mapper, mapper::Error> {
+        let mut board = Self {
             regs: Regs::default(),
             revision,
             mirroring: cart.mirroring(),
             irq: VrcIrq::default(),
             audio: Audio::new(),
             nt_banks: [0; 4],
-            chr_banks,
-            prg_ram_banks,
-            prg_rom_banks,
+            prg_banks: [0; 2],
         };
-        vrc6.prg_rom_banks.set(3, vrc6.prg_rom_banks.last());
-        Ok(vrc6.into())
+        board.set_mirroring(board.mirroring);
+        board.sync(&mut cart.memory);
+        Ok(board.into())
     }
 
     #[inline(always)]
@@ -90,145 +82,111 @@ impl Vrc6 {
         self.regs.banking_mode & 0x80 == 0x80
     }
 
-    pub fn set_nametables(&mut self, nametables: &[usize]) {
-        for (bank, page) in nametables.iter().enumerate() {
-            self.set_nametable_page(bank, *page);
-        }
-    }
-
-    pub fn set_mirroring(&mut self, mirroring: Mirroring) {
-        self.mirroring = mirroring;
-        match self.mirroring {
-            Mirroring::Vertical => self.set_nametables(&[0, 1, 0, 1]),
-            Mirroring::Horizontal => self.set_nametables(&[0, 0, 1, 1]),
-            Mirroring::SingleScreenA => self.set_nametables(&[0, 0, 0, 0]),
-            Mirroring::SingleScreenB => self.set_nametables(&[1, 1, 1, 1]),
-            Mirroring::FourScreen => self.set_nametables(&[0, 1, 2, 3]),
-        }
-    }
-
     pub const fn set_nametable_page(&mut self, bank: usize, page: usize) {
         self.nt_banks[bank] = page;
     }
 
-    pub fn update_chr_banks(&mut self) {
+    pub fn set_nametables(&mut self, nametables: &[usize; 4]) {
+        self.nt_banks = *nametables;
+    }
+
+    /// Translate a mirroring mode into the four nametable page selections.
+    pub fn set_mirroring(&mut self, mirroring: Mirroring) {
+        self.mirroring = mirroring;
+        self.nt_banks = match mirroring {
+            Mirroring::Vertical => [0, 1, 0, 1],
+            Mirroring::Horizontal => [0, 0, 1, 1],
+            Mirroring::SingleScreenA => [0; 4],
+            Mirroring::SingleScreenB => [1; 4],
+            Mirroring::FourScreen => [0, 1, 2, 3],
+        };
+    }
+
+    /// Compute the eight 1K CHR bank selections for the current banking mode.
+    fn chr_banks(&self) -> [usize; 8] {
+        let chr = &self.regs.chr;
+        // Bit 5 forces bank pairs to be aligned, ignoring the low bit.
         let (mask, or_mask) = if self.regs.banking_mode & 0x20 == 0x20 {
             (0xFE, 1)
         } else {
             (0xFF, 0)
         };
-
         match self.regs.banking_mode & 0x03 {
-            0 => {
-                self.chr_banks.set(0, self.regs.chr[0]);
-                self.chr_banks.set(1, self.regs.chr[1]);
-                self.chr_banks.set(2, self.regs.chr[2]);
-                self.chr_banks.set(3, self.regs.chr[3]);
-                self.chr_banks.set(4, self.regs.chr[4]);
-                self.chr_banks.set(5, self.regs.chr[5]);
-                self.chr_banks.set(6, self.regs.chr[6]);
-                self.chr_banks.set(7, self.regs.chr[7]);
-            }
-            1 => {
-                self.chr_banks.set(0, self.regs.chr[0] & mask);
-                self.chr_banks.set(1, (self.regs.chr[0] & mask) | or_mask);
-                self.chr_banks.set(2, self.regs.chr[1] & mask);
-                self.chr_banks.set(3, (self.regs.chr[1] & mask) | or_mask);
-                self.chr_banks.set(4, self.regs.chr[2] & mask);
-                self.chr_banks.set(5, (self.regs.chr[2] & mask) | or_mask);
-                self.chr_banks.set(6, self.regs.chr[3] & mask);
-                self.chr_banks.set(7, (self.regs.chr[3] & mask) | or_mask);
-            }
-            _ => {
-                self.chr_banks.set(0, self.regs.chr[0]);
-                self.chr_banks.set(1, self.regs.chr[1]);
-                self.chr_banks.set(2, self.regs.chr[2]);
-                self.chr_banks.set(3, self.regs.chr[3]);
-                self.chr_banks.set(4, self.regs.chr[4] & mask);
-                self.chr_banks.set(5, (self.regs.chr[4] & mask) | or_mask);
-                self.chr_banks.set(6, self.regs.chr[5] & mask);
-                self.chr_banks.set(7, (self.regs.chr[5] & mask) | or_mask);
-            }
+            // Eight independent 1K banks.
+            0 => [
+                chr[0], chr[1], chr[2], chr[3], chr[4], chr[5], chr[6], chr[7],
+            ],
+            // Four 2K banks.
+            1 => [
+                chr[0] & mask,
+                (chr[0] & mask) | or_mask,
+                chr[1] & mask,
+                (chr[1] & mask) | or_mask,
+                chr[2] & mask,
+                (chr[2] & mask) | or_mask,
+                chr[3] & mask,
+                (chr[3] & mask) | or_mask,
+            ],
+            // Four 1K banks then two 2K banks.
+            _ => [
+                chr[0],
+                chr[1],
+                chr[2],
+                chr[3],
+                chr[4] & mask,
+                (chr[4] & mask) | or_mask,
+                chr[5] & mask,
+                (chr[5] & mask) | or_mask,
+            ],
         }
+    }
 
+    /// Recompute the nametable page selections from the banking mode.
+    fn update_nametables(&mut self) {
+        let chr = self.regs.chr;
         if self.regs.banking_mode & 0x10 == 0x10 {
-            // CHR-ROM
-            self.set_mirroring(Mirroring::FourScreen);
-            match self.regs.banking_mode & 0x2F {
-                0x20 | 0x27 => {
-                    self.set_nametable_page(0, self.regs.chr[6] & 0xFE);
-                    self.set_nametable_page(1, (self.regs.chr[6] & 0xFE) | 1);
-                    self.set_nametable_page(2, self.regs.chr[7] & 0xFE);
-                    self.set_nametable_page(3, (self.regs.chr[7] & 0xFE) | 1);
-                }
-                0x23 | 0x24 => {
-                    self.set_nametable_page(0, self.regs.chr[6] & 0xFE);
-                    self.set_nametable_page(1, self.regs.chr[7] & 0xFE);
-                    self.set_nametable_page(2, (self.regs.chr[6] & 0xFE) | 1);
-                    self.set_nametable_page(3, (self.regs.chr[7] & 0xFE) | 1);
-                }
-                0x28 | 0x2F => {
-                    self.set_nametable_page(0, self.regs.chr[6] & 0xFE);
-                    self.set_nametable_page(1, self.regs.chr[6] & 0xFE);
-                    self.set_nametable_page(2, self.regs.chr[7] & 0xFE);
-                    self.set_nametable_page(3, self.regs.chr[7] & 0xFE);
-                }
-                0x2B | 0x2C => {
-                    self.set_nametable_page(0, (self.regs.chr[6] & 0xFE) | 1);
-                    self.set_nametable_page(1, (self.regs.chr[7] & 0xFE) | 1);
-                    self.set_nametable_page(2, (self.regs.chr[6] & 0xFE) | 1);
-                    self.set_nametable_page(3, (self.regs.chr[7] & 0xFE) | 1);
-                }
+            // Nametables come from CHR-ROM, so every slot is independently selectable.
+            self.mirroring = Mirroring::FourScreen;
+            self.nt_banks = match self.regs.banking_mode & 0x2F {
+                0x20 | 0x27 => [
+                    chr[6] & 0xFE,
+                    (chr[6] & 0xFE) | 1,
+                    chr[7] & 0xFE,
+                    (chr[7] & 0xFE) | 1,
+                ],
+                0x23 | 0x24 => [
+                    chr[6] & 0xFE,
+                    chr[7] & 0xFE,
+                    (chr[6] & 0xFE) | 1,
+                    (chr[7] & 0xFE) | 1,
+                ],
+                0x28 | 0x2F => [chr[6] & 0xFE, chr[6] & 0xFE, chr[7] & 0xFE, chr[7] & 0xFE],
+                0x2B | 0x2C => [
+                    (chr[6] & 0xFE) | 1,
+                    (chr[7] & 0xFE) | 1,
+                    (chr[6] & 0xFE) | 1,
+                    (chr[7] & 0xFE) | 1,
+                ],
                 _ => match self.regs.banking_mode & 0x07 {
-                    0 | 6 | 7 => {
-                        self.set_nametable_page(0, self.regs.chr[6]);
-                        self.set_nametable_page(1, self.regs.chr[6]);
-                        self.set_nametable_page(2, self.regs.chr[7]);
-                        self.set_nametable_page(3, self.regs.chr[7]);
-                    }
-                    1 | 5 => {
-                        self.set_nametable_page(0, self.regs.chr[4]);
-                        self.set_nametable_page(1, self.regs.chr[5]);
-                        self.set_nametable_page(2, self.regs.chr[6]);
-                        self.set_nametable_page(3, self.regs.chr[7]);
-                    }
-                    _ => {
-                        self.set_nametable_page(0, self.regs.chr[6]);
-                        self.set_nametable_page(1, self.regs.chr[7]);
-                        self.set_nametable_page(2, self.regs.chr[6]);
-                        self.set_nametable_page(3, self.regs.chr[7]);
-                    }
+                    0 | 6 | 7 => [chr[6], chr[6], chr[7], chr[7]],
+                    1 | 5 => [chr[4], chr[5], chr[6], chr[7]],
+                    _ => [chr[6], chr[7], chr[6], chr[7]],
                 },
-            }
+            };
         } else {
-            // CIRAM
             match self.regs.banking_mode & 0x2F {
                 0x20 | 0x27 => self.set_mirroring(Mirroring::Vertical),
                 0x23 | 0x24 => self.set_mirroring(Mirroring::Horizontal),
                 0x28 | 0x2F => self.set_mirroring(Mirroring::SingleScreenA),
                 0x2B | 0x2C => self.set_mirroring(Mirroring::SingleScreenB),
                 _ => {
-                    self.set_mirroring(Mirroring::FourScreen);
-                    match self.regs.banking_mode & 0x07 {
-                        0 | 6 | 7 => {
-                            self.set_nametable_page(0, self.regs.chr[6] & 0x01);
-                            self.set_nametable_page(1, self.regs.chr[6] & 0x01);
-                            self.set_nametable_page(2, self.regs.chr[7] & 0x01);
-                            self.set_nametable_page(3, self.regs.chr[7] & 0x01);
-                        }
-                        1 | 5 => {
-                            self.set_nametable_page(0, self.regs.chr[4] & 0x01);
-                            self.set_nametable_page(1, self.regs.chr[5] & 0x01);
-                            self.set_nametable_page(2, self.regs.chr[6] & 0x01);
-                            self.set_nametable_page(3, self.regs.chr[7] & 0x01);
-                        }
-                        _ => {
-                            self.set_nametable_page(0, self.regs.chr[6] & 0x01);
-                            self.set_nametable_page(1, self.regs.chr[7] & 0x01);
-                            self.set_nametable_page(2, self.regs.chr[6] & 0x01);
-                            self.set_nametable_page(3, self.regs.chr[7] & 0x01);
-                        }
-                    }
+                    // Non-standard layouts still pick CIRAM pages per slot.
+                    self.mirroring = Mirroring::FourScreen;
+                    self.nt_banks = match self.regs.banking_mode & 0x07 {
+                        0 | 6 | 7 => [chr[6] & 0x01, chr[6] & 0x01, chr[7] & 0x01, chr[7] & 0x01],
+                        1 | 5 => [chr[4] & 0x01, chr[5] & 0x01, chr[6] & 0x01, chr[7] & 0x01],
+                        _ => [chr[6] & 0x01, chr[7] & 0x01, chr[6] & 0x01, chr[7] & 0x01],
+                    };
                 }
             }
         }
@@ -236,121 +194,94 @@ impl Vrc6 {
 }
 
 impl Map for Vrc6 {
-    // PPU $0000..=$03FF 1K switchable CHR-ROM bank
-    // PPU $0400..=$07FF 1K switchable CHR-ROM bank
-    // PPU $0800..=$0BFF 1K switchable CHR-ROM bank
-    // PPU $0C00..=$0FFF 1K switchable CHR-ROM bank
-    // PPU $1000..=$13FF 1K switchable CHR-ROM bank
-    // PPU $1400..=$17FF 1K switchable CHR-ROM bank
-    // PPU $1800..=$1BFF 1K switchable CHR-ROM bank
-    // PPU $1C00..=$1FFF 1K switchable CHR-ROM bank
-    // PPU $2000..=$3EFF Switchable Nametables
-    //
-    // CPU $6000..=$7FFF 8K PRG-RAM bank, fixed
-    // CPU $8000..=$BFFF 16K switchable PRG-ROM bank
-    // CPU $C000..=$DFFF 8K switchable PRG-ROM bank
-    // CPU $E000..=$FFFF 8K PRG-ROM bank, fixed to the last bank
-
-    /// Peek a byte from CHR-ROM/RAM at a given address.
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => self.chr_rom[self.chr_banks.translate(addr)],
-            0x2000..=0x3EFF => {
-                let addr = addr - 0x2000;
-                let a10 = (self.nt_banks[((addr >> 10) & 0x03) as usize] << 10) as u16;
-                let addr = a10 | (!a10 & addr);
-                if self.regs.banking_mode & 0x10 == 0x00 {
-                    ciram[addr.into()]
-                } else {
-                    self.chr_rom[self.chr_banks.translate(addr)]
-                }
-            }
-            _ => 0,
-        }
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    /// Peek a byte from PRG-ROM/RAM at a given address.
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x6000..=0x7FFF if self.prg_ram_enabled() => {
-                self.prg_ram[self.prg_ram_banks.translate(addr)]
-            }
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
-    /// Write a byte to PRG-RAM at a given address.
-    fn prg_write(&mut self, mut addr: u16, val: u8) {
-        match addr {
-            0x6000..=0x7FFF => {
-                if self.prg_ram_enabled() {
-                    self.prg_ram[self.prg_ram_banks.translate(addr)] = val;
-                }
-            }
-            _ => {
-                if self.revision == Revision::B {
-                    // Revision B swaps A0 and A1 lines
-                    addr = (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1);
-                }
-
-                // Only A0, A1 and A12-15 are used for registers, remaining addresses are mirrored.
-                match addr & 0xF003 {
-                    0x8000..=0x8003 => {
-                        // [.... PPPP]
-                        //       ||||
-                        //       ++++- Select 16 KB PRG-ROM bank at $8000-$BFFF
-                        self.prg_rom_banks
-                            .set_range(0, 1, ((val & 0x0F) << 1).into());
-                    }
-                    0x9000..=0x9003 | 0xA000..=0xA002 | 0xB000..=0xB002 => {
-                        self.audio.write_register(addr, val);
-                    }
-                    0xB003 => {
-                        // [W.PN MMDD]
-                        //  | || ||||
-                        //  | || ||++- PPU banking mode; see below
-                        //  | || ++--- Mirroring varies by banking mode, see below
-                        //  | |+------ 1: Nametables come from CHRROM, 0: Nametables come from CIRAM
-                        //  | +------- CHR A10 is 1: subject to further rules 0: according to the latched value
-                        //  +--------- PRG RAM enable
-                        self.regs.banking_mode = val;
-                        self.update_chr_banks();
-                    }
-                    0xC000..=0xC003 => {
-                        // [...P PPPP]
-                        //     | ||||
-                        //     +-++++- Select 8 KB PRG-ROM bank at $C000-$DFFF
-                        self.prg_rom_banks.set(2, (val & 0x1F).into());
-                    }
-                    0xD000..=0xD003 => {
-                        self.regs.chr[(addr & 0x03) as usize] = val.into();
-                        self.update_chr_banks();
-                    }
-                    0xE000..=0xE003 => {
-                        self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
-                        self.update_chr_banks();
-                    }
-                    0xF000 => self.irq.write_reload(val),
-                    0xF001 => self.irq.write_control(val),
-                    0xF002 => self.irq.acknowledge(),
-                    _ => (),
-                }
-            }
-        }
-    }
-
-    /// Whether an IRQ is pending acknowledgement.
     fn irq_pending(&self) -> bool {
         self.irq.irq_pending
     }
 
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+        if addr < 0x8000 {
+            return;
+        }
+        // VRC6b swaps the low two address lines.
+        let addr = if self.revision == Revision::B {
+            (addr & 0xFFFC) | ((addr & 0x01) << 1) | ((addr & 0x02) >> 1)
+        } else {
+            addr
+        };
+        match addr & 0xF003 {
+            0x8000..=0x8003 => self.prg_banks[0] = usize::from(val & 0x0F),
+            0x9000..=0x9003 | 0xA000..=0xA002 | 0xB000..=0xB002 => {
+                self.audio.write_register(addr, val);
+                return;
+            }
+            0xB003 => {
+                self.regs.banking_mode = val;
+                self.update_nametables();
+            }
+            0xC000..=0xC003 => self.prg_banks[1] = usize::from(val & 0x1F),
+            0xD000..=0xD003 => {
+                self.regs.chr[(addr & 0x03) as usize] = val.into();
+                self.update_nametables();
+            }
+            0xE000..=0xE003 => {
+                self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
+                self.update_nametables();
+            }
+            0xF000 => self.irq.write_reload(val),
+            0xF001 => self.irq.write_control(val),
+            0xF002 => self.irq.acknowledge(),
+            _ => return,
+        }
+        self.sync(memory);
+    }
+
+    fn sync(&mut self, memory: &mut Memory) {
+        for (slot, bank) in self.chr_banks().into_iter().enumerate() {
+            let addr = (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, bank as i32, Src::Chr);
+        }
+
+        // Nametables are page entries like any other, so CHR-ROM-as-nametable stops needing a
+        // special case in the read path.
+        let src = if self.regs.banking_mode & 0x10 == 0x10 {
+            Src::Chr
+        } else {
+            Src::CiRam
+        };
+        for (slot, bank) in self.nt_banks.into_iter().enumerate() {
+            let addr = 0x2000 + (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, bank as i32, src);
+            // $3000-$3FFF mirrors $2000-$2FFF.
+            memory.map_chr(addr + 0x1000, Self::CHR_WINDOW, bank as i32, src);
+        }
+
+        memory.map_prg(
+            0x8000,
+            Self::PRG_WINDOW_16K,
+            self.prg_banks[0] as i32,
+            Src::PrgRom,
+        );
+        memory.map_prg(
+            0xC000,
+            Self::PRG_WINDOW,
+            self.prg_banks[1] as i32,
+            Src::PrgRom,
+        );
+        memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
+
+        if self.prg_ram_enabled() {
+            memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
+        } else {
+            memory.unmap_prg(0x6000, Self::PRG_RAM_WINDOW);
+        }
     }
 }
 

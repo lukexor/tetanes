@@ -296,8 +296,8 @@ impl Cart {
             16 | 153 | 157 | 159 => BandaiFCG::load(&cart, chr_rom, prg_rom)?,
             18 => JalecoSs88006::load(&mut cart)?,
             19 | 210 => Namco163::load(&cart, chr_rom, prg_rom)?,
-            24 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::A)?,
-            26 => Vrc6::load(&cart, chr_rom, prg_rom, Vrc6Revision::B)?,
+            24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
+            26 => Vrc6::load(&mut cart, Vrc6Revision::B)?,
             34 => {
                 // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
                 if chr_rom_size >= 0x4000 {
@@ -414,6 +414,7 @@ impl Cart {
             | Mapper::Txrom(_)
             | Mapper::SunsoftFme7(_)
             | Mapper::JalecoSs88006(_)
+            | Mapper::Vrc6(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
@@ -421,7 +422,6 @@ impl Cart {
             Mapper::Fxrom(fxrom) => fxrom.chr_rom.len(),
             Mapper::BandaiFCG(bandai_fcg) => bandai_fcg.chr.len(),
             Mapper::Namco163(namco163) => namco163.chr_rom.len(),
-            Mapper::Vrc6(vrc6) => vrc6.chr_rom.len(),
             Mapper::NesEvent(nes_event) => nes_event.chr.len(),
             Mapper::Fk23C(fk23c) => fk23c.chr.len(),
         }
