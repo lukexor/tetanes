@@ -40,6 +40,20 @@ impl Fxrom {
         board.sync(&mut cart.memory);
         Ok(board.into())
     }
+
+    /// Re-map one 4K CHR window from whichever bank register its latch currently selects.
+    ///
+    /// The latch flips on tile fetches, so this runs thousands of times a frame; rebuilding every
+    /// page table entry through `sync` for it cost Punch-Out!! ~20% of its frame time.
+    fn sync_chr(&self, memory: &mut Memory, half: usize) {
+        let bank = self.latch_banks[self.latch[half] + half * 2];
+        memory.map_chr(
+            (half * Self::CHR_WINDOW) as u16,
+            Self::CHR_WINDOW,
+            i32::from(bank),
+            Src::Chr,
+        );
+    }
 }
 
 impl Map for Fxrom {
@@ -55,8 +69,12 @@ impl Map for Fxrom {
     fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
         if matches!(addr, 0x0FD8..=0x0FDF | 0x0FE8..=0x0FEF | 0x1FD8..=0x1FDF | 0x1FE8..=0x1FEF) {
             let addr = addr as usize;
-            self.latch[addr >> 12] = ((addr >> 4) & 0xFF) - 0xFD;
-            self.sync(memory);
+            let half = addr >> 12;
+            let latch = ((addr >> 4) & 0xFF) - 0xFD;
+            if self.latch[half] != latch {
+                self.latch[half] = latch;
+                self.sync_chr(memory, half);
+            }
         }
     }
 
@@ -88,18 +106,8 @@ impl Map for Fxrom {
             Src::PrgRom,
         );
         memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
-        memory.map_chr(
-            0x0000,
-            Self::CHR_WINDOW,
-            i32::from(self.latch_banks[self.latch[0]]),
-            Src::Chr,
-        );
-        memory.map_chr(
-            0x1000,
-            Self::CHR_WINDOW,
-            i32::from(self.latch_banks[self.latch[1] + 2]),
-            Src::Chr,
-        );
+        self.sync_chr(memory, 0);
+        self.sync_chr(memory, 1);
         memory.set_mirroring(self.mirroring);
     }
 }
