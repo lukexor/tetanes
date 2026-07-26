@@ -10,27 +10,16 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    fs,
     mapper::{self, Map, Mapper, mmc3::Mmc3},
-    mem::{Banks, Memory},
-    ppu::{CIRam, Mirroring},
+    memory::{Memory, Src},
+    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 /// `Waixing FK23C`/`FS303` (Mapper 176).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Fk23C {
-    /// CHR-ROM, or CHR-RAM for carts that ship no CHR-ROM (`has_chr_ram`).
-    pub chr: Memory<Box<[u8]>>,
-    /// 8KB CHR-RAM overlay for CHR-ROM carts: the RAM-config register can route
-    /// bank values 0-7 here (custom-font tiles). Empty for CHR-RAM-only carts,
-    /// whose RAM is `chr` itself.
-    pub ext_vram: Memory<Box<[u8]>>,
-    pub prg_rom: Memory<Box<[u8]>>,
-    /// Up to 32KB WRAM, banked in 8KB pages by `$A001`.
-    pub prg_ram: Memory<Box<[u8]>>,
     pub mmc3: Mmc3,
     /// Extended MMC3 registers `$8`-`$B` (indices 8-11 of the 12-register file).
     pub bank_values_ext: [u8; 4],
@@ -65,50 +54,27 @@ pub struct Fk23C {
     /// upper 512KB; everything else boots at 0.
     pub init_prg_base: u16,
     pub mirroring: Mirroring,
-    pub chr_banks: Banks,
-    pub prg_rom_banks: Banks,
 }
 
 impl Fk23C {
     const PRG_WINDOW: usize = 8 * 1024;
     const CHR_WINDOW: usize = 1024;
-    const WRAM_SIZE: usize = 32 * 1024;
     const WRAM_BANK: usize = 8 * 1024;
-    const CHR_RAM_SIZE: usize = 8 * 1024;
-    const EXT_VRAM_SIZE: usize = 8 * 1024;
 
     /// Standard MMC3 registers `$0`-`$7` plus extended `$8`-`$B` power-on values.
     const INIT_REGS: [u8; 12] = [0, 2, 4, 5, 6, 7, 0, 1, 0xFE, 0xFF, 0xFF, 0xFF];
 
     /// Load `Fk23C` from `Cart`.
-    pub fn load(
-        cart: &Cart,
-        chr_rom: Memory<Box<[u8]>>,
-        prg_rom: Memory<Box<[u8]>>,
-    ) -> Result<Mapper, mapper::Error> {
-        let (chr, has_chr_ram) = cart.chr_rom_or_ram(chr_rom, Self::CHR_RAM_SIZE);
-        let prg_ram = Memory::with_ram_state(Self::WRAM_SIZE, cart.ram_state);
-        let chr_banks = Banks::new(0x0000, 0x1FFF, chr.len(), Self::CHR_WINDOW)?;
-        let prg_rom_banks = Banks::new(0x8000, 0xFFFF, prg_rom.len(), Self::PRG_WINDOW)?;
-        // Subtype 1 (1MB PRG-ROM == 1MB CHR-ROM) boots in the upper 512KB.
-        let init_prg_base = if prg_rom.len() == 1024 * 1024 && prg_rom.len() == cart.chr_rom_size {
-            0x20
-        } else {
-            0
-        };
-        let mut fk23c = Self {
-            // The CHR-RAM overlay only applies to CHR-ROM carts; a CHR-RAM-only
-            // cart's `chr` is the RAM itself.
-            ext_vram: if has_chr_ram {
-                Memory::empty()
+    pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+        let has_chr_ram = cart.chr_rom_size == 0;
+        let init_prg_base =
+            if cart.prg_rom_size == 1024 * 1024 && cart.prg_rom_size == cart.chr_rom_size {
+                0x20
             } else {
-                Memory::new(Self::EXT_VRAM_SIZE)
-            },
-            chr,
-            prg_rom,
-            prg_ram,
+                0
+            };
+        let mut fk23c = Self {
             mmc3: Mmc3::default(),
-            // Register state below is set by reset(); these are placeholders.
             bank_values_ext: [0; 4],
             prg_banking_mode: 0,
             outer_chr_bank_size: false,
@@ -132,91 +98,80 @@ impl Fk23C {
             has_chr_ram,
             init_prg_base,
             mirroring: cart.mirroring(),
-            chr_banks,
-            prg_rom_banks,
         };
         fk23c.reset(ResetKind::Hard);
         Ok(fk23c.into())
     }
 
-    /// Whether the CHR bank covering `addr` reads/writes the 8KB CHR-RAM overlay
-    /// rather than CHR-ROM. The RAM-config register routes bank values 0-7 to
-    /// RAM (custom fonts); `$5xx0.5` forces all CHR to RAM. Always false for
-    /// CHR-RAM-only carts (whose `ext_vram` is empty and whose `chr` is RAM).
-    fn chr_uses_ext_vram(&self, addr: u16) -> bool {
-        if self.ext_vram.is_empty() {
+    /// Whether a CHR slot holding `page` reads the 8KB CHR-RAM overlay rather than CHR-ROM.
+    ///
+    /// The RAM-config register routes bank values 0-7 to RAM (custom fonts); `$5xx0.5` forces all
+    /// CHR to RAM. Always false for CHR-RAM-only carts, whose CHR region is already RAM.
+    const fn chr_page_uses_overlay(&self, page: usize) -> bool {
+        if self.has_chr_ram {
             return false;
         }
         if self.select_chr_ram {
             return true;
         }
         // Only the first 8KB (bank values 0-7) route to RAM.
-        self.wram_config_enabled
-            && self.ram_in_first_chr_bank
-            && self.chr_banks.page(self.chr_banks.get(addr)) <= 7
+        self.wram_config_enabled && self.ram_in_first_chr_bank && page <= 7
     }
 
-    fn update_prg(&mut self) {
+    /// The four 8K PRG bank selections for the current mode.
+    const fn prg_pages(&self) -> [usize; 4] {
+        let mut pages = [0usize; 4];
         match self.prg_banking_mode {
             0..=2 => {
                 // invert_prg_a14 swaps the $8000 and $C000 banks (slots 0 and 2).
                 let swap = if self.invert_prg_a14 { 2 } else { 0 };
                 if self.extended_mmc3_mode {
                     let outer = (self.prg_base_bits as usize) << 1;
-                    self.prg_rom_banks
-                        .set(swap, self.mmc3.bank_values[6] as usize | outer);
-                    self.prg_rom_banks
-                        .set(1, self.mmc3.bank_values[7] as usize | outer);
-                    self.prg_rom_banks
-                        .set(2 ^ swap, self.bank_values_ext[0] as usize | outer);
-                    self.prg_rom_banks
-                        .set(3, self.bank_values_ext[1] as usize | outer);
+                    pages[swap] = self.mmc3.bank_values[6] as usize | outer;
+                    pages[1] = self.mmc3.bank_values[7] as usize | outer;
+                    pages[2 ^ swap] = self.bank_values_ext[0] as usize | outer;
+                    pages[3] = self.bank_values_ext[1] as usize | outer;
                 } else {
                     let inner_mask = 0x3Fusize >> self.prg_banking_mode;
                     let outer = ((self.prg_base_bits as usize) << 1) & !inner_mask;
                     let r6 = self.mmc3.bank_values[6] as usize;
                     let r7 = self.mmc3.bank_values[7] as usize;
-                    self.prg_rom_banks.set(swap, (r6 & inner_mask) | outer);
-                    self.prg_rom_banks.set(1, (r7 & inner_mask) | outer);
-                    self.prg_rom_banks
-                        .set(2 ^ swap, (0xFE & inner_mask) | outer);
-                    self.prg_rom_banks.set(3, (0xFF & inner_mask) | outer);
+                    pages[swap] = (r6 & inner_mask) | outer;
+                    pages[1] = (r7 & inner_mask) | outer;
+                    pages[2 ^ swap] = (0xFE & inner_mask) | outer;
+                    pages[3] = (0xFF & inner_mask) | outer;
                 }
             }
             3 => {
                 // NROM-128: 16KB mirrored.
                 let bank = (self.prg_base_bits as usize) << 1;
-                self.prg_rom_banks.set(0, bank);
-                self.prg_rom_banks.set(1, bank | 1);
-                self.prg_rom_banks.set(2, bank);
-                self.prg_rom_banks.set(3, bank | 1);
+                pages = [bank, bank | 1, bank, bank | 1];
             }
             4 => {
                 // NROM-256: 32KB.
                 let bank = ((self.prg_base_bits as usize) & 0xFFE) << 1;
-                self.prg_rom_banks.set(0, bank);
-                self.prg_rom_banks.set(1, bank | 1);
-                self.prg_rom_banks.set(2, bank | 2);
-                self.prg_rom_banks.set(3, bank | 3);
+                pages = [bank, bank | 1, bank | 2, bank | 3];
             }
-            _ => {}
+            _ => (),
         }
+        pages
     }
 
-    fn update_chr(&mut self) {
+    /// The eight 1K CHR bank selections for the current mode.
+    fn chr_pages(&self) -> [usize; 8] {
         let swap = if self.invert_chr_a12 { 0x04 } else { 0 };
+        let mut pages = [0usize; 8];
         if !self.mmc3_chr_mode {
             let inner_mask = if self.cnrom_chr_mode {
                 if self.outer_chr_bank_size { 1 } else { 3 }
             } else {
                 0
             };
-            for i in 0..8usize {
-                let page = (((self.cnrom_chr_reg & inner_mask) as usize
+            for (i, page) in pages.iter_mut().enumerate() {
+                *page = (((self.cnrom_chr_reg & inner_mask) as usize
                     | self.chr_base_bits as usize)
                     << 3)
                     + i;
-                self.chr_banks.set(i, page);
             }
         } else if self.extended_mmc3_mode {
             let outer = (self.chr_base_bits as usize) << 3;
@@ -233,13 +188,13 @@ impl Fk23C {
                 bv[5] as usize,  // $5 -> slot 7
             ];
             for (slot, page) in regs.into_iter().enumerate() {
-                self.chr_banks.set(slot ^ swap, page | outer);
+                pages[slot ^ swap] = page | outer;
             }
         } else {
             let inner_mask = if self.outer_chr_bank_size { 0x7F } else { 0xFF };
             let outer = ((self.chr_base_bits as usize) << 3) & !inner_mask;
             let bv = self.mmc3.bank_values;
-            let pages = [
+            let regs = [
                 ((bv[0] & 0xFE) as usize & inner_mask) | outer,
                 ((bv[0] | 0x01) as usize & inner_mask) | outer,
                 ((bv[1] & 0xFE) as usize & inner_mask) | outer,
@@ -249,14 +204,13 @@ impl Fk23C {
                 (bv[4] as usize & inner_mask) | outer,
                 (bv[5] as usize & inner_mask) | outer,
             ];
-            for (slot, page) in pages.into_iter().enumerate() {
-                self.chr_banks.set(slot ^ swap, page);
+            for (slot, page) in regs.into_iter().enumerate() {
+                pages[slot ^ swap] = page;
             }
         }
+        pages
     }
 
-    /// Recompute only the mirroring mode. `$A000`/`$A001` change mirroring but
-    /// not PRG/CHR banking, so they skip the bank rebank.
     const fn update_mirroring(&mut self) {
         let mask = if self.allow_single_screen_mirroring {
             0x03
@@ -271,34 +225,8 @@ impl Fk23C {
         };
     }
 
-    fn update_state(&mut self) {
+    const fn update_state(&mut self) {
         self.update_mirroring();
-        self.update_prg();
-        self.update_chr();
-    }
-
-    /// Offset into WRAM for a CPU address, or `None` when no WRAM is mapped
-    /// there (open bus). `$A001` selects the 8KB bank and enables/disables WRAM.
-    fn wram_offset(&self, addr: u16) -> Option<usize> {
-        match addr {
-            0x4000..=0x5FFF if self.wram_config_enabled => {
-                let bank = (self.wram_bank_select as usize + 1) & 0x03;
-                Some(bank * Self::WRAM_BANK + usize::from(addr - 0x4000))
-            }
-            0x6000..=0x7FFF => {
-                if self.wram_config_enabled {
-                    Some(
-                        self.wram_bank_select as usize * Self::WRAM_BANK
-                            + usize::from(addr - 0x6000),
-                    )
-                } else if self.wram_enabled {
-                    Some(usize::from(addr - 0x6000))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
     }
 
     /// Whether WRAM writes are allowed. The `$A001` write-protect bit only
@@ -309,56 +237,28 @@ impl Fk23C {
 }
 
 impl Map for Fk23C {
-    #[inline(always)]
-    fn chr_read(&mut self, addr: u16, ciram: &CIRam) -> u8 {
-        self.ppu_read(addr);
-        self.chr_peek(addr, ciram)
+    fn uses_page_tables(&self) -> bool {
+        true
     }
 
-    #[inline(always)]
-    fn chr_peek(&self, addr: u16, ciram: &CIRam) -> u8 {
-        match addr {
-            0x0000..=0x1FFF => {
-                let off = self.chr_banks.translate(addr);
-                if self.chr_uses_ext_vram(addr) {
-                    self.ext_vram[off]
-                } else {
-                    self.chr[off]
-                }
-            }
-            0x2000..=0x3EFF => ciram.peek(addr, self.mirroring),
-            _ => 0,
-        }
+    /// MMC3-derived, so it counts scanlines from A12 rising edges.
+    fn watches_ppu_bus(&self) -> bool {
+        true
     }
 
-    #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x4000..=0x7FFF => self.wram_offset(addr).map_or(0, |off| self.prg_ram[off]),
-            0x8000..=0xFFFF => self.prg_rom[self.prg_rom_banks.translate(addr)],
-            _ => 0,
-        }
+    fn ppu_bus_addr(&mut self, _memory: &mut Memory, addr: u16) {
+        self.mmc3.clock_irq(addr);
     }
 
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8, ciram: &mut CIRam) {
-        match addr {
-            0x0000..=0x1FFF => {
-                let off = self.chr_banks.translate(addr);
-                if self.chr_uses_ext_vram(addr) {
-                    self.ext_vram[off] = val;
-                } else if self.has_chr_ram {
-                    // CHR-RAM-only cart: `chr` is writable RAM.
-                    self.chr[off] = val;
-                }
-                // Otherwise CHR-ROM: read-only, ignore.
-            }
-            0x2000..=0x3EFF => ciram.write(addr, val, self.mirroring),
-            _ => (),
-        }
+    fn irq_pending(&self) -> bool {
+        self.mmc3.irq_pending()
     }
 
-    fn prg_write(&mut self, addr: u16, val: u8) {
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
             0x4000..=0x5FFF => {
                 // $5xxx is the register window when FK23C registers are enabled
@@ -395,17 +295,10 @@ impl Map for Fk23C {
                         }
                     }
                     self.update_state();
-                } else if self.wram_writable() {
-                    if let Some(off) = self.wram_offset(addr) {
-                        self.prg_ram[off] = val;
-                    }
                 }
             }
-            0x6000..=0x7FFF if self.wram_writable() => {
-                if let Some(off) = self.wram_offset(addr) {
-                    self.prg_ram[off] = val;
-                }
-            }
+            // WRAM stores already happened in `Bus`.
+            0x6000..=0x7FFF => (),
             0x8000..=0xFFFF => {
                 // CNROM latch: any $8000-$9FFF or $C000-$FFFF write sets the CHR
                 // register. Tracked with a single rebank at the end to avoid
@@ -463,20 +356,45 @@ impl Map for Fk23C {
             }
             _ => (),
         }
+        self.sync(memory);
     }
 
-    fn ppu_read(&mut self, addr: u16) {
-        // FK23C clones use the standard (MMC3B/C) scanline IRQ (mmc3 defaults to BC).
-        self.mmc3.clock_irq(addr);
-    }
+    fn sync(&mut self, memory: &mut Memory) {
+        // Each CHR slot independently reads CHR-ROM or the 8K CHR-RAM overlay, depending on the
+        // RAM-config register and the slot's own bank value.
+        for (slot, page) in self.chr_pages().into_iter().enumerate() {
+            let src = if self.chr_page_uses_overlay(page) {
+                Src::ExRam
+            } else {
+                Src::Chr
+            };
+            let addr = (slot * Self::CHR_WINDOW) as u16;
+            memory.map_chr(addr, Self::CHR_WINDOW, page as i32, src);
+        }
 
-    fn irq_pending(&self) -> bool {
-        self.mmc3.irq_pending()
-    }
+        for (slot, page) in self.prg_pages().into_iter().enumerate() {
+            let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
+            memory.map_prg(addr, Self::PRG_WINDOW, page as i32, Src::PrgRom);
+        }
 
-    #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
+        // WRAM is up to 32K in 8K pages, optionally also visible at $4000.
+        if self.wram_config_enabled {
+            let bank = i32::from(self.wram_bank_select);
+            memory.map_prg(0x4000, Self::WRAM_BANK, (bank + 1) & 0x03, Src::PrgRam);
+            memory.map_prg(0x6000, Self::WRAM_BANK, bank, Src::PrgRam);
+        } else {
+            memory.unmap_prg(0x4000, Self::WRAM_BANK);
+            if self.wram_enabled {
+                memory.map_prg(0x6000, Self::WRAM_BANK, 0, Src::PrgRam);
+            } else {
+                memory.unmap_prg(0x6000, Self::WRAM_BANK);
+            }
+        }
+        let writable = self.wram_writable();
+        memory.set_prg_writable(0x4000, Self::WRAM_BANK, writable);
+        memory.set_prg_writable(0x6000, Self::WRAM_BANK, writable);
+
+        memory.set_mirroring(self.mirroring);
     }
 }
 
@@ -514,14 +432,6 @@ impl Clock for Fk23C {
     }
 }
 
-impl Sram for Fk23C {
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::save(path.as_ref(), &self.prg_ram)
-    }
-
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        fs::load(path.as_ref()).map(|data: Memory<Box<[u8]>>| self.prg_ram = data)
-    }
-}
+impl Sram for Fk23C {}
 
 impl Regional for Fk23C {}

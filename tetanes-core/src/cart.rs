@@ -23,8 +23,23 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 /// Default PRG-RAM provided when a header declares none. Family Basic used 2-4K; boards that want
-/// more request it explicitly.
+/// more declare it in [`min_prg_ram`].
 const DEFAULT_PRG_RAM_SIZE: usize = 8 * 1024;
+
+/// Minimum PRG-RAM a board needs regardless of what its header declares.
+///
+/// Only boards that *bank* PRG-RAM need more than the default: with too little allocated, their
+/// bank selects wrap and alias onto each other. Kept as an explicit list rather than raising the
+/// default for everyone, since PRG-RAM is what gets written to `.sram` files.
+const fn min_prg_ram(mapper_num: u16) -> usize {
+    match mapper_num {
+        // SxROM's 32K PRG-RAM variants (SOROM/SXROM).
+        1 | 155 => 32 * 1024,
+        // FK23C banks WRAM in four 8K pages.
+        176 => 32 * 1024,
+        _ => DEFAULT_PRG_RAM_SIZE,
+    }
+}
 /// Default CHR-RAM provided when a cart has no CHR-ROM.
 const DEFAULT_CHR_RAM_SIZE: usize = 8 * 1024;
 
@@ -145,7 +160,10 @@ impl Cart {
             },
             chr_writable: chr_rom_size == 0,
             ciram: if four_screen { 4 * 1024 } else { 2 * 1024 },
-            ex_ram: 0,
+            // Boards with expansion RAM - MMC5's ExRAM, FK23C's CHR-RAM overlay - are a small
+            // minority, but 8 KiB per cart is cheap enough that sizing it per board is not worth
+            // the coupling of knowing the mapper before the memory exists.
+            ex_ram: 8 * 1024,
         });
         if chr_rom_size == 0 {
             ram_state.fill(memory.region_mut(Src::Chr));
@@ -253,7 +271,11 @@ impl Cart {
 
         let mut memory = Self::build_memory(
             prg_rom_size,
-            prg_ram_size,
+            prg_ram_size.max(min_prg_ram(
+                game_info
+                    .as_ref()
+                    .map_or(header.mapper_num, |info| info.mapper_num),
+            )),
             chr_rom_size,
             chr_ram_size,
             header.flags & 0x08 == 0x08,
@@ -288,7 +310,7 @@ impl Cart {
             2 => Uxrom::load(&mut cart)?,
             3 => Cnrom::load(&mut cart)?,
             4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&mut cart)?,
-            176 => Fk23C::load(&cart, chr_rom, prg_rom)?,
+            176 => Fk23C::load(&mut cart)?,
             5 => Exrom::load(&cart, chr_rom, prg_rom)?,
             7 => Axrom::load(&mut cart)?,
             9 => Pxrom::load(&mut cart)?,
@@ -416,33 +438,10 @@ impl Cart {
             | Mapper::Fxrom(_)
             | Mapper::Namco163(_)
             | Mapper::BandaiFCG(_)
+            | Mapper::Fk23C(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
-            Mapper::Fk23C(fk23c) => fk23c.chr.len(),
-        }
-    }
-
-    /// Returns CHR-RAM sized based on the Cart header, or defaults to given size.
-    pub(crate) fn chr_rom_or_ram(
-        &self,
-        chr_rom: Memory<Box<[u8]>>,
-        size: usize,
-    ) -> (Memory<Box<[u8]>>, bool) {
-        if chr_rom.is_empty() {
-            (
-                Memory::with_ram_state(
-                    if self.chr_ram_size > 0 {
-                        self.chr_ram_size
-                    } else {
-                        size
-                    },
-                    self.ram_state,
-                ),
-                true,
-            )
-        } else {
-            (chr_rom, false)
         }
     }
 
