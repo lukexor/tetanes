@@ -21,6 +21,7 @@ pub mod genie;
 pub mod input;
 pub mod mapper;
 pub mod mem;
+pub mod memory;
 pub mod ppu;
 pub mod sys;
 pub mod video;

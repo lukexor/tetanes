@@ -67,6 +67,25 @@ within noise and were kept for clarity rather than speed.
 after the FIR rewrite measured at or below noise. What remains is structural: `Ppu::clock` at ~32%
 and `FilterChain::consume` at ~12% both need design changes, not tweaks.
 
+### Page table vs `Banks` (`cargo bench --profile perf --bench page_table`)
+
+Isolated read cost of the Phase 2 page table against the `Banks` + `Memory<Box<[u8]>>` +
+`CIRam::mirror` path every mapper repeats today, over a PPU background-fetch address pattern:
+
+| Formulation | ns/read |
+|---|---|
+| page table | **0.78** |
+| banks + mirror | 1.25 |
+
+The page table is **1.6x faster per read**. Put in frame-time terms, though, a frame does roughly
+41,000 CHR fetches and 30,000 PRG reads, so 0.47 ns/read saved is only **~0.03 ms of a ~3 ms frame,
+around 1%**. Real gains will be larger than that because the page table also removes the `Mapper`
+enum dispatch wrapping each read - which this microbenchmark excludes - and because complex boards
+do much more per read (`Exrom::chr_read` alone is 5.1% of Castlevania III).
+
+**The conclusion stands that the mapper rework is justified by code reduction rather than speed.**
+Expect low single-digit percentages on simple boards and more on MMC5.
+
 ### Machine noise
 
 These numbers need a quiet machine. A run taken while the load average was ~6 reported Punch-Out at
