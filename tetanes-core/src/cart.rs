@@ -283,7 +283,7 @@ impl Cart {
         cart.memory.set_mirroring(cart.mirroring());
         cart.mapper = match cart.header.mapper_num {
             0 => Nrom::load(&mut cart)?,
-            1 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::BC)?,
+            1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
             2 => Uxrom::load(&mut cart)?,
             3 => Cnrom::load(&mut cart)?,
             4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&cart, chr_rom, prg_rom)?,
@@ -316,7 +316,7 @@ impl Cart {
                 prg_rom,
                 [false, false, true, false], // configuration used in actual tournament
             )?,
-            155 => Sxrom::load(&cart, chr_rom, prg_rom, Mmc1Revision::A)?,
+            155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
             _ => Mapper::none(),
         };
 
@@ -410,9 +410,9 @@ impl Cart {
             | Mapper::Bnrom(_)
             | Mapper::Nina001(_)
             | Mapper::Gxrom(_)
+            | Mapper::Sxrom(_)
             | Mapper::Bf909x(_)
             | Mapper::Nina003006(_) => 0,
-            Mapper::Sxrom(sxrom) => sxrom.chr.len(),
             Mapper::Txrom(txrom) => txrom.chr.len(),
             Mapper::Exrom(exrom) => exrom.chr_rom.len(),
             Mapper::Pxrom(pxrom) => pxrom.chr_rom.len(),

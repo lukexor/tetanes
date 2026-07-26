@@ -1776,7 +1776,6 @@ mod tests {
     use crate::{
         cart::Cart,
         mapper::{Mmc1Revision, Sxrom},
-        mem::Memory,
     };
 
     #[test]
@@ -1953,22 +1952,17 @@ mod tests {
     fn vram_vertical_mirror() {
         let mut ppu = Ppu::default();
         let mut cart = Cart::default();
-        cart.mapper = Sxrom::load(
-            &cart,
-            Memory::new(0x2000),
-            Memory::new(0x4000),
-            Mmc1Revision::BC,
-        )
-        .unwrap();
+        cart.mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
         // Set vertical mirroring mode via 5 writes
         let mut val = 0b00_00_00_01_00;
         for _ in 0..5 {
-            cart.mapper.prg_write(0x8000, val & 0b11);
+            cart.mapper
+                .write_register(&mut cart.memory, 0x8000, val & 0b11);
             cart.mapper.clock();
             cart.mapper.clock();
             val >>= 2;
         }
-        ppu.load_mapper(cart.mapper);
+        ppu.load_cart(cart.mapper, cart.memory);
 
         ppu.write_addr(0x20);
         ppu.write_addr(0x05);

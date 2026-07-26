@@ -258,6 +258,14 @@ impl Memory {
         self.map_pages(slot, size, bank, src, false);
     }
 
+    /// Unmap a window of the CPU address space, so it reads as zero and ignores writes.
+    pub fn unmap_prg(&mut self, addr: u16, size: usize) {
+        let slot = (addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK;
+        for i in 0..(size >> PAGE_SHIFT).max(1) {
+            self.prg_pages[(slot + i) & PRG_PAGE_MASK] = Page::UNMAPPED;
+        }
+    }
+
     /// Override whether a mapped CPU window accepts writes, for boards that can write-protect
     /// PRG-RAM.
     pub fn set_prg_writable(&mut self, addr: u16, size: usize, writable: bool) {
