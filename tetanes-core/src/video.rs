@@ -150,18 +150,27 @@ impl Video {
     /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
     /// See also: <https://wiki.nesdev.org/w/index.php/NTSC_video>
     pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
+        // Hoisted out of the per-pixel loop: `get_or_init` is a one-time init check afterwards,
+        // and `even_phase` only depends on the frame parity, not the pixel.
+        let palette = NTSC_PALETTE.get_or_init(generate_ntsc_palette);
+        let even_phase = u32::from(frame_number & 0x01 != 0x01);
+
         let mut prev_color = 0;
+        // Rolling replacement for the per-pixel `(2 + y * 341 + x + even_phase) % 3`: `phase`
+        // only ever needs `+ 1 mod 3` per pixel, recomputed from scratch just once per row.
+        let mut phase = 0;
         for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;
             let rgba = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
+                let y = (idx / 256) as u32;
+                phase = (2 + y * 341 + even_phase) % 3;
                 0
             } else {
-                let y = idx / 256;
-                let even_phase = if frame_number & 0x01 == 0x01 { 0 } else { 1 };
-                let phase = (2 + y * 341 + x + even_phase) % 3;
-                NTSC_PALETTE.get_or_init(generate_ntsc_palette)
-                    [phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64]
+                phase = if phase == 2 { 0 } else { phase + 1 };
+                palette[phase as usize
+                    + ((prev_color & 0x3F) as usize) * 3
+                    + (*color as usize) * 3 * 64]
             };
             prev_color = u32::from(*color);
             assert!(pixels.len() > 2);
@@ -277,4 +286,47 @@ fn generate_ntsc_palette() -> Vec<u32> {
     }
 
     ntsc_palette
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Reference form of `apply_ntsc_filter`'s color lookup, computing `phase` directly from
+    /// `(2 + y * 341 + x + even_phase) % 3` each pixel rather than the rolling counter. Guards
+    /// that hoisting `even_phase`/`get_or_init` and replacing the per-pixel `%3` with a rolling
+    /// counter didn't change output.
+    fn apply_ntsc_filter_reference(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
+        let mut prev_color = 0;
+        for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+            let x = idx % 256;
+            let rgba = if x == 0 {
+                0
+            } else {
+                let y = idx / 256;
+                let even_phase = if frame_number & 0x01 == 0x01 { 0 } else { 1 };
+                let phase = (2 + y * 341 + x + even_phase) % 3;
+                NTSC_PALETTE.get_or_init(generate_ntsc_palette)
+                    [phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64]
+            };
+            prev_color = u32::from(*color);
+            pixels[0] = ((rgba >> 16) & 0xFF) as u8;
+            pixels[1] = ((rgba >> 8) & 0xFF) as u8;
+            pixels[2] = (rgba & 0xFF) as u8;
+        }
+    }
+
+    #[test]
+    fn ntsc_filter_matches_reference_formula() {
+        // A synthetic full-frame buffer exercising every palette index, not a real capture.
+        let buffer: Vec<u16> = (0..ppu::size::FRAME as u16).map(|i| i % 64).collect();
+        let mut actual = vec![0u8; buffer.len() * 4];
+        let mut expected = vec![0u8; buffer.len() * 4];
+
+        for frame_number in [0u32, 1, 2, 3, 100, 101] {
+            Video::apply_ntsc_filter(&buffer, frame_number, &mut actual);
+            apply_ntsc_filter_reference(&buffer, frame_number, &mut expected);
+            assert_eq!(actual, expected, "mismatch at frame_number={frame_number}");
+        }
+    }
 }

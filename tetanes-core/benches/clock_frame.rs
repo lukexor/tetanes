@@ -27,6 +27,10 @@
 //! measured on a title or attract screen rather than in gameplay. That is stable and repeatable,
 //! which is what regression testing needs, but it under-reports a busy frame. `spritecans.nes` is
 //! a sprite stress ROM and serves as the pessimistic end of the range.
+//!
+//! By default this measures `ControlDeck::clock_frame`, which does **not** run `Video::apply_filter`
+//! - the NTSC/Pixellate filters are invisible to it despite running on every real frame. Set
+//! `TETANES_BENCH_OUTPUT=1` to switch to `clock_frame_output` and include that cost.
 
 #![allow(clippy::expect_used, reason = "fine in a benchmark")]
 
@@ -59,6 +63,14 @@ fn env_or(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+/// Whether `TETANES_BENCH_OUTPUT` is set, switching the timed loop from `clock_frame` to
+/// `clock_frame_output`, which additionally runs `Video::apply_filter` (the NTSC/Pixellate
+/// filters). Off by default so the recorded baselines stay comparable to older runs; the NTSC
+/// filter is otherwise invisible to this benchmark despite running on every real frame.
+fn bench_output() -> bool {
+    std::env::var_os("TETANES_BENCH_OUTPUT").is_some()
+}
+
 /// Timing results for a single ROM.
 struct Report {
     name: String,
@@ -76,16 +88,18 @@ fn main() {
     let frames = env_or("TETANES_BENCH_FRAMES", FRAMES_TO_RUN as usize) as u32;
     let iterations = env_or("TETANES_BENCH_ITERS", ITERATIONS);
     let warmup = env_or("TETANES_BENCH_WARMUP", WARMUP_FRAMES as usize) as u32;
+    let output = bench_output();
 
     println!(
-        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s)\n",
-        roms.len()
+        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}\n",
+        roms.len(),
+        if output { ", clock_frame_output" } else { "" },
     );
 
     let mut reports = Vec::with_capacity(roms.len());
     let mut skipped = Vec::new();
     for rom in &roms {
-        match bench_rom(rom, frames, iterations, warmup) {
+        match bench_rom(rom, frames, iterations, warmup, output) {
             Ok(report) => reports.push(report),
             // Sweeping a whole library will turn up boards this emulator does not implement yet.
             // Report them rather than aborting the run.
@@ -133,7 +147,13 @@ fn main() {
 }
 
 /// Benchmark a single ROM, printing per-iteration progress to stderr.
-fn bench_rom(path: &Path, frames: u32, iterations: usize, warmup: u32) -> Result<Report, String> {
+fn bench_rom(
+    path: &Path,
+    frames: u32,
+    iterations: usize,
+    warmup: u32,
+    output: bool,
+) -> Result<Report, String> {
     let name = path
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
@@ -158,10 +178,10 @@ fn bench_rom(path: &Path, frames: u32, iterations: usize, warmup: u32) -> Result
 
         // Warmup is not timed: settles caches, branch predictors, and CPU frequency, and gets
         // past the ROM's boot sequence.
-        run_frames(&mut deck, warmup);
+        run_frames(&mut deck, warmup, output);
 
         let start = Instant::now();
-        run_frames(&mut deck, frames);
+        run_frames(&mut deck, frames, output);
         let elapsed = start.elapsed().as_secs_f64();
 
         let ms_per_frame = (elapsed / f64::from(frames)) * 1000.0;
@@ -183,7 +203,15 @@ fn bench_rom(path: &Path, frames: u32, iterations: usize, warmup: u32) -> Result
     })
 }
 
-fn run_frames(deck: &mut ControlDeck, frames: u32) {
+fn run_frames(deck: &mut ControlDeck, frames: u32, output: bool) {
+    if output {
+        for _ in 0..frames {
+            // `clock_frame_output` clears audio samples itself.
+            black_box(deck.clock_frame_output(|frame, _audio| black_box(frame.len())))
+                .expect("valid frame clock");
+        }
+        return;
+    }
     for _ in 0..frames {
         black_box(deck.clock_frame()).expect("valid frame clock");
         deck.clear_audio_samples();
