@@ -6,7 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, Sample, Sram},
-    mapper::{self, Map, Mapper},
+    mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -63,6 +63,9 @@ impl SunsoftFme7 {
 }
 
 impl Map for SunsoftFme7 {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::AUDIO
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

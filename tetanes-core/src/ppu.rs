@@ -3,8 +3,8 @@
 use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     debug::PpuDebugger,
-    mapper::{Map, Mapper},
-    memory::{ConstArray, Memory as CartMemory, Read, Write},
+    mapper::{Map, Mapper, MapperOps},
+    memory::{ConstArray, Memory, Read, Write},
     ppu::frame::Frame,
 };
 use ctrl::Ctrl;
@@ -207,16 +207,15 @@ pub struct Ppu {
     /// Mapper.
     pub mapper: Mapper,
     /// Page-table backed cartridge memory, for boards that have been ported onto it.
-    pub memory: CartMemory,
-    /// Whether the loaded board needs to observe every PPU bus address, for A12 scanline counters
-    /// and CHR latches. Cached from `Map::watches_ppu_bus` for the same reason.
-    pub watches_ppu_bus: bool,
-    /// Whether the loaded board serves some CPU reads itself, for expansion hardware that is not
-    /// memory. Cached from `Map::serves_prg_reads`.
-    pub serves_prg_reads: bool,
-    /// Whether the loaded board serves some PPU reads itself, for MMC5's extended attributes and
-    /// fill mode. Cached from `Map::serves_chr_reads`.
-    pub serves_chr_reads: bool,
+    pub memory: Memory,
+    /// Which of a loaded board's optional hooks apply - whether it needs a per-cycle clock, can
+    /// raise an IRQ or DMA, produces audio, observes every PPU bus address (A12 scanline counters,
+    /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
+    /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
+    /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
+    /// test. Derived state, not serialized: recomputed in `load_mapper` and `sync_mapper`.
+    #[serde(skip)]
+    pub mapper_ops: MapperOps,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -382,10 +381,8 @@ impl Ppu {
             // randomizing CIRAM.
             palette: PaletteRam(ConstArray::new()),
             mapper: Mapper::none(),
-            memory: CartMemory::default(),
-            watches_ppu_bus: false,
-            serves_prg_reads: false,
-            serves_chr_reads: false,
+            memory: Memory::default(),
+            mapper_ops: MapperOps::empty(),
 
             prev_palette: 0x00,
             curr_palette: 0x00,
@@ -437,7 +434,7 @@ impl Ppu {
     /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
     #[inline(always)]
     fn chr_read(&mut self, addr: u16) -> u8 {
-        let served = if self.serves_chr_reads {
+        let served = if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS) {
             let Self { mapper, memory, .. } = self;
             mapper.chr_read(memory, addr)
         } else {
@@ -447,7 +444,7 @@ impl Ppu {
         // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte being
         // read must come from the pre-flip bank. MMC3's A12 counter does not affect the data, so
         // it is unaffected by the ordering.
-        if self.watches_ppu_bus {
+        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
             let Self { mapper, memory, .. } = self;
             mapper.ppu_bus_addr(memory, addr);
         }
@@ -460,7 +457,7 @@ impl Ppu {
     /// `mapper` directly bypasses page-table boards and yields garbage.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
-        if self.serves_chr_reads
+        if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS)
             && let Some(val) = self.mapper.chr_peek(&self.memory, addr)
         {
             return val;
@@ -535,14 +532,12 @@ impl Ppu {
     /// Load a Mapper into the PPU.
     #[inline]
     pub fn load_mapper(&mut self, mapper: Mapper) {
-        self.watches_ppu_bus = mapper.watches_ppu_bus();
-        self.serves_prg_reads = mapper.serves_prg_reads();
-        self.serves_chr_reads = mapper.serves_chr_reads();
+        self.mapper_ops = mapper.mapper_ops();
         self.mapper = mapper;
     }
 
     /// Load a cart's mapper and its page-table memory.
-    pub fn load_cart(&mut self, mapper: Mapper, memory: CartMemory) {
+    pub fn load_cart(&mut self, mapper: Mapper, memory: Memory) {
         self.memory = memory;
         self.load_mapper(mapper);
     }
@@ -553,7 +548,7 @@ impl Ppu {
     /// move the PPU address without fetching through it, such as `$2006` writes.
     #[inline(always)]
     pub fn notify_ppu_bus(&mut self, addr: u16) {
-        if self.watches_ppu_bus {
+        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
             let Self { mapper, memory, .. } = self;
             mapper.ppu_bus_addr(memory, addr);
         }
@@ -578,6 +573,10 @@ impl Ppu {
     pub fn sync_mapper(&mut self) {
         let Self { mapper, memory, .. } = self;
         mapper.sync(memory);
+        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole Cpu, so this is
+        // the state-load path's chance to recompute it from the (serialized, and thus correct)
+        // mapper.
+        self.mapper_ops = self.mapper.mapper_ops();
     }
 
     /// Return the current Nametable mirroring mode.

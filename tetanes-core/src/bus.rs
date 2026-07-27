@@ -9,7 +9,7 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{Map, Mapper},
+    mapper::{Map, Mapper, MapperOps},
     memory::{ConstArray, RamState, Read, Write},
     ppu::Ppu,
 };
@@ -154,10 +154,17 @@ impl Bus {
         self.apu.audio_samples.clear();
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn cpu_clock(&mut self) {
-        self.ppu.mapper.clock();
-        let output = self.ppu.mapper.output();
+        let ops = self.ppu.mapper_ops;
+        if ops.intersects(MapperOps::CLOCKED) {
+            self.ppu.mapper.clock();
+        }
+        let output = if ops.intersects(MapperOps::AUDIO) {
+            self.ppu.mapper.output()
+        } else {
+            0.0
+        };
         self.input.clock();
         self.apu.add_mapper_output(output);
         self.apu.clock_lazy();
@@ -176,7 +183,8 @@ impl Read for Bus {
             0x4100..=0xFFFF => {
                 let val = self
                     .ppu
-                    .serves_prg_reads
+                    .mapper_ops
+                    .intersects(MapperOps::SERVES_PRG_READS)
                     .then(|| self.ppu.mapper.prg_read(addr))
                     .flatten()
                     .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));
@@ -205,7 +213,8 @@ impl Read for Bus {
             0x4100..=0xFFFF => {
                 let val = self
                     .ppu
-                    .serves_prg_reads
+                    .mapper_ops
+                    .intersects(MapperOps::SERVES_PRG_READS)
                     .then(|| self.ppu.mapper.prg_peek(addr))
                     .flatten()
                     .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));

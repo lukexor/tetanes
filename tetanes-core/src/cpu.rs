@@ -13,7 +13,7 @@ use crate::{
         Instr::{JMP, JSR},
         InstrRef,
     },
-    mapper::Map,
+    mapper::{Map, MapperOps},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -231,8 +231,11 @@ impl Cpu {
     /// Handle CPU interrupt requests, if any are pending.
     #[inline(always)]
     fn handle_interrupts(&mut self) {
-        let irq_pending_mapper = self.bus.ppu.mapper.irq_pending();
-        let dma_pending_mapper = self.bus.ppu.mapper.dma_pending();
+        let mapper_ops = self.bus.ppu.mapper_ops;
+        let irq_pending_mapper =
+            mapper_ops.intersects(MapperOps::IRQ) && self.bus.ppu.mapper.irq_pending();
+        let dma_pending_mapper =
+            mapper_ops.intersects(MapperOps::DMA) && self.bus.ppu.mapper.dma_pending();
         let nmi_pending = self.bus.ppu.nmi_pending;
         let irq_pending_apu = self.bus.apu.irq_pending();
         let dma_pending_apu = self.bus.apu.dma_pending();

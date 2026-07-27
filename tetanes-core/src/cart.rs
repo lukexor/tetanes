@@ -10,7 +10,7 @@ use crate::{
         m034_nina001::Nina001,
     },
     memory::RamState,
-    memory::{Memory as CartMemory, MemoryLayout, Src},
+    memory::{Memory, MemoryLayout, Src},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
@@ -88,7 +88,7 @@ pub struct Cart {
     pub ram_state: RamState,
     pub mapper: Mapper,
     /// All of the cart's memory, and the page tables that address it.
-    pub memory: CartMemory,
+    pub memory: Memory,
     pub chr_rom_size: usize,
     pub chr_ram_size: usize,
     pub prg_rom_size: usize,
@@ -144,8 +144,8 @@ impl Cart {
         chr_ram_size: usize,
         four_screen: bool,
         ram_state: RamState,
-    ) -> CartMemory {
-        let mut memory = CartMemory::new(MemoryLayout {
+    ) -> Memory {
+        let mut memory = Memory::new(MemoryLayout {
             prg_rom: prg_rom_size,
             prg_ram: prg_ram_size.max(DEFAULT_PRG_RAM_SIZE),
             // `chr_ram_size` is only non-zero when there is no CHR-ROM, so exactly one of the two

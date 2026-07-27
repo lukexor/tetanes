@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Map, Mapper},
+    mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -92,6 +92,9 @@ impl JalecoSs88006 {
 }
 
 impl Map for JalecoSs88006 {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

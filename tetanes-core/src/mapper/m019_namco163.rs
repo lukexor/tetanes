@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{self, Map, Mapper},
+    mapper::{self, Map, Mapper, MapperOps},
     memory::ConstArray,
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -120,6 +120,9 @@ impl Namco163 {
 }
 
 impl Map for Namco163 {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::AUDIO | MapperOps::SERVES_PRG_READS
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
@@ -152,10 +155,6 @@ impl Map for Namco163 {
     }
 
     /// Audio registers and the IRQ counter live in the expansion range and are not memory.
-    fn serves_prg_reads(&self) -> bool {
-        true
-    }
-
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
         match addr {
             0x4800..=0x4FFF => Some(self.audio.read_register(addr)),

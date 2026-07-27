@@ -6,7 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     fs,
-    mapper::{self, Map, Mapper, Mmc1, Mmc1Revision},
+    mapper::{self, Map, Mapper, MapperOps, Mmc1, Mmc1Revision},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -47,6 +47,11 @@ impl Sxrom {
 }
 
 impl Map for Sxrom {
+    fn mapper_ops(&self) -> MapperOps {
+        // The busy-cycle counter that ignores rapid consecutive writes needs a per-cycle clock;
+        // MMC1 has no IRQ.
+        MapperOps::CLOCKED
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mmc1.mirroring

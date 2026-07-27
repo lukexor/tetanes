@@ -6,7 +6,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
     fs,
-    mapper::{self, Map, Mapper, Mirroring},
+    mapper::{self, Map, Mapper, MapperOps, Mirroring},
     // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
     memory::Buffer,
     memory::{Memory, Src},
@@ -225,6 +225,10 @@ impl BandaiFCG {
 }
 
 impl Map for BandaiFCG {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::SERVES_PRG_READS
+    }
+
     // Mapper 016
     //
     // PPU $0000..=$03FF 1K switchable CHR-ROM bank
@@ -273,10 +277,6 @@ impl Map for BandaiFCG {
     }
 
     /// Datach carts answer $6000-$7FFF from a barcode reader and one or two serial EEPROMs.
-    fn serves_prg_reads(&self) -> bool {
-        true
-    }
-
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
         if !matches!(addr, 0x6000..=0x7FFF)
             || !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite)

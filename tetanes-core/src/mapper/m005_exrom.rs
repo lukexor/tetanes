@@ -12,7 +12,7 @@ use crate::{
     cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     cpu::Cpu,
-    mapper::{self, Map, Mapper},
+    mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::{Mirroring, PpuAddr},
 };
@@ -720,6 +720,15 @@ impl Exrom {
 }
 
 impl Map for Exrom {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED
+            | MapperOps::IRQ
+            | MapperOps::AUDIO
+            | MapperOps::DMA
+            | MapperOps::SERVES_PRG_READS
+            | MapperOps::SERVES_CHR_READS
+    }
+
     // CHR mode 0
     // PPU $0000..=$1FFF 8K switchable CHR bank
     //
@@ -786,10 +795,6 @@ impl Map for Exrom {
 
     /// The register file and ExRAM in modes 0/1 are not memory, and every PPU fetch has side
     /// effects, so MMC5 is the one board that serves both kinds of read itself.
-    fn serves_prg_reads(&self) -> bool {
-        true
-    }
-
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
         if let 0xFFFA | 0xFFFB = addr {
             // Reading the NMI vector clears the in-frame flag.
@@ -863,10 +868,6 @@ impl Map for Exrom {
     /// Every PPU fetch drives the scanline detector, the CHR bank-set switch and, in extended
     /// attribute mode, the tile lookup - so unlike every other board MMC5 serves reads rather than
     /// just watching the bus.
-    fn serves_chr_reads(&self) -> bool {
-        true
-    }
-
     fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => {

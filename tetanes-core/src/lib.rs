@@ -57,11 +57,11 @@ mod tests {
         debug::PpuDebugger,
         mapper::{
             Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
-            Fk23C, JalecoSs88006, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
+            Fk23C, JalecoSs88006, MapperOps, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
             SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
         },
         memory::ConstArray,
-        memory::Memory as CartMemory,
+        memory::Memory,
         ppu::{
             PaletteRam, ctrl::Ctrl, mask::Mask, scroll::Scroll, sprite::Sprite,
             status::Status as PpuStatus,
@@ -189,10 +189,8 @@ mod tests {
 
             palette: PaletteRam,
             mapper: Mapper,
-            memory: CartMemory,
-            watches_ppu_bus: bool,
-            serves_prg_reads: bool,
-            serves_chr_reads: bool,
+            memory: Memory,
+            mapper_ops: MapperOps,
             nmi_pending: bool,
 
             vram_buffer: u8,

@@ -7,7 +7,7 @@ use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
     mapper::{
-        self, Map, Mapper,
+        self, Map, Mapper, MapperOps,
         mmc1::{self, Mmc1},
     },
     memory::{Memory, Src},
@@ -183,6 +183,9 @@ impl NesEvent {
 }
 
 impl Map for NesEvent {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mmc1.mirroring

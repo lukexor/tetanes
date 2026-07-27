@@ -8,8 +8,50 @@ use crate::{
     memory::{Memory, Src},
     ppu::Mirroring,
 };
+use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+bitflags! {
+    /// Which of a board's optional hooks apply, resolved once at cart load and cached beside the
+    /// mapper (see `Ppu::mapper_ops`) so the hot paths that would otherwise dispatch
+    /// unconditionally into every board - `Bus::cpu_clock`, `Cpu::handle_interrupts`,
+    /// `Ppu::chr_read`/`chr_peek`, `Ppu::notify_ppu_bus`, `Bus::read`/`peek` - can gate each one
+    /// on a bit test instead.
+    #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[must_use]
+    pub struct MapperOps: u8 {
+        /// Board needs `Clock::clock()` called every CPU cycle (an IRQ or serial-write timing
+        /// counter, expansion audio, etc).
+        const CLOCKED = 1 << 0;
+        /// Board can raise `Map::irq_pending()`.
+        const IRQ = 1 << 1;
+        /// Board produces audio via `Sample::output()`.
+        const AUDIO = 1 << 2;
+        /// Board can raise `Map::dma_pending()`.
+        const DMA = 1 << 3;
+        /// Board must observe every PPU bus address.
+        ///
+        /// A board does not see PPU reads themselves, so the A12 rising-edge scanline counters
+        /// (MMC3, FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly via
+        /// [`Map::ppu_bus_addr`]. Whatever this reaches runs thousands of times a frame: re-map
+        /// only what changed, never [`Map::sync`].
+        const WATCHES_PPU_BUS = 1 << 4;
+        /// Board serves some CPU reads itself rather than from page tables.
+        ///
+        /// Expansion hardware - Namco163's audio registers and IRQ counter, Bandai's EEPROM and
+        /// barcode reader - is not memory and cannot be expressed as a page. Served through
+        /// [`Map::prg_read`]/[`Map::prg_peek`].
+        const SERVES_PRG_READS = 1 << 5;
+        /// Board serves some PPU reads itself rather than from page tables.
+        ///
+        /// MMC5 is the only board that needs this: in extended-attribute mode the CHR bank for a
+        /// tile comes from a byte of ExRAM looked up per tile, and attribute and fill-mode reads
+        /// are synthesised rather than fetched, so neither is expressible as a page entry. Served
+        /// through [`Map::chr_read`]/[`Map::chr_peek`].
+        const SERVES_CHR_READS = 1 << 6;
+    }
+}
 
 pub use bandai_fcg::BandaiFCG; // m016, m153, m157, m159
 pub use m000_nrom::Nrom;
@@ -237,6 +279,11 @@ macro_rules! impl_map {
 }
 
 impl Map for Mapper {
+    /// Which of the optional per-cycle hooks this board needs.
+    fn mapper_ops(&self) -> MapperOps {
+        impl_map!(self, mapper_ops)
+    }
+
     /// Synchronize a write to a PPU address.
     fn ppu_write(&mut self, addr: u16, val: u8) {
         impl_map!(self, ppu_write, addr, val)
@@ -279,12 +326,6 @@ impl Map for Mapper {
         impl_map!(self, load_sram, memory, path)
     }
 
-    /// Whether this board serves some CPU reads itself.
-    #[inline(always)]
-    fn serves_prg_reads(&self) -> bool {
-        impl_map!(self, serves_prg_reads)
-    }
-
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
@@ -297,12 +338,6 @@ impl Map for Mapper {
         impl_map!(self, prg_peek, addr)
     }
 
-    /// Whether this board serves some PPU reads itself.
-    #[inline(always)]
-    fn serves_chr_reads(&self) -> bool {
-        impl_map!(self, serves_chr_reads)
-    }
-
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
     fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
@@ -313,12 +348,6 @@ impl Map for Mapper {
     #[inline(always)]
     fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
         impl_map!(self, chr_peek, memory, addr)
-    }
-
-    /// Whether this board must observe every PPU bus address.
-    #[inline(always)]
-    fn watches_ppu_bus(&self) -> bool {
-        impl_map!(self, watches_ppu_bus)
     }
 
     /// Observe a PPU bus address.
@@ -413,6 +442,13 @@ impl Default for Mapper {
 /// mean "ordinary memory, read the page table". Each is gated on a cached `serves_*` flag so the
 /// boards without any pay a bool test rather than a dispatch.
 pub trait Map: Clock + Regional + Reset + Sram {
+    /// Which of the optional per-cycle hooks this board needs: a per-cycle `Clock::clock()`, an
+    /// IRQ, expansion audio, or DMA. Resolved once at cart load into `Ppu::mapper_ops`, so a board
+    /// that needs none of them costs a bit test rather than a dispatch on every CPU cycle.
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::empty()
+    }
+
     /// Synchronize a write to a PPU address.
     fn ppu_write(&mut self, _addr: u16, _val: u8) {}
 
@@ -461,16 +497,9 @@ pub trait Map: Clock + Regional + Reset + Sram {
         Ok(())
     }
 
-    /// Whether this board serves some CPU reads itself rather than from page tables.
-    ///
-    /// Expansion hardware - Namco163's audio registers and IRQ counter, Bandai's EEPROM and
-    /// barcode reader - is not memory and cannot be expressed as a page. Cached at load so boards
-    /// without it pay a bool test rather than a call on every PRG read.
-    fn serves_prg_reads(&self) -> bool {
-        false
-    }
-
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
+    ///
+    /// Only reached when the board's `mapper_ops()` includes `MapperOps::SERVES_PRG_READS`.
     fn prg_read(&mut self, _addr: u16) -> Option<u8> {
         None
     }
@@ -480,21 +509,12 @@ pub trait Map: Clock + Regional + Reset + Sram {
         None
     }
 
-    /// Whether this board serves some PPU reads itself rather than from page tables.
-    ///
-    /// MMC5 is the only board that needs this: in extended-attribute mode the CHR bank for a tile
-    /// comes from a byte of ExRAM looked up per tile, and attribute and fill-mode reads are
-    /// synthesised rather than fetched, so neither is expressible as a page entry. Cached at load
-    /// so every other board pays a bool test on the ~41,000 CHR fetches in a frame.
-    fn serves_chr_reads(&self) -> bool {
-        false
-    }
-
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
     ///
-    /// Runs *before* the page-table read, so a board may also re-bank here: MMC5 swaps its sprite
-    /// and background CHR bank sets partway through a scanline, and the swap has to apply to the
-    /// fetch that triggered it.
+    /// Only reached when the board's `mapper_ops()` includes `MapperOps::SERVES_CHR_READS`. Runs
+    /// *before* the page-table read, so a board may also re-bank here: MMC5 swaps its sprite and
+    /// background CHR bank sets partway through a scanline, and the swap has to apply to the fetch
+    /// that triggered it.
     fn chr_read(&mut self, _memory: &mut Memory, _addr: u16) -> Option<u8> {
         None
     }
@@ -504,20 +524,8 @@ pub trait Map: Clock + Regional + Reset + Sram {
         None
     }
 
-    /// Whether this board must observe every PPU bus address.
-    ///
-    /// A board does not see the reads themselves, so the A12 rising-edge scanline counters (MMC3,
-    /// FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly. Cached at load
-    /// so the ~20 boards that do not care pay a bool test rather than a dispatch on every one of
-    /// the ~41,000 CHR fetches in a frame.
-    ///
-    /// Whatever this reaches runs thousands of times a frame: re-map only what changed, never
-    /// [`Map::sync`].
-    fn watches_ppu_bus(&self) -> bool {
-        false
-    }
-
-    /// Observe a PPU bus address, for boards that returned `true` from `watches_ppu_bus`.
+    /// Observe a PPU bus address, for boards whose `mapper_ops()` includes
+    /// `MapperOps::WATCHES_PPU_BUS`.
     fn ppu_bus_addr(&mut self, _memory: &mut Memory, _addr: u16) {}
 
     /// Rebuild the page tables from this board's register state.

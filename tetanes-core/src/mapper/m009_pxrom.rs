@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, Sram},
-    mapper::{self, Map, Mapper},
+    mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -57,12 +57,11 @@ impl Pxrom {
 }
 
 impl Map for Pxrom {
-
-    /// The CHR latch is driven by which tile addresses the PPU fetches.
-    fn watches_ppu_bus(&self) -> bool {
-        true
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::WATCHES_PPU_BUS
     }
 
+    /// The CHR latch is driven by which tile addresses the PPU fetches.
     fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
         if matches!(addr, 0x0FD8 | 0x0FE8 | 0x1FD8..=0x1FDF | 0x1FE8..=0x1FEF) {
             let addr = addr as usize;

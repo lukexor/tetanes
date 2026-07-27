@@ -6,7 +6,7 @@ use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
-    mapper::{self, Map, Mapper, vrc_irq::VrcIrq},
+    mapper::{self, Map, Mapper, MapperOps, vrc_irq::VrcIrq},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -194,6 +194,9 @@ impl Vrc6 {
 }
 
 impl Map for Vrc6 {
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::AUDIO
+    }
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring

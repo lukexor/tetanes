@@ -5,7 +5,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Map, Mapper, Mmc3, Mmc3Revision},
+    mapper::{self, Map, Mapper, MapperOps, Mmc3, Mmc3Revision},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -134,12 +134,11 @@ impl Txrom {
 }
 
 impl Map for Txrom {
-
-    /// MMC3 counts scanlines from A12 rising edges on the PPU bus.
-    fn watches_ppu_bus(&self) -> bool {
-        true
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::WATCHES_PPU_BUS
     }
 
+    /// MMC3 counts scanlines from A12 rising edges on the PPU bus.
     fn ppu_bus_addr(&mut self, _memory: &mut Memory, addr: u16) {
         self.mmc3.clock_irq(addr);
     }

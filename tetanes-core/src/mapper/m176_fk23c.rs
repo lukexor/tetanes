@@ -10,7 +10,7 @@
 use crate::{
     cart::Cart,
     common::{Clock, Regional, Reset, ResetKind, Sram},
-    mapper::{self, Map, Mapper, mmc3::Mmc3},
+    mapper::{self, Map, Mapper, MapperOps, mmc3::Mmc3},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -246,12 +246,11 @@ impl Fk23C {
 }
 
 impl Map for Fk23C {
-
-    /// MMC3-derived, so it counts scanlines from A12 rising edges.
-    fn watches_ppu_bus(&self) -> bool {
-        true
+    fn mapper_ops(&self) -> MapperOps {
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::WATCHES_PPU_BUS
     }
 
+    /// MMC3-derived, so it counts scanlines from A12 rising edges.
     fn ppu_bus_addr(&mut self, _memory: &mut Memory, addr: u16) {
         self.mmc3.clock_irq(addr);
     }
