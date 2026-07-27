@@ -1193,10 +1193,16 @@ impl Map for Exrom {
     }
 
     fn region(&self) -> NesRegion {
-        self.dmc.region()
+        self.region
     }
 
+    /// Both of MMC5's region-dependent clocks, which are separate and were easy to miss.
+    ///
+    /// `self.region` drives the half-frame pulse timer in [`Map::clock`] via
+    /// `Cpu::region_clock_rate`; `self.dmc` has its own rate table like the APU's. Updating only
+    /// the DMC left the pulse timer running at the region the cart was *constructed* with.
     fn set_region(&mut self, region: NesRegion) {
+        self.region = region;
         self.dmc.set_region(region);
     }
 

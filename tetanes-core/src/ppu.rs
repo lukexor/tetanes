@@ -532,6 +532,9 @@ impl Ppu {
     pub fn load_mapper(&mut self, mapper: Mapper) {
         self.mapper_ops = mapper.mapper_ops();
         self.mapper = mapper;
+        // `ControlDeck::load_rom` sets the region *before* installing the cart, so a mapper whose
+        // timing depends on it (MMC5's expansion audio) would otherwise never be told.
+        self.mapper.set_region(self.region);
     }
 
     /// Load a cart's mapper and its page-table memory.
@@ -1725,6 +1728,10 @@ impl Regional for Ppu {
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
         self.mask.set_region(region);
+        // The mapper owns the tree's only other region-dependent timing: MMC5's expansion audio
+        // clocks its half-frame counter off the CPU clock rate, and its DMC channel off the region
+        // rate table, exactly as the APU's does.
+        self.mapper.set_region(region);
     }
 }
 

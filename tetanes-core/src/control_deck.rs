@@ -10,7 +10,7 @@ use crate::{
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
-    mapper::{Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
+    mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
     memory::RamState,
     ppu::Ppu,
     video::{Video, VideoFilter},
@@ -293,10 +293,15 @@ impl ControlDeck {
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<LoadedRom> {
         let name = name.to_string();
         self.unload_rom()?;
-        let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state)?;
-        if cart.mapper.is_none() {
-            return Err(Error::UnimplementedMapper(cart.mapper_num()));
-        }
+        // `Cart::from_rom` now rejects an unimplemented mapper itself rather than handing back a
+        // `Mapper::none()` that reads as open bus; unwrap it back to this crate's own variant so
+        // callers keep getting `unimplemented mapper \`69\`` rather than a nested cart error.
+        let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state).map_err(|err| match err {
+            cart::Error::InvalidMapper(mapper::Error::Unimplemented(num)) => {
+                Error::UnimplementedMapper(num)
+            }
+            err => Error::Cart(err),
+        })?;
         let loaded_rom = LoadedRom {
             name: name.clone(),
             battery_backed: cart.battery_backed(),

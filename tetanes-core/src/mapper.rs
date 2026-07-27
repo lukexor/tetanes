@@ -129,6 +129,12 @@ impl std::fmt::Display for MapperRevision {
 /// - `= <id>` is the board's **stable serialization id**: assign-once, never reused, never
 ///   renumbered. It is what goes on disk, so **rows may be freely reordered** - keep them in
 ///   mapper-number order. See [`Mapper`]'s `Serialize`/`Deserialize` for why this is hand-rolled.
+///
+///   The id is the board's *primary* (lowest) mapper number, so the table reads as its own index.
+///   That cannot be the whole rule, because the mapping is not one-to-one in either direction:
+///   `Txrom` alone serves 4, 76, 88, 95, 154 and 206, and BNROM and NINA-001 *both* serve 34. A
+///   board sharing a number with an earlier one takes `0x1000 + n` instead, above every real NES
+///   2.0 mapper number. `Mapper::none()` is `0xFFFF`, since 0 is NROM.
 /// - Loader arms are emitted in row order into one `match`, with `cart` bound to `&mut Cart`. Where
 ///   two boards share a mapper number they carry mutually exclusive guards rather than relying on
 ///   arm order, so that reordering rows cannot change which board a ROM gets.
@@ -172,6 +178,10 @@ macro_rules! boards {
         /// Every board's name, for `Deserialize` in self-describing formats.
         const VARIANTS: &[&str] = &["None", $(stringify!($variant),)+];
 
+        /// [`Mapper::none`]'s id. Not 0, because that is NROM.
+        const NONE_ID: u32 = 0xFFFF;
+        const NONE_ID_U64: u64 = NONE_ID as u64;
+
         /// Serialize as the `boards!` row's stable id, not the variant's declaration position.
         ///
         /// serde's derive always uses the position, and honours neither an explicit discriminant
@@ -181,7 +191,7 @@ macro_rules! boards {
         impl Serialize for Mapper {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 match self {
-                    Self::None(m) => serializer.serialize_newtype_variant("Mapper", 0, "None", m),
+                    Self::None(m) => serializer.serialize_newtype_variant("Mapper", NONE_ID, "None", m),
                     $(Self::$variant(m) => serializer.serialize_newtype_variant(
                         "Mapper", $id, stringify!($variant), m,
                     ),)+
@@ -215,7 +225,7 @@ macro_rules! boards {
 
                             fn visit_u64<E: serde::de::Error>(self, id: u64) -> Result<Tag, E> {
                                 match id {
-                                    0 => Ok(Tag::None),
+                                    NONE_ID_U64 => Ok(Tag::None),
                                     $($id => Ok(Tag::$variant),)+
                                     // A save state written by a newer build that knows a board
                                     // this one does not.
@@ -459,75 +469,75 @@ boards! {
     cart:
 
     /// `NROM` (Mapper 000)
-    Nrom(Nrom) = 1 in m000_nrom { 0 => Nrom::load(cart) },
+    Nrom(Nrom) = 0 in m000_nrom { 0 => Nrom::load(cart) },
     /// `SxROM`/`MMC1` (Mappers 001, 155)
-    Sxrom(Sxrom) = 2 in m001_sxrom {
+    Sxrom(Sxrom) = 1 in m001_sxrom {
         1 => Sxrom::load(cart, Mmc1Revision::BC),
         155 => Sxrom::load(cart, Mmc1Revision::A),
     },
     /// `UxROM` (Mapper 002)
-    Uxrom(Uxrom) = 3 in m002_uxrom { 2 => Uxrom::load(cart) },
+    Uxrom(Uxrom) = 2 in m002_uxrom { 2 => Uxrom::load(cart) },
     /// `CNROM` (Mapper 003)
-    Cnrom(Cnrom) = 4 in m003_cnrom { 3 => Cnrom::load(cart) },
+    Cnrom(Cnrom) = 3 in m003_cnrom { 3 => Cnrom::load(cart) },
     /// `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 154, 206)
-    Txrom(Txrom) = 5 in m004_txrom {
+    Txrom(Txrom) = 4 in m004_txrom {
         4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(cart),
     },
     /// `ExROM`/`MMC5` (Mapper 005)
-    Exrom(Box<Exrom>) = 6 in m005_exrom { 5 => Exrom::load(cart) },
+    Exrom(Box<Exrom>) = 5 in m005_exrom { 5 => Exrom::load(cart) },
     /// `AxROM` (Mapper 007)
     Axrom(Axrom) = 7 in m007_axrom { 7 => Axrom::load(cart) },
     /// `PxROM`/`MMC2` (Mapper 009)
-    Pxrom(Pxrom) = 8 in m009_pxrom { 9 => Pxrom::load(cart) },
+    Pxrom(Pxrom) = 9 in m009_pxrom { 9 => Pxrom::load(cart) },
     /// `FxROM`/`MMC4` (Mapper 010)
-    Fxrom(Fxrom) = 9 in m010_fxrom { 10 => Fxrom::load(cart) },
+    Fxrom(Fxrom) = 10 in m010_fxrom { 10 => Fxrom::load(cart) },
     /// `Color Dreams` (Mappers 011, 144)
-    ColorDreams(ColorDreams) = 10 in m011_color_dreams {
+    ColorDreams(ColorDreams) = 11 in m011_color_dreams {
         11 | 144 => ColorDreams::load(cart),
     },
     /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
-    BandaiFCG(Box<BandaiFCG>) = 11 in bandai_fcg {
+    BandaiFCG(Box<BandaiFCG>) = 16 in bandai_fcg {
         16 | 153 | 157 | 159 => BandaiFCG::load(cart),
     },
     /// `Jaleco SS88006` (Mapper 018)
-    JalecoSs88006(JalecoSs88006) = 12 in m018_jalecoss88006 {
+    JalecoSs88006(JalecoSs88006) = 18 in m018_jalecoss88006 {
         18 => JalecoSs88006::load(cart),
     },
     /// `Namco163` (Mappers 019, 210)
-    Namco163(Box<Namco163>) = 13 in m019_namco163 { 19 | 210 => Namco163::load(cart) },
+    Namco163(Box<Namco163>) = 19 in m019_namco163 { 19 | 210 => Namco163::load(cart) },
     /// `VRC6` (Mappers 024, 026)
-    Vrc6(Box<Vrc6>) = 14 in m024_m026_vrc6 {
+    Vrc6(Box<Vrc6>) = 24 in m024_m026_vrc6 {
         24 => Vrc6::load(cart, Vrc6Revision::A),
         26 => Vrc6::load(cart, Vrc6Revision::B),
     },
     /// `BNROM` (Mapper 034)
     // Mapper 034 is two different boards; <= 8K of CHR-ROM implies BNROM.
-    Bnrom(Bnrom) = 15 in m034_bnrom {
+    Bnrom(Bnrom) = 34 in m034_bnrom {
         34 if cart.chr_rom_size < 0x4000 => Bnrom::load(cart),
     },
     /// `NINA-001` (Mapper 034)
-    Nina001(Nina001) = 16 in m034_nina001 {
+    Nina001(Nina001) = 4096 in m034_nina001 {
         34 if cart.chr_rom_size >= 0x4000 => Nina001::load(cart),
     },
     /// `GxROM` (Mapper 066)
-    Gxrom(Gxrom) = 17 in m066_gxrom { 66 => Gxrom::load(cart) },
+    Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)
-    SunsoftFme7(SunsoftFme7) = 18 in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
+    SunsoftFme7(Box<SunsoftFme7>) = 69 in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
     /// `Bf909x` (Mapper 071)
-    Bf909x(Bf909x) = 19 in m071_bf909x { 71 => Bf909x::load(cart) },
+    Bf909x(Bf909x) = 71 in m071_bf909x { 71 => Bf909x::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
-    Nina003006(Nina003006) = 20 in m079_nina003_006 {
+    Nina003006(Nina003006) = 79 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
     },
     /// `NES-EVENT` (Mapper 105)
-    NesEvent(NesEvent) = 21 in m105_nes_event {
+    NesEvent(NesEvent) = 105 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
     /// `Waixing FK23C`/`FS303` (Mapper 176)
     // Boxed from when it was 280 bytes; the port to page tables left it holding only registers, so
     // `print_layouts` now reports 56 and it no longer drives the enum's size (SunsoftFme7's 72
     // does). Left boxed for now - unboxing is a cache-behaviour question to measure, not assume.
-    Fk23C(Fk23C) = 22 in m176_fk23c { 176 => Fk23C::load(cart) },
+    Fk23C(Fk23C) = 176 in m176_fk23c { 176 => Fk23C::load(cart) },
 }
 
 impl Default for Mapper {
@@ -687,31 +697,55 @@ mod tests {
 
     use crate::{cart::Cart, memory::Src};
 
+    /// MMC5's expansion audio has two region-dependent clocks, and nothing forwarded the region to
+    /// the mapper at all: `Ppu::set_region` updated its own timing and the mask but stopped there,
+    /// so `Exrom::set_region` was never called and the board ran at whatever region its cart was
+    /// constructed with.
+    #[test]
+    fn setting_the_region_reaches_the_mapper() {
+        use crate::{cart::Cart, common::Regional, ppu::Ppu};
+
+        let mut cart = Cart::empty_sized(0x8000, 0x2000);
+        cart.header.mapper_num = 5;
+        let mapper = Mapper::from_cart(&mut cart).expect("MMC5 loads");
+
+        let mut ppu = Ppu::default();
+        ppu.set_region(NesRegion::Ntsc);
+        ppu.load_cart(mapper, cart.memory);
+        assert_eq!(ppu.mapper.region(), NesRegion::Ntsc, "region at load");
+
+        ppu.set_region(NesRegion::Pal);
+        assert_eq!(
+            ppu.mapper.region(),
+            NesRegion::Pal,
+            "a later region change must reach the mapper too"
+        );
+    }
+
     /// The serialized tag must be the `boards!` row's stable id, not the variant's declaration
     /// position - that is the whole reason `Serialize`/`Deserialize` are hand-rolled rather than
     /// derived. serde's derive always uses the position and honours neither an explicit
     /// discriminant nor `#[repr]`.
     ///
-    /// These bytes are also exactly what the derive produced back when the ids happened to equal
-    /// the positions, so **existing save states keep loading**. Moving a row must leave this
-    /// passing; renumbering an id must make it fail.
+    /// Moving a row must leave this passing; renumbering an id must make it fail.
     #[test]
     fn variant_tag_is_the_stable_id_not_the_declaration_position() {
         let config = bincode::config::legacy();
+        // The id is the board's primary mapper number: NROM 0, UxROM 2.
         let cases = [
-            (Mapper::none(), 0),
+            (Mapper::none(), 0xFFFF),
             (
                 Mapper::from(Nrom {
                     mirroring: Mirroring::Vertical,
                 }),
-                1,
+                0,
             ),
             (
                 Mapper::from(Uxrom {
                     mirroring: Mirroring::Vertical,
                     prg_bank: 0,
                 }),
-                3,
+                2,
             ),
         ];
         for (mapper, expected_id) in cases {
@@ -749,7 +783,7 @@ mod tests {
 
     /// Two boards sharing an id means one silently loads as the other.
     #[test]
-    fn board_ids_are_unique_and_nonzero() {
+    fn board_ids_are_unique_and_not_reserved() {
         let mut ids = BOARD_IDS.to_vec();
         ids.sort_unstable_by_key(|&(_, id)| id);
         for pair in ids.windows(2) {
@@ -761,8 +795,8 @@ mod tests {
         }
         for &(board, id) in BOARD_IDS {
             assert_ne!(
-                id, 0,
-                "{board} uses id 0, which is reserved for Mapper::None"
+                id, NONE_ID,
+                "{board} collides with Mapper::none()'s reserved id"
             );
         }
     }

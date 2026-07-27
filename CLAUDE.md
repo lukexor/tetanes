@@ -70,9 +70,10 @@ ControlDeck → Cpu → Bus → { Ppu → Mapper, Apu, Input, WRAM }
 
 The `Mapper` lives inside the `Ppu` (CHR/CIRAM access is the hot path); the CPU reaches PRG through
 the bus. Cross-cutting behavior is expressed as small traits in `common.rs` — `Clock`, `Reset`,
-`Regional`, `Sram`, `Sample` — implemented by nearly every component and forwarded down the tree.
-`mem.rs` provides `Memory<D>`, `ConstArray`, and `Banks` (windowed bank translation used by every
-mapper).
+`Regional`, `Sram`, `Sample` — implemented by nearly every component and forwarded down the tree
+(note `Map` itself has none of them as supertraits; see Mappers below). `memory.rs` provides
+`Memory` — the page-table-addressed arena holding every cart region — plus `ConstArray` and
+`Buffer`.
 
 Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save
@@ -99,13 +100,17 @@ A board module that publicly exports something *other* than the board type — s
 enum — needs a `pub use` next to the table. Optionally add a `test_roms!` group in `common.rs`.
 
 Each row carries `= <id>`, its **stable serialization id: assign-once, never reused, never
-renumbered** (take the next free integer). That id is what goes on disk, so **rows can be reordered
-freely — keep the table in mapper-number order.** This is why `Serialize`/`Deserialize` for `Mapper`
-are hand-rolled: serde's derive tags variants by *declaration position* and honours neither an
-explicit discriminant nor `#[repr]` (`enum E { A = 10 }` still serializes as `0`), and bincode 2's
-own non-serde derive behaves the same, so the stability has to live in our code to survive changing
-serializer. `mapper::tests::variant_tag_is_the_stable_id_not_the_declaration_position` pins the
-bytes; `board_ids_are_unique_and_nonzero` catches a duplicated id.
+renumbered.** That id is what goes on disk, so **rows can be reordered freely — keep the table in
+mapper-number order.** The id *is* the board's primary (lowest) mapper number, so the table reads as
+its own index; a board sharing a number with an earlier one (NINA-001 vs BNROM, both mapper 34)
+takes `0x1000 + n` instead, above every real NES 2.0 number, and `Mapper::none()` is `0xFFFF` since
+0 is NROM.
+
+This is why `Serialize`/`Deserialize` for `Mapper` are hand-rolled: serde's derive tags variants by
+*declaration position* and honours neither an explicit discriminant nor `#[repr]` (`enum E { A = 10 }`
+still serializes as `0`), and bincode 2's own non-serde derive behaves the same, so the stability has
+to live in our code to survive changing serializer. `mapper::tests::variant_tag_is_the_stable_id_not_the_declaration_position` pins the
+bytes; `board_ids_are_unique_and_not_reserved` catches a duplicated id.
 
 Where two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
 mutually exclusive `if` guards, so loader dispatch never depends on row order either.
@@ -114,8 +119,10 @@ A mapper number no row claims is `Error::Unimplemented`, so an unsupported ROM s
 loading as open bus and showing a black screen. Tools that survey ROMs rather than run them use
 `Cart::from_path_unmapped`/`from_rom_unmapped`, which skip board selection entirely.
 
-Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, …) to keep `Mapper`
-small — the `print_layouts` test exists to watch struct/enum sizes for cache behavior.
+Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, `SunsoftFme7`) to keep
+`Mapper` small, currently 56 bytes — `print_layouts` prints every board's unboxed size so this stays
+watchable. Boxing is a **measured** trade, not a size rule: it costs an indirection on boards clocked
+every CPU cycle, and both directions have surprised us. See `benches/README.md`.
 
 Boards that can't be identified from the header use `MapperRevision` (user/DB selectable, see
 `MapperRevisionsConfig`), and `game_db.dat` / `game_database.txt` (regenerate with
