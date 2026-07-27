@@ -58,6 +58,9 @@ pub enum Error {
     InvalidFilePath(PathBuf),
     #[error("unimplemented mapper `{0}`")]
     UnimplementedMapper(u16),
+    /// A save state that does not belong to the loaded cart.
+    #[error(transparent)]
+    StateMismatch(#[from] crate::cpu::StateMismatch),
     /// Filesystem error.
     #[error(transparent)]
     Fs(#[from] fs::Error),
@@ -357,11 +360,18 @@ impl ControlDeck {
 
     /// Load a previously saved CPU state.
     #[inline]
-    pub fn load_cpu(&mut self, cpu: Cpu) {
-        self.cpu.load(cpu);
+    /// Replace the running console with a restored state.
+    ///
+    /// # Errors
+    ///
+    /// If the state was not produced by the currently loaded cart, in which case the running
+    /// console is left untouched.
+    pub fn load_cpu(&mut self, cpu: Cpu) -> Result<()> {
+        self.cpu.load(cpu)?;
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
         self.cpu.bus.ppu.sync_mapper();
+        Ok(())
     }
 
     /// Set the [`MapperRevision`] to emulate for the any ROM loaded that uses this mapper.
@@ -556,7 +566,7 @@ impl ControlDeck {
         if fs::exists(path) {
             fs::load::<Cpu>(path)
                 .map_err(Error::SaveState)
-                .map(|mut cpu| {
+                .and_then(|mut cpu| {
                     cpu.bus.input.clear(); // Discard inputs from save states
                     self.load_cpu(cpu)
                 })
@@ -794,7 +804,7 @@ impl ControlDeck {
         let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
         state.bus.ppu.frame.buffer = frame;
-        self.load_cpu(state);
+        self.load_cpu(state)?;
 
         Ok(result)
     }
@@ -835,7 +845,7 @@ impl ControlDeck {
         let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
             .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
         state.bus.ppu.frame.buffer = frame;
-        self.load_cpu(state);
+        self.load_cpu(state)?;
 
         Ok(())
     }

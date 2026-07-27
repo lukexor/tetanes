@@ -111,7 +111,10 @@ impl Page {
 }
 
 /// Cartridge and console memory, plus the PRG and CHR page tables that address it.
-#[derive(Clone, Serialize, Deserialize)]
+///
+/// `Serialize`/`Deserialize` are hand-written so that a save state carries only the mutable
+/// tail of `data` - see the private `MemoryState` for what is stored and why.
+#[derive(Clone)]
 #[must_use]
 pub struct Memory {
     data: Box<[u8]>,
@@ -126,10 +129,91 @@ pub struct Memory {
     ex_ram: Range<usize>,
     // Page tables are derived state, rebuilt by replaying mapper register state on load, so they
     // are not serialized. Serde also has no derive for arrays longer than 32.
-    #[serde(skip, default = "Memory::unmapped_prg_pages")]
     prg_pages: [Page; PRG_PAGES],
-    #[serde(skip, default = "Memory::unmapped_chr_pages")]
     chr_pages: [Page; CHR_PAGES],
+}
+
+/// What a save state actually stores of a [`Memory`]: the layout, and the *mutable tail only*.
+///
+/// Everything below `ram_start` is ROM. It comes from the cart, cannot change, and was previously
+/// copied verbatim into every save state and every rewind snapshot - 394 KiB of Super Mario Bros.
+/// 3's 408 KiB state, and rewind keeps ~900 of those uncompressed by default. The ROM half is put
+/// back from the running console in [`Cpu::load`](crate::cpu::Cpu::load), which every restore path
+/// funnels through.
+///
+/// The page tables are absent for a second reason: they are derived state, rebuilt from the
+/// mapper's registers by `Map::sync`.
+#[derive(Serialize)]
+struct MemoryState<'a> {
+    len: usize,
+    ram_start: usize,
+    prg_rom: &'a Range<usize>,
+    prg_ram: &'a Range<usize>,
+    chr: &'a Range<usize>,
+    chr_writable: bool,
+    ciram: &'a Range<usize>,
+    ex_ram: &'a Range<usize>,
+    ram: &'a [u8],
+}
+
+/// Owned counterpart of [`MemoryState`], for deserialization.
+#[derive(Deserialize)]
+struct MemoryStateOwned {
+    len: usize,
+    ram_start: usize,
+    prg_rom: Range<usize>,
+    prg_ram: Range<usize>,
+    chr: Range<usize>,
+    chr_writable: bool,
+    ciram: Range<usize>,
+    ex_ram: Range<usize>,
+    ram: Vec<u8>,
+}
+
+impl Serialize for Memory {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        MemoryState {
+            len: self.data.len(),
+            ram_start: self.ram_start,
+            prg_rom: &self.prg_rom,
+            prg_ram: &self.prg_ram,
+            chr: &self.chr,
+            chr_writable: self.chr_writable,
+            ciram: &self.ciram,
+            ex_ram: &self.ex_ram,
+            ram: &self.data[self.ram_start..],
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Memory {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let state = MemoryStateOwned::deserialize(deserializer)?;
+        // Corrupt or truncated input must be an error, not a panic on the slice write below.
+        if state.ram_start > state.len || state.ram.len() != state.len - state.ram_start {
+            return Err(serde::de::Error::custom(format!(
+                "memory state is inconsistent: len {}, ram_start {}, ram {} bytes",
+                state.len,
+                state.ram_start,
+                state.ram.len()
+            )));
+        }
+        let mut data = vec![0u8; state.len].into_boxed_slice();
+        data[state.ram_start..].copy_from_slice(&state.ram);
+        Ok(Self {
+            data,
+            ram_start: state.ram_start,
+            prg_rom: state.prg_rom,
+            prg_ram: state.prg_ram,
+            chr: state.chr,
+            chr_writable: state.chr_writable,
+            ciram: state.ciram,
+            ex_ram: state.ex_ram,
+            prg_pages: Self::unmapped_prg_pages(),
+            chr_pages: Self::unmapped_chr_pages(),
+        })
+    }
 }
 
 impl Default for Memory {
@@ -424,6 +508,26 @@ impl Memory {
     /// The mutable tail of memory, for restoring a save state.
     pub fn ram_mut(&mut self) -> &mut [u8] {
         &mut self.data[self.ram_start..]
+    }
+
+    /// Copy the immutable ROM half in from the running console's memory.
+    ///
+    /// Save states carry only the mutable tail, so a freshly deserialized
+    /// `Memory` has a zero-filled ROM region until this puts it back.
+    ///
+    /// Returns `false` when `src` was not built from the same cart - a differing allocation size or
+    /// ROM/RAM split means the state belongs to another game, and applying it would leave the
+    /// console running one game's RAM against another's ROM.
+    pub fn restore_rom_from(&mut self, src: &Self) -> bool {
+        if self.data.len() != src.data.len()
+            || self.ram_start != src.ram_start
+            || self.prg_rom != src.prg_rom
+            || self.chr != src.chr
+        {
+            return false;
+        }
+        self.data[..self.ram_start].copy_from_slice(&src.data[..src.ram_start]);
+        true
     }
 
     /// PRG page table, for debuggers.
@@ -1038,6 +1142,89 @@ mod tests {
         assert_eq!(memory.chr_peek(0x3000), 0x5A, "$3000 mirrors $2000");
         memory.chr_write(0x2800, 0xA5);
         assert_eq!(memory.chr_peek(0x3800), 0xA5, "$3800 mirrors $2800");
+    }
+
+    /// The whole point of Phase 5: a save state must not carry the cart's ROM.
+    #[test]
+    fn a_serialized_memory_carries_only_the_mutable_tail() {
+        let mut memory = Memory::new(MemoryLayout {
+            prg_rom: 256 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 128 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 8 * 1024,
+        });
+        memory.region_mut(Src::PrgRom).fill(0xAA);
+        memory.region_mut(Src::PrgRam).fill(0x5A);
+
+        let config = bincode::config::legacy();
+        let bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
+        assert!(
+            bytes.len() < memory.data.len() / 4,
+            "384 KiB of ROM must not be in the {} byte state",
+            bytes.len()
+        );
+
+        let (mut restored, _) =
+            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).expect("deserializes");
+        assert!(
+            restored.region_ref(Src::PrgRom).iter().all(|&b| b == 0),
+            "ROM comes back empty"
+        );
+        assert_eq!(
+            restored.region_ref(Src::PrgRam),
+            memory.region_ref(Src::PrgRam)
+        );
+
+        assert!(restored.restore_rom_from(&memory), "same cart");
+        assert_eq!(
+            restored.region_ref(Src::PrgRom),
+            memory.region_ref(Src::PrgRom)
+        );
+    }
+
+    /// A state from another game must be refused, not left running one game's RAM on another's ROM.
+    #[test]
+    fn restoring_rom_from_a_different_cart_is_refused() {
+        let small = Memory::new(MemoryLayout {
+            prg_rom: 32 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 8 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 8 * 1024,
+        });
+        let mut large = Memory::new(MemoryLayout {
+            prg_rom: 256 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 8 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 8 * 1024,
+        });
+        assert!(!large.restore_rom_from(&small), "different cart is refused");
+    }
+
+    /// Truncated or corrupt input must be an error rather than a panic writing the RAM tail.
+    #[test]
+    fn an_inconsistent_memory_state_fails_to_deserialize() {
+        let memory = Memory::new(MemoryLayout {
+            prg_rom: 32 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 8 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 8 * 1024,
+        });
+        let config = bincode::config::legacy();
+        let mut bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
+        // Claim a larger allocation than the RAM tail that follows.
+        bytes[..8].copy_from_slice(&(memory.data.len() as u64 * 2).to_le_bytes());
+        assert!(
+            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).is_err(),
+            "an inconsistent state must not decode"
+        );
     }
 
     #[test]

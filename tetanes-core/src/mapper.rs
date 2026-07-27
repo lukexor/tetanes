@@ -844,6 +844,8 @@ mod tests {
             0,
             "page tables must not survive serialization"
         );
+        // ROM is not serialized either; `Cpu::load` reattaches it from the running console.
+        assert!(restored.restore_rom_from(&cart.memory), "same cart");
         mapper.sync(&mut restored);
         assert_eq!(
             restored.prg_peek(0x8000),

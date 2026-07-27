@@ -140,7 +140,10 @@ impl State {
         let mut rewind_frames = 120 / self.rewind.interval;
         while let Some(mut cpu) = self.rewind.pop() {
             cpu.bus.input.clear(); // Discard inputs while rewinding
-            self.control_deck.load_cpu(cpu);
+            if let Err(err) = self.control_deck.load_cpu(cpu) {
+                error!("failed to rewind: {err:?}");
+                return;
+            }
             rewind_frames -= 1;
             if rewind_frames == 0 {
                 break;

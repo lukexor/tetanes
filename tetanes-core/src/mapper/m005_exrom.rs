@@ -1620,8 +1620,11 @@ mod tests {
 
         let config = bincode::config::legacy();
         let bytes = bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
-        let (restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
+        let (mut restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
             .expect("memory deserializes");
+        // Save states carry only the mutable tail, so ROM comes back from the running console -
+        // `Cpu::load` does this for real.
+        assert!(restored.restore_rom_from(&cart.memory), "same cart");
         cart.memory = restored;
         mapper.sync(&mut cart.memory);
 

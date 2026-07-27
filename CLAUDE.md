@@ -85,6 +85,14 @@ Save states, SRAM, and rewind all serialize component state with `serde` + `binc
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save
 states.
 
+**A save state carries only mutable state.** `Memory` puts its immutable regions (PRG-ROM, CHR-ROM)
+first and marks the boundary with `ram_start`; its hand-written `Serialize`/`Deserialize` store the
+layout plus `data[ram_start..]` only, and `Cpu::load` copies the ROM back in from the console already
+running. `Cpu::load` is the single funnel for *every* restore path — `load_state`, rewind and
+run-ahead — so it is also where a state belonging to a different cart is rejected
+(`cpu::StateMismatch`) rather than left running one game's RAM against another's ROM. Page tables are
+likewise absent, rebuilt by `Ppu::sync_mapper` from the restored mapper registers.
+
 ### Mappers
 
 `Mapper` is an **enum with static dispatch**, not a boxed trait object — this is deliberate for

@@ -5,7 +5,12 @@ phases:
   - MapperOps (3e8062a), Map trait diet (da150b1), boards! table (f40c729),
     stable serialization ids (1910ed8). Net -2.2% on the corpus, which paid
     back the MapperOps regression.
-- phase 5 - save-state split
+- phase 5 - save-state split -- DONE. Memory serializes only data[ram_start..];
+  Cpu::load reattaches ROM from the running console and rejects a state from
+  another cart (cpu::StateMismatch). SMB3 state 417KB -> 23KB (-94.5%),
+  rewind buffer ~375MB -> ~21MB, run-ahead 0.659ms -> 0.051ms per frame.
+  clock_frame neutral. SAVE_VERSION stays 2 - still undeployed, same breaking
+  change as the mapper ids.
 - phase 6 - clean up public apis - adding a mapper doc
 - post:
   - rename prg_read/etc

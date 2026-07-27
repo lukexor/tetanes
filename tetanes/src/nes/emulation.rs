@@ -758,7 +758,10 @@ impl State {
             MessageType::Info,
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
-        self.control_deck.load_cpu(start);
+        if let Err(err) = self.control_deck.load_cpu(start) {
+            self.on_error(anyhow::Error::from(err));
+            return;
+        }
         self.tx.event(RendererEvent::ReplayLoaded);
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -906,7 +909,13 @@ impl State {
         if self.rewinding {
             match self.rewind.pop() {
                 Some(cpu) => {
-                    self.control_deck.load_cpu(cpu);
+                    // A mismatched state cannot happen while rewinding the running game, but
+                    // stopping beats replaying a broken console.
+                    if let Err(err) = self.control_deck.load_cpu(cpu) {
+                        error!("failed to rewind: {err:?}");
+                        self.rewinding = false;
+                        return;
+                    }
                     self.send_frame();
                     self.update_frame_stats();
                 }

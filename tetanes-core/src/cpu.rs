@@ -65,6 +65,14 @@ bitflags! {
         const N = 1 << 7; // Negative
     }
 }
+/// Returned by [`Cpu::load`] when a save state was not produced by the loaded cart.
+///
+/// Reachable because save states no longer carry the cart's ROM: the ROM is reattached from the
+/// running console, so a state whose memory layout does not match cannot be applied at all.
+#[derive(thiserror::Error, Debug, Copy, Clone, PartialEq, Eq)]
+#[error("save state does not match the loaded ROM")]
+#[must_use]
+pub struct StateMismatch;
 
 /// The Central Processing Unit status and registers
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -137,12 +145,27 @@ impl Cpu {
         cpu
     }
 
-    /// Load a CPU state.
-    pub fn load(&mut self, mut cpu: Self) {
-        // Doesn't make sense to load a debugger from a previous state
+    /// Load a CPU state, leaving `self` untouched if it does not belong to this cart.
+    ///
+    /// Every restore path - `load_state`, rewind, run-ahead - funnels through here, which is why
+    /// the two things a save state deliberately omits are put back here:
+    ///
+    /// - **ROM.** Save states carry only the mutable tail of [`Memory`](crate::memory::Memory), so
+    ///   the cart's ROM is copied in from the console already running. A state from a different game is rejected
+    ///   rather than left running one game's RAM against another's ROM.
+    /// - **The debugger**, which belongs to the session rather than the emulated state.
+    ///
+    /// # Errors
+    ///
+    /// If the state was not produced by the currently loaded cart.
+    pub fn load(&mut self, mut cpu: Self) -> Result<(), StateMismatch> {
+        if !cpu.bus.ppu.memory.restore_rom_from(&self.bus.ppu.memory) {
+            return Err(StateMismatch);
+        }
         cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
         cpu.bus.ppu.debugger_active = self.bus.ppu.debugger_active;
         *self = cpu;
+        Ok(())
     }
 
     /// Returns the CPU clock rate based on [`NesRegion`].

@@ -422,3 +422,43 @@ as every point in the comparison is a worktree with a path of the same length* �
 | before trait removal | 3.024 |
 | trait removal, macro expanded into call sites | 3.091 (+2.2%) |
 | trait removal, one monomorphic fn per channel | 2.999 (-0.8%) |
+
+### Phase 5 — save states carry only the mutable tail (2026-07-27)
+
+`Memory` is one contiguous allocation with the immutable regions (PRG-ROM, CHR-ROM) placed first and
+`ram_start` marking where the mutable tail begins. That layout was built for this, and the field's
+own comment already said "save states only need `data[ram_start..]`" — but `Memory` still derived
+`Serialize`, so **every save state and every rewind snapshot carried a verbatim copy of the cart's
+ROM**.
+
+Hand-written `Serialize`/`Deserialize` now store the layout plus the RAM tail only, and
+`Cpu::load` — the single funnel every restore path goes through — copies the ROM back in from the
+console already running.
+
+| ROM | state before | state after | change |
+|---|---|---|---|
+| spritecans (000, 32K PRG) | 48,547 B | 22,955 B | -53% |
+| Castlevania III (005, 256K+128K) | 474,945 B | 80,713 B | -83% |
+| Super Mario Bros. 3 (004, 384K) | 417,216 B | 22,984 B | **-94.5%** |
+
+The time cost falls with the size, and deflate — which dominates writing a state to disk — falls
+fastest, because it was compressing hundreds of KiB of ROM every time:
+
+| Operation (SMB3) | before | after | change |
+|---|---|---|---|
+| bincode encode | 0.213 ms | 0.011 ms | **-95%** |
+| bincode decode | 0.446 ms | 0.040 ms | **-91%** |
+| deflate | 13.833 ms | 0.096 ms | **-99.3%** |
+
+Three paths benefit, only one of which is the visible "save state" feature:
+
+- **Rewind** keeps `60 * seconds / interval` snapshots **uncompressed in RAM** — 900 at the default
+  30 s / 2 frames. For SMB3 that buffer goes from **~375 MB to ~21 MB**.
+- **Run-ahead** encodes *and* decodes the whole console every frame. For SMB3 that is 0.659 ms of a
+  ~2.9 ms frame before, and 0.051 ms after — **~20% of frame time returned** to anyone using it.
+- **Save/load state** stops spending 14-18 ms in deflate.
+
+`clock_frame` itself is untouched by this and measured **2.891 vs 2.909 neutral** in a like-for-like
+worktree A/B. The main checkout showed +2.3% for the same change, which is the directory effect
+documented above reappearing — worth stressing that it is reproducible *within* a directory and so
+looks convincing on its own.
