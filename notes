@@ -11,6 +11,13 @@ phases:
   rewind buffer ~375MB -> ~21MB, run-ahead 0.659ms -> 0.051ms per frame.
   clock_frame neutral. SAVE_VERSION stays 2 - still undeployed, same breaking
   change as the mapper ids.
+  - Follow-up: run-ahead now snapshots with Cpu::clone instead of bincode
+    (1.6-5.1x faster round trip; 21x vs pre-phase-5). Rewind deliberately
+    keeps the serialized form - it holds ~900 snapshots at once.
+  - Benchmarking: there is NO directory/tmpfs effect (same commit from
+    btrfs/tmpfs/long paths builds a byte-identical binary). The real effect
+    is that the first run after a rebuild is ~1.5% slow. Run it twice, use
+    the second. benches/README.md has the experiment.
 - phase 6 - clean up public apis - adding a mapper doc
 - post:
   - rename prg_read/etc

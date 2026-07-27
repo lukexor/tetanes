@@ -408,16 +408,13 @@ measured **+2.2%**, because it turns one small function into five copies of a lo
 channel type* instead — exactly what the generic function had produced — recovered it and then some.
 **Keep the call boundary a generic function would have created.**
 
-**2. A git worktree is not a valid A/B against the main checkout.** The same commit measured
-**2.927 in `/home/luke/dev/tetanes` and 3.024 in a worktree under `/tmp/...` — a 3.3% difference from
-build location alone**, presumably code/data layout shifting with the embedded paths. That is larger
-than most changes being measured here, and it briefly looked like a 5% regression that did not exist.
+**2. Discard the first run after a rebuild.** The same commit measured **2.927 in
+`/home/luke/dev/tetanes` and 3.024 in a worktree under `/tmp/...`**, and this was first written up
+here as a "3.3% effect from build location". **That was wrong** - see "The first run after a compile"
+below for the controlled experiment and the actual cause. The bisect below is still valid, because
+every point in it was measured the same way:
 
-**Compare only measurements taken in the same directory.** Worktrees are fine for bisecting *as long
-as every point in the comparison is a worktree with a path of the same length* — that is how the
-`clock_to` regression above was isolated:
-
-| State (all in equal-length worktree paths) | geomean |
+| State (each a first run after its rebuild) | geomean |
 |---|---|
 | before trait removal | 3.024 |
 | trait removal, macro expanded into call sites | 3.091 (+2.2%) |
@@ -459,6 +456,73 @@ Three paths benefit, only one of which is the visible "save state" feature:
 - **Save/load state** stops spending 14-18 ms in deflate.
 
 `clock_frame` itself is untouched by this and measured **2.891 vs 2.909 neutral** in a like-for-like
-worktree A/B. The main checkout showed +2.3% for the same change, which is the directory effect
-documented above reappearing — worth stressing that it is reproducible *within* a directory and so
-looks convincing on its own.
+A/B. The main checkout showed +2.3% for the same change, which is the first-run-after-rebuild effect
+described below - worth stressing that it reproduces across repeated runs of the *same* binary, and
+so looks convincing on its own.
+
+
+### Run-ahead snapshots: clone, don't serialize
+
+Once ROM was out of the save state, the reason run-ahead serialized at all was gone. It snapshots
+the console, clocks `run_ahead` frames to produce the displayed frame, then rewinds to the snapshot -
+all within one frame, in the same session. A `Cpu::clone` does that directly.
+
+Snapshot + restore, measured per call:
+
+| ROM | bincode round trip | clone | speedup |
+|---|---|---|---|
+| spritecans (000) | 0.0492 ms | 0.0203 ms | 2.4x |
+| Super Mario Bros. 3 (004) | 0.0670 ms | 0.0310 ms | 2.2x |
+| Castlevania III (005) | 0.1715 ms | 0.0333 ms | **5.1x** |
+| Legend of Zelda (001) | 0.1139 ms | 0.0724 ms | 1.6x |
+
+The decode side is what the clone avoids: it has to allocate and zero the whole `Memory` arena and
+then copy the ROM back into it, where the clone is one `memcpy` of an allocation it makes once. The
+clone also carries the page tables, so the restore no longer needs `sync_mapper`.
+
+Combined with the ROM removal, run-ahead's per-frame overhead on SMB3 went **0.659 ms -> 0.031 ms,
+21x**, against a ~2.9 ms frame.
+
+**Rewind keeps the serialized form**, and should: it holds ~900 snapshots in RAM simultaneously, so
+cloning each would put the hundreds of megabytes straight back. The two paths look similar and want
+opposite representations - run-ahead optimizes for round-trip latency of one live snapshot, rewind
+for the size of many cold ones.
+
+
+### The first run after a compile
+
+Twice a change measured several percent slower than it should have, and twice the explanation
+offered here was wrong ("code layout shifted with the source path", "tmpfs"). The controlled
+experiment, same commit built from three worktrees varying path length and filesystem:
+
+| Directory | length | filesystem | geomean |
+|---|---|---|---|
+| `/home/luke/dev/BTRF` | 19 | btrfs | 3.010 |
+| `/tmp/aaaaaaaaaaTMPF` | 19 | tmpfs | 3.010 |
+| `/home/luke/dev/BTRFSMUCHLONGERPATHXXXXXXXXXX` | 44 | btrfs | 2.995 |
+
+**All three produced the identical binary** - same cargo fingerprint hash
+(`clock_frame-fd0a03be75b32552`), same size, same output path. `CARGO_TARGET_DIR` is a shared
+`~/.cache/cargo-target`, so a build never lands on tmpfs no matter where the source lives, and the
+benchmark loads its ROM *outside* the timed region, so source-tree I/O cannot reach the measurement
+either. **There is no directory effect and no filesystem effect.**
+
+What there is:
+
+| Same binary, same directory, no source change between runs | geomean |
+|---|---|
+| run 1, immediately after a rebuild | **2.998** |
+| run 2 | 2.953 |
+| run 3 | 2.964 |
+| run 4 | 2.959 |
+
+**The first run after a compile is ~1.5% slow**, settling to ~0.4% spread after that. A `cargo bench`
+that has just rebuilt had eight compiler threads saturating the machine moments earlier, so its first
+measurement is taken in a different thermal/frequency state.
+
+That accounts for the whole "3.3% directory difference": the main-checkout number was a repeat run,
+and the worktree number was a first run after the rebuild that switching commits forced.
+
+**So: run the benchmark twice and use the second.** Every A/B in this file stands, because both sides
+of each comparison were measured the same way - but the explanation previously given for the
+discrepancy did not.

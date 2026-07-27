@@ -781,13 +781,19 @@ impl ControlDeck {
             return self.clock_frame_output(handle_output);
         }
 
-        // Clock current frame and save state so we can rewind
+        // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
+        // the same session one frame later, so a compact encoding buys nothing and measures
+        // 1.6-5.1x slower than the clone (see benches/README.md). The clone also carries the page
+        // tables, so no `sync_mapper` is needed on the way back.
+        //
+        // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
+        // RAM at once, where a clone each would be hundreds of megabytes.
+        //
+        // The frame buffer is moved out rather than cloned - 120 KiB that the run-ahead frames
+        // overwrite anyway - and put back on restore.
         self.clock_frame()?;
         let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
-        // Save state so we can rewind
-        let config = bincode::config::legacy();
-        let state = bincode::serde::encode_to_vec(&self.cpu, config)
-            .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
+        let saved = self.cpu.clone();
 
         // Clock additional frames and discard video/audio
         self.cpu.bus.ppu.skip_rendering = true;
@@ -800,11 +806,9 @@ impl ControlDeck {
         self.clear_audio_samples();
         let result = self.clock_frame_output(handle_output)?;
 
-        // Restore back to current frame
-        let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
-            .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
-        state.bus.ppu.frame.buffer = frame;
-        self.load_cpu(state)?;
+        // Restore back to the current frame.
+        self.cpu = saved;
+        self.cpu.bus.ppu.frame.buffer = frame;
 
         Ok(result)
     }
@@ -824,13 +828,19 @@ impl ControlDeck {
             return self.clock_frame_into(frame_buffer, audio_samples);
         }
 
-        // Clock current frame and save state so we can rewind
+        // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
+        // the same session one frame later, so a compact encoding buys nothing and measures
+        // 1.6-5.1x slower than the clone (see benches/README.md). The clone also carries the page
+        // tables, so no `sync_mapper` is needed on the way back.
+        //
+        // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
+        // RAM at once, where a clone each would be hundreds of megabytes.
+        //
+        // The frame buffer is moved out rather than cloned - 120 KiB that the run-ahead frames
+        // overwrite anyway - and put back on restore.
         self.clock_frame()?;
         let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
-        // Save state so we can rewind
-        let config = bincode::config::legacy();
-        let state = bincode::serde::encode_to_vec(&self.cpu, config)
-            .map_err(|err| fs::Error::SerializationFailed(err.to_string()))?;
+        let saved = self.cpu.clone();
 
         // Clock additional frames and discard video/audio
         for _ in 1..run_ahead {
@@ -841,11 +851,9 @@ impl ControlDeck {
         self.clear_audio_samples();
         self.clock_frame_into(frame_buffer, audio_samples)?;
 
-        // Restore back to current frame
-        let (mut state, _) = bincode::serde::decode_from_slice::<Cpu, _>(&state, config)
-            .map_err(|err| fs::Error::DeserializationFailed(err.to_string()))?;
-        state.bus.ppu.frame.buffer = frame;
-        self.load_cpu(state)?;
+        // Restore back to the current frame.
+        self.cpu = saved;
+        self.cpu.bus.ppu.frame.buffer = frame;
 
         Ok(())
     }
@@ -1141,6 +1149,34 @@ mod tests {
         assert_eq!(run(&mut restored, 30), expected);
 
         std::fs::remove_file(&path).expect("cleans up");
+    }
+
+    /// Run-ahead clocks the current frame, snapshots, runs ahead to produce the *displayed* frame,
+    /// then rewinds to the snapshot - so afterwards the console must sit exactly where a single
+    /// `clock_frame` would have left it, and carry on identically.
+    ///
+    /// This has no coverage otherwise, and the snapshot is a plain `Cpu::clone` rather than a
+    /// serialized state, so nothing else would notice if the restore stopped being faithful.
+    #[test]
+    fn run_ahead_leaves_the_console_where_a_plain_frame_would() {
+        for run_ahead in 1..=4 {
+            let mut ahead = spritecans();
+            run(&mut ahead, 30);
+            ahead
+                .clock_frame_ahead(run_ahead, |_, _| ())
+                .expect("clocks ahead");
+
+            let mut plain = spritecans();
+            run(&mut plain, 30);
+            plain.clock_frame().expect("clocks");
+            plain.clear_audio_samples();
+
+            assert_eq!(
+                run(&mut ahead, 30),
+                run(&mut plain, 30),
+                "run_ahead {run_ahead} must resume identically"
+            );
+        }
     }
 
     /// Battery-backed state is written and restored through the board, since what is backed
