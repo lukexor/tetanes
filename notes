@@ -1,14 +1,44 @@
 phases:
 - post 3e - delete Banks and old Map read methods, transitional self.mapped
   branch, fold mem.rs into memory.rs
-- phase 4 - mapper ops and trait diet
+- phase 4 - mapper ops and trait diet -- DONE
+  - MapperOps (3e8062a), Map trait diet (da150b1), boards! table (f40c729),
+    stable serialization ids (1910ed8). Net -2.2% on the corpus, which paid
+    back the MapperOps regression.
 - phase 5 - save-state split
 - phase 6 - clean up public apis - adding a mapper doc
 - post:
   - rename prg_read/etc
-  - fold extra_sram into memory by re-using Src::ExRam
+  - fold extra_sram into memory by re-using Src::ExRam -- NOT DOING, see below
 
 - review debugger_active vs Option<PpuDebugger>?
+
+why extra_sram is not being folded into Memory:
+- Map::extra_sram/set_extra_sram no longer exist; 39df6b2 replaced them with
+  save_sram/load_sram(&Memory, path) when BandaiFCG went to page tables. So
+  the trait method this item was about is already gone.
+- Folding the remaining case (Namco163's 128-byte sound RAM) into Src::ExRam
+  means Audio::clock reads it, and that is reached from Map::clock ->
+  Clock for Mapper -> Bus::cpu_clock, every CPU cycle. Map::clock would have
+  to take &mut Memory for all 10 clocked boards so that exactly one could use
+  it, Mapper could no longer impl Clock, and Bus::cpu_clock - the function
+  the MapperOps work showed is right at LLVM's inlining threshold - grows a
+  borrow split and an argument.
+- It would not remove save_sram/load_sram from the trait anyway: BandaiFCG's
+  battery covers EEPROM state machines, which are not memory and never will
+  be in Memory.
+- So: hot-path risk + trait unchanged, to delete ~20 lines. Revisit only if
+  save_sram/load_sram need to go for another reason.
+
+follow-ups found during phase 4:
+- Regional for Mapper is dead. Nothing calls mapper.region()/set_region() -
+  Ppu::set_region sets its own timing and mask but never forwards to the
+  mapper. Exrom::set_region (-> dmc.set_region) is therefore never invoked,
+  so MMC5 expansion audio does not track PAL/Dendy. Either wire it up (an
+  emulation-behaviour change, needs snapshot review) or delete the dead path.
+- Box SunsoftFme7? Mapper is 72 bytes and FME7 is what sets that; boxing it
+  gives 56. Looks mildly favourable on non-FME7 ROMs but there is no mapper
+  069 ROM in the corpus to measure the cost side. See benches/README.md.
 
 follow on tasks:
 - convert Makefile.toml to cargo xtask

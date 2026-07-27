@@ -315,3 +315,59 @@ methods are gone, and `Ppu::chr_read`/`chr_peek`/`notify_ppu_bus` and `Bus::read
   mostly already lacked (NROM/MMC1/MMC2 all had trivial dispatch already; only Namco163/Vrc6/
   SunsoftFme7/BandaiFCG - none in this corpus - previously paid unconditionally for hooks other
   boards now skip).
+
+### Phase 4 — Map trait diet and the `boards!` table (2026-07-27)
+
+`--profile perf`, 10 iterations x 600 frames, `taskset -c 0`, quiet machine (cv < 1.2% throughout).
+`before` is the Phase 4 `MapperOps` commit above, re-measured in this session rather than quoted
+from the table above.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.692 | 2.641 | -1.9% |
+| Super Mario Bros. | 000 NROM | 2.731 | 2.683 | -1.8% |
+| Legend of Zelda | 001 MMC1 | 2.705 | 2.665 | -1.5% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.910 | 2.867 | -1.5% |
+| Punch-Out!! | 009 MMC2 | 2.596 | 2.538 | -2.2% |
+| Castlevania III | 005 MMC5 | 3.926 | 3.784 | -3.6% |
+| Akumajou Densetsu | 024 VRC6 | 3.284 | 3.190 | -2.9% |
+| **geometric mean** | | **2.948** | **2.884** | **-2.2%** |
+
+Two refactors, neither of them aimed at speed, measured in sequence:
+
+1. **`Map` gained every method a board needs and lost its supertraits** (2.948 -> 2.915, -1.1%).
+   `Map: Clock + Regional + Reset + Sram` cost each of the 22 boards an empty `impl` per trait it
+   did not need. `clock`/`reset`/`region`/`set_region` became defaulted `Map` methods instead, and
+   `Sram` went entirely - every board's impl was empty, and nothing had called `Mapper::save`/`load`
+   since battery PRG-RAM moved into `Memory`. The boards with real `clock`/`reset` bodies moved
+   most (MMC5 -3.5%, VRC6 -2.4%, MMC2 -2.2%), consistent with ~12 distinct empty per-board functions
+   collapsing into one inlinable trait default.
+2. **`boards!` table** (2.915 -> 2.883, a further -1.1%), which also folded `Sample::output` into
+   `Map` the same way. `Sample for Mapper` now dispatches over all 22 variants rather than matching
+   4 with a `_ => 0.0` fallback, and got *faster* rather than slower - `MapperOps::AUDIO` still gates
+   the call, so only the four boards with audio ever reach it.
+
+Together these **more than recover the 1.2-1.4% the `MapperOps` fold cost**, so that consolidation
+is now paid for. A re-measurement of the same commit came back at 2.901 rather than 2.883, so read
+the total as **-1.6% to -2.2%**; every individual ROM moved the same direction in both runs.
+
+The stable-id serialization change and un-boxing `Fk23C` measured 2.884, i.e. neutral - both are off
+the frame path, which is what was expected.
+
+### Enum size vs indirection: which boards still need boxing
+
+`Mapper` is 72 bytes, and `SunsoftFme7` (72) is what sets that - every other unboxed board is <= 34.
+Boxing it would take `Mapper` to **56 bytes**, the only remaining lever on the enum's size.
+
+Measured on the four-ROM subset that has no FME7 game in it: spritecans 2.641 -> 2.602, SMB3
+2.867 -> 2.855, Castlevania III 3.784 -> 3.791, Akumajou 3.190 -> 3.139. Small and mostly
+favourable, i.e. shrinking `Ppu`'s inline `mapper` field helps ROMs that never touch the board.
+
+**Not applied.** The corpus has no mapper 069 ROM (the library surveyed for this has none), so the
+cost side - an indirection on a board whose audio is clocked every CPU cycle - is unmeasured, and
+this is precisely the shape of change that surprised us before: un-boxing `Bus::wram` measured 1.2%
+*slower* despite removing an indirection. Revisit with an FME7 ROM (Gimmick!, Batman: Return of the
+Joker) in the corpus.
+
+`Fk23C` *was* un-boxed: boxed back when it was 280 bytes, the page-table port left it at 56, below
+`SunsoftFme7`'s 72, so `Mapper` is 72 either way and the box bought nothing.
