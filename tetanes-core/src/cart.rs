@@ -172,20 +172,61 @@ impl Cart {
     /// the header, then an error is returned.
     pub fn from_path<P: AsRef<Path>>(path: P, ram_state: RamState) -> Result<Self> {
         let path = path.as_ref();
-        let mut rom = BufReader::new(
-            File::open(path)
-                .map_err(|err| Error::io(err, format!("failed to open rom {path:?}")))?,
-        );
-        Self::from_rom(path.to_string_lossy(), &mut rom, ram_state)
+        Self::from_rom(path.to_string_lossy(), &mut Self::open(path)?, ram_state)
     }
 
-    /// Load `Cart` from ROM data.
+    /// Load a cart from a path *without* selecting a board. See [`Cart::from_rom_unmapped`].
     ///
     /// # Errors
     ///
-    /// If the NES header is invalid, or the ROM data does not match the header, then an error is
-    /// returned.
-    pub fn from_rom<S, F>(name: S, mut rom_data: &mut F, ram_state: RamState) -> Result<Self>
+    /// If the ROM cannot be read, its header is invalid, or the data does not match the header.
+    pub fn from_path_unmapped<P: AsRef<Path>>(path: P, ram_state: RamState) -> Result<Self> {
+        let path = path.as_ref();
+        Self::from_rom_unmapped(path.to_string_lossy(), &mut Self::open(path)?, ram_state)
+    }
+
+    fn open(path: &Path) -> Result<BufReader<File>> {
+        Ok(BufReader::new(File::open(path).map_err(|err| {
+            Error::io(err, format!("failed to open rom {path:?}"))
+        })?))
+    }
+
+    /// Load `Cart` from ROM data, selecting the board its mapper number calls for.
+    ///
+    /// # Errors
+    ///
+    /// If the NES header is invalid, the ROM data does not match the header, or no board
+    /// implements the cart's mapper, then an error is returned.
+    pub fn from_rom<S, F>(name: S, rom_data: &mut F, ram_state: RamState) -> Result<Self>
+    where
+        S: ToString,
+        F: Read,
+    {
+        let mut cart = Self::from_rom_unmapped(name, rom_data, ram_state)?;
+        // Which board each mapper number selects lives with the boards themselves, in `mapper.rs`'s
+        // `boards!` table, so that adding one does not mean editing this file too.
+        cart.mapper = Mapper::from_cart(&mut cart)?;
+        info!("loaded ROM `{cart}`");
+        debug!("{cart:?}");
+        Ok(cart)
+    }
+
+    /// Load a cart's ROM and metadata *without* selecting a board.
+    ///
+    /// The result holds [`Mapper::none`] and cannot be run. This exists for the tools that survey
+    /// ROMs — `list_boards`, and `generate_db`, which builds the shipped CRC database — and which
+    /// must not drop a cart merely because no board implements its mapper yet. Everything they read
+    /// (`mapper_num`, `mapper_board`, `prg_rom`, mirroring, battery) comes from the header and the
+    /// ROM itself, none of it from the board.
+    ///
+    /// # Errors
+    ///
+    /// If the NES header is invalid, or the ROM data does not match the header.
+    pub fn from_rom_unmapped<S, F>(
+        name: S,
+        mut rom_data: &mut F,
+        ram_state: RamState,
+    ) -> Result<Self>
     where
         S: ToString,
         F: Read,
@@ -295,13 +336,6 @@ impl Cart {
         // Header mirroring is the default for every board; only boards that override it - either
         // hard-wired or via a register - touch it again.
         cart.memory.set_mirroring(cart.mirroring());
-        // Which board each mapper number selects lives with the boards themselves, in `mapper.rs`'s
-        // `boards!` table, so that adding one does not mean editing this file too.
-        cart.mapper = Mapper::from_cart(&mut cart)?;
-
-        info!("loaded ROM `{cart}`");
-        debug!("{cart:?}");
-
         Ok(cart)
     }
 

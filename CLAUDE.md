@@ -93,15 +93,26 @@ implements `Clock`/`Reset`/`Regional`/`Sample` and forwards them down the owners
    lives in un-numbered files like `mmc1.rs`, `mmc3.rs`, `vrc_irq.rs`).
 2. One row in the `boards!` table in `mapper.rs`, which generates the `pub mod`, the `pub use`, the
    `Mapper` variant, the `From` impls, every dispatch arm, the mapper-number match in
-   `Mapper::from_cart` (which `Cart::new` calls), and the `print_layouts` entry.
+   `Mapper::from_cart` (which `Cart::from_rom` calls), and the `print_layouts` entry.
 
 A board module that publicly exports something *other* than the board type — so far only a revision
 enum — needs a `pub use` next to the table. Optionally add a `test_roms!` group in `common.rs`.
 
-**Row order in `boards!` is the enum's variant order, and `bincode` serializes enum variants by
-index — reordering rows invalidates every existing save state. Add new boards at the end.** Where
-two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
-mutually exclusive `if` guards, so loader dispatch never depends on row order.
+Each row carries `= <id>`, its **stable serialization id: assign-once, never reused, never
+renumbered** (take the next free integer). That id is what goes on disk, so **rows can be reordered
+freely — keep the table in mapper-number order.** This is why `Serialize`/`Deserialize` for `Mapper`
+are hand-rolled: serde's derive tags variants by *declaration position* and honours neither an
+explicit discriminant nor `#[repr]` (`enum E { A = 10 }` still serializes as `0`), and bincode 2's
+own non-serde derive behaves the same, so the stability has to live in our code to survive changing
+serializer. `mapper::tests::variant_tag_is_the_stable_id_not_the_declaration_position` pins the
+bytes; `board_ids_are_unique_and_nonzero` catches a duplicated id.
+
+Where two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
+mutually exclusive `if` guards, so loader dispatch never depends on row order either.
+
+A mapper number no row claims is `Error::Unimplemented`, so an unsupported ROM says so instead of
+loading as open bus and showing a black screen. Tools that survey ROMs rather than run them use
+`Cart::from_path_unmapped`/`from_rom_unmapped`, which skip board selection entirely.
 
 Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, …) to keep `Mapper`
 small — the `print_layouts` test exists to watch struct/enum sizes for cache behavior.

@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn get_mapper<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
-    let cart = Cart::from_path(path, RamState::default())?;
+    let cart = Cart::from_path_unmapped(path, RamState::default())?;
     Ok(format!("{:<50} {:?}", cart.mapper_board(), cart.name()))
 }
 

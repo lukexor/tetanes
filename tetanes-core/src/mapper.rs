@@ -68,13 +68,20 @@ pub use m071_bf909x::Revision as Bf909Revision;
 
 /// Errors that mappers can return while loading.
 ///
-/// Empty for now: banking used to validate window sizes against a `Banks` table and could fail,
-/// but a board on page tables only writes page entries, and every out-of-range bank wraps within
-/// its region by construction. The type and the `Result` stay so that a board needing to reject a
-/// cart - a bad NES 2.0 submapper, say - can do so without a breaking change.
+/// Loading a *supported* board is infallible: banking used to validate window sizes against a
+/// `Banks` table and could fail, but a board on page tables only writes page entries, and every
+/// out-of-range bank wraps within its region by construction. The `Result` stays so that a board
+/// needing to reject a cart - a bad NES 2.0 submapper, say - can do so without a breaking change.
 #[derive(thiserror::Error, Debug)]
 #[must_use]
-pub enum Error {}
+pub enum Error {
+    /// No board in the `boards!` table serves this mapper number.
+    ///
+    /// Previously these loaded as [`Mapper::none`] and read as open bus, so an unsupported ROM
+    /// started and showed a black screen with nothing said about why.
+    #[error("unimplemented mapper: {0}")]
+    Unimplemented(u16),
+}
 
 /// Allow user-controlled mapper revision for mappers that are difficult to auto-detect correctly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -119,15 +126,16 @@ impl std::fmt::Display for MapperRevision {
 /// - The storage type is spelled out rather than inferred, because it is the one thing that
 ///   genuinely varies: large boards are `Box`ed to keep `Mapper` small (see `print_layouts`).
 ///   `From<Board>` is generated either way, so `board.into()` works regardless.
-/// - **Row order is the enum's variant order, which `bincode` serializes by index.** Reordering
-///   rows silently invalidates every existing save state. Add new boards at the end.
+/// - `= <id>` is the board's **stable serialization id**: assign-once, never reused, never
+///   renumbered. It is what goes on disk, so **rows may be freely reordered** - keep them in
+///   mapper-number order. See [`Mapper`]'s `Serialize`/`Deserialize` for why this is hand-rolled.
 /// - Loader arms are emitted in row order into one `match`, with `cart` bound to `&mut Cart`. Where
 ///   two boards share a mapper number they carry mutually exclusive guards rather than relying on
-///   arm order, so that the constraint above and this dispatch cannot conflict.
+///   arm order, so that reordering rows cannot change which board a ROM gets.
 macro_rules! boards {
     ($cart:ident: $(
         $(#[$meta:meta])*
-        $variant:ident($($storage:tt)+) in $module:ident {
+        $variant:ident($($storage:tt)+) = $id:literal in $module:ident {
             $($num:pat $(if $guard:expr)? => $load:expr),+ $(,)?
         }
     ),+ $(,)?) => {
@@ -136,7 +144,11 @@ macro_rules! boards {
 
         /// A `Mapper` is a specific cart variant with dedicated memory mapping logic for memory
         /// addressing and bank switching.
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        //
+        // `Serialize`/`Deserialize` are hand-rolled below rather than derived, so that the
+        // serialized tag is the `boards!` row's explicit id instead of the variant's declaration
+        // position. Without that, reordering rows silently reinterprets every existing save state.
+        #[derive(Debug, Clone)]
         #[must_use]
         pub enum Mapper {
             None(()),
@@ -146,13 +158,103 @@ macro_rules! boards {
         impl Mapper {
             /// Pick and load the board a cart's mapper number calls for.
             ///
-            /// An unrecognised number is not an error: it yields [`Mapper::none`], which reads as
-            /// open bus, so an unsupported ROM still loads and reports itself rather than failing.
+            /// # Errors
+            ///
+            /// Returns [`Error::Unimplemented`] if no board serves this mapper number.
             pub fn from_cart($cart: &mut Cart) -> Result<Self, Error> {
                 Ok(match $cart.mapper_num() {
                     $($($num $(if $guard)? => $load?,)+)+
-                    _ => Self::none(),
+                    num => return Err(Error::Unimplemented(num)),
                 })
+            }
+        }
+
+        /// Every board's name, for `Deserialize` in self-describing formats.
+        const VARIANTS: &[&str] = &["None", $(stringify!($variant),)+];
+
+        /// Serialize as the `boards!` row's stable id, not the variant's declaration position.
+        ///
+        /// serde's derive always uses the position, and honours neither an explicit discriminant
+        /// nor `#[repr]` - `enum E { A = 10 }` still serializes as `0`. bincode 2's own non-serde
+        /// derive behaves the same way. So the stability has to live here, in our code, where it
+        /// survives changing serializer. Self-describing formats still see the variant name.
+        impl Serialize for Mapper {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                match self {
+                    Self::None(m) => serializer.serialize_newtype_variant("Mapper", 0, "None", m),
+                    $(Self::$variant(m) => serializer.serialize_newtype_variant(
+                        "Mapper", $id, stringify!($variant), m,
+                    ),)+
+                }
+            }
+        }
+
+        impl<'de> Deserialize<'de> for Mapper {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                use serde::de::{EnumAccess, VariantAccess, Visitor};
+                use std::fmt;
+
+                /// Which board a tag names, resolved from a stable id or from a name.
+                enum Tag {
+                    None,
+                    $($variant,)+
+                }
+
+                impl<'de> Deserialize<'de> for Tag {
+                    fn deserialize<D: serde::Deserializer<'de>>(
+                        deserializer: D,
+                    ) -> Result<Self, D::Error> {
+                        struct TagVisitor;
+
+                        impl Visitor<'_> for TagVisitor {
+                            type Value = Tag;
+
+                            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                                f.write_str("a mapper board id or name")
+                            }
+
+                            fn visit_u64<E: serde::de::Error>(self, id: u64) -> Result<Tag, E> {
+                                match id {
+                                    0 => Ok(Tag::None),
+                                    $($id => Ok(Tag::$variant),)+
+                                    // A save state written by a newer build that knows a board
+                                    // this one does not.
+                                    _ => Err(E::custom(format_args!("unknown mapper id: {id}"))),
+                                }
+                            }
+
+                            fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<Tag, E> {
+                                match name {
+                                    "None" => Ok(Tag::None),
+                                    $(stringify!($variant) => Ok(Tag::$variant),)+
+                                    _ => Err(E::unknown_variant(name, VARIANTS)),
+                                }
+                            }
+                        }
+
+                        deserializer.deserialize_identifier(TagVisitor)
+                    }
+                }
+
+                struct MapperVisitor;
+
+                impl<'de> Visitor<'de> for MapperVisitor {
+                    type Value = Mapper;
+
+                    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                        f.write_str("a Mapper")
+                    }
+
+                    fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Mapper, A::Error> {
+                        let (tag, board) = data.variant::<Tag>()?;
+                        Ok(match tag {
+                            Tag::None => Mapper::None(board.newtype_variant()?),
+                            $(Tag::$variant => Mapper::$variant(board.newtype_variant()?),)+
+                        })
+                    }
+                }
+
+                deserializer.deserialize_enum("Mapper", VARIANTS, MapperVisitor)
             }
         }
 
@@ -167,6 +269,10 @@ macro_rules! boards {
         #[cfg(test)]
         pub(crate) const BOARD_LAYOUTS: &[(&str, usize)] =
             &[$((stringify!($variant), size_of::<$variant>()),)+];
+
+        /// Each board's stable serialization id, for the uniqueness test.
+        #[cfg(test)]
+        pub(crate) const BOARD_IDS: &[(&str, u32)] = &[$((stringify!($variant), $id),)+];
     };
 }
 
@@ -353,75 +459,75 @@ boards! {
     cart:
 
     /// `NROM` (Mapper 000)
-    Nrom(Nrom) in m000_nrom { 0 => Nrom::load(cart) },
+    Nrom(Nrom) = 1 in m000_nrom { 0 => Nrom::load(cart) },
     /// `SxROM`/`MMC1` (Mappers 001, 155)
-    Sxrom(Sxrom) in m001_sxrom {
+    Sxrom(Sxrom) = 2 in m001_sxrom {
         1 => Sxrom::load(cart, Mmc1Revision::BC),
         155 => Sxrom::load(cart, Mmc1Revision::A),
     },
     /// `UxROM` (Mapper 002)
-    Uxrom(Uxrom) in m002_uxrom { 2 => Uxrom::load(cart) },
+    Uxrom(Uxrom) = 3 in m002_uxrom { 2 => Uxrom::load(cart) },
     /// `CNROM` (Mapper 003)
-    Cnrom(Cnrom) in m003_cnrom { 3 => Cnrom::load(cart) },
+    Cnrom(Cnrom) = 4 in m003_cnrom { 3 => Cnrom::load(cart) },
     /// `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 154, 206)
-    Txrom(Txrom) in m004_txrom {
+    Txrom(Txrom) = 5 in m004_txrom {
         4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(cart),
     },
     /// `ExROM`/`MMC5` (Mapper 005)
-    Exrom(Box<Exrom>) in m005_exrom { 5 => Exrom::load(cart) },
+    Exrom(Box<Exrom>) = 6 in m005_exrom { 5 => Exrom::load(cart) },
     /// `AxROM` (Mapper 007)
-    Axrom(Axrom) in m007_axrom { 7 => Axrom::load(cart) },
+    Axrom(Axrom) = 7 in m007_axrom { 7 => Axrom::load(cart) },
     /// `PxROM`/`MMC2` (Mapper 009)
-    Pxrom(Pxrom) in m009_pxrom { 9 => Pxrom::load(cart) },
+    Pxrom(Pxrom) = 8 in m009_pxrom { 9 => Pxrom::load(cart) },
     /// `FxROM`/`MMC4` (Mapper 010)
-    Fxrom(Fxrom) in m010_fxrom { 10 => Fxrom::load(cart) },
+    Fxrom(Fxrom) = 9 in m010_fxrom { 10 => Fxrom::load(cart) },
     /// `Color Dreams` (Mappers 011, 144)
-    ColorDreams(ColorDreams) in m011_color_dreams {
+    ColorDreams(ColorDreams) = 10 in m011_color_dreams {
         11 | 144 => ColorDreams::load(cart),
     },
     /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
-    BandaiFCG(Box<BandaiFCG>) in bandai_fcg {
+    BandaiFCG(Box<BandaiFCG>) = 11 in bandai_fcg {
         16 | 153 | 157 | 159 => BandaiFCG::load(cart),
     },
     /// `Jaleco SS88006` (Mapper 018)
-    JalecoSs88006(JalecoSs88006) in m018_jalecoss88006 {
+    JalecoSs88006(JalecoSs88006) = 12 in m018_jalecoss88006 {
         18 => JalecoSs88006::load(cart),
     },
     /// `Namco163` (Mappers 019, 210)
-    Namco163(Box<Namco163>) in m019_namco163 { 19 | 210 => Namco163::load(cart) },
+    Namco163(Box<Namco163>) = 13 in m019_namco163 { 19 | 210 => Namco163::load(cart) },
     /// `VRC6` (Mappers 024, 026)
-    Vrc6(Box<Vrc6>) in m024_m026_vrc6 {
+    Vrc6(Box<Vrc6>) = 14 in m024_m026_vrc6 {
         24 => Vrc6::load(cart, Vrc6Revision::A),
         26 => Vrc6::load(cart, Vrc6Revision::B),
     },
     /// `BNROM` (Mapper 034)
     // Mapper 034 is two different boards; <= 8K of CHR-ROM implies BNROM.
-    Bnrom(Bnrom) in m034_bnrom {
+    Bnrom(Bnrom) = 15 in m034_bnrom {
         34 if cart.chr_rom_size < 0x4000 => Bnrom::load(cart),
     },
     /// `NINA-001` (Mapper 034)
-    Nina001(Nina001) in m034_nina001 {
+    Nina001(Nina001) = 16 in m034_nina001 {
         34 if cart.chr_rom_size >= 0x4000 => Nina001::load(cart),
     },
     /// `GxROM` (Mapper 066)
-    Gxrom(Gxrom) in m066_gxrom { 66 => Gxrom::load(cart) },
+    Gxrom(Gxrom) = 17 in m066_gxrom { 66 => Gxrom::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)
-    SunsoftFme7(SunsoftFme7) in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
+    SunsoftFme7(SunsoftFme7) = 18 in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
     /// `Bf909x` (Mapper 071)
-    Bf909x(Bf909x) in m071_bf909x { 71 => Bf909x::load(cart) },
+    Bf909x(Bf909x) = 19 in m071_bf909x { 71 => Bf909x::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
-    Nina003006(Nina003006) in m079_nina003_006 {
+    Nina003006(Nina003006) = 20 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
     },
     /// `NES-EVENT` (Mapper 105)
-    NesEvent(NesEvent) in m105_nes_event {
+    NesEvent(NesEvent) = 21 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
     /// `Waixing FK23C`/`FS303` (Mapper 176)
     // Boxed from when it was 280 bytes; the port to page tables left it holding only registers, so
     // `print_layouts` now reports 56 and it no longer drives the enum's size (SunsoftFme7's 72
     // does). Left boxed for now - unboxing is a cache-behaviour question to measure, not assume.
-    Fk23C(Box<Fk23C>) in m176_fk23c { 176 => Fk23C::load(cart) },
+    Fk23C(Fk23C) = 22 in m176_fk23c { 176 => Fk23C::load(cart) },
 }
 
 impl Default for Mapper {
@@ -578,7 +684,100 @@ impl Map for () {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::{cart::Cart, memory::Src};
+
+    /// The serialized tag must be the `boards!` row's stable id, not the variant's declaration
+    /// position - that is the whole reason `Serialize`/`Deserialize` are hand-rolled rather than
+    /// derived. serde's derive always uses the position and honours neither an explicit
+    /// discriminant nor `#[repr]`.
+    ///
+    /// These bytes are also exactly what the derive produced back when the ids happened to equal
+    /// the positions, so **existing save states keep loading**. Moving a row must leave this
+    /// passing; renumbering an id must make it fail.
+    #[test]
+    fn variant_tag_is_the_stable_id_not_the_declaration_position() {
+        let config = bincode::config::legacy();
+        let cases = [
+            (Mapper::none(), 0),
+            (
+                Mapper::from(Nrom {
+                    mirroring: Mirroring::Vertical,
+                }),
+                1,
+            ),
+            (
+                Mapper::from(Uxrom {
+                    mirroring: Mirroring::Vertical,
+                    prg_bank: 0,
+                }),
+                3,
+            ),
+        ];
+        for (mapper, expected_id) in cases {
+            let bytes = bincode::serde::encode_to_vec(&mapper, config).expect("serializes");
+            let tag = u32::from_le_bytes(bytes[..4].try_into().expect("4-byte tag"));
+            assert_eq!(
+                tag, expected_id,
+                "{mapper:?} must serialize with id {expected_id}"
+            );
+
+            let (restored, _) = bincode::serde::decode_from_slice::<Mapper, _>(&bytes, config)
+                .expect("round trips");
+            assert_eq!(
+                std::mem::discriminant(&restored),
+                std::mem::discriminant(&mapper),
+                "{mapper:?} must come back as the same board"
+            );
+        }
+    }
+
+    /// An id this build does not know must be a clean error, not a panic or the wrong board.
+    #[test]
+    fn an_unknown_board_id_fails_to_deserialize() {
+        let config = bincode::config::legacy();
+        let mapper = Mapper::from(Nrom {
+            mirroring: Mirroring::Vertical,
+        });
+        let mut bytes = bincode::serde::encode_to_vec(&mapper, config).expect("serializes");
+        bytes[..4].copy_from_slice(&9999u32.to_le_bytes());
+        assert!(
+            bincode::serde::decode_from_slice::<Mapper, _>(&bytes, config).is_err(),
+            "an unknown board id must not decode"
+        );
+    }
+
+    /// Two boards sharing an id means one silently loads as the other.
+    #[test]
+    fn board_ids_are_unique_and_nonzero() {
+        let mut ids = BOARD_IDS.to_vec();
+        ids.sort_unstable_by_key(|&(_, id)| id);
+        for pair in ids.windows(2) {
+            assert_ne!(
+                pair[0].1, pair[1].1,
+                "{} and {} share stable id {}",
+                pair[0].0, pair[1].0, pair[0].1
+            );
+        }
+        for &(board, id) in BOARD_IDS {
+            assert_ne!(
+                id, 0,
+                "{board} uses id 0, which is reserved for Mapper::None"
+            );
+        }
+    }
+
+    /// An unsupported mapper number must report itself rather than loading as open bus.
+    #[test]
+    fn an_unimplemented_mapper_number_is_an_error() {
+        let mut cart = Cart::empty_sized(0x8000, 0x2000);
+        cart.header.mapper_num = 999;
+        let err = Mapper::from_cart(&mut cart).expect_err("999 is not implemented");
+        assert!(
+            matches!(err, Error::Unimplemented(999)),
+            "expected Unimplemented(999), got {err:?}"
+        );
+    }
 
     /// Page tables are `#[serde(skip)]` derived state, and `Cpu::load` replaces the whole console
     /// when a save state is loaded. Without a `sync` on the way back in, every page comes back
