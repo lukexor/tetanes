@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, ResetKind, Sample},
+    common::{Clock, ResetKind},
     mapper::{self, Map, Mapper, MapperOps},
     memory::ConstArray,
     memory::{Memory, Src},
@@ -334,9 +334,7 @@ impl Map for Namco163 {
         self.prg_ram_written_to = false;
         self.audio = Audio::new();
     }
-}
 
-impl Sample for Namco163 {
     fn output(&self) -> f32 {
         self.audio.output()
     }

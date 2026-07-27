@@ -10,7 +10,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
     },
     cart::Cart,
-    common::{Clock, NesRegion, Regional, ResetKind, Sample},
+    common::{Clock, NesRegion, Regional, ResetKind},
     cpu::Cpu,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
@@ -1199,9 +1199,7 @@ impl Map for Exrom {
     fn set_region(&mut self, region: NesRegion) {
         self.dmc.set_region(region);
     }
-}
 
-impl Sample for Exrom {
     fn output(&self) -> f32 {
         // Runs once per CPU cycle, so index the mixer tables straight from the integer channel
         // levels. Going through `Sample::output` would convert each level to a float only to

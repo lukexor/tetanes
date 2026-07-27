@@ -55,11 +55,7 @@ mod tests {
         bus::{self, Bus},
         cpu::{IrqFlags, Status, instr::AddrMode},
         debug::PpuDebugger,
-        mapper::{
-            Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
-            JalecoSs88006, MapperOps, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
-            SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
-        },
+        mapper::{BOARD_LAYOUTS, MapperOps},
         memory::ConstArray,
         memory::Memory,
         ppu::{
@@ -89,16 +85,6 @@ mod tests {
                 println!("  {field:<25}: offset {offset:4}, size {size:4}");
             }
         }};
-    }
-
-    /// Utility to aid in enum size and alignment.
-    macro_rules! print_enum_layout {
-        ($ty:ty, $($variant:ident($variant_ty:ty)),+$(,)?) => {{
-            println!("{} enum: {} bytes", stringify!($ty), size_of::<$ty>());
-                $(
-                    println!("  {:<15}: size {:4}", stringify!($variant), size_of::<$variant_ty>());
-                )+
-        }}
     }
 
     // Utility to help print alignment and size of struct field for cache-optimization.
@@ -227,30 +213,11 @@ mod tests {
             skip_mixing: bool,
         );
 
-        print_enum_layout!(
-            Mapper,
-            Nrom(Nrom),
-            Sxrom(Sxrom),
-            Uxrom(Uxrom),
-            Cnrom(Cnrom),
-            Txrom(Txrom),
-            Exrom(Exrom),
-            Axrom(Axrom),
-            Pxrom(Pxrom),
-            Fxrom(Fxrom),
-            ColorDreams(ColorDreams),
-            BandaiFCG(BandaiFCG),
-            JalecoSs88006(JalecoSs88006),
-            Namco163(Namco163),
-            Vrc6(Vrc6),
-            Bnrom(Bnrom),
-            Nina001(Nina001),
-            Gxrom(Gxrom),
-            SunsoftFme7(SunsoftFme7),
-            Bf909x(Bf909x),
-            Nina003006(Nina003006),
-            NesEvent(NesEvent),
-            Fk23C(Fk23C),
-        );
+        // Board sizes come from `mapper.rs`'s `boards!` table, so a new board appears here
+        // without being added to a second list that would otherwise silently go stale.
+        println!("Mapper enum: {} bytes", size_of::<Mapper>());
+        for (board, size) in BOARD_LAYOUTS {
+            println!("  {board:<15}: size {size:4}");
+        }
     }
 }

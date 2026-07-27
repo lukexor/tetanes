@@ -5,7 +5,7 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::{Clock, Sample},
+    common::Clock,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -140,9 +140,7 @@ impl Map for SunsoftFme7 {
         }
         self.audio.clock();
     }
-}
 
-impl Sample for SunsoftFme7 {
     fn output(&self) -> f32 {
         self.audio.output()
     }

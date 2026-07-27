@@ -3,6 +3,7 @@
 //! <https://wiki.nesdev.org/w/index.php/Mapper>
 
 use crate::{
+    cart::Cart,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
     fs,
     memory::{Memory, Src},
@@ -53,56 +54,17 @@ bitflags! {
     }
 }
 
-pub use bandai_fcg::BandaiFCG; // m016, m153, m157, m159
-pub use m000_nrom::Nrom;
-pub use m001_sxrom::Sxrom;
-pub use m002_uxrom::Uxrom;
-pub use m003_cnrom::Cnrom;
-pub use m004_txrom::Txrom;
-pub use m005_exrom::Exrom;
-pub use m007_axrom::Axrom;
-pub use m009_pxrom::Pxrom;
-pub use m010_fxrom::Fxrom;
-pub use m011_color_dreams::ColorDreams;
-pub use m018_jalecoss88006::JalecoSs88006;
-pub use m019_namco163::Namco163;
-pub use m024_m026_vrc6::Vrc6;
-pub use m034_bnrom::Bnrom;
-pub use m034_nina001::Nina001;
-pub use m066_gxrom::Gxrom;
-pub use m069_sunsoft_fme7::SunsoftFme7;
-pub use m071_bf909x::{Bf909x, Revision as Bf909Revision};
-pub use m079_nina003_006::Nina003006;
-pub use m105_nes_event::NesEvent;
-pub use m176_fk23c::Fk23C;
-pub use mmc1::{Mmc1, Revision as Mmc1Revision};
-pub use mmc3::{Mmc3, Revision as Mmc3Revision};
-
-pub mod bandai_fcg;
-pub mod m000_nrom;
-pub mod m001_sxrom;
-pub mod m002_uxrom;
-pub mod m003_cnrom;
-pub mod m004_txrom;
-pub mod m005_exrom;
-pub mod m007_axrom;
-pub mod m009_pxrom;
-pub mod m010_fxrom;
-pub mod m011_color_dreams;
-pub mod m018_jalecoss88006;
-pub mod m019_namco163;
-pub mod m024_m026_vrc6;
-pub mod m034_bnrom;
-pub mod m034_nina001;
-pub mod m066_gxrom;
-pub mod m069_sunsoft_fme7;
-pub mod m071_bf909x;
-pub mod m079_nina003_006;
-pub mod m105_nes_event;
-pub mod m176_fk23c;
+// Shared board logic, not boards in their own right, so they are not in the `boards!` table.
 pub mod mmc1;
 pub mod mmc3;
 pub mod vrc_irq;
+
+pub use mmc1::{Mmc1, Revision as Mmc1Revision};
+pub use mmc3::{Mmc3, Revision as Mmc3Revision};
+// `boards!` re-exports each board type itself; a board module exporting anything *else* publicly -
+// so far only a revision enum - lists it here.
+pub use m024_m026_vrc6::Revision as Vrc6Revision;
+pub use m071_bf909x::Revision as Bf909Revision;
 
 /// Errors that mappers can return while loading.
 ///
@@ -142,70 +104,75 @@ impl std::fmt::Display for MapperRevision {
     }
 }
 
-/// A `Mapper` is a specific cart variant with dedicated memory mapping logic for memory addressing and
-/// bank switching.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub enum Mapper {
-    None(()),
-    /// `NROM` (Mapper 000)
-    Nrom(Nrom),
-    /// `SxROM`/`MMC1` (Mapper 001)
-    Sxrom(Sxrom),
-    /// `UxROM` (Mapper 002)
-    Uxrom(Uxrom),
-    /// `CNROM` (Mapper 003)
-    Cnrom(Cnrom),
-    /// `TxROM`/`MMC3` (Mappers 004, 088, 095, 206)
-    Txrom(Txrom),
-    /// `ExROM`/`MMC5` (Mapper 5)
-    Exrom(Box<Exrom>),
-    /// `AxROM` (Mapper 007)
-    Axrom(Axrom),
-    /// `PxROM`/`MMC2` (Mapper 009)
-    Pxrom(Pxrom),
-    /// `FxROM`/`MMC4` (Mapper 010)
-    Fxrom(Fxrom),
-    /// `Color Dreams` (Mapper 011)
-    ColorDreams(ColorDreams),
-    /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
-    BandaiFCG(Box<BandaiFCG>),
-    /// `Jaleco SS88006` (Mapper 018)
-    JalecoSs88006(JalecoSs88006),
-    /// `Namco163` (Mapper 019)
-    Namco163(Box<Namco163>),
-    /// `VRC6` (Mapper 024).
-    Vrc6(Box<Vrc6>),
-    /// `BNROM` (Mapper 034).
-    Bnrom(Bnrom),
-    /// `NINA-001` (Mapper 034).
-    Nina001(Nina001),
-    /// `GxROM` (Mapper 066).
-    Gxrom(Gxrom),
-    /// `Sunsoft FME7` (Mapper 069).
-    SunsoftFme7(SunsoftFme7),
-    /// `Bf909x` (Mapper 071).
-    Bf909x(Bf909x),
-    /// `NINA-003`/`NINA-006` (Mapper 079).
-    Nina003006(Nina003006),
-    /// `NES-EVENT` (Mapper 105)
-    NesEvent(NesEvent),
-    /// `Waixing FK23C`/`FS303` (Mapper 176)
-    // Boxed: at 280 bytes it is now several times the size of any other variant, since the ported
-    // boards hold only registers. The remaining unported boards will shrink the same way.
-    Fk23C(Box<Fk23C>),
-}
+/// Everything the rest of the crate needs to know about a board, in one row each.
+///
+/// A row is `Variant(StorageType) in module { <mapper numbers> => <loader> }`, and generating from
+/// it means **adding a board is two edits: its own file, and one row here.**
+///
+/// Previously it was six: the file, four separate lists in this module (`pub mod`, `pub use`, the
+/// enum variant, the `From` impl, the dispatch arm), the `match` in `Cart::new`, the audio arm in
+/// `Sample for Mapper`, and the layout entry in `lib.rs`'s `print_layouts`. Each failed differently
+/// when forgotten, and two of them failed only at runtime - a board left out of `Cart::new` loaded
+/// as `Mapper::none()` and read as open bus, and one left out of `Sample for Mapper` was silent.
+///
+/// Notes on the row syntax:
+/// - The storage type is spelled out rather than inferred, because it is the one thing that
+///   genuinely varies: large boards are `Box`ed to keep `Mapper` small (see `print_layouts`).
+///   `From<Board>` is generated either way, so `board.into()` works regardless.
+/// - **Row order is the enum's variant order, which `bincode` serializes by index.** Reordering
+///   rows silently invalidates every existing save state. Add new boards at the end.
+/// - Loader arms are emitted in row order into one `match`, with `cart` bound to `&mut Cart`. Where
+///   two boards share a mapper number they carry mutually exclusive guards rather than relying on
+///   arm order, so that the constraint above and this dispatch cannot conflict.
+macro_rules! boards {
+    ($cart:ident: $(
+        $(#[$meta:meta])*
+        $variant:ident($($storage:tt)+) in $module:ident {
+            $($num:pat $(if $guard:expr)? => $load:expr),+ $(,)?
+        }
+    ),+ $(,)?) => {
+        $(pub mod $module;)+
+        $(pub use $module::$variant;)+
 
-/// Implement `From<T>` for `Mapper`.
-macro_rules! impl_from_board {
-    (@impl $variant:ident, $board:ident) => {
-        impl From<$board> for Mapper {
-            fn from(board: $board) -> Self {
-                Self::$variant(board)
+        /// A `Mapper` is a specific cart variant with dedicated memory mapping logic for memory
+        /// addressing and bank switching.
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[must_use]
+        pub enum Mapper {
+            None(()),
+            $($(#[$meta])* $variant($($storage)+),)+
+        }
+
+        impl Mapper {
+            /// Pick and load the board a cart's mapper number calls for.
+            ///
+            /// An unrecognised number is not an error: it yields [`Mapper::none`], which reads as
+            /// open bus, so an unsupported ROM still loads and reports itself rather than failing.
+            pub fn from_cart($cart: &mut Cart) -> Result<Self, Error> {
+                Ok(match $cart.mapper_num() {
+                    $($($num $(if $guard)? => $load?,)+)+
+                    _ => Self::none(),
+                })
             }
         }
+
+        $(impl_from_board!($variant, $($storage)+);)+
+
+        impl_dispatch!($($variant),+);
+
+        /// Board sizes for `lib.rs`'s `print_layouts`, which watches `Mapper` for cache behaviour.
+        ///
+        /// Deliberately the unboxed size: what matters is how large the variant would be inline,
+        /// which is what decides whether it should be `Box`ed.
+        #[cfg(test)]
+        pub(crate) const BOARD_LAYOUTS: &[(&str, usize)] =
+            &[$((stringify!($variant), size_of::<$variant>()),)+];
     };
-    (@impl $variant:ident, Box<$board:ident>) => {
+}
+
+/// Implement `From<Board>` for `Mapper`, boxing on the way in when the variant is boxed.
+macro_rules! impl_from_board {
+    ($variant:ident, Box<$board:ident>) => {
         impl From<$board> for Mapper {
             fn from(board: $board) -> Self {
                 Self::$variant(Box::new(board))
@@ -217,209 +184,244 @@ macro_rules! impl_from_board {
             }
         }
     };
-    ($($variant:ident($($tt:tt)+)),+ $(,)?) => {
-        $(impl_from_board!(@impl $variant, $($tt)+);)+
-    };
-}
-
-impl_from_board!(
-    Nrom(Nrom),
-    Sxrom(Sxrom),
-    Uxrom(Uxrom),
-    Cnrom(Cnrom),
-    Txrom(Txrom),
-    Exrom(Box<Exrom>),
-    Axrom(Axrom),
-    Pxrom(Pxrom),
-    Fxrom(Fxrom),
-    ColorDreams(ColorDreams),
-    BandaiFCG(Box<BandaiFCG>),
-    JalecoSs88006(JalecoSs88006),
-    Namco163(Box<Namco163>),
-    Vrc6(Box<Vrc6>),
-    Bnrom(Bnrom),
-    Nina001(Nina001),
-    Gxrom(Gxrom),
-    SunsoftFme7(SunsoftFme7),
-    Bf909x(Bf909x),
-    Nina003006(Nina003006),
-    NesEvent(NesEvent),
-    Fk23C(Box<Fk23C>),
-);
-
-/// Implement `Map` function for all `Mapper` variants.
-macro_rules! impl_map {
-    ($self:expr, $fn:ident$(,)? $($args:expr),*$(,)?) => {
-        match $self {
-            Mapper::None(m) => m.$fn($($args),*),
-            Mapper::Nrom(m) => m.$fn($($args),*),
-            Mapper::Sxrom(m) => m.$fn($($args),*),
-            Mapper::Uxrom(m) => m.$fn($($args),*),
-            Mapper::Cnrom(m) => m.$fn($($args),*),
-            Mapper::Txrom(m) => m.$fn($($args),*),
-            Mapper::Exrom(m) => m.$fn($($args),*),
-            Mapper::Axrom(m) => m.$fn($($args),*),
-            Mapper::Pxrom(m) => m.$fn($($args),*),
-            Mapper::Fxrom(m) => m.$fn($($args),*),
-            Mapper::ColorDreams(m) => m.$fn($($args),*),
-            Mapper::BandaiFCG(m) => m.$fn($($args),*),
-            Mapper::JalecoSs88006(m) => m.$fn($($args),*),
-            Mapper::Namco163(m) => m.$fn($($args),*),
-            Mapper::Vrc6(m) => m.$fn($($args),*),
-            Mapper::Bnrom(m) => m.$fn($($args),*),
-            Mapper::Nina001(m) => m.$fn($($args),*),
-            Mapper::Gxrom(m) => m.$fn($($args),*),
-            Mapper::SunsoftFme7(m) => m.$fn($($args),*),
-            Mapper::Bf909x(m) => m.$fn($($args),*),
-            Mapper::Nina003006(m) => m.$fn($($args),*),
-            Mapper::NesEvent(m) => m.$fn($($args),*),
-            Mapper::Fk23C(m) => m.$fn($($args),*),
+    ($variant:ident, $board:ident) => {
+        impl From<$board> for Mapper {
+            fn from(board: $board) -> Self {
+                Self::$variant(board)
+            }
         }
     };
 }
 
-/// Dispatch to the selected board.
+/// Forward every [`Map`] method from `Mapper` to the selected board.
 ///
-/// These are inherent rather than an `impl Map for Mapper`, because `Map` now carries the
-/// `clock`/`reset`/`region` methods a board used to get from `Clock`/`Reset`/`Regional`
-/// supertraits, and `Mapper` still implements those traits to forward them down the ownership
-/// tree - implementing both would make every one of those call sites ambiguous.
-impl Mapper {
-    /// An empty Mapper.
-    pub const fn none() -> Self {
-        Self::None(())
-    }
+/// The methods are inherent rather than an `impl Map for Mapper`, because `Map` carries the
+/// `clock`/`reset`/`region`/`output` methods a board used to get from `Clock`/`Reset`/`Regional`/
+/// `Sample` supertraits, and `Mapper` still implements those traits to forward them down the
+/// ownership tree - implementing both would make every one of those call sites ambiguous.
+macro_rules! impl_dispatch {
+    ($($variant:ident),+ $(,)?) => {
+        impl Mapper {
+            /// An empty Mapper.
+            pub const fn none() -> Self {
+                Self::None(())
+            }
 
-    /// Whether mapper is `None`.
-    pub const fn is_none(&self) -> bool {
-        matches!(self, Self::None(_))
-    }
+            /// Whether mapper is `None`.
+            pub const fn is_none(&self) -> bool {
+                matches!(self, Self::None(_))
+            }
 
-    /// Which of the optional per-cycle hooks this board needs.
-    pub fn mapper_ops(&self) -> MapperOps {
-        impl_map!(self, mapper_ops)
-    }
+            /// Which of the optional per-cycle hooks this board needs.
+            pub fn mapper_ops(&self) -> MapperOps {
+                dispatch!(self, [$($variant),+], m => m.mapper_ops())
+            }
 
-    /// Synchronize a write to a PPU address.
-    pub fn ppu_write(&mut self, addr: u16, val: u8) {
-        impl_map!(self, ppu_write, addr, val)
-    }
+            /// Synchronize a write to a PPU address.
+            pub fn ppu_write(&mut self, addr: u16, val: u8) {
+                dispatch!(self, [$($variant),+], m => m.ppu_write(addr, val))
+            }
 
-    /// Whether an IRQ is pending acknowledgement.
-    pub fn irq_pending(&self) -> bool {
-        impl_map!(self, irq_pending)
-    }
+            /// Whether an IRQ is pending acknowledgement.
+            pub fn irq_pending(&self) -> bool {
+                dispatch!(self, [$($variant),+], m => m.irq_pending())
+            }
 
-    /// Whether an DMA is pending acknowledgement.
-    pub fn dma_pending(&self) -> bool {
-        impl_map!(self, dma_pending)
-    }
+            /// Whether an DMA is pending acknowledgement.
+            pub fn dma_pending(&self) -> bool {
+                dispatch!(self, [$($variant),+], m => m.dma_pending())
+            }
 
-    /// Clear pending DMA.
-    pub fn clear_dma_pending(&mut self) {
-        impl_map!(self, clear_dma_pending)
-    }
+            /// Clear pending DMA.
+            pub fn clear_dma_pending(&mut self) {
+                dispatch!(self, [$($variant),+], m => m.clear_dma_pending())
+            }
 
-    /// Returns the current [`Mirroring`] mode.
-    #[inline(always)]
-    pub fn mirroring(&self) -> Mirroring {
-        impl_map!(self, mirroring)
-    }
+            /// Returns the current [`Mirroring`] mode.
+            #[inline(always)]
+            pub fn mirroring(&self) -> Mirroring {
+                dispatch!(self, [$($variant),+], m => m.mirroring())
+            }
 
-    /// Handle a CPU-space write, re-banking as needed.
-    #[inline(always)]
-    pub fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
-        impl_map!(self, write_register, memory, addr, val)
-    }
+            /// Handle a CPU-space write, re-banking as needed.
+            #[inline(always)]
+            pub fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+                dispatch!(self, [$($variant),+], m => m.write_register(memory, addr, val))
+            }
 
-    /// Write this board's battery-backed state.
-    pub fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
-        impl_map!(self, save_sram, memory, path)
-    }
+            /// Write this board's battery-backed state.
+            pub fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
+                dispatch!(self, [$($variant),+], m => m.save_sram(memory, path))
+            }
 
-    /// Restore state previously written by `save_sram`.
-    pub fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
-        impl_map!(self, load_sram, memory, path)
-    }
+            /// Restore state previously written by `save_sram`.
+            pub fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
+                dispatch!(self, [$($variant),+], m => m.load_sram(memory, path))
+            }
 
-    /// Serve a CPU read, returning `None` to fall through to page-table memory.
-    #[inline(always)]
-    pub fn prg_read(&mut self, addr: u16) -> Option<u8> {
-        impl_map!(self, prg_read, addr)
-    }
+            /// Serve a CPU read, returning `None` to fall through to page-table memory.
+            #[inline(always)]
+            pub fn prg_read(&mut self, addr: u16) -> Option<u8> {
+                dispatch!(self, [$($variant),+], m => m.prg_read(addr))
+            }
 
-    /// Side-effect-free form of [`Map::prg_read`].
-    #[inline(always)]
-    pub fn prg_peek(&self, addr: u16) -> Option<u8> {
-        impl_map!(self, prg_peek, addr)
-    }
+            /// Side-effect-free form of [`Map::prg_read`].
+            #[inline(always)]
+            pub fn prg_peek(&self, addr: u16) -> Option<u8> {
+                dispatch!(self, [$($variant),+], m => m.prg_peek(addr))
+            }
 
-    /// Serve a PPU read, returning `None` to fall through to page-table memory.
-    #[inline(always)]
-    pub fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
-        impl_map!(self, chr_read, memory, addr)
-    }
+            /// Serve a PPU read, returning `None` to fall through to page-table memory.
+            #[inline(always)]
+            pub fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
+                dispatch!(self, [$($variant),+], m => m.chr_read(memory, addr))
+            }
 
-    /// Side-effect-free form of [`Map::chr_read`].
-    #[inline(always)]
-    pub fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
-        impl_map!(self, chr_peek, memory, addr)
-    }
+            /// Side-effect-free form of [`Map::chr_read`].
+            #[inline(always)]
+            pub fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
+                dispatch!(self, [$($variant),+], m => m.chr_peek(memory, addr))
+            }
 
-    /// Observe a PPU bus address.
-    #[inline(always)]
-    pub fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
-        impl_map!(self, ppu_bus_addr, memory, addr)
-    }
+            /// Observe a PPU bus address.
+            #[inline(always)]
+            pub fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
+                dispatch!(self, [$($variant),+], m => m.ppu_bus_addr(memory, addr))
+            }
 
-    /// Rebuild the page tables from this board's register state.
-    pub fn sync(&mut self, memory: &mut Memory) {
-        impl_map!(self, sync, memory)
-    }
-}
-
-impl Sample for Mapper {
-    /// Output a single audio sample.
-    ///
-    /// Only the four boards with expansion audio are listed; the rest are silent and are gated out
-    /// by `MapperOps::AUDIO` before ever reaching here.
-    #[inline]
-    fn output(&self) -> f32 {
-        match self {
-            Self::Exrom(exrom) => exrom.output(),
-            Self::Namco163(namco163) => namco163.output(),
-            Self::Vrc6(vrc6) => vrc6.output(),
-            Self::SunsoftFme7(sunsoft_fme7) => sunsoft_fme7.output(),
-            _ => 0.0,
+            /// Rebuild the page tables from this board's register state.
+            pub fn sync(&mut self, memory: &mut Memory) {
+                dispatch!(self, [$($variant),+], m => m.sync(memory))
+            }
         }
-    }
+
+        impl Sample for Mapper {
+            /// Output a single audio sample.
+            #[inline]
+            fn output(&self) -> f32 {
+                dispatch!(self, [$($variant),+], m => m.output())
+            }
+        }
+
+        impl Reset for Mapper {
+            /// Reset the component given the [`ResetKind`].
+            fn reset(&mut self, kind: ResetKind) {
+                dispatch!(self, [$($variant),+], m => m.reset(kind))
+            }
+        }
+
+        impl Clock for Mapper {
+            /// Clock component once.
+            #[inline]
+            fn clock(&mut self) {
+                dispatch!(self, [$($variant),+], m => m.clock())
+            }
+        }
+
+        impl Regional for Mapper {
+            /// Return the current region.
+            fn region(&self) -> NesRegion {
+                dispatch!(self, [$($variant),+], m => m.region())
+            }
+
+            /// Set the region.
+            fn set_region(&mut self, region: NesRegion) {
+                dispatch!(self, [$($variant),+], m => m.set_region(region))
+            }
+        }
+    };
 }
 
-impl Reset for Mapper {
-    /// Reset the component given the [`ResetKind`].
-    fn reset(&mut self, kind: ResetKind) {
-        impl_map!(self, reset, kind)
-    }
+/// One `match` over every `Mapper` variant, running the same call against each.
+///
+/// The call is taken whole (`m => m.sync(memory)`) rather than as a method name plus an argument
+/// list, because an argument repetition nested inside the per-variant repetition is a
+/// "meta-variable repeats N times, but M times" error - the two have different depths.
+macro_rules! dispatch {
+    ($self:expr, [$($variant:ident),+], $board:ident => $call:expr) => {
+        match $self {
+            Mapper::None($board) => $call,
+            $(Mapper::$variant($board) => $call,)+
+        }
+    };
 }
 
-impl Clock for Mapper {
-    /// Clock component once.
-    #[inline]
-    fn clock(&mut self) {
-        impl_map!(self, clock)
-    }
-}
+boards! {
+    // Binds the `&mut Cart` that every loader and guard below refers to as `cart`. Named here
+    // rather than inside the macro because macro hygiene would otherwise put the two identifiers
+    // in different syntax contexts.
+    cart:
 
-impl Regional for Mapper {
-    /// Return the current region.
-    fn region(&self) -> NesRegion {
-        impl_map!(self, region)
-    }
-
-    /// Set the region.
-    fn set_region(&mut self, region: NesRegion) {
-        impl_map!(self, set_region, region)
-    }
+    /// `NROM` (Mapper 000)
+    Nrom(Nrom) in m000_nrom { 0 => Nrom::load(cart) },
+    /// `SxROM`/`MMC1` (Mappers 001, 155)
+    Sxrom(Sxrom) in m001_sxrom {
+        1 => Sxrom::load(cart, Mmc1Revision::BC),
+        155 => Sxrom::load(cart, Mmc1Revision::A),
+    },
+    /// `UxROM` (Mapper 002)
+    Uxrom(Uxrom) in m002_uxrom { 2 => Uxrom::load(cart) },
+    /// `CNROM` (Mapper 003)
+    Cnrom(Cnrom) in m003_cnrom { 3 => Cnrom::load(cart) },
+    /// `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 154, 206)
+    Txrom(Txrom) in m004_txrom {
+        4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(cart),
+    },
+    /// `ExROM`/`MMC5` (Mapper 005)
+    Exrom(Box<Exrom>) in m005_exrom { 5 => Exrom::load(cart) },
+    /// `AxROM` (Mapper 007)
+    Axrom(Axrom) in m007_axrom { 7 => Axrom::load(cart) },
+    /// `PxROM`/`MMC2` (Mapper 009)
+    Pxrom(Pxrom) in m009_pxrom { 9 => Pxrom::load(cart) },
+    /// `FxROM`/`MMC4` (Mapper 010)
+    Fxrom(Fxrom) in m010_fxrom { 10 => Fxrom::load(cart) },
+    /// `Color Dreams` (Mappers 011, 144)
+    ColorDreams(ColorDreams) in m011_color_dreams {
+        11 | 144 => ColorDreams::load(cart),
+    },
+    /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
+    BandaiFCG(Box<BandaiFCG>) in bandai_fcg {
+        16 | 153 | 157 | 159 => BandaiFCG::load(cart),
+    },
+    /// `Jaleco SS88006` (Mapper 018)
+    JalecoSs88006(JalecoSs88006) in m018_jalecoss88006 {
+        18 => JalecoSs88006::load(cart),
+    },
+    /// `Namco163` (Mappers 019, 210)
+    Namco163(Box<Namco163>) in m019_namco163 { 19 | 210 => Namco163::load(cart) },
+    /// `VRC6` (Mappers 024, 026)
+    Vrc6(Box<Vrc6>) in m024_m026_vrc6 {
+        24 => Vrc6::load(cart, Vrc6Revision::A),
+        26 => Vrc6::load(cart, Vrc6Revision::B),
+    },
+    /// `BNROM` (Mapper 034)
+    // Mapper 034 is two different boards; <= 8K of CHR-ROM implies BNROM.
+    Bnrom(Bnrom) in m034_bnrom {
+        34 if cart.chr_rom_size < 0x4000 => Bnrom::load(cart),
+    },
+    /// `NINA-001` (Mapper 034)
+    Nina001(Nina001) in m034_nina001 {
+        34 if cart.chr_rom_size >= 0x4000 => Nina001::load(cart),
+    },
+    /// `GxROM` (Mapper 066)
+    Gxrom(Gxrom) in m066_gxrom { 66 => Gxrom::load(cart) },
+    /// `Sunsoft FME7` (Mapper 069)
+    SunsoftFme7(SunsoftFme7) in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
+    /// `Bf909x` (Mapper 071)
+    Bf909x(Bf909x) in m071_bf909x { 71 => Bf909x::load(cart) },
+    /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
+    Nina003006(Nina003006) in m079_nina003_006 {
+        79 | 113 | 146 => Nina003006::load(cart),
+    },
+    /// `NES-EVENT` (Mapper 105)
+    NesEvent(NesEvent) in m105_nes_event {
+        105 => NesEvent::load(cart, [false, false, true, false]),
+    },
+    /// `Waixing FK23C`/`FS303` (Mapper 176)
+    // Boxed from when it was 280 bytes; the port to page tables left it holding only registers, so
+    // `print_layouts` now reports 56 and it no longer drives the enum's size (SunsoftFme7's 72
+    // does). Left boxed for now - unboxing is a cache-behaviour question to measure, not assume.
+    Fk23C(Box<Fk23C>) in m176_fk23c { 176 => Fk23C::load(cart) },
 }
 
 impl Default for Mapper {
@@ -556,6 +558,15 @@ pub trait Map {
 
     /// Set the board's region.
     fn set_region(&mut self, _region: NesRegion) {}
+
+    /// Output one expansion-audio sample, for boards whose `mapper_ops()` includes
+    /// `MapperOps::AUDIO`.
+    ///
+    /// Only MMC5, Namco163, VRC6 and FME7 have any; every other board is silent and never reaches
+    /// this, because `Bus::cpu_clock` checks the flag first.
+    fn output(&self) -> f32 {
+        0.0
+    }
 }
 
 impl Map for () {

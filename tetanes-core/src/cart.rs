@@ -3,12 +3,7 @@
 use crate::{
     common::{NesRegion, Regional},
     fs,
-    mapper::{
-        self, Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
-        JalecoSs88006, Mapper, Mmc1Revision, Namco163, NesEvent, Nina003006, Nrom, Pxrom,
-        SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6, m024_m026_vrc6::Revision as Vrc6Revision,
-        m034_nina001::Nina001,
-    },
+    mapper::{self, Mapper},
     memory::RamState,
     memory::{Memory, MemoryLayout, Src},
     ppu::Mirroring,
@@ -300,39 +295,9 @@ impl Cart {
         // Header mirroring is the default for every board; only boards that override it - either
         // hard-wired or via a register - touch it again.
         cart.memory.set_mirroring(cart.mirroring());
-        cart.mapper = match cart.mapper_num() {
-            0 => Nrom::load(&mut cart)?,
-            1 => Sxrom::load(&mut cart, Mmc1Revision::BC)?,
-            2 => Uxrom::load(&mut cart)?,
-            3 => Cnrom::load(&mut cart)?,
-            4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(&mut cart)?,
-            176 => Fk23C::load(&mut cart)?,
-            5 => Exrom::load(&mut cart)?,
-            7 => Axrom::load(&mut cart)?,
-            9 => Pxrom::load(&mut cart)?,
-            10 => Fxrom::load(&mut cart)?,
-            11 | 144 => ColorDreams::load(&mut cart)?,
-            16 | 153 | 157 | 159 => BandaiFCG::load(&mut cart)?,
-            18 => JalecoSs88006::load(&mut cart)?,
-            19 | 210 => Namco163::load(&mut cart)?,
-            24 => Vrc6::load(&mut cart, Vrc6Revision::A)?,
-            26 => Vrc6::load(&mut cart, Vrc6Revision::B)?,
-            34 => {
-                // ≥ 16K implies NINA-001; ≤ 8K implies BNROM
-                if chr_rom_size >= 0x4000 {
-                    Nina001::load(&mut cart)?
-                } else {
-                    Bnrom::load(&mut cart)?
-                }
-            }
-            66 => Gxrom::load(&mut cart)?,
-            69 => SunsoftFme7::load(&mut cart)?,
-            71 => Bf909x::load(&mut cart)?,
-            79 | 113 | 146 => Nina003006::load(&mut cart)?,
-            105 => NesEvent::load(&mut cart, [false, false, true, false])?,
-            155 => Sxrom::load(&mut cart, Mmc1Revision::A)?,
-            _ => Mapper::none(),
-        };
+        // Which board each mapper number selects lives with the boards themselves, in `mapper.rs`'s
+        // `boards!` table, so that adding one does not mean editing this file too.
+        cart.mapper = Mapper::from_cart(&mut cart)?;
 
         info!("loaded ROM `{cart}`");
         debug!("{cart:?}");

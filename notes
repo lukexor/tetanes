@@ -1,0 +1,31 @@
+phases:
+- post 3e - delete Banks and old Map read methods, transitional self.mapped
+  branch, fold mem.rs into memory.rs
+- phase 4 - mapper ops and trait diet
+- phase 5 - save-state split
+- phase 6 - clean up public apis - adding a mapper doc
+- post:
+  - rename prg_read/etc
+  - fold extra_sram into memory by re-using Src::ExRam
+
+- review debugger_active vs Option<PpuDebugger>?
+
+follow on tasks:
+- convert Makefile.toml to cargo xtask
+- Does frame time variance need fixing? performance_stats UI reports min-fps as
+  29-30, while average is around 60
+- ppu catch up instead of per-cycle?
+- debugger completion (breakpoints, assembly view, labels, hooks/override
+  expressions/conditions)
+- chrdump is neat! - would be a great addition to the ppu debugger
+- hex viewer/editor
+- apu viewer
+- Fix any missing NES 2.0 feature support
+- reduce wasm binary by moving include_bytes to be a server fetch instead
+- add homebrew thumbnails
+- add load recent save menu with thumbnails
+- Finish missing mappers
+- widenes feature
+- network multiplayer
+- swap localstorage for origin private file system or indexdb
+- add development console for debugger allowing inspection/poking at memory

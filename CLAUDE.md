@@ -81,19 +81,27 @@ states.
 ### Mappers
 
 `Mapper` is an **enum with static dispatch**, not a boxed trait object — this is deliberate for
-performance. Each board implements the `Map` trait (`chr_peek`/`prg_peek` are required; reads,
-writes, `ppu_read`/`ppu_write` sync hooks, IRQ/DMA pending, and `mirroring` have defaults). Adding a
-mapper touches five places:
+performance. Each board implements the `Map` trait, where only `mirroring` is required and
+everything else has a default, so a board writes exactly the hooks its hardware has: register
+writes, `sync`, the `prg_read`/`chr_read` escape hatches for things no page entry can describe,
+IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits — `Mapper` is what
+implements `Clock`/`Reset`/`Regional`/`Sample` and forwards them down the ownership tree.
+
+**Adding a mapper is two edits:**
 
 1. `tetanes-core/src/mapper/m0NN_<name>.rs` (files are named by primary mapper number; shared logic
-   lives in un-numbered files like `mmc1.rs`, `mmc3.rs`, `vrc_irq.rs`, `bandai_fcg.rs`).
-2. `mapper.rs`: `pub mod` + `pub use`, a new `Mapper` variant, and entries in the `impl_from_board!`
-   and `impl_map!` macro lists (both must be updated or dispatch won't compile/route).
-3. `cart.rs`: the `match cart.header.mapper_num` dispatch in `Cart::new` — one arm may cover several
-   mapper numbers.
-4. `Sample for Mapper` in `mapper.rs` if the board has expansion audio (MMC5, Namco163, VRC6, FME7).
-5. Optionally a `test_roms!` group in `common.rs` and a `print_enum_layout!` entry in
-   `tetanes-core/src/lib.rs`'s `print_layouts` test.
+   lives in un-numbered files like `mmc1.rs`, `mmc3.rs`, `vrc_irq.rs`).
+2. One row in the `boards!` table in `mapper.rs`, which generates the `pub mod`, the `pub use`, the
+   `Mapper` variant, the `From` impls, every dispatch arm, the mapper-number match in
+   `Mapper::from_cart` (which `Cart::new` calls), and the `print_layouts` entry.
+
+A board module that publicly exports something *other* than the board type — so far only a revision
+enum — needs a `pub use` next to the table. Optionally add a `test_roms!` group in `common.rs`.
+
+**Row order in `boards!` is the enum's variant order, and `bincode` serializes enum variants by
+index — reordering rows invalidates every existing save state. Add new boards at the end.** Where
+two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
+mutually exclusive `if` guards, so loader dispatch never depends on row order.
 
 Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, …) to keep `Mapper`
 small — the `print_layouts` test exists to watch struct/enum sizes for cache behavior.
