@@ -1,7 +1,7 @@
 //! [`Joypad`] and [`Zapper`] implementation.
 
 use crate::{
-    common::{Clock, NesRegion, Reset, ResetKind},
+    common::{NesRegion, ResetKind},
     cpu::Cpu,
     ppu::{Ppu, size},
 };
@@ -175,9 +175,6 @@ impl Input {
         }
         self.zapper.clear();
     }
-}
-
-impl Input {
     pub fn read(&mut self, player: Player, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
@@ -252,10 +249,7 @@ impl Input {
             sig.write(val);
         }
     }
-}
-
-impl Clock for Input {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         self.zapper.clock();
         if self.turbo_timer > 0 {
             self.turbo_timer -= 1;
@@ -275,10 +269,7 @@ impl Clock for Input {
             }
         }
     }
-}
-
-impl Reset for Input {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         for pad in &mut self.joypads {
             pad.reset(kind);
         }
@@ -447,10 +438,7 @@ impl Joypad {
     pub const fn clear(&mut self) {
         self.buttons = JoypadBtnState::empty();
     }
-}
-
-impl Reset for Joypad {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.buttons = JoypadBtnState::empty();
         self.index = 0;
         self.strobe = false;
@@ -500,9 +488,6 @@ impl Zapper {
     pub const fn clear(&mut self) {
         self.triggered = 0.0;
     }
-}
-
-impl Zapper {
     fn new(region: NesRegion) -> Self {
         Self {
             triggered: 0.0,
@@ -550,18 +535,12 @@ impl Zapper {
         }
         0x08
     }
-}
-
-impl Clock for Zapper {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;
         }
     }
-}
-
-impl Reset for Zapper {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.triggered = 0.0;
     }
 }

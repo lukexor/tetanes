@@ -9,7 +9,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Reset, ResetKind},
+    common::ResetKind,
     mapper::{self, Map, Mapper, MapperOps, mmc3::Mmc3},
     memory::{Memory, Src},
     ppu::Mirroring,

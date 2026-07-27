@@ -13,6 +13,16 @@ phases:
 
 - review debugger_active vs Option<PpuDebugger>?
 
+trait diet -- DONE (495be90 + follow-up). Deleted all nine convention-only
+traits: Clock, Reset, Regional, Sample, Sram, TimerCycle, Consume,
+InputRegisters, PpuAddr. There was exactly one generic bound over any of them
+in the whole workspace. Everything is inherent methods now; ResetKind and
+NesRegion stay in common.rs. Measured neutral (2.921 vs 2.927).
+  - Two traps recorded in benches/README.md: replacing the one generic helper
+    with a macro that expands into its call sites cost 2.2%, and benchmarking
+    in a git worktree differs from the main checkout by 3.3% for the *same*
+    commit, so never A/B across the two.
+
 why extra_sram is not being folded into Memory:
 - Map::extra_sram/set_extra_sram no longer exist; 39df6b2 replaced them with
   save_sram/load_sram(&Memory, path) when BandaiFCG went to page tables. So

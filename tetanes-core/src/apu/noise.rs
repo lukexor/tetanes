@@ -4,7 +4,7 @@
 
 use crate::{
     apu::{Channel, envelope::Envelope, length_counter::LengthCounter, timer::Timer},
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{NesRegion, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,11 +82,11 @@ impl Noise {
         }
     }
 
-    pub fn clock_quarter_frame(&mut self) {
+    pub const fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
 
-    pub fn clock_half_frame(&mut self) {
+    pub const fn clock_half_frame(&mut self) {
         self.clock_quarter_frame();
         self.length.clock();
     }
@@ -124,30 +124,21 @@ impl Noise {
             0
         }
     }
-}
-
-impl Sample for Noise {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         if self.is_muted() {
             0f32
         } else {
             f32::from(self.volume())
         }
     }
-}
-
-impl Noise {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
-}
-
-impl Clock for Noise {
     //    Timer --> Shift Register   Length Counter
     //                    |                |
     //                    v                v
     // Envelope -------> Gate ----------> Gate --> (to mixer)
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.timer.tick() {
             let shift_by = if self.shift_mode == ShiftMode::One {
                 6
@@ -159,20 +150,14 @@ impl Clock for Noise {
             self.shift |= feedback << 14;
         }
     }
-}
-
-impl Regional for Noise {
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }
-}
-
-impl Reset for Noise {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.timer.reset(kind);
         self.timer.period = Self::period(self.region, 0);
         self.length.reset(kind);

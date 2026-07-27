@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Reset, ResetKind},
+    common::ResetKind,
     mapper::{self, Map, Mapper, MapperOps, Mmc1, Mmc1Revision},
     memory::{Memory, Src},
     ppu::Mirroring,

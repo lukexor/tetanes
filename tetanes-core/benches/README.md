@@ -390,3 +390,35 @@ is predictable from the struct size alone; both are about what else fits in cach
 `Fk23C` went the other way and was **un-boxed**: boxed back when it was 280 bytes, the page-table
 port left it at 56, so with FME7 boxed it now sets the enum's size on its own and the box bought
 nothing but an allocation. Measured neutral, as expected for something off the frame path.
+
+### Trait removal, and a methodology trap (2026-07-27)
+
+Removing the nine convention-only traits (`Clock`, `Reset`, `Regional`, `Sample`, `Sram`,
+`TimerCycle`, `Consume`, `InputRegisters`, `PpuAddr`) in favour of inherent methods measured
+**2.921 vs 2.927 ms/frame geomean — neutral**, which is the expected answer: static dispatch either
+way, same code, fewer imports.
+
+Getting to that answer took two corrections worth recording.
+
+**1. Don't expand a hot helper into its call sites.** `Apu::channel_clock_to` had a
+`clock_to<T: Clock + TimerCycle + Sample>` helper, the only generic use of any of these traits. The
+obvious replacement was a macro expanding the loop body into each of the five match arms — that
+measured **+2.2%**, because it turns one small function into five copies of a loop and stops
+`channel_clock_to` being a sensible inlining candidate. Emitting one *monomorphic function per
+channel type* instead — exactly what the generic function had produced — recovered it and then some.
+**Keep the call boundary a generic function would have created.**
+
+**2. A git worktree is not a valid A/B against the main checkout.** The same commit measured
+**2.927 in `/home/luke/dev/tetanes` and 3.024 in a worktree under `/tmp/...` — a 3.3% difference from
+build location alone**, presumably code/data layout shifting with the embedded paths. That is larger
+than most changes being measured here, and it briefly looked like a 5% regression that did not exist.
+
+**Compare only measurements taken in the same directory.** Worktrees are fine for bisecting *as long
+as every point in the comparison is a worktree with a path of the same length* — that is how the
+`clock_to` regression above was isolated:
+
+| State (all in equal-length worktree paths) | geomean |
+|---|---|
+| before trait removal | 3.024 |
+| trait removal, macro expanded into call sites | 3.091 (+2.2%) |
+| trait removal, one monomorphic fn per channel | 2.999 (-0.8%) |

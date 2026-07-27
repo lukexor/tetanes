@@ -4,7 +4,7 @@
 
 use crate::{
     apu::{Channel, envelope::Envelope, length_counter::LengthCounter, timer::Timer},
-    common::{Clock, Reset, ResetKind, Sample},
+    common::ResetKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -126,11 +126,11 @@ impl Pulse {
         }
     }
 
-    pub fn clock_quarter_frame(&mut self) {
+    pub const fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
 
-    pub fn clock_half_frame(&mut self) {
+    pub const fn clock_half_frame(&mut self) {
         self.clock_quarter_frame();
         self.length.clock();
         self.clock_sweep();
@@ -177,13 +177,10 @@ impl Pulse {
             0
         }
     }
-}
-
-impl Pulse {
     /// Raw channel level, 0-15, before conversion to a float sample.
     ///
     /// Callers that only need to index a mixer lookup table should use this rather than casting
-    /// [`Sample::output`] back to an integer, which costs a saturating float-to-int conversion.
+    /// `output()` back to an integer, which costs a saturating float-to-int conversion.
     #[inline]
     pub fn level(&self) -> u8 {
         if self.is_muted() {
@@ -192,21 +189,12 @@ impl Pulse {
             Self::DUTY_TABLE[self.duty as usize][self.duty_cycle as usize] * self.volume()
         }
     }
-}
-
-impl Sample for Pulse {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         f32::from(self.level())
     }
-}
-
-impl Pulse {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
-}
-
-impl Clock for Pulse {
     //                  Sweep -----> Timer
     //                    |            |
     //                    |            |
@@ -216,15 +204,12 @@ impl Clock for Pulse {
     //                    |            |             |
     //                    v            v             v
     // Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.timer.tick() {
             self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
         }
     }
-}
-
-impl Reset for Pulse {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.timer.reset(kind);
         self.length.reset(kind);
         self.envelope.reset(kind);
@@ -265,10 +250,7 @@ impl Sweep {
             target_period: 0,
         }
     }
-}
-
-impl Reset for Sweep {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.enabled = false;
         self.period = 0;
         self.negate = false;

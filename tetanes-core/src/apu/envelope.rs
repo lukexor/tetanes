@@ -2,7 +2,7 @@
 //!
 //! See: <https://www.nesdev.org/wiki/APU_Envelope>
 
-use crate::common::{Clock, Reset, ResetKind};
+use crate::common::ResetKind;
 use serde::{Deserialize, Serialize};
 
 /// APU Envelope provides volume control for APU waveform channels.
@@ -53,10 +53,7 @@ impl Envelope {
         self.constant_volume = (val & 0x10) == 0x10; // D4
         self.volume = val & 0x0F; // D3..D0
     }
-}
-
-impl Clock for Envelope {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.start {
             self.start = false;
             self.counter = 15;
@@ -72,10 +69,7 @@ impl Clock for Envelope {
             }
         }
     }
-}
-
-impl Reset for Envelope {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.start = false;
         self.constant_volume = false;
         self.volume = 0;

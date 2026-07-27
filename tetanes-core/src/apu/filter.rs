@@ -2,10 +2,7 @@
 //!
 //! See <https://www.nesdev.org/wiki/APU_Mixer>
 
-use crate::{
-    common::{NesRegion, Sample},
-    cpu::Cpu,
-};
+use crate::{common::NesRegion, cpu::Cpu};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::{PI, TAU};
 
@@ -65,18 +62,12 @@ impl Iir {
             kind: FilterKind::LowPass,
         }
     }
-}
-
-impl Iir {
     pub fn consume(&mut self, sample: f32) {
         self.prev_output = self.output();
         self.delta = sample - self.prev_input;
         self.prev_input = sample;
     }
-}
-
-impl Sample for Iir {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         match self.kind {
             FilterKind::Identity => self.prev_input,
             FilterKind::HighPass => self.alpha * self.prev_output + self.alpha * self.delta,
@@ -104,9 +95,6 @@ impl Fir {
             kind: FilterKind::LowPass,
         }
     }
-}
-
-impl Fir {
     pub fn consume(&mut self, sample: f32) {
         self.inputs[self.input_index] = sample;
         self.input_index += 1;
@@ -114,10 +102,7 @@ impl Fir {
             self.input_index = 0;
         }
     }
-}
-
-impl Sample for Fir {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         // `inputs` is a ring buffer whose write cursor is `input_index`. The cursor points at the
         // oldest sample, so the convolution splits into two straight dot products: the samples
         // from the cursor to the end, then those before it.
@@ -209,10 +194,7 @@ impl Filter {
             Filter::Fir(fir) => fir.consume(sample),
         }
     }
-}
-
-impl Sample for Filter {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         match self {
             Filter::Iir(iir) => iir.output(),
             Filter::Fir(fir) => fir.output(),
@@ -306,9 +288,6 @@ impl FilterChain {
             filters,
         }
     }
-}
-
-impl FilterChain {
     pub fn consume(&mut self, sample: f32) {
         // Add sample to identity filter
         self.filters[0].filter.consume(sample);
@@ -323,10 +302,7 @@ impl FilterChain {
             self.filters[current].period_counter += self.dt;
         }
     }
-}
-
-impl Sample for FilterChain {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         self.filters.last().map_or(0.0, |f| f.filter.output())
     }
 }

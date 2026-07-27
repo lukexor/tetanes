@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, ResetKind},
+    common::ResetKind,
     mapper::{self, Map, Mapper, MapperOps},
     memory::ConstArray,
     memory::{Memory, Src},
@@ -517,10 +517,7 @@ impl Audio {
     fn channel_count(&self) -> u8 {
         (self.ram[0x7F] >> 4) & 0x07
     }
-}
-
-impl Clock for Audio {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if !self.disabled {
             self.update_counter += 1;
             if self.update_counter == 15 {

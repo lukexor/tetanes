@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Sram},
     fs,
     mapper::{self, Map, Mapper, MapperOps, Mirroring},
     // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
@@ -558,10 +557,7 @@ impl BarcodeReader {
 
         self.data = data.into();
     }
-}
-
-impl Clock for BarcodeReader {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         self.master_clock += 1;
     }
 }
@@ -854,15 +850,12 @@ impl Eeprom {
             EepromModel::X24C02 => "eeprom256",
         }
     }
-}
-
-impl Sram for Eeprom {
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+    pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
         fs::save(path.as_ref().with_extension(extension), &self.rom_data)
     }
 
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+    pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
         fs::load(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
     }

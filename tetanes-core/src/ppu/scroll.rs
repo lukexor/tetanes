@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSCROLL>
 
-use crate::common::{Reset, ResetKind};
+use crate::common::ResetKind;
 use serde::{Deserialize, Serialize};
 
 /// PPUSCROLL register.
@@ -244,11 +244,8 @@ impl Scroll {
         // t: ....BA.. ........
         self.t = (self.t & !nt_mask) | ((u16::from(val) & 0x03) << 10); // take lo 2 bits and set NN
     }
-}
-
-impl Reset for Scroll {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             // v is not cleared on a a soft reset
             self.v = 0x0000;

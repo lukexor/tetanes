@@ -10,7 +10,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
     },
     cart::Cart,
-    common::{Clock, NesRegion, Regional, ResetKind},
+    common::{NesRegion, ResetKind},
     cpu::Cpu,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},

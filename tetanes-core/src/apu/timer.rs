@@ -1,6 +1,6 @@
 //! Timer abstraction for the [`Apu`](crate::apu::Apu).
 
-use crate::common::{Reset, ResetKind};
+use crate::common::ResetKind;
 use serde::{Deserialize, Serialize};
 
 /// A timer that generates a clock signal based on a divider and a period. The timer is clocked
@@ -41,10 +41,7 @@ impl Timer {
         self.counter -= 1;
         false
     }
-}
-
-impl Reset for Timer {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.counter = 0;
         self.period = 0;
         self.cycle = 0;

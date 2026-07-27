@@ -7,7 +7,7 @@
 //!
 //! <https://wiki.nesdev.org/w/index.php/MMC3>
 
-use crate::common::{Clock, Reset, ResetKind};
+use crate::common::ResetKind;
 use serde::{Deserialize, Serialize};
 
 /// MMC3 Revision.
@@ -134,19 +134,13 @@ impl Mmc3 {
     pub const fn irq_pending(&self) -> bool {
         self.irq_pending
     }
-}
-
-impl Reset for Mmc3 {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub fn reset(&mut self, _kind: ResetKind) {
         // Preserve the configured revision; reset only the volatile register file.
         let revision = self.revision;
         *self = Self::default();
         self.revision = revision;
     }
-}
-
-impl Clock for Mmc3 {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         self.master_clock = self.master_clock.wrapping_add(1);
     }
 }

@@ -5,7 +5,6 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::Clock,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -244,10 +243,7 @@ impl Audio {
             _ => (),
         }
     }
-}
-
-impl Clock for Audio {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.clock_timer == 0 {
             self.clock_timer = 1;
             for channel in 0..3 {

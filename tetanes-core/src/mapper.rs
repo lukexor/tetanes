@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{NesRegion, ResetKind},
     fs,
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -411,37 +411,37 @@ macro_rules! impl_dispatch {
             }
         }
 
-        impl Sample for Mapper {
+        impl Mapper {
             /// Output a single audio sample.
             #[inline]
-            fn output(&self) -> f32 {
+            pub fn output(&self) -> f32 {
                 dispatch!(self, [$($variant),+], m => m.output())
             }
         }
 
-        impl Reset for Mapper {
+        impl Mapper {
             /// Reset the component given the [`ResetKind`].
-            fn reset(&mut self, kind: ResetKind) {
+            pub fn reset(&mut self, kind: ResetKind) {
                 dispatch!(self, [$($variant),+], m => m.reset(kind))
             }
         }
 
-        impl Clock for Mapper {
+        impl Mapper {
             /// Clock component once.
             #[inline]
-            fn clock(&mut self) {
+            pub fn clock(&mut self) {
                 dispatch!(self, [$($variant),+], m => m.clock())
             }
         }
 
-        impl Regional for Mapper {
+        impl Mapper {
             /// Return the current region.
-            fn region(&self) -> NesRegion {
+            pub fn region(&self) -> NesRegion {
                 dispatch!(self, [$($variant),+], m => m.region())
             }
 
             /// Set the region.
-            fn set_region(&mut self, region: NesRegion) {
+            pub fn set_region(&mut self, region: NesRegion) {
                 dispatch!(self, [$($variant),+], m => m.set_region(region))
             }
         }
@@ -703,7 +703,7 @@ mod tests {
     /// constructed with.
     #[test]
     fn setting_the_region_reaches_the_mapper() {
-        use crate::{cart::Cart, common::Regional, ppu::Ppu};
+        use crate::{cart::Cart, ppu::Ppu};
 
         let mut cart = Cart::empty_sized(0x8000, 0x2000);
         cart.header.mapper_num = 5;

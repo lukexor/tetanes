@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
 
-use crate::common::{Reset, ResetKind};
+use crate::common::ResetKind;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -71,11 +71,8 @@ impl Ctrl {
         // 32 or 1
         self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT);
     }
-}
-
-impl Reset for Ctrl {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.write(0);
     }
 }

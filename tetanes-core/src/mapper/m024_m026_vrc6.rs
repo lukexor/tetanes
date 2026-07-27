@@ -5,7 +5,7 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::{Clock, Reset, ResetKind},
+    common::ResetKind,
     mapper::{self, Map, Mapper, MapperOps, vrc_irq::VrcIrq},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -354,10 +354,7 @@ impl Audio {
             _ => unreachable!("impossible Vrc6Audio register: {}", addr),
         }
     }
-}
-
-impl Clock for Audio {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if !self.halt {
             self.pulse1.clock();
             self.pulse2.clock();
@@ -366,10 +363,7 @@ impl Clock for Audio {
             self.out = self.pulse1.volume() + self.pulse2.volume() + self.saw.volume();
         }
     }
-}
-
-impl Reset for Audio {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.halt = false;
     }
 }
@@ -437,10 +431,7 @@ impl Pulse {
             0.0
         }
     }
-}
-
-impl Clock for Pulse {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {
@@ -511,10 +502,7 @@ impl Saw {
             0.0
         }
     }
-}
-
-impl Clock for Saw {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.enabled {
             self.timer -= 1;
             if self.timer == 0 {

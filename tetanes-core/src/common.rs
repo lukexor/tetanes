@@ -1,7 +1,7 @@
 //! Common traits and constants.
 
 use serde::{Deserialize, Serialize};
-use std::{fmt::Write, path::Path};
+use std::fmt::Write;
 use thiserror::Error;
 
 /// Default directory for save states.
@@ -124,18 +124,6 @@ impl TryFrom<usize> for NesRegion {
     }
 }
 
-/// Trait for types that have different behavior depending on NES region.
-// NOTE: enum_dispatch requires absolute paths to types
-pub trait Regional {
-    /// Return the current region.
-    fn region(&self) -> NesRegion {
-        NesRegion::default()
-    }
-
-    /// Set the region.
-    fn set_region(&mut self, _region: NesRegion) {}
-}
-
 /// Type of reset for types that have different behavior for reset vs power cycling.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
@@ -144,39 +132,6 @@ pub enum ResetKind {
     Soft,
     /// Hard reset generally zeros-out most registers and RAM.
     Hard,
-}
-
-/// Trait for types that can can be reset.
-pub trait Reset {
-    /// Reset the component given the [`ResetKind`].
-    fn reset(&mut self, _kind: ResetKind) {}
-}
-
-/// Trait for types that can be clocked.
-pub trait Clock {
-    /// Clock component once.
-    fn clock(&mut self) {}
-}
-
-/// Trait for types that can output `f32` audio samples.
-pub trait Sample {
-    /// Output a single audio sample.
-    fn output(&self) -> f32 {
-        0.0
-    }
-}
-
-/// Trait for types that can save RAM to disk.
-pub trait Sram {
-    /// Save RAM to a given path.
-    fn save(&self, _path: impl AsRef<Path>) -> crate::fs::Result<()> {
-        Ok(())
-    }
-
-    /// Load save RAM from a given path.
-    fn load(&mut self, _path: impl AsRef<Path>) -> crate::fs::Result<()> {
-        Ok(())
-    }
 }
 
 /// Prints a hex dump of a given byte array starting at `addr_offset`.
@@ -238,7 +193,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
 pub(crate) mod tests {
     use crate::{
         action::Action,
-        common::{Regional, Reset, ResetKind},
+        common::ResetKind,
         control_deck::{Config, ControlDeck},
         input::Player,
         memory::RamState,

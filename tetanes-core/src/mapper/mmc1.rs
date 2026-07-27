@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    common::{Clock, Reset, ResetKind},
-    ppu::Mirroring,
-};
+use crate::{common::ResetKind, ppu::Mirroring};
 
 /// MMC1 Revision.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -183,10 +180,7 @@ impl Mmc1 {
     pub const fn set_revision(&mut self, revision: Revision) {
         self.revision = revision;
     }
-}
-
-impl Reset for Mmc1 {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.reset_buffer();
         self.prg_mode = true;
         self.prg_bank_select = true;
@@ -195,10 +189,7 @@ impl Reset for Mmc1 {
             self.prg_ram_disabled = false;
         }
     }
-}
-
-impl Clock for Mmc1 {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.write_just_occurred > 0 {
             self.write_just_occurred -= 1;
         }

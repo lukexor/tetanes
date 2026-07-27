@@ -4,7 +4,7 @@
 
 use crate::{
     apu::{Channel, length_counter::LengthCounter, timer::Timer},
-    common::{Clock, Reset, ResetKind, Sample},
+    common::ResetKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -52,11 +52,11 @@ impl Triangle {
         self.force_silent = silent;
     }
 
-    pub fn clock_quarter_frame(&mut self) {
+    pub const fn clock_quarter_frame(&mut self) {
         self.linear.clock();
     }
 
-    pub fn clock_half_frame(&mut self) {
+    pub const fn clock_half_frame(&mut self) {
         self.clock_quarter_frame();
         self.length.clock();
     }
@@ -83,10 +83,7 @@ impl Triangle {
     pub const fn set_enabled(&mut self, enabled: bool) {
         self.length.set_enabled(enabled);
     }
-}
-
-impl Sample for Triangle {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         if self.silent() {
             0.0
         } else if self.timer.period < 2 {
@@ -97,28 +94,19 @@ impl Sample for Triangle {
             f32::from(Self::SEQUENCE[self.sequence as usize])
         }
     }
-}
-
-impl Triangle {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
-}
-
-impl Clock for Triangle {
     //       Linear Counter   Length Counter
     //             |                |
     //             v                v
     // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.timer.tick() && self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
         }
     }
-}
-
-impl Reset for Triangle {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.length.reset(kind);
         self.linear.reset(kind);
         self.sequence = 0;
@@ -150,10 +138,7 @@ impl LinearCounter {
     pub const fn write(&mut self, val: u8) {
         self.counter_reload = val;
     }
-}
-
-impl Clock for LinearCounter {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.reload {
             self.counter = self.counter_reload;
         } else if self.counter > 0 {
@@ -163,10 +148,7 @@ impl Clock for LinearCounter {
             self.reload = false;
         }
     }
-}
-
-impl Reset for LinearCounter {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.counter = 0;
         self.counter_reload = 0;
         self.reload = false;

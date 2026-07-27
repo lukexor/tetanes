@@ -1,7 +1,7 @@
 //! NES PPU (Picture Processing Unit) implementation.
 
 use crate::{
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{NesRegion, ResetKind},
     debug::PpuDebugger,
     mapper::{Mapper, MapperOps},
     memory::{ConstArray, Memory, Read, Write},
@@ -1524,9 +1524,6 @@ impl Ppu {
         // MMC3 clocks using A12
         self.notify_ppu_bus(self.scroll.addr());
     }
-}
-
-impl Ppu {
     /// Advance to the next scanline. Taken once every 341 dots, so kept out of line to keep it
     /// out of the hot path's instruction footprint.
     #[cold]
@@ -1642,10 +1639,7 @@ impl Ppu {
             (*self.debugger.callback)(self.snapshot());
         }
     }
-}
-
-impl Clock for Ppu {
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         // === SCANLINE TRANSITION (cycle 340) ===
         if self.cycle >= cycle::END {
             self.end_scanline();
@@ -1695,14 +1689,11 @@ impl Clock for Ppu {
 
         self.check_debugger();
     }
-}
-
-impl Regional for Ppu {
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub fn set_region(&mut self, region: NesRegion) {
         // https://www.nesdev.org/wiki/Cycle_reference_chart
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
             NesRegion::Auto | NesRegion::Ntsc => (
@@ -1731,10 +1722,7 @@ impl Regional for Ppu {
         // rate table, exactly as the APU's does.
         self.mapper.set_region(region);
     }
-}
-
-impl Reset for Ppu {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.master_clock = 0;
         self.cycle = 0;
         self.scanline = 0;

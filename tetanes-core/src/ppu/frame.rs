@@ -1,7 +1,7 @@
 //! PPU frame implementation.
 
 use crate::{
-    common::{Reset, ResetKind},
+    common::ResetKind,
     memory::ConstArray,
     ppu::{self, Ppu},
 };
@@ -111,10 +111,7 @@ impl Frame {
     pub fn buffer(&self) -> &[u16; ppu::size::FRAME] {
         &self.buffer
     }
-}
-
-impl Reset for Frame {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub fn reset(&mut self, _kind: ResetKind) {
         self.count = 0;
         self.buffer = Buffer::default();
     }

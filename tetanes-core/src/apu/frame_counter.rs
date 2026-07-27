@@ -2,7 +2,7 @@
 //!
 //! See: <https://www.nesdev.org/wiki/APU_Frame_Counter>
 
-use crate::common::{NesRegion, Reset, ResetKind};
+use crate::common::{NesRegion, ResetKind};
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -171,10 +171,7 @@ impl FrameCounter {
 
         cycles_ran
     }
-}
-
-impl Reset for FrameCounter {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.cycle = 0;
         if kind == ResetKind::Hard {
             self.mode = 0;

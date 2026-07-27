@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Reset, ResetKind},
+    common::ResetKind,
     mapper::{
         self, Map, Mapper, MapperOps,
         mmc1::{self, Mmc1},
@@ -48,8 +48,8 @@ impl Default for BankSwitchingLock {
     }
 }
 
-impl Reset for BankSwitchingLock {
-    fn reset(&mut self, _kind: ResetKind) {
+impl BankSwitchingLock {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         *self = Self::new()
     }
 }
@@ -88,17 +88,13 @@ impl Timer {
     const fn irq_pending(&self) -> bool {
         self.value.to_le_bytes()[3] == self.target_high_byte
     }
-}
 
-impl Reset for Timer {
-    fn reset(&mut self, _kind: ResetKind) {
+    pub const fn reset(&mut self, _kind: ResetKind) {
         self.started = false;
         self.value = 0;
     }
-}
 
-impl Clock for Timer {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if !self.started {
             return;
         }

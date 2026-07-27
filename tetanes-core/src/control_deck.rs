@@ -4,7 +4,7 @@ use crate::{
     apu::{self, Apu, Channel},
     bus::Bus,
     cart::{self, Cart},
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sram},
+    common::{NesRegion, ResetKind},
     cpu::Cpu,
     debug::Debugger,
     fs,
@@ -1049,24 +1049,20 @@ impl ControlDeck {
     pub const fn is_running(&self) -> bool {
         self.running
     }
-}
 
-impl Clock for ControlDeck {
     /// Steps the control deck a single clock cycle.
     #[inline(always)]
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         self.cpu.clock()
     }
-}
 
-impl Regional for ControlDeck {
     /// Get the NES format for the emulation.
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.cpu.region()
     }
 
     /// Set the NES format for the emulation.
-    fn set_region(&mut self, region: NesRegion) {
+    pub fn set_region(&mut self, region: NesRegion) {
         self.auto_detect_region = region.is_auto();
         if self.auto_detect_region {
             self.cpu.set_region(self.cart_region().unwrap_or_default());
@@ -1074,11 +1070,9 @@ impl Regional for ControlDeck {
             self.cpu.set_region(region);
         }
     }
-}
 
-impl Reset for ControlDeck {
     /// Resets the console.
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.cpu.reset(kind);
         if self.loaded_rom.is_some() {
             self.running = true;
@@ -1094,7 +1088,7 @@ mod tests {
         hash::{DefaultHasher, Hash, Hasher},
     };
 
-    use crate::{common::Sram, memory::Src};
+    use crate::memory::Src;
 
     fn spritecans() -> ControlDeck {
         let mut deck = ControlDeck::with_config(Config {

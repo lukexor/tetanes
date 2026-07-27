@@ -4,7 +4,7 @@
 
 use crate::{
     bus::Bus,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind},
+    common::{NesRegion, ResetKind},
     memory::{Read, Write},
 };
 use crate::{
@@ -788,12 +788,10 @@ impl Cpu {
         self.bus.ppu.master_clock = 0;
         self.bus.apu.clock_sync();
     }
-}
 
-impl Clock for Cpu {
     /// Runs the CPU one instruction.
     #[inline(always)]
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
@@ -843,13 +841,13 @@ impl Write for Cpu {
     }
 }
 
-impl Regional for Cpu {
+impl Cpu {
     #[inline(always)]
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.bus.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub fn set_region(&mut self, region: NesRegion) {
         let (start_cycles, end_cycles) = match region {
             NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2
             NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
@@ -860,15 +858,13 @@ impl Regional for Cpu {
         self.bus.set_region(region);
         self.clock_sync();
     }
-}
 
-impl Reset for Cpu {
     /// Resets the CPU
     ///
     /// Updates the PC, SP, and Status values to defined constants.
     ///
     /// These operations take the CPU 7 cycles.
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         trace!("{:?} RESET", kind);
 
         match kind {

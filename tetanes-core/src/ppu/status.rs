@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS>
 
-use crate::common::{Reset, ResetKind};
+use crate::common::ResetKind;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -96,11 +96,8 @@ impl Status {
         self.bits.remove(Bits::VBLANK_STARTED);
         self.in_vblank = false;
     }
-}
-
-impl Reset for Status {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.set_in_vblank(false); // Technically random
             self.set_spr_zero_hit(false);

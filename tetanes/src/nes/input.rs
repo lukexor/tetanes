@@ -290,9 +290,6 @@ impl ActionBindings {
             bindings: Default::default(),
         }
     }
-}
-
-impl ActionBindings {
     pub fn default_shortcuts() -> BTreeMap<Action, ActionBindings> {
         use KeyCode::*;
         const SHIFT: ModifiersState = ModifiersState::SHIFT;

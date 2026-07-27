@@ -2,10 +2,7 @@
 //!
 //! See: <https://www.nesdev.org/wiki/APU_Length_Counter>
 
-use crate::{
-    apu::Channel,
-    common::{Clock, Reset, ResetKind},
-};
+use crate::{apu::Channel, common::ResetKind};
 use serde::{Deserialize, Serialize};
 
 /// APU Length Counter provides duration control for APU waveform channels.
@@ -72,18 +69,12 @@ impl LengthCounter {
     pub const fn write_ctrl(&mut self, halt: bool) {
         self.new_halt = halt;
     }
-}
-
-impl Clock for LengthCounter {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         if self.counter > 0 && !self.halt {
             self.counter -= 1;
         }
     }
-}
-
-impl Reset for LengthCounter {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         self.enabled = false;
         match kind {
             ResetKind::Soft => {

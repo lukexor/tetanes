@@ -23,7 +23,7 @@ use std::{
 };
 use tetanes_core::{
     apu::Apu,
-    common::{NesRegion, Regional, Reset, ResetKind},
+    common::{NesRegion, ResetKind},
     control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
     ppu,

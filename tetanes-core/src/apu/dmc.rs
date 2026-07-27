@@ -4,7 +4,7 @@
 
 use crate::{
     apu::timer::Timer,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
+    common::{NesRegion, ResetKind},
 };
 use serde::{Deserialize, Serialize};
 use tracing::trace;
@@ -191,37 +191,25 @@ impl Dmc {
         }
         self.should_clock
     }
-}
-
-impl Dmc {
     /// Raw channel level before conversion to a float sample.
     ///
     /// Callers that only need to index a mixer lookup table should use this rather than casting
-    /// [`Sample::output`] back to an integer, which costs a saturating float-to-int conversion.
+    /// `output()` back to an integer, which costs a saturating float-to-int conversion.
     #[inline]
     pub const fn level(&self) -> u8 {
         if self.silent() { 0 } else { self.output_level }
     }
-}
-
-impl Sample for Dmc {
-    fn output(&self) -> f32 {
+    pub fn output(&self) -> f32 {
         f32::from(self.level())
     }
-}
-
-impl Dmc {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
-}
-
-impl Clock for Dmc {
     //                          Timer
     //                            |
     //                            v
     // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         if self.timer.tick() {
             if !self.silence {
                 // Update output level but clamp to 0..=127 range
@@ -254,21 +242,15 @@ impl Clock for Dmc {
             }
         }
     }
-}
-
-impl Regional for Dmc {
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.timer.period = Self::period(region, 0);
     }
-}
-
-impl Reset for Dmc {
-    fn reset(&mut self, kind: ResetKind) {
+    pub const fn reset(&mut self, kind: ResetKind) {
         self.timer.reset(kind);
         self.timer.period = Self::period(self.region, 0);
         self.timer.reload();

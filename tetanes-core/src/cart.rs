@@ -1,7 +1,7 @@
 //! NES cartridge implementation.
 
 use crate::{
-    common::{NesRegion, Regional},
+    common::NesRegion,
     fs,
     mapper::{self, Mapper},
     memory::RamState,
@@ -472,14 +472,11 @@ impl Cart {
             }
         }
     }
-}
-
-impl Regional for Cart {
-    fn region(&self) -> NesRegion {
+    pub const fn region(&self) -> NesRegion {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }
 }

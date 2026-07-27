@@ -69,11 +69,17 @@ ControlDeck → Cpu → Bus → { Ppu → Mapper, Apu, Input, WRAM }
 ```
 
 The `Mapper` lives inside the `Ppu` (CHR/CIRAM access is the hot path); the CPU reaches PRG through
-the bus. Cross-cutting behavior is expressed as small traits in `common.rs` — `Clock`, `Reset`,
-`Regional`, `Sram`, `Sample` — implemented by nearly every component and forwarded down the tree
-(note `Map` itself has none of them as supertraits; see Mappers below). `memory.rs` provides
-`Memory` — the page-table-addressed arena holding every cart region — plus `ConstArray` and
-`Buffer`.
+the bus. Components expose `clock`, `reset(ResetKind)`, `region`/`set_region`, `output` and
+`save`/`load` as **inherent methods**, each forwarding to the components it owns. These used to be
+the `Clock`/`Reset`/`Regional`/`Sample`/`Sram` traits in `common.rs`; they were deleted because
+nothing was ever generic over them — across the whole workspace there was exactly one bound,
+`clock_to<T: Clock + TimerCycle + Sample>` in `apu.rs` — so they bought no polymorphism and cost an
+import in every file plus a name clash whenever a type wanted both `Map` and `Clock`. `ResetKind`
+and `NesRegion` remain in `common.rs`. `memory.rs` provides `Memory` — the page-table-addressed
+arena holding every cart region — plus `ConstArray` and `Buffer`.
+
+**Adding a component method does not mean adding a trait.** Prefer an inherent method plus an
+explicit forwarding call from the owner.
 
 Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save

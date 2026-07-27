@@ -2,7 +2,7 @@
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUMASK>
 
-use crate::common::{Clock, NesRegion, Reset, ResetKind};
+use crate::common::{NesRegion, ResetKind};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
@@ -107,17 +107,11 @@ impl Mask {
         self.region = region;
         self.update_emphasis();
     }
-}
-
-impl Reset for Mask {
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    fn reset(&mut self, _kind: ResetKind) {
+    pub fn reset(&mut self, _kind: ResetKind) {
         self.write(0);
     }
-}
-
-impl Clock for Mask {
-    fn clock(&mut self) {
+    pub const fn clock(&mut self) {
         // Rendering enabled flag is set with a 1 cycle delay (setting it at cycle N won't take
         // effect until cycle N+2)
         if self.pending_rendering_update {

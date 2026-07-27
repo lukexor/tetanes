@@ -5,7 +5,7 @@
 use crate::{
     apu::{Apu, Channel},
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
+    common::{NesRegion, ResetKind},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -284,35 +284,31 @@ impl Write for Bus {
     }
 }
 
-impl Regional for Bus {
-    fn region(&self) -> NesRegion {
+impl Bus {
+    pub const fn region(&self) -> NesRegion {
         self.region
     }
 
-    fn set_region(&mut self, region: NesRegion) {
+    pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.ppu.set_region(region);
         self.apu.set_region(region);
         self.input.set_region(region);
     }
-}
 
-impl Reset for Bus {
-    fn reset(&mut self, kind: ResetKind) {
+    pub fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
         }
         self.ppu.reset(kind);
         self.apu.reset(kind);
     }
-}
 
-impl Sram for Bus {
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+    pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
     }
 
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+    pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let Ppu { mapper, memory, .. } = &mut self.ppu;
         mapper.load_sram(memory, path.as_ref())
     }
