@@ -237,21 +237,81 @@ Changes, in the order they were made and measured:
    needed `TETANES_BENCH_OUTPUT=1` to measure at all: 3.162 -> 2.988 ms/frame on the same corpus, a
    further **-5.5%** on top of everything above, on the path real gameplay actually takes.
 
-### Catch-up clocking - investigated, not pursued
+### Catch-up clocking - measured, deferred until after Phase 6
 
-Before starting the above, considered whether a `Apu::clock_lazy`-style catch-up (clock the PPU
-only when the CPU can observe a change, per <https://www.nesdev.org/wiki/Catch-up>) would apply to
-the PPU the way it does the APU. It does not, for two independent reasons:
+First pass (below) concluded this wasn't worth pursuing. That conclusion was too narrow and was
+corrected after a follow-up measurement - see the plan doc's "PPU/CPU catch-up architecture" entry
+under Deferred for the full writeup. Summary: it has a real ~10-12% ceiling (crude periodic-batching
+experiment: 3.060 -> 2.740 ms/frame geomean at a batch of 4 cycles, before correctness broke - 26/204
+tests failed, every `vbl_nmi_*` test and DMA/IRQ timing among them). Not pursued now because getting
+it right requires splitting the PPU into an always-on-every-cycle cheap tick (everything
+`handle_interrupts` needs: vblank/A12 edges) and a deferred/batched expensive tick (bg fetch, sprite
+eval, pixel write) replayed against a timestamped register-write log - a materially bigger,
+correctness-risky change than anything in this phase. Deferred until after Phase 6, tracked with
+numbers so it isn't re-litigated from scratch.
 
-1. **The PPU is already driven at maximum catch-up granularity.** `Cpu::start_cycle`/`end_cycle`
-   call `Ppu::clock_to` twice per CPU cycle, which itself loops `Ppu::clock()` up to the target
-   master clock - there is no batching left on the table between CPU cycles to claim back.
-2. **PPU work isn't deferrable the way APU sample synthesis is.** `Apu::clock_lazy` can skip
-   ticking channels because nothing observes their intermediate state until a frame-counter/DMC
-   event or a register read forces a catch-up - the audio math only has to be right at those
-   observation points. The PPU has no equivalent: every dot's pixel is either written to the frame
-   buffer now or never (there is no "catch up the pixel later"), and mid-scanline register writes
-   for raster effects are exactly the case the NesDev page's "prediction"/"timestamping" approaches
-   have to get right or corrupt sprite-0-hit and IRQ timing - the accuracy reference (Nintendulator)
-   clocks every component every cycle for this reason. So the real win available here was making the
-   unavoidable per-dot work itself cheaper, which is what the branch-chain split above does.
+Original (incomplete) reasoning, kept for context: considered whether a `Apu::clock_lazy`-style
+catch-up would apply to the PPU the way it does the APU, and concluded no because (1) the PPU is
+already driven at maximum catch-up granularity - `Cpu::start_cycle`/`end_cycle` call `Ppu::clock_to`
+twice per CPU cycle already - and (2) PPU work isn't deferrable the way APU sample synthesis is:
+every dot's pixel is written to the frame buffer now or never. Both of those are still true, but
+they only rule out *skipping* per-dot rendering work - they say nothing about *how often the CPU and
+PPU loops have to cross into each other*, which is the actual lever the measured ceiling comes from.
+
+### Phase 4 — Mapper operation flags (2026-07-27)
+
+`--profile perf`, 10 iterations x 600 frames, `taskset -c 0`, quiet machine. `before` is the last
+Phase 1b commit.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.710 | 2.712-2.727 | ~flat |
+| Super Mario Bros. | 000 NROM | 2.716 | 2.706-2.728 | ~flat |
+| Legend of Zelda | 001 MMC1 | 2.683 | 2.694-2.730 | +0.5-1.7% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.854 | 2.908-2.920 | +2-2.3% |
+| Punch-Out!! | 009 MMC2 | 2.613 | 2.599-2.622 | ~flat |
+| Castlevania III | 005 MMC5 | 3.783 | 3.922-3.937 | +3.7-4.1% |
+| Akumajou Densetsu | 024 VRC6 | 3.204 | 3.264-3.288 | +1.9-2.6% |
+| **geometric mean** | | **2.914** | **2.948-2.956** | **+1.2-1.4%** |
+
+`MapperOps` bitflags (`CLOCKED`, `IRQ`, `AUDIO`, `DMA`) resolved once at cart load and cached beside
+the mapper (`Ppu::mapper_ops`), gating `Bus::cpu_clock`'s `mapper.clock()`/`mapper.output()` and
+`Cpu::handle_interrupts`'s `mapper.irq_pending()`/`mapper.dma_pending()` - previously unconditional
+on every CPU cycle for every board. Audited which of the 22 boards actually need each hook rather
+than guessing: 10 need `CLOCKED` (an IRQ or serial-write timing counter, or expansion audio),
+9 of those also `IRQ`, 4 `AUDIO` (Exrom/MMC5, Namco163, Vrc6, SunsoftFme7 - matches the plan's
+estimate exactly), and only Exrom `DMA`.
+
+Then folded `watches_ppu_bus`/`serves_prg_reads`/`serves_chr_reads` - three more cached bools that
+already existed on `Ppu` following the exact same "resolve once at load, gate on a bit test" shape -
+into the same `MapperOps` value instead of leaving four near-identical mechanisms side by side.
+`Map::mapper_ops()` is now the single source of truth a board implements; the three separate trait
+methods are gone, and `Ppu::chr_read`/`chr_peek`/`notify_ppu_bus` and `Bus::read`/`peek` all check
+`self.mapper_ops.intersects(MapperOps::X)` instead of a dedicated field.
+
+**This measured slower, not faster or neutral, and both effects are real:**
+
+- The `MapperOps` gating itself (`CLOCKED`/`IRQ`/`AUDIO`/`DMA` only) was a wash on this corpus versus
+  the Phase 1b baseline once `Bus::cpu_clock` was marked `#[inline(always)]` - it had regressed ~4%
+  with only `#[inline]` (a hint, not a requirement): the extra branches pushed it just over LLVM's
+  automatic inlining threshold, so it silently stopped being inlined into the force-inlined
+  `Cpu::start_cycle` hot path, turning a free bit test into a real out-of-line call every CPU cycle.
+  Confirmed by isolating `bus.rs`'s change from `cpu.rs`'s (each alone was neutral-to-positive; only
+  the combination regressed) and then by the `#[inline(always)]` fix recovering it exactly. The
+  lesson generalizes: growing a merely-`#[inline]` function that sits behind a force-inlined caller
+  is a silent cliff, not a gradual cost - measure after touching anything in the `Cpu::start_cycle`/
+  `end_cycle`/`Bus::cpu_clock`/`handle_interrupts` chain.
+- Folding the three `watches_ppu_bus`/`serves_prg_reads`/`serves_chr_reads` bools into `MapperOps`
+  measured a reproducible **~1.3-1.5% slower**, confirmed across three clean back-to-back runs. The
+  likely cost is one extra bitwise AND at call sites that run extremely often - `Ppu::chr_read`/
+  `chr_peek` alone run ~41,000 times a frame - though isolating it further (an inlining threshold
+  the way `cpu_clock` had, versus `#[repr(C)]` field-order/cache-line perturbation from removing
+  three `bool` fields, the same class of surprise `Bus::wram` produced in Phase 1b) wasn't run to
+  ground given the size of the win. **Kept anyway**: it replaces four near-identical
+  resolve-once-cache-a-bit-test mechanisms with one, which is what "mapper operation flags" in the
+  plan actually means, and the corpus here (mostly boards this consolidation makes *cheaper* to
+  reason about, not faster) isn't the target audience for the speed side of Phase 4 - that's boards
+  that previously paid for `CLOCKED`/`IRQ`/`AUDIO`/`DMA` dispatch they didn't need, which this corpus
+  mostly already lacked (NROM/MMC1/MMC2 all had trivial dispatch already; only Namco163/Vrc6/
+  SunsoftFme7/BandaiFCG - none in this corpus - previously paid unconditionally for hooks other
+  boards now skip).
