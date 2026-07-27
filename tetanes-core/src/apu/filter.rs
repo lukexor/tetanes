@@ -9,11 +9,6 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::f32::consts::{PI, TAU};
 
-/// A trait for audio processing that consumes samples.
-pub trait Consume {
-    fn consume(&mut self, sample: f32);
-}
-
 /// Represents a digital filter with certain characteristics.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -72,8 +67,8 @@ impl Iir {
     }
 }
 
-impl Consume for Iir {
-    fn consume(&mut self, sample: f32) {
+impl Iir {
+    pub fn consume(&mut self, sample: f32) {
         self.prev_output = self.output();
         self.delta = sample - self.prev_input;
         self.prev_input = sample;
@@ -111,8 +106,8 @@ impl Fir {
     }
 }
 
-impl Consume for Fir {
-    fn consume(&mut self, sample: f32) {
+impl Fir {
+    pub fn consume(&mut self, sample: f32) {
         self.inputs[self.input_index] = sample;
         self.input_index += 1;
         if self.input_index >= self.inputs.len() {
@@ -207,8 +202,8 @@ pub enum Filter {
     Fir(Fir),
 }
 
-impl Consume for Filter {
-    fn consume(&mut self, sample: f32) {
+impl Filter {
+    pub fn consume(&mut self, sample: f32) {
         match self {
             Filter::Iir(iir) => iir.consume(sample),
             Filter::Fir(fir) => fir.consume(sample),
@@ -313,8 +308,8 @@ impl FilterChain {
     }
 }
 
-impl Consume for FilterChain {
-    fn consume(&mut self, sample: f32) {
+impl FilterChain {
+    pub fn consume(&mut self, sample: f32) {
         // Add sample to identity filter
         self.filters[0].filter.consume(sample);
         for i in 1..self.filters.len() {

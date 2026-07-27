@@ -3,7 +3,7 @@
 //! See: <https://www.nesdev.org/wiki/APU_DMC>
 
 use crate::{
-    apu::timer::{Timer, TimerCycle},
+    apu::timer::Timer,
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -210,8 +210,8 @@ impl Sample for Dmc {
     }
 }
 
-impl TimerCycle for Dmc {
-    fn cycle(&self) -> u32 {
+impl Dmc {
+    pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
 }

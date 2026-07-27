@@ -3,11 +3,7 @@
 //! See: <https://www.nesdev.org/wiki/APU_Triangle>
 
 use crate::{
-    apu::{
-        Channel,
-        length_counter::LengthCounter,
-        timer::{Timer, TimerCycle},
-    },
+    apu::{Channel, length_counter::LengthCounter, timer::Timer},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -103,8 +99,8 @@ impl Sample for Triangle {
     }
 }
 
-impl TimerCycle for Triangle {
-    fn cycle(&self) -> u32 {
+impl Triangle {
+    pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
 }

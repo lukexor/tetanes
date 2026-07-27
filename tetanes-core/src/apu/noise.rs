@@ -3,12 +3,7 @@
 //! See: <https://www.nesdev.org/wiki/APU_Noise>
 
 use crate::{
-    apu::{
-        Channel,
-        envelope::Envelope,
-        length_counter::LengthCounter,
-        timer::{Timer, TimerCycle},
-    },
+    apu::{Channel, envelope::Envelope, length_counter::LengthCounter, timer::Timer},
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -141,8 +136,8 @@ impl Sample for Noise {
     }
 }
 
-impl TimerCycle for Noise {
-    fn cycle(&self) -> u32 {
+impl Noise {
+    pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
 }

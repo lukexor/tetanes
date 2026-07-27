@@ -69,23 +69,21 @@ impl Write for PaletteRam {
     }
 }
 
-pub trait PpuAddr {
-    /// Returns whether this value can be used to fetch a nametable attribute byte.
-    fn is_attr(&self) -> bool;
-    /// Returns whether this value is a palette address.
-    fn is_palette(&self) -> bool;
+/// Whether a PPU address fetches a nametable attribute byte.
+///
+/// A free function rather than an extension trait on `u16`: with one implementor and no generic
+/// use, the trait only bought an import at each of the four call sites.
+#[inline(always)]
+#[must_use]
+pub const fn is_attr(addr: u16) -> bool {
+    (addr & (size::NAMETABLE - 1)) >= addr::ATTR_OFFSET
 }
 
-impl PpuAddr for u16 {
-    #[inline(always)]
-    fn is_attr(&self) -> bool {
-        (*self & (size::NAMETABLE - 1)) >= addr::ATTR_OFFSET
-    }
-
-    #[inline(always)]
-    fn is_palette(&self) -> bool {
-        *self >= addr::PALETTE_START
-    }
+/// Whether a PPU address lands in palette RAM.
+#[inline(always)]
+#[must_use]
+pub const fn is_palette(addr: u16) -> bool {
+    addr >= addr::PALETTE_START
 }
 
 /// NES PPU.
@@ -1224,7 +1222,7 @@ impl Ppu {
     #[inline(always)]
     fn render_pixel(&mut self) {
         let addr = self.scroll.addr();
-        let color = if self.mask.rendering_enabled || !addr.is_palette() {
+        let color = if self.mask.rendering_enabled || !is_palette(addr) {
             let palette = u16::from(self.pixel_palette());
             self.palette
                 .read(addr::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))

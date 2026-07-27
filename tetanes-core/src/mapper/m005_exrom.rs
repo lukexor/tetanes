@@ -14,7 +14,7 @@ use crate::{
     cpu::Cpu,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
-    ppu::{Mirroring, PpuAddr},
+    ppu::{self, Mirroring},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -699,7 +699,7 @@ impl Exrom {
     ///
     /// Returns `None` for the ordinary CIRAM and ExRAM nametable sources, which are page entries.
     fn nametable_read(&self, memory: &Memory, addr: u16) -> Option<u8> {
-        let is_attr = addr.is_attr();
+        let is_attr = ppu::is_attr(addr);
         if self.regs.exram_mode.attr && is_attr && !self.spr_fetch() {
             // ExAttr mode returns attr bits for all nametables, regardless of mapping
             let attr = (self.read_ex_ram(memory, self.tile_cache) >> 6) & 0x03;
@@ -872,7 +872,7 @@ impl Map for Exrom {
                     .or_else(|| self.ex_attr_chr_read(memory, addr))
             }
             0x2000..=0x3EFF => {
-                let is_attr = addr.is_attr();
+                let is_attr = ppu::is_attr(addr);
                 let is_nt_fetch = addr <= 0x2FFF && !is_attr;
                 if is_nt_fetch {
                     self.ppu_status.tile_number += 1;
@@ -932,7 +932,7 @@ impl Map for Exrom {
                 .split_chr_read(memory, addr)
                 .or_else(|| self.ex_attr_chr_read(memory, addr)),
             0x2000..=0x3EFF => {
-                let is_nt_fetch = addr <= 0x2FFF && !addr.is_attr();
+                let is_nt_fetch = addr <= 0x2FFF && !ppu::is_attr(addr);
                 self.split_nametable_read(memory, is_nt_fetch)
                     .or_else(|| self.nametable_read(memory, addr))
             }

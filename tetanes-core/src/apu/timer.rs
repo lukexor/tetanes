@@ -3,11 +3,6 @@
 use crate::common::{Reset, ResetKind};
 use serde::{Deserialize, Serialize};
 
-/// Trait for types that have timers.
-pub trait TimerCycle {
-    fn cycle(&self) -> u32;
-}
-
 /// A timer that generates a clock signal based on a divider and a period. The timer is clocked
 /// every (period + 1) * divider cycles.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]

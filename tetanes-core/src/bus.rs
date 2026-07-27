@@ -8,7 +8,7 @@ use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
     fs,
     genie::GenieCode,
-    input::{Input, InputRegisters, Player},
+    input::{Input, Player},
     mapper::{Mapper, MapperOps},
     memory::{ConstArray, RamState, Read, Write},
     ppu::Ppu,

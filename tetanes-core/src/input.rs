@@ -63,12 +63,6 @@ impl TryFrom<usize> for Player {
     }
 }
 
-pub trait InputRegisters {
-    fn read(&mut self, player: Player, ppu: &Ppu) -> u8;
-    fn peek(&self, player: Player, ppu: &Ppu) -> u8;
-    fn write(&mut self, val: u8);
-}
-
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum FourPlayer {
@@ -183,8 +177,8 @@ impl Input {
     }
 }
 
-impl InputRegisters for Input {
-    fn read(&mut self, player: Player, ppu: &Ppu) -> u8 {
+impl Input {
+    pub fn read(&mut self, player: Player, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
         // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
@@ -217,7 +211,7 @@ impl InputRegisters for Input {
         zapper | val | 0x40
     }
 
-    fn peek(&self, player: Player, ppu: &Ppu) -> u8 {
+    pub fn peek(&self, player: Player, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
         // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
@@ -250,7 +244,7 @@ impl InputRegisters for Input {
         zapper | val | 0x40
     }
 
-    fn write(&mut self, val: u8) {
+    pub fn write(&mut self, val: u8) {
         for pad in &mut self.joypads {
             pad.write(val);
         }

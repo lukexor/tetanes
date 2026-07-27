@@ -5,11 +5,10 @@
 use crate::{
     apu::{
         dmc::Dmc,
-        filter::{Consume, FilterChain},
+        filter::FilterChain,
         frame_counter::{FrameCounter, FrameType},
         noise::Noise,
         pulse::{OutputFreq, Pulse, PulseChannel},
-        timer::TimerCycle,
         triangle::Triangle,
     },
     common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
@@ -277,25 +276,30 @@ impl Apu {
     }
 
     fn channel_clock_to(&mut self, channel: Channel, cycle: u32) {
-        fn clock_to<T>(instance: &mut T, cycle: u32, offset: usize, outputs: &mut [f32])
-        where
-            T: Clock + TimerCycle + Sample,
-        {
-            while instance.cycle() < cycle {
-                instance.clock();
-                outputs[((instance.cycle() - 1) as usize * Apu::MAX_CHANNEL_COUNT) + offset] =
-                    instance.output();
-            }
+        // A macro rather than a generic function: this was the only polymorphic use of
+        // `Clock`/`Sample`/`TimerCycle` anywhere in the crate, and it monomorphized over five
+        // concrete channel types that a `match` already names one by one.
+        // `outputs`/`offset` are passed in rather than captured: macro_rules is hygienic for
+        // local variables, so a free `outputs` in the body would resolve at the definition site.
+        macro_rules! clock_to {
+            ($channel:expr, $outputs:expr, $offset:expr) => {{
+                let channel = $channel;
+                while channel.cycle() < cycle {
+                    channel.clock();
+                    $outputs[((channel.cycle() - 1) as usize * Apu::MAX_CHANNEL_COUNT) + $offset] =
+                        channel.output();
+                }
+            }};
         }
 
         let offset = channel as usize;
         let outputs = &mut self.channel_outputs;
         match channel {
-            Channel::Pulse1 => clock_to(&mut self.pulse1, cycle, offset, outputs),
-            Channel::Pulse2 => clock_to(&mut self.pulse2, cycle, offset, outputs),
-            Channel::Triangle => clock_to(&mut self.triangle, cycle, offset, outputs),
-            Channel::Noise => clock_to(&mut self.noise, cycle, offset, outputs),
-            Channel::Dmc => clock_to(&mut self.dmc, cycle, offset, outputs),
+            Channel::Pulse1 => clock_to!(&mut self.pulse1, outputs, offset),
+            Channel::Pulse2 => clock_to!(&mut self.pulse2, outputs, offset),
+            Channel::Triangle => clock_to!(&mut self.triangle, outputs, offset),
+            Channel::Noise => clock_to!(&mut self.noise, outputs, offset),
+            Channel::Dmc => clock_to!(&mut self.dmc, outputs, offset),
             _ => (),
         }
     }

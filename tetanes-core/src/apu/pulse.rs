@@ -3,12 +3,7 @@
 //! See: <https://www.nesdev.org/wiki/APU_Pulse>
 
 use crate::{
-    apu::{
-        Channel,
-        envelope::Envelope,
-        length_counter::LengthCounter,
-        timer::{Timer, TimerCycle},
-    },
+    apu::{Channel, envelope::Envelope, length_counter::LengthCounter, timer::Timer},
     common::{Clock, Reset, ResetKind, Sample},
 };
 use serde::{Deserialize, Serialize};
@@ -205,8 +200,8 @@ impl Sample for Pulse {
     }
 }
 
-impl TimerCycle for Pulse {
-    fn cycle(&self) -> u32 {
+impl Pulse {
+    pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
 }
