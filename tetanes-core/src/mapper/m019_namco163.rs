@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
+    common::{Clock, ResetKind, Sample},
     mapper::{self, Map, Mapper, MapperOps},
     memory::ConstArray,
     memory::{Memory, Src},
@@ -307,9 +307,19 @@ impl Map for Namco163 {
             memory.unmap_prg(0x6000, Self::PRG_WINDOW);
         }
     }
-}
 
-impl Reset for Namco163 {
+    fn clock(&mut self) {
+        if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
+            self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
+            if self.regs.irq_counter & 0x7FFF == 0x7FFF {
+                self.regs.irq_pending = true;
+            }
+        }
+        if self.board == Board::Namco163 {
+            self.audio.clock();
+        }
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.regs = Regs::default();
@@ -325,24 +335,6 @@ impl Reset for Namco163 {
         self.audio = Audio::new();
     }
 }
-
-impl Clock for Namco163 {
-    fn clock(&mut self) {
-        if self.regs.irq_counter & 0x8000 > 0 && self.regs.irq_counter & 0x7FFF != 0x7FFF {
-            self.regs.irq_counter = self.regs.irq_counter.wrapping_add(1);
-            if self.regs.irq_counter & 0x7FFF == 0x7FFF {
-                self.regs.irq_pending = true;
-            }
-        }
-        if self.board == Board::Namco163 {
-            self.audio.clock();
-        }
-    }
-}
-
-impl Regional for Namco163 {}
-
-impl Sram for Namco163 {}
 
 impl Sample for Namco163 {
     fn output(&self) -> f32 {

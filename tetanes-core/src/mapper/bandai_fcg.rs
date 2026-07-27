@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
+    common::{Clock, Sram},
     fs,
     mapper::{self, Map, Mapper, MapperOps, Mirroring},
     // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
@@ -376,9 +376,7 @@ impl Map for BandaiFCG {
         }
         memory.set_mirroring(self.mirroring);
     }
-}
 
-impl Clock for BandaiFCG {
     fn clock(&mut self) {
         if let Some(barcode_reader) = &mut self.barcode_reader {
             barcode_reader.clock();
@@ -394,11 +392,6 @@ impl Clock for BandaiFCG {
         }
     }
 }
-
-impl Sram for BandaiFCG {}
-
-impl Regional for BandaiFCG {}
-impl Reset for BandaiFCG {}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[must_use]

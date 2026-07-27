@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sram},
+    common::{Clock, Reset, ResetKind},
     mapper::{self, Map, Mapper, MapperOps, Mmc3, Mmc3Revision},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -211,19 +211,12 @@ impl Map for Txrom {
         // distinct pages - no separate ex_ram buffer as before.
         memory.set_mirroring(self.mirroring);
     }
-}
 
-impl Reset for Txrom {
+    fn clock(&mut self) {
+        self.mmc3.clock();
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         self.mmc3.reset(kind);
     }
 }
-
-impl Clock for Txrom {
-    fn clock(&mut self) {
-        self.mmc3.clock();
-    }
-}
-
-impl Regional for Txrom {}
-impl Sram for Txrom {}

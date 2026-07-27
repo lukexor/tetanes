@@ -5,7 +5,7 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sample, Sram},
+    common::{Clock, Reset, ResetKind, Sample},
     mapper::{self, Map, Mapper, MapperOps, vrc_irq::VrcIrq},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -283,24 +283,17 @@ impl Map for Vrc6 {
             memory.unmap_prg(0x6000, Self::PRG_RAM_WINDOW);
         }
     }
-}
 
-impl Reset for Vrc6 {
+    fn clock(&mut self) {
+        self.irq.clock();
+        self.audio.clock();
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         self.irq.reset(kind);
         self.audio.reset(kind);
     }
 }
-
-impl Clock for Vrc6 {
-    fn clock(&mut self) {
-        self.irq.clock();
-        self.audio.clock();
-    }
-}
-
-impl Regional for Vrc6 {}
-impl Sram for Vrc6 {}
 
 impl Sample for Vrc6 {
     fn output(&self) -> f32 {

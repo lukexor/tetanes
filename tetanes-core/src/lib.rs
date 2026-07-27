@@ -56,8 +56,8 @@ mod tests {
         cpu::{IrqFlags, Status, instr::AddrMode},
         debug::PpuDebugger,
         mapper::{
-            Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fxrom, Gxrom,
-            Fk23C, JalecoSs88006, MapperOps, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
+            Axrom, BandaiFCG, Bf909x, Bnrom, Cnrom, ColorDreams, Exrom, Fk23C, Fxrom, Gxrom,
+            JalecoSs88006, MapperOps, Namco163, NesEvent, Nina001, Nina003006, Nrom, Pxrom,
             SunsoftFme7, Sxrom, Txrom, Uxrom, Vrc6,
         },
         memory::ConstArray,

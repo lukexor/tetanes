@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -36,7 +35,6 @@ impl Bnrom {
 }
 
 impl Map for Bnrom {
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -59,8 +57,3 @@ impl Map for Bnrom {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for Bnrom {}
-impl Clock for Bnrom {}
-impl Regional for Bnrom {}
-impl Sram for Bnrom {}

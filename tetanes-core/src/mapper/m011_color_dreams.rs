@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -42,7 +41,6 @@ impl ColorDreams {
 }
 
 impl Map for ColorDreams {
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -76,8 +74,3 @@ impl Map for ColorDreams {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for ColorDreams {}
-impl Clock for ColorDreams {}
-impl Regional for ColorDreams {}
-impl Sram for ColorDreams {}

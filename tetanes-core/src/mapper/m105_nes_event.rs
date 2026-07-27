@@ -5,7 +5,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sram},
+    common::{Clock, Reset, ResetKind},
     mapper::{
         self, Map, Mapper, MapperOps,
         mmc1::{self, Mmc1},
@@ -219,24 +219,17 @@ impl Map for NesEvent {
         memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
         memory.set_mirroring(self.mmc1.mirroring);
     }
-}
 
-impl Reset for NesEvent {
+    fn clock(&mut self) {
+        self.mmc1.clock();
+        self.timer.clock();
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         self.mmc1.reset(kind);
-        self.mmc1.chr0 = 0b10000; // Initially, banking is locked, and the timer does not count 
+        self.mmc1.chr0 = 0b10000; // Initially, banking is locked, and the timer does not count
         self.bank_switching_lock.reset(kind);
         self.timer.reset(kind);
         self.update_state();
     }
 }
-
-impl Clock for NesEvent {
-    fn clock(&mut self) {
-        self.mmc1.clock();
-        self.timer.clock();
-    }
-}
-
-impl Regional for NesEvent {}
-impl Sram for NesEvent {}

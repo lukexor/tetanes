@@ -4,7 +4,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sram},
+    common::ResetKind,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -180,16 +180,7 @@ impl Map for JalecoSs88006 {
         }
         memory.set_mirroring(self.mirroring);
     }
-}
 
-impl Reset for JalecoSs88006 {
-    fn reset(&mut self, _kind: ResetKind) {
-        // The last PRG slot is fixed in `sync`, which the caller runs after reset.
-        self.regs = Regs::default();
-    }
-}
-
-impl Clock for JalecoSs88006 {
     fn clock(&mut self) {
         if self.regs.irq_enabled {
             let irq_mask = Self::IRQ_MASKS[self.regs.irq_counter_size as usize];
@@ -201,7 +192,9 @@ impl Clock for JalecoSs88006 {
                 (self.irq_counter & !irq_mask) | (counter.wrapping_sub(1) & irq_mask);
         }
     }
-}
 
-impl Regional for JalecoSs88006 {}
-impl Sram for JalecoSs88006 {}
+    fn reset(&mut self, _kind: ResetKind) {
+        // The last PRG slot is fixed in `sync`, which the caller runs after reset.
+        self.regs = Regs::default();
+    }
+}

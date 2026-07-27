@@ -4,14 +4,12 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sram},
-    fs,
+    common::{Clock, Reset, ResetKind},
     mapper::{self, Map, Mapper, MapperOps, Mmc1, Mmc1Revision},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 /// `SxROM`/`MMC1` (Mapper 001).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,29 +132,12 @@ impl Map for Sxrom {
 
         memory.set_mirroring(mmc1.mirroring);
     }
-}
 
-impl Reset for Sxrom {
+    fn clock(&mut self) {
+        self.mmc1.clock();
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         self.mmc1.reset(kind);
     }
 }
-
-impl Clock for Sxrom {
-    fn clock(&mut self) {
-        self.mmc1.clock();
-    }
-}
-
-impl Sram for Sxrom {
-    fn save(&self, _path: impl AsRef<Path>) -> fs::Result<()> {
-        // Battery-backed PRG-RAM now lives in `Memory`; saving is handled there.
-        Ok(())
-    }
-
-    fn load(&mut self, _path: impl AsRef<Path>) -> fs::Result<()> {
-        Ok(())
-    }
-}
-
-impl Regional for Sxrom {}

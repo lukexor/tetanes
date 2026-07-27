@@ -3,7 +3,7 @@
 //! <https://wiki.nesdev.org/w/index.php/Mapper>
 
 use crate::{
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
+    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample},
     fs,
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -278,92 +278,111 @@ macro_rules! impl_map {
     };
 }
 
-impl Map for Mapper {
+/// Dispatch to the selected board.
+///
+/// These are inherent rather than an `impl Map for Mapper`, because `Map` now carries the
+/// `clock`/`reset`/`region` methods a board used to get from `Clock`/`Reset`/`Regional`
+/// supertraits, and `Mapper` still implements those traits to forward them down the ownership
+/// tree - implementing both would make every one of those call sites ambiguous.
+impl Mapper {
+    /// An empty Mapper.
+    pub const fn none() -> Self {
+        Self::None(())
+    }
+
+    /// Whether mapper is `None`.
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None(_))
+    }
+
     /// Which of the optional per-cycle hooks this board needs.
-    fn mapper_ops(&self) -> MapperOps {
+    pub fn mapper_ops(&self) -> MapperOps {
         impl_map!(self, mapper_ops)
     }
 
     /// Synchronize a write to a PPU address.
-    fn ppu_write(&mut self, addr: u16, val: u8) {
+    pub fn ppu_write(&mut self, addr: u16, val: u8) {
         impl_map!(self, ppu_write, addr, val)
     }
 
     /// Whether an IRQ is pending acknowledgement.
-    fn irq_pending(&self) -> bool {
+    pub fn irq_pending(&self) -> bool {
         impl_map!(self, irq_pending)
     }
 
     /// Whether an DMA is pending acknowledgement.
-    fn dma_pending(&self) -> bool {
+    pub fn dma_pending(&self) -> bool {
         impl_map!(self, dma_pending)
     }
 
     /// Clear pending DMA.
-    fn clear_dma_pending(&mut self) {
+    pub fn clear_dma_pending(&mut self) {
         impl_map!(self, clear_dma_pending)
     }
 
     /// Returns the current [`Mirroring`] mode.
     #[inline(always)]
-    fn mirroring(&self) -> Mirroring {
+    pub fn mirroring(&self) -> Mirroring {
         impl_map!(self, mirroring)
     }
 
     /// Handle a CPU-space write, re-banking as needed.
     #[inline(always)]
-    fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+    pub fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         impl_map!(self, write_register, memory, addr, val)
     }
 
     /// Write this board's battery-backed state.
-    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
+    pub fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
         impl_map!(self, save_sram, memory, path)
     }
 
     /// Restore state previously written by `save_sram`.
-    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
+    pub fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
         impl_map!(self, load_sram, memory, path)
     }
 
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
-    fn prg_read(&mut self, addr: u16) -> Option<u8> {
+    pub fn prg_read(&mut self, addr: u16) -> Option<u8> {
         impl_map!(self, prg_read, addr)
     }
 
     /// Side-effect-free form of [`Map::prg_read`].
     #[inline(always)]
-    fn prg_peek(&self, addr: u16) -> Option<u8> {
+    pub fn prg_peek(&self, addr: u16) -> Option<u8> {
         impl_map!(self, prg_peek, addr)
     }
 
     /// Serve a PPU read, returning `None` to fall through to page-table memory.
     #[inline(always)]
-    fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
+    pub fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         impl_map!(self, chr_read, memory, addr)
     }
 
     /// Side-effect-free form of [`Map::chr_read`].
     #[inline(always)]
-    fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
+    pub fn chr_peek(&self, memory: &Memory, addr: u16) -> Option<u8> {
         impl_map!(self, chr_peek, memory, addr)
     }
 
     /// Observe a PPU bus address.
     #[inline(always)]
-    fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
+    pub fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
         impl_map!(self, ppu_bus_addr, memory, addr)
     }
 
     /// Rebuild the page tables from this board's register state.
-    fn sync(&mut self, memory: &mut Memory) {
+    pub fn sync(&mut self, memory: &mut Memory) {
         impl_map!(self, sync, memory)
     }
 }
 
 impl Sample for Mapper {
     /// Output a single audio sample.
+    ///
+    /// Only the four boards with expansion audio are listed; the rest are silent and are gated out
+    /// by `MapperOps::AUDIO` before ever reaching here.
     #[inline]
     fn output(&self) -> f32 {
         match self {
@@ -403,45 +422,28 @@ impl Regional for Mapper {
     }
 }
 
-impl Sram for Mapper {
-    /// Save RAM to a given path.
-    fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        impl_map!(self, save, path)
-    }
-
-    /// Load save RAM from a given path.
-    fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        impl_map!(self, load, path)
-    }
-}
-
-impl Mapper {
-    /// An empty Mapper.
-    pub const fn none() -> Self {
-        Self::None(())
-    }
-
-    /// Whether mapper is `None`.
-    pub const fn is_none(&self) -> bool {
-        matches!(self, Self::None(_))
-    }
-}
-
 impl Default for Mapper {
     fn default() -> Self {
         Self::none()
     }
 }
 
-/// Trait implemented for all [`Mapper`]s.
+/// Trait implemented by every board a [`Mapper`] can hold.
 ///
 /// Boards are pure register state: every read is served from [`Memory`]'s page tables, which a
 /// board rewrites from [`Map::write_register`] and [`Map::sync`]. The only reads that reach a
 /// board are the ones no page entry can describe - expansion hardware and MMC5's synthesised
 /// fetches - and those go through [`Map::prg_read`] and [`Map::chr_read`], which return `None` to
-/// mean "ordinary memory, read the page table". Each is gated on a cached `serves_*` flag so the
-/// boards without any pay a bool test rather than a dispatch.
-pub trait Map: Clock + Regional + Reset + Sram {
+/// mean "ordinary memory, read the page table". Each is gated on a cached `MapperOps` bit so the
+/// boards without any pay a bit test rather than a dispatch.
+///
+/// Every method has a default, so a board writes exactly the ones its hardware has and nothing
+/// else. That includes [`Map::clock`], [`Map::reset`] and [`Map::region`]/[`Map::set_region`],
+/// which used to come from `Clock`/`Reset`/`Regional` supertrait bounds and cost every board an
+/// empty `impl` for each one it did not need - four boilerplate impls per board, of which only
+/// [`Exrom`] ever filled in `Regional` and none at all filled in `Sram`. [`Mapper`] still
+/// implements those traits to forward them down the ownership tree; the boards no longer do.
+pub trait Map {
     /// Which of the optional per-cycle hooks this board needs: a per-cycle `Clock::clock()`, an
     /// IRQ, expansion audio, or DMA. Resolved once at cart load into `Ppu::mapper_ops`, so a board
     /// that needs none of them costs a bit test rather than a dispatch on every CPU cycle.
@@ -535,6 +537,25 @@ pub trait Map: Clock + Regional + Reset + Sram {
     /// reset, where `Reset` has no access to [`Memory`]. Boards implement their initial mapping
     /// here and call it from `load`, so a fresh cart and a restored save state take the same path.
     fn sync(&mut self, _memory: &mut Memory) {}
+
+    /// Clock the board once, for boards whose `mapper_ops()` includes `MapperOps::CLOCKED`.
+    fn clock(&mut self) {}
+
+    /// Reset the board given the [`ResetKind`].
+    ///
+    /// [`Memory`] is not reachable here, so a board that re-banks on reset sets its registers and
+    /// leaves the re-mapping to the [`Map::sync`] that follows.
+    fn reset(&mut self, _kind: ResetKind) {}
+
+    /// Return the board's region.
+    ///
+    /// Only boards whose timing differs between regions - MMC5's audio - track one.
+    fn region(&self) -> NesRegion {
+        NesRegion::default()
+    }
+
+    /// Set the board's region.
+    fn set_region(&mut self, _region: NesRegion) {}
 }
 
 impl Map for () {
@@ -542,12 +563,6 @@ impl Map for () {
         Mirroring::default()
     }
 }
-
-impl Sample for () {}
-impl Reset for () {}
-impl Clock for () {}
-impl Regional for () {}
-impl Sram for () {}
 
 #[cfg(test)]
 mod tests {

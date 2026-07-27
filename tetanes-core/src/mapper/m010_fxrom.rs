@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -107,8 +106,3 @@ impl Map for Fxrom {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for Fxrom {}
-impl Clock for Fxrom {}
-impl Regional for Fxrom {}
-impl Sram for Fxrom {}

@@ -9,7 +9,7 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, ResetKind, Sram},
+    common::{Clock, Reset, ResetKind},
     mapper::{self, Map, Mapper, MapperOps, mmc3::Mmc3},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -401,9 +401,11 @@ impl Map for Fk23C {
 
         memory.set_mirroring(self.mirroring);
     }
-}
 
-impl Reset for Fk23C {
+    fn clock(&mut self) {
+        self.mmc3.clock();
+    }
+
     fn reset(&mut self, kind: ResetKind) {
         self.mmc3.reset(kind);
         self.mmc3.bank_values.copy_from_slice(&Self::INIT_REGS[..8]);
@@ -430,13 +432,3 @@ impl Reset for Fk23C {
         self.update_state();
     }
 }
-
-impl Clock for Fk23C {
-    fn clock(&mut self) {
-        self.mmc3.clock();
-    }
-}
-
-impl Sram for Fk23C {}
-
-impl Regional for Fk23C {}

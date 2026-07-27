@@ -10,7 +10,7 @@ use crate::{
         pulse::{OutputFreq, Pulse, PulseChannel},
     },
     cart::Cart,
-    common::{Clock, NesRegion, Regional, Reset, ResetKind, Sample, Sram},
+    common::{Clock, NesRegion, Regional, ResetKind, Sample},
     cpu::Cpu,
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
@@ -677,10 +677,7 @@ impl Exrom {
         }
         let bank = (self.regs.vsplit.bank as usize) << 12;
         let fine_y = self.split_scroll() as usize & 0x07;
-        Some(memory.region_peek(
-            Src::Chr,
-            bank | ((addr as usize & !0x07) | fine_y) & 0x0FFF,
-        ))
+        Some(memory.region_peek(Src::Chr, bank | ((addr as usize & !0x07) | fine_y) & 0x0FFF))
     }
 
     /// Pattern-table byte for a tile whose CHR bank came from ExRAM.
@@ -775,7 +772,6 @@ impl Map for Exrom {
     // CPU $A000..=$BFFF 8K switchable PRG ROM/RAM bank
     // CPU $C000..=$DFFF 8K switchable PRG ROM/RAM bank
     // CPU $E000..=$FFFF 8K switchable PRG ROM bank
-
 
     fn mirroring(&self) -> Mirroring {
         self.mirroring
@@ -1160,16 +1156,7 @@ impl Map for Exrom {
         self.sync_nametables(memory);
         self.sync_ex_ram(memory);
     }
-}
 
-impl Reset for Exrom {
-    fn reset(&mut self, _kind: ResetKind) {
-        self.regs.prg_mode = PrgMode::Bank8k;
-        self.regs.chr_mode = ChrMode::Bank1k;
-    }
-}
-
-impl Clock for Exrom {
     fn clock(&mut self) {
         if self.ppu_status.reading {
             self.ppu_status.idle_count = 0;
@@ -1199,9 +1186,12 @@ impl Clock for Exrom {
 
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
     }
-}
 
-impl Regional for Exrom {
+    fn reset(&mut self, _kind: ResetKind) {
+        self.regs.prg_mode = PrgMode::Bank8k;
+        self.regs.chr_mode = ChrMode::Bank1k;
+    }
+
     fn region(&self) -> NesRegion {
         self.dmc.region()
     }
@@ -1210,8 +1200,6 @@ impl Regional for Exrom {
         self.dmc.set_region(region);
     }
 }
-
-impl Sram for Exrom {}
 
 impl Sample for Exrom {
     fn output(&self) -> f32 {
@@ -1423,7 +1411,11 @@ mod tests {
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "sprites");
 
         pattern_fetch(&mut mapper, &mut cart, Exrom::SPR_TILE_END);
-        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 2, "background again");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0x80 | 2,
+            "background again"
+        );
     }
 
     /// "When using 8x8 sprites, only registers $5120-$5127 are used. Registers $5128-$512B are
@@ -1435,7 +1427,11 @@ mod tests {
 
         for tile_number in [0, Exrom::SPR_TILE_START, Exrom::SPR_TILE_END] {
             pattern_fetch(&mut mapper, &mut cart, tile_number);
-            assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 1, "tile {tile_number}");
+            assert_eq!(
+                chr_peek(&mapper, &cart, 0x0000),
+                0x80 | 1,
+                "tile {tile_number}"
+            );
         }
     }
 
@@ -1539,7 +1535,11 @@ mod tests {
         // The nametable fetch caches which ExRAM byte the following fetches use.
         mapper.chr_read(&mut cart.memory, 0x2005);
 
-        assert_eq!(chr_peek(&mapper, &cart, 0x23C0), 0x55, "palette 1, mirrored");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x23C0),
+            0x55,
+            "palette 1, mirrored"
+        );
         // 4K bank 1 starts at CHR 1K page 4.
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 4);
         assert_eq!(chr_peek(&mapper, &cart, 0x0400), 0x80 | 5);
@@ -1615,8 +1615,7 @@ mod tests {
         cart.memory.chr_write(0x2800, 0x64);
 
         let config = bincode::config::legacy();
-        let bytes =
-            bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
+        let bytes = bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
         let (restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
             .expect("memory deserializes");
         cart.memory = restored;

@@ -9,7 +9,7 @@ use crate::{
     fs,
     genie::GenieCode,
     input::{Input, InputRegisters, Player},
-    mapper::{Map, Mapper, MapperOps},
+    mapper::{Mapper, MapperOps},
     memory::{ConstArray, RamState, Read, Write},
     ppu::Ppu,
 };

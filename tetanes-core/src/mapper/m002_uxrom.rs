@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -37,7 +36,6 @@ impl Uxrom {
 }
 
 impl Map for Uxrom {
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -61,8 +59,3 @@ impl Map for Uxrom {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for Uxrom {}
-impl Clock for Uxrom {}
-impl Regional for Uxrom {}
-impl Sram for Uxrom {}

@@ -13,7 +13,7 @@ use crate::{
         Instr::{JMP, JSR},
         InstrRef,
     },
-    mapper::{Map, MapperOps},
+    mapper::MapperOps,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};

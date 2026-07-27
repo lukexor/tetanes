@@ -5,7 +5,7 @@
 use crate::{
     apu::PULSE_TABLE,
     cart::Cart,
-    common::{Clock, Regional, Reset, Sample, Sram},
+    common::{Clock, Sample},
     mapper::{self, Map, Mapper, MapperOps},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -130,11 +130,7 @@ impl Map for SunsoftFme7 {
         memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
         memory.set_mirroring(self.mirroring);
     }
-}
 
-impl Reset for SunsoftFme7 {}
-
-impl Clock for SunsoftFme7 {
     fn clock(&mut self) {
         if self.regs.irq_counter_enabled {
             self.regs.irq_counter = self.regs.irq_counter.wrapping_sub(1);
@@ -145,9 +141,6 @@ impl Clock for SunsoftFme7 {
         self.audio.clock();
     }
 }
-
-impl Regional for SunsoftFme7 {}
-impl Sram for SunsoftFme7 {}
 
 impl Sample for SunsoftFme7 {
     fn output(&self) -> f32 {

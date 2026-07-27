@@ -3,7 +3,7 @@
 use crate::{
     common::{Clock, NesRegion, Regional, Reset, ResetKind},
     debug::PpuDebugger,
-    mapper::{Map, Mapper, MapperOps},
+    mapper::{Mapper, MapperOps},
     memory::{ConstArray, Memory, Read, Write},
     ppu::frame::Frame,
 };
@@ -13,9 +13,7 @@ use scroll::Scroll;
 use serde::{Deserialize, Serialize};
 use sprite::Sprite;
 use status::Status;
-use std::{
-    cmp::Ordering,
-};
+use std::cmp::Ordering;
 use tracing::{error, trace};
 
 pub mod ctrl;

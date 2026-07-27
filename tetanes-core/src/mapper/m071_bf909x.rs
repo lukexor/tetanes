@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -57,7 +56,6 @@ impl Bf909x {
 }
 
 impl Map for Bf909x {
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -95,8 +93,3 @@ impl Map for Bf909x {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for Bf909x {}
-impl Clock for Bf909x {}
-impl Regional for Bf909x {}
-impl Sram for Bf909x {}

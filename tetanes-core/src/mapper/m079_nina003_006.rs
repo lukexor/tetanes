@@ -4,7 +4,6 @@
 
 use crate::{
     cart::Cart,
-    common::{Clock, Regional, Reset, Sram},
     mapper::{self, Map, Mapper},
     memory::{Memory, Src},
     ppu::Mirroring,
@@ -41,7 +40,6 @@ impl Nina003006 {
 }
 
 impl Map for Nina003006 {
-
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -83,8 +81,3 @@ impl Map for Nina003006 {
         memory.set_mirroring(self.mirroring);
     }
 }
-
-impl Reset for Nina003006 {}
-impl Clock for Nina003006 {}
-impl Regional for Nina003006 {}
-impl Sram for Nina003006 {}
