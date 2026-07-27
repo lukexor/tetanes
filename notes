@@ -31,14 +31,13 @@ why extra_sram is not being folded into Memory:
   save_sram/load_sram need to go for another reason.
 
 follow-ups found during phase 4:
-- Regional for Mapper is dead. Nothing calls mapper.region()/set_region() -
-  Ppu::set_region sets its own timing and mask but never forwards to the
-  mapper. Exrom::set_region (-> dmc.set_region) is therefore never invoked,
-  so MMC5 expansion audio does not track PAL/Dendy. Either wire it up (an
-  emulation-behaviour change, needs snapshot review) or delete the dead path.
-- Box SunsoftFme7? Mapper is 72 bytes and FME7 is what sets that; boxing it
-  gives 56. Looks mildly favourable on non-FME7 ROMs but there is no mapper
-  069 ROM in the corpus to measure the cost side. See benches/README.md.
+- Regional for Mapper was dead -- FIXED in 525f11c. Ppu::set_region now
+  forwards, Ppu::load_mapper applies the region to a newly installed mapper,
+  and Exrom::set_region updates self.region (the half-frame pulse timer) as
+  well as self.dmc. Regression test: setting_the_region_reaches_the_mapper.
+- Box SunsoftFme7? -- DONE in 525f11c, -2.2% geomean. FME7 ROMs live in
+  $HOME/Games/NES (2722 ROMs; ~/dev/roms is the small set and has no 069).
+  Use the big library when a board needs coverage.
 
 follow on tasks:
 - convert Makefile.toml to cargo xtask

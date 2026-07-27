@@ -356,18 +356,37 @@ the frame path, which is what was expected.
 
 ### Enum size vs indirection: which boards still need boxing
 
-`Mapper` is 72 bytes, and `SunsoftFme7` (72) is what sets that - every other unboxed board is <= 34.
-Boxing it would take `Mapper` to **56 bytes**, the only remaining lever on the enum's size.
+Recorded 2026-07-27, on the corpus above **plus two mapper 069 ROMs** (Gimmick!, Batman: Return of
+the Joker), added because the first pass at this had no FME7 game to measure and reached the wrong
+conclusion without one.
 
-Measured on the four-ROM subset that has no FME7 game in it: spritecans 2.641 -> 2.602, SMB3
-2.867 -> 2.855, Castlevania III 3.784 -> 3.791, Akumajou 3.190 -> 3.139. Small and mostly
-favourable, i.e. shrinking `Ppu`'s inline `mapper` field helps ROMs that never touch the board.
+`SunsoftFme7` was the last unboxed board setting `Mapper`'s size: 72 bytes, where every other
+unboxed board is <= 56. Boxing it takes `Mapper` to **56 bytes**.
 
-**Not applied.** The corpus has no mapper 069 ROM (the library surveyed for this has none), so the
-cost side - an indirection on a board whose audio is clocked every CPU cycle - is unmeasured, and
-this is precisely the shape of change that surprised us before: un-boxing `Bus::wram` measured 1.2%
-*slower* despite removing an indirection. Revisit with an FME7 ROM (Gimmick!, Batman: Return of the
-Joker) in the corpus.
+| ROM | Mapper | unboxed | boxed | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM | 2.659 | 2.621 | -1.4% |
+| Super Mario Bros. | 000 NROM | 2.675 | 2.646 | -1.1% |
+| Legend of Zelda | 001 MMC1 | 2.689 | 2.602 | -3.2% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.884 | 2.827 | -2.0% |
+| Punch-Out!! | 009 MMC2 | 2.568 | 2.499 | -2.7% |
+| Castlevania III | 005 MMC5 | 3.849 | 3.749 | -2.6% |
+| Akumajou Densetsu | 024 VRC6 | 3.232 | 3.117 | -3.6% |
+| **Gimmick!** | **069 FME7** | **3.385** | **3.350** | **-1.0%** |
+| **Batman: Return of the Joker** | **069 FME7** | **3.218** | **3.163** | **-1.7%** |
+| **geometric mean** | | **2.992** | **2.927** | **-2.2%** |
 
-`Fk23C` *was* un-boxed: boxed back when it was 280 bytes, the page-table port left it at 56, below
-`SunsoftFme7`'s 72, so `Mapper` is 72 either way and the box bought nothing.
+**Applied.** The interesting row is FME7 itself: the board that *pays* the new indirection, on a
+struct whose audio is clocked every CPU cycle, still came out faster. Shrinking `Ppu`'s inline
+`mapper` field outweighs the pointer chase even for the board being chased. An earlier pass over a
+corpus with no FME7 ROM measured the other eight ROMs improving and declined to apply the change,
+reasoning that the cost side was unmeasured — the cost side turned out not to exist.
+
+**The general lesson is that boxing is a measured trade, not a size rule, and it has now surprised
+us in both directions**: un-boxing `Bus::wram` (2 KiB) measured 1.2% *slower* despite removing an
+indirection, and boxing `SunsoftFme7` (72 bytes) measured 2.2% *faster* despite adding one. Neither
+is predictable from the struct size alone; both are about what else fits in cache alongside.
+
+`Fk23C` went the other way and was **un-boxed**: boxed back when it was 280 bytes, the page-table
+port left it at 56, so with FME7 boxed it now sets the enum's size on its own and the box bought
+nothing but an allocation. Measured neutral, as expected for something off the frame path.
