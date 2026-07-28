@@ -432,7 +432,7 @@ impl RenderState {
                 )
             })
             .unwrap_or_else(|| {
-                tracing::warn!(format = ?capabilities.formats[0], "failling back to first available format");
+                tracing::warn!(format = ?capabilities.formats[0], "failing back to first available format");
                 capabilities.formats[0]
             });
 

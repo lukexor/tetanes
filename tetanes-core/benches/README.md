@@ -34,10 +34,14 @@ title or attract screen rather than in gameplay. That is stable and repeatable, 
 regression testing needs, but it under-reports a busy gameplay frame. `spritecans.nes` is a sprite
 stress ROM and serves as the pessimistic end of the range.
 
-The benchmark calls `clock_frame()`, **not** `clock_frame_output()`, so `Video::apply_filter` and
-the NTSC filter are **not** measured by default. Set `TETANES_BENCH_OUTPUT=1` to switch to
-`clock_frame_output()` and include it - needed to see any change to `Video::apply_ntsc_filter` or
-`Video::decode_buffer`, neither of which `clock_frame()` ever calls.
+The benchmark calls `clock_frame()` **and** `frame_buffer()` each frame, so `Video::apply_filter`
+and the NTSC filter are measured by default - every real frame is filtered, and leaving it out
+under-reports frame time by ~6%. Set `TETANES_BENCH_NO_OUTPUT=1` to time the CPU/PPU/APU core
+alone, which is what you want when A/B-ing a core change: the filter is a constant offset that
+dilutes the delta.
+
+> **Every baseline recorded below predates that default flipping (2026-07) and excluded the
+> filter.** Compare them against `TETANES_BENCH_NO_OUTPUT=1` runs, not against the current default.
 
 ## Reading the output
 

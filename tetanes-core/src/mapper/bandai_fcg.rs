@@ -137,7 +137,7 @@ impl BandaiFCG {
             }
         }
 
-        bandai_fcg.sync(&mut cart.memory);
+        bandai_fcg.update_banks(&mut cart.memory);
         Ok(bandai_fcg.into())
     }
 
@@ -154,10 +154,11 @@ impl BandaiFCG {
             self.chr_banks[bank] = val;
         }
 
-        if let Some(eeprom) = &mut self.extra_eeprom {
-            if self.mapper_num == 157 && (addr & 0x0F) <= 3 {
-                eeprom.write_scl((val >> 3) & 0x01)
-            }
+        if let Some(eeprom) = &mut self.extra_eeprom
+            && self.mapper_num == 157
+            && (addr & 0x0F) <= 3
+        {
+            eeprom.write_scl((val >> 3) & 0x01)
         }
     }
 
@@ -346,10 +347,10 @@ impl Map for BandaiFCG {
             },
             _ => (),
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         if self.has_chr_ram || self.mapper_num == 157 {
             memory.map_chr(0x0000, Self::CHR_RAM_SIZE, 0, Src::Chr);
         } else {

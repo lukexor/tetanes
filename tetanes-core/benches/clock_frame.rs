@@ -28,9 +28,16 @@
 //! which is what regression testing needs, but it under-reports a busy frame. `spritecans.nes` is
 //! a sprite stress ROM and serves as the pessimistic end of the range.
 //!
-//! By default this measures `ControlDeck::clock_frame`, which does **not** run `Video::apply_filter`
-//! - the NTSC/Pixellate filters are invisible to it despite running on every real frame. Set
-//! `TETANES_BENCH_OUTPUT=1` to switch to `clock_frame_output` and include that cost.
+//! By default this measures `ControlDeck::clock_frame` **plus** the `frame_buffer` read that
+//! applies `Video::apply_filter`, since every real frame is filtered. Set
+//! `TETANES_BENCH_NO_OUTPUT=1` to time the CPU/PPU/APU core alone - worth doing when A/B-ing a core
+//! change, since the filter is a ~6% constant offset that dilutes the delta.
+//!
+//! **Baselines recorded in `README.md` before 2026-07 excluded the filter**, and so are comparable
+//! to `TETANES_BENCH_NO_OUTPUT=1` runs, not to the current default.
+//!
+//! `TETANES_BENCH_RUN_AHEAD=n` clocks with run-ahead enabled, which costs a console snapshot and
+//! `n` extra frames per call. Off by default so the recorded baselines stay comparable.
 
 #![allow(clippy::expect_used, reason = "fine in a benchmark")]
 
@@ -63,12 +70,14 @@ fn env_or(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-/// Whether `TETANES_BENCH_OUTPUT` is set, switching the timed loop from `clock_frame` to
-/// `clock_frame_output`, which additionally runs `Video::apply_filter` (the NTSC/Pixellate
-/// filters). Off by default so the recorded baselines stay comparable to older runs; the NTSC
-/// filter is otherwise invisible to this benchmark despite running on every real frame.
+/// Whether the timed loop reads `frame_buffer` after each `clock_frame`, and so also runs
+/// `Video::apply_filter` (the NTSC/Pixellate filters).
+///
+/// On by default, because every real frame is filtered and leaving it out under-reports frame time
+/// by ~6%. Set `TETANES_BENCH_NO_OUTPUT=1` to isolate the CPU/PPU/APU core, which is worth doing
+/// when A/B-ing a core change: the filter is a constant offset that dilutes the delta.
 fn bench_output() -> bool {
-    std::env::var_os("TETANES_BENCH_OUTPUT").is_some()
+    std::env::var_os("TETANES_BENCH_NO_OUTPUT").is_none()
 }
 
 /// Timing results for a single ROM.
@@ -89,17 +98,23 @@ fn main() {
     let iterations = env_or("TETANES_BENCH_ITERS", ITERATIONS);
     let warmup = env_or("TETANES_BENCH_WARMUP", WARMUP_FRAMES as usize) as u32;
     let output = bench_output();
+    let run_ahead = env_or("TETANES_BENCH_RUN_AHEAD", 0);
 
     println!(
-        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}\n",
+        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}{}\n",
         roms.len(),
-        if output { ", clock_frame_output" } else { "" },
+        if output { ", +frame_buffer" } else { "" },
+        if run_ahead > 0 {
+            format!(", run_ahead {run_ahead}")
+        } else {
+            String::new()
+        },
     );
 
     let mut reports = Vec::with_capacity(roms.len());
     let mut skipped = Vec::new();
     for rom in &roms {
-        match bench_rom(rom, frames, iterations, warmup, output) {
+        match bench_rom(rom, frames, iterations, warmup, output, run_ahead) {
             Ok(report) => reports.push(report),
             // Sweeping a whole library will turn up boards this emulator does not implement yet.
             // Report them rather than aborting the run.
@@ -153,6 +168,7 @@ fn bench_rom(
     iterations: usize,
     warmup: u32,
     output: bool,
+    run_ahead: usize,
 ) -> Result<Report, String> {
     let name = path
         .file_stem()
@@ -170,6 +186,7 @@ fn bench_rom(
         let mut deck = ControlDeck::with_config(Config {
             // Deterministic RAM so runs are comparable.
             ram_state: RamState::AllZeros,
+            run_ahead,
             ..Default::default()
         });
         let mut rom = File::open(path).map_err(|err| err.to_string())?;
@@ -206,15 +223,15 @@ fn bench_rom(
 fn run_frames(deck: &mut ControlDeck, frames: u32, output: bool) {
     if output {
         for _ in 0..frames {
-            // `clock_frame_output` clears audio samples itself.
-            black_box(deck.clock_frame_output(|frame, _audio| black_box(frame.len())))
-                .expect("valid frame clock");
+            black_box(deck.clock_frame()).expect("valid frame clock");
+            // `clock_frame` leaves the frame unfiltered; reading it is what pulls in
+            // `Video::apply_filter`, which is the cost this mode exists to measure.
+            black_box(deck.frame_buffer().len());
         }
         return;
     }
     for _ in 0..frames {
         black_box(deck.clock_frame()).expect("valid frame clock");
-        deck.clear_audio_samples();
     }
 }
 

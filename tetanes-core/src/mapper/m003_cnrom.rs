@@ -31,7 +31,7 @@ impl Cnrom {
             mirroring: cart.mirroring(),
             chr_bank: 0,
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -48,7 +48,7 @@ impl Map for Cnrom {
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         // A 16K cart maps the same bank into both slots, which falls out of the bank index
         // wrapping within the region.
         memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);

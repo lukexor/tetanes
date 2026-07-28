@@ -36,15 +36,15 @@ impl Pxrom {
             latch: [0; 2],
             latch_banks: [0; 4],
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 
     /// Re-map one 4K CHR window from whichever bank register its latch currently selects.
     ///
     /// The latch flips on tile fetches, so this runs thousands of times a frame; rebuilding every
-    /// page table entry through `sync` for it cost Punch-Out!! ~20% of its frame time.
-    fn sync_chr(&self, memory: &mut Memory, half: usize) {
+    /// page table entry through `update_banks` for it cost Punch-Out!! ~20% of its frame time.
+    fn update_chr_banks(&self, memory: &mut Memory, half: usize) {
         let bank = self.latch_banks[self.latch[half] + half * 2];
         memory.map_chr(
             (half * Self::CHR_WINDOW) as u16,
@@ -68,7 +68,7 @@ impl Map for Pxrom {
             let latch = ((addr >> 4) & 0xFF) - 0xFD;
             if self.latch[half] != latch {
                 self.latch[half] = latch;
-                self.sync_chr(memory, half);
+                self.update_chr_banks(memory, half);
             }
         }
     }
@@ -89,10 +89,10 @@ impl Map for Pxrom {
             }
             _ => return,
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
         memory.map_prg(
             0x8000,
@@ -103,8 +103,8 @@ impl Map for Pxrom {
         memory.map_prg(0xA000, Self::PRG_WINDOW, -3, Src::PrgRom);
         memory.map_prg(0xC000, Self::PRG_WINDOW, -2, Src::PrgRom);
         memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
-        self.sync_chr(memory, 0);
-        self.sync_chr(memory, 1);
+        self.update_chr_banks(memory, 0);
+        self.update_chr_banks(memory, 1);
         memory.set_mirroring(self.mirroring);
     }
 }

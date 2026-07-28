@@ -80,7 +80,6 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| format!("failed to load {:?}", opt.path))?;
     for _ in 0..opt.frames {
         deck.clock_frame().context("failed to clock frame")?;
-        deck.clear_audio_samples();
     }
 
     let ppu = &deck.cpu().bus.ppu;

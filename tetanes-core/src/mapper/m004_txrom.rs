@@ -40,7 +40,7 @@ impl Txrom {
             mapper_num: cart.mapper_num(),
             submapper_num: cart.submapper_num(),
         };
-        txrom.sync(&mut cart.memory);
+        txrom.update_banks(&mut cart.memory);
         Ok(txrom.into())
     }
 
@@ -68,7 +68,7 @@ impl Txrom {
         }
     }
 
-    fn sync_prg(&self, memory: &mut Memory) {
+    fn update_prg_banks(&self, memory: &mut Memory) {
         let prg_lo = i32::from(self.mmc3.bank_values[6]);
         let prg_hi = i32::from(self.mmc3.bank_values[7]);
         // -1 is the last bank, -2 the one before it.
@@ -84,7 +84,7 @@ impl Txrom {
         memory.map_prg(0xE000, Self::PRG_WINDOW, -1, Src::PrgRom);
     }
 
-    fn sync_chr(&mut self, memory: &mut Memory) {
+    fn update_chr_banks(&mut self, memory: &mut Memory) {
         if self.mapper_num == 76 {
             for (slot, reg) in (2..6).enumerate() {
                 let addr = (slot * Self::CHR_WINDOW_76) as u16;
@@ -200,13 +200,13 @@ impl Map for Txrom {
             };
         }
 
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
-        self.sync_prg(memory);
-        self.sync_chr(memory);
+        self.update_prg_banks(memory);
+        self.update_chr_banks(memory);
         // Four-screen carts get 4K of CIRAM from the cart, so the nametables simply map to four
         // distinct pages - no separate ex_ram buffer as before.
         memory.set_mirroring(self.mirroring);

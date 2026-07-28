@@ -339,11 +339,19 @@ impl State {
             show_frame_stats: false,
         };
         state.update_region(cfg.deck.region);
+        state.update_run_ahead();
         state
     }
 
     pub(crate) fn add_message<S: ToString>(&mut self, ty: MessageType, msg: S) {
         self.tx.event(UiEvent::Message((ty, msg.to_string())));
+    }
+
+    /// Pushes the configured run-ahead down to the deck, disabling it above 1x speed where the
+    /// extra frames cost more than the latency they hide.
+    fn update_run_ahead(&mut self) {
+        self.control_deck
+            .set_run_ahead(if self.speed > 1.0 { 0 } else { self.run_ahead });
     }
 
     fn write_deck<T>(
@@ -524,7 +532,7 @@ impl State {
     fn on_config_event(&mut self, event: &ConfigEvent) {
         match event {
             ConfigEvent::ApuChannelEnabled((channel, enabled)) => {
-                let prev_enabled = self.control_deck.channel_enabled(*channel);
+                let prev_enabled = self.control_deck.apu_channel_enabled(*channel);
                 self.control_deck
                     .set_apu_channel_enabled(*channel, *enabled);
                 if prev_enabled != *enabled {
@@ -586,7 +594,10 @@ impl State {
             ConfigEvent::RewindEnabled(enabled) => self.rewind.set_enabled(*enabled),
             ConfigEvent::RewindInterval(interval) => self.rewind.set_interval(*interval),
             ConfigEvent::RewindSeconds(seconds) => self.rewind.set_seconds(*seconds),
-            ConfigEvent::RunAhead(run_ahead) => self.run_ahead = *run_ahead,
+            ConfigEvent::RunAhead(run_ahead) => {
+                self.run_ahead = *run_ahead;
+                self.update_run_ahead();
+            }
             ConfigEvent::MapperRevisions(revs) => {
                 self.control_deck.set_mapper_revisions(*revs);
             }
@@ -594,6 +605,7 @@ impl State {
             ConfigEvent::Speed(speed) => {
                 self.speed = *speed;
                 self.control_deck.set_frame_speed(*speed);
+                self.update_run_ahead();
             }
             ConfigEvent::VideoFilter(filter) => self.control_deck.set_filter(*filter),
             ConfigEvent::ZapperConnected(connected) => {
@@ -636,7 +648,7 @@ impl State {
 
     fn send_frame(&mut self) {
         match self.frame_tx.try_send_ref() {
-            Ok(mut frame) => self.control_deck.frame_buffer_into(&mut frame),
+            Ok(mut frame) => self.control_deck.frame_buffer_into(frame.as_array_mut()),
             Err(TrySendError::Full(_)) => trace!("dropped frame"),
             Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
@@ -926,22 +938,14 @@ impl State {
                 self.on_emulation_event(&event);
             }
 
-            let run_ahead = if self.speed > 1.0 { 0 } else { self.run_ahead };
-            let res =
-                self.control_deck
-                    .clock_frame_ahead(run_ahead, |frame_buffer, audio_samples| {
-                        self.audio.process(audio_samples);
-                        match self.frame_tx.try_send_ref() {
-                            Ok(mut frame) => {
-                                frame.clear();
-                                frame.extend_from_slice(frame_buffer);
-                            }
-                            Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                            Err(_) => shutdown(&self.tx, "failed to get frame"),
-                        }
-                    });
-            match res {
+            match self.control_deck.clock_frame() {
                 Ok(()) => {
+                    self.audio.process(self.control_deck.audio_samples());
+                    match self.frame_tx.try_send_ref() {
+                        Ok(mut frame) => self.control_deck.frame_buffer_into(frame.as_array_mut()),
+                        Err(TrySendError::Full(_)) => debug!("dropped frame"),
+                        Err(_) => shutdown(&self.tx, "failed to get frame"),
+                    }
                     self.update_frame_stats();
                     if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
                         self.rewind.set_enabled(false);

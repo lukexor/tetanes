@@ -484,7 +484,7 @@ impl Mixer {
         if paused && !self.paused {
             let _ = self.stop_recording();
             self.processed_samples.clear();
-            // FIXME: Currently cpal doesn't let the underyling audio device empty samples before
+            // FIXME: Currently cpal doesn't let the underlying audio device empty samples before
             // pausing which leads to the remaining audio playing again upon resume. The only work
             // around is to leave the stream playing
             // if let Err(err) = self.stream.pause() {

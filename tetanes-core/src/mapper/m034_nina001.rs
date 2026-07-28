@@ -34,7 +34,7 @@ impl Nina001 {
             prg_bank: 0,
             chr_banks: [0, 1],
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -78,7 +78,7 @@ impl Map for Nina001 {
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
         memory.map_prg(
             0x8000,

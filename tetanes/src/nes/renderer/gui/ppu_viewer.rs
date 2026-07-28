@@ -1208,7 +1208,7 @@ impl State {
             }
             ui.end_row();
 
-            // TODO: sprite index, palete address, position, horizontal/vertical flip/backgroud
+            // TODO: sprite index, palette address, position, horizontal/vertical flip/backgroud
             // priority, palette row
         });
     }

@@ -1,0 +1,45 @@
+# Spell-checking config for https://github.com/crate-ci/typos.
+#
+# Run with `cargo make typos`. CI runs it from `.github/workflows/spelling.yml` rather than as a
+# job in `ci.yml`, because that workflow has `paths-ignore: "**.md"` and prose typos live in
+# markdown.
+
+[files]
+extend-exclude = [
+  # Verbatim third-party NES reference documents. These are archived copies of nesdev/community
+  # docs that PPU/APU/mapper comments quote and cite; correcting their spelling would make them
+  # stop matching the originals.
+  "docs/",
+  # Vendored sources.
+  "vendored/",
+  # Generated from commit messages by git-cliff (`cliff.toml`). Rewriting history's spelling would
+  # desync the changelog from the commits it is generated from.
+  "CHANGELOG.md",
+  # Homebrew ROM descriptions, quoted verbatim from their authors.
+  "tetanes/assets/roms/",
+  # Data blobs: ROM names, board names and binary palettes, none of which are prose.
+  "tetanes-core/game_database.txt",
+  "tetanes-core/*.pal",
+  "tetanes-core/test_roms/",
+  "Cargo.lock",
+]
+
+[default.extend-words]
+# Register bit-field notation. Comments diagram bits as `[.... ..BA]`, where A and B name the bits,
+# not the word "BA".
+BA = "BA"
+# Undocumented 6502 opcodes. `ANC` and `SHS` are the accepted mnemonics.
+ANC = "ANC"
+SHS = "SHS"
+# File extension for save states.
+sav = "sav"
+# `PNGs` splits into `PN` + `Gs` on the case boundary.
+PN = "PN"
+# Romanized Chinese in a ROM title ("San Guo Zhi 2 - Ba Wang de Da Lu").
+Ba = "Ba"
+# Romanized Japanese in a ROM title ("Famicom Jump II - Saikyou no 7 Nin").
+nin = "nin"
+# In a homebrew ROM blurb quoted verbatim from its author in `tetanes/src/nes/rom.rs`.
+carring = "carring"
+# iNES, the ROM container format.
+ines = "ines"

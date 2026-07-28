@@ -43,7 +43,6 @@ fn main() -> anyhow::Result<()> {
 
     for _ in 0..opt.frames {
         deck.clock_frame().context("failed to clock frame")?;
-        deck.clear_audio_samples();
     }
 
     image::RgbaImage::from_raw(

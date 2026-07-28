@@ -47,11 +47,29 @@ pub struct GenieCode {
 }
 
 impl GenieCode {
-    /// Creates a new `GenieCode` instance.
+    /// Creates a `GenieCode` from a 6- or 8-letter Game Genie code.
+    ///
+    /// Codes patch reads from PRG-ROM: a 6-letter code replaces whatever is at its address, an
+    /// 8-letter code only does so when the existing value matches its compare byte. Add one to a
+    /// running console with
+    /// [`ControlDeck::add_genie_code`](crate::control_deck::ControlDeck::add_genie_code).
+    ///
+    /// ```
+    /// use tetanes_core::genie::GenieCode;
+    ///
+    /// // Infinite lives in Super Mario Bros.
+    /// let code = GenieCode::new("SXIOPO".to_string())?;
+    /// assert_eq!(code.code(), "SXIOPO");
+    ///
+    /// // Letters outside the Game Genie alphabet, or a wrong length, are rejected.
+    /// assert!(GenieCode::new("NOTACODE".to_string()).is_err());
+    /// # Ok::<(), tetanes_core::genie::Error>(())
+    /// ```
     ///
     /// # Errors
     ///
-    /// This function will return an error if the given code is not the correct format.
+    /// If the code is not 6 or 8 characters, or contains a letter outside the Game Genie alphabet,
+    /// then an error is returned.
     pub fn new(code: String) -> Result<Self> {
         let hex = Self::parse(&code)?;
         Ok(Self::from_raw(code, &hex))

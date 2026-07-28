@@ -72,7 +72,7 @@ impl Vrc6 {
             prg_banks: [0; 2],
         };
         board.set_mirroring(board.mirroring);
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 
@@ -240,10 +240,10 @@ impl Map for Vrc6 {
             0xF002 => self.irq.acknowledge(),
             _ => return,
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         for (slot, bank) in self.chr_banks().into_iter().enumerate() {
             let addr = (slot * Self::CHR_WINDOW) as u16;
             memory.map_chr(addr, Self::CHR_WINDOW, bank as i32, Src::Chr);

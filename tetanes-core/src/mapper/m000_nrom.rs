@@ -36,7 +36,7 @@ impl Nrom {
         let mut board = Self {
             mirroring: cart.mirroring(),
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -46,7 +46,7 @@ impl Map for Nrom {
         self.mirroring
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, 8 * 1024, 0, Src::PrgRam);
         memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
         // NROM-128 has a single 16K bank mirrored into both slots, which falls out of the bank

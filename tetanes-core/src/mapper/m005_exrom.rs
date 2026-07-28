@@ -375,7 +375,7 @@ impl Exrom {
             .saturating_sub(1)
             & Self::BANK_MASK;
         exrom.regs.prg_banks[4] = last_prg_bank | Self::ROM_SELECT_MASK;
-        exrom.sync(&mut cart.memory);
+        exrom.update_banks(&mut cart.memory);
         Ok(exrom.into())
     }
 
@@ -427,7 +427,7 @@ impl Exrom {
     //            +-------+---------------+-------+-------+
     // P=%11:     | $5113 | $5114 | $5115 | $5116 | $5117 |
     //            +-------+-------+-------+-------+-------+
-    fn sync_prg(&self, memory: &mut Memory) {
+    fn update_prg_banks(&self, memory: &mut Memory) {
         let banks = self.regs.prg_banks;
         // $5113 always selects PRG-RAM.
         self.map_prg_bank(memory, 0x6000, banks[0] & Self::PRG_RAM_BANK_MASK, false);
@@ -481,7 +481,7 @@ impl Exrom {
     //             +---------------+---------------+---------------+---------------+
     //   C=%11:    | $5128 | $5129 | $512A | $512B | $5128 | $5129 | $512A | $512B |
     //             +-------+-------+-------+-------+-------+-------+-------+-------+
-    fn sync_chr(&self, memory: &mut Memory) {
+    fn update_chr_banks(&self, memory: &mut Memory) {
         let hi = self.regs.chr_hi;
         let banks = match self.chr_set {
             ChrBank::Spr => &self.regs.chr_banks[0..8],
@@ -519,7 +519,7 @@ impl Exrom {
     ///
     /// This is why MMC5 does not call [`Memory::set_mirroring`]: the four slots are independent
     /// and two of the four sources are not CIRAM at all.
-    fn sync_nametables(&self, memory: &mut Memory) {
+    fn update_nametables(&self, memory: &mut Memory) {
         let nametable_mode = self.regs.exram_mode.nametable;
         for (i, select) in self.regs.nametable_mapping.select.into_iter().enumerate() {
             let addr = 0x2000 + (i * Self::CHR_WINDOW) as u16;
@@ -541,7 +541,7 @@ impl Exrom {
     }
 
     /// Map ExRAM into the CPU window at $5C00-$5FFF according to the current ExRAM mode.
-    fn sync_ex_ram(&self, memory: &mut Memory) {
+    fn update_ex_ram(&self, memory: &mut Memory) {
         if self.regs.exram_mode.rw.contains(ExRamRW::R) {
             memory.map_prg(0x5C00, Self::EX_RAM_WINDOW, 0, Src::ExRam);
             let writable = self.regs.exram_mode.rw.contains(ExRamRW::W);
@@ -569,8 +569,15 @@ impl Exrom {
         }
     }
 
-    /// Re-map the pattern tables if the set they should come from has changed.
-    fn update_chr_banks(&mut self, memory: &mut Memory, force: bool) {
+    /// Latch the CHR bank set the PPU should be reading from, re-mapping only if it changed.
+    ///
+    /// The layer above [`Exrom::update_chr_banks`], and the reason MMC5 has one at all: every other
+    /// board has a single set of CHR registers, so mapping is a pure function of them. MMC5 has two
+    /// ('A' and 'B', see [`Exrom::required_chr_set`]) and switches between them *mid-frame* as the
+    /// PPU alternates sprite and background fetches. This is called from the hot PPU-fetch path, so
+    /// it compares first and re-maps only on a change; `force` is for the callers that have just
+    /// rewritten the registers and know the mapping is stale regardless.
+    fn select_chr_set(&mut self, memory: &mut Memory, force: bool) {
         if !self.ppu_status.sprite8x16 {
             // 8x8 sprites ignore $5128-$512B completely, so a write to one of them cannot leave
             // the 'B' set selected.
@@ -579,7 +586,7 @@ impl Exrom {
         let chr_set = self.required_chr_set();
         if force || chr_set != self.chr_set {
             self.chr_set = chr_set;
-            self.sync_chr(memory);
+            self.update_chr_banks(memory);
         }
     }
 
@@ -867,7 +874,7 @@ impl Map for Exrom {
     fn chr_read(&mut self, memory: &mut Memory, addr: u16) -> Option<u8> {
         match addr {
             0x0000..=0x1FFF => {
-                self.update_chr_banks(memory, false);
+                self.select_chr_set(memory, false);
                 self.split_chr_read(memory, addr)
                     .or_else(|| self.ex_attr_chr_read(memory, addr))
             }
@@ -979,7 +986,7 @@ impl Map for Exrom {
                         self.regs.prg_mode
                     }
                 };
-                self.sync_prg(memory);
+                self.update_prg_banks(memory);
             }
             0x5101 => {
                 // [.... ..CC] CHR Mode
@@ -998,7 +1005,7 @@ impl Map for Exrom {
                         }
                     };
                 }
-                self.update_chr_banks(memory, true);
+                self.select_chr_set(memory, true);
             }
             0x5102 | 0x5103 => {
                 // To allow writing to PRG-RAM you must set:
@@ -1008,7 +1015,7 @@ impl Map for Exrom {
                 // [.... ..AA]    PRG-RAM Protect A
                 // [.... ..BB]    PRG-RAM Protect B
                 self.regs.prg_ram_protect[(addr - 0x5102) as usize] = val & 0x03;
-                self.sync_prg(memory);
+                self.update_prg_banks(memory);
             }
             0x5104 => {
                 // [.... ..XX] ExRam mode
@@ -1018,8 +1025,8 @@ impl Map for Exrom {
                 //   %10    Read/Write       No             No
                 //   %11    Read Only        No             No
                 self.regs.exram_mode.set(val);
-                self.sync_ex_ram(memory);
-                self.sync_nametables(memory);
+                self.update_ex_ram(memory);
+                self.update_nametables(memory);
             }
             0x5105 => {
                 // [.... ..HH]
@@ -1055,7 +1062,7 @@ impl Map for Exrom {
                     // Any other combination means Mapper provides nametables
                     _ => Mirroring::FourScreen,
                 };
-                self.sync_nametables(memory);
+                self.update_nametables(memory);
             }
             0x5106 => self.regs.fill.tile = val, // [TTTT TTTT] Fill Tile
             0x5107 => self.regs.fill.attr = (val & 0x03).into(), // [.... ..AA] Fill Attribute bits
@@ -1068,7 +1075,7 @@ impl Map for Exrom {
                 //      P = PRG page
                 let bank = (addr - 0x5113) as usize;
                 self.regs.prg_banks[bank] = val as usize;
-                self.sync_prg(memory);
+                self.update_prg_banks(memory);
             }
             0x5120..=0x512B => {
                 let bank = (addr - 0x5120) as usize;
@@ -1080,12 +1087,12 @@ impl Map for Exrom {
                     self.regs.chr_banks[bank + 4] = self.regs.chr_banks[bank];
                     self.last_chr_write = ChrBank::Bg;
                 }
-                self.update_chr_banks(memory, true);
+                self.select_chr_set(memory, true);
             }
             0x5130 => {
                 // [.... ..HH]  CHR Bank Hi bits
                 self.regs.chr_hi = (val as usize & 0x03) << 8;
-                self.sync_chr(memory);
+                self.update_chr_banks(memory);
             }
             0x5200 => {
                 // [ES.T TTTT]    Split control
@@ -1150,11 +1157,11 @@ impl Map for Exrom {
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
-        self.sync_prg(memory);
-        self.update_chr_banks(memory, true);
-        self.sync_nametables(memory);
-        self.sync_ex_ram(memory);
+    fn update_banks(&mut self, memory: &mut Memory) {
+        self.update_prg_banks(memory);
+        self.select_chr_set(memory, true);
+        self.update_nametables(memory);
+        self.update_ex_ram(memory);
     }
 
     fn clock(&mut self) {
@@ -1604,7 +1611,7 @@ mod tests {
         assert_eq!(mapper.chr_peek(&cart.memory, 0x0000), None);
     }
 
-    /// Page tables are derived state that save states do not carry, so `sync` has to rebuild every
+    /// Page tables are derived state that save states do not carry, so `update_banks` has to rebuild every
     /// one of MMC5's mappings from its registers alone.
     #[test]
     fn sync_rebuilds_every_mapping_from_register_state() {
@@ -1626,7 +1633,7 @@ mod tests {
         // `Cpu::load` does this for real.
         assert!(restored.restore_rom_from(&cart.memory), "same cart");
         cart.memory = restored;
-        mapper.sync(&mut cart.memory);
+        mapper.update_banks(&mut cart.memory);
 
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 8, "PRG");
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 6, "CHR");

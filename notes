@@ -18,7 +18,93 @@ phases:
     btrfs/tmpfs/long paths builds a byte-identical binary). The real effect
     is that the first run after a rebuild is ~1.5% slow. Run it twice, use
     the second. benches/README.md has the experiment.
-- phase 6 - clean up public apis - adding a mapper doc
+- phase 6 - clean up public apis -- DONE
+  - Collapsed 10 clocking entry points to 4. clock_frame is the one to use and
+    honors set_run_ahead/Config::run_ahead; frame_buffer/frame_buffer_into/
+    audio_samples report what it produced. clock_frame_output/into/ahead/
+    ahead_into/clock_seconds_output are #[deprecated] shims forwarding to it.
+  - Run-ahead used to be visible ONLY through its closure: it rewinds the
+    console past the displayed frame, so frame_buffer() afterwards returned the
+    pre-run-ahead frame. RunAheadFrames now parks the future frame's pixels
+    (pending + pending_frame_number) and lends the PPU a recycled spare, so the
+    accessors see the right frame. Regression test:
+    run_ahead_reports_the_future_frame_not_the_rewound_one.
+  - The mem::swap also drops the per-frame 120 KiB zeroing alloc that
+    mem::take's Default did: run_ahead=1 is 5.245 -> 5.064 ms/frame (-3.4%).
+    Plain clock_frame 2.593 -> 2.556 (neutral, inside noise). New
+    TETANES_BENCH_RUN_AHEAD=n gives that path bench coverage it never had.
+  - Audio no longer accumulates: clocking clears the previous call's samples
+    first. Opt out with Config::clear_audio_on_clock=false when you clock
+    several times before draining - which is what the ROM audio-test path in
+    common.rs now does. Clear is once per OUTER call, so 2x speed still reports
+    both NES frames; run-ahead's intermediate frames are always discarded since
+    they belong to a rewound timeline.
+  - Fixed: apu_mut returned &Apu, joypad took &mut self, clock_frame_ahead_into
+    never set skip_rendering, clock_frame_into panicked when the caller's buffer
+    was longer than the frame, cpu_corrupted was #[cold] AND #[inline(always)],
+    ControlDeck::wram returned &[u8] where Bus::wram returns &[u8; WRAM].
+  - Deprecated: pub mod error (entirely dead), common::SAVE_DIR/SRAM_DIR,
+    channel_enabled (-> apu_channel_enabled). hexdump KEPT for the planned
+    debugger hex viewer, now with docs + a doctest.
+  - Docs: 2 doctests -> 14, rewritten README example, control_deck module doc,
+    and the "adding a mapper" guide now lives in mapper.rs's module doc.
+  - typos (crate-ci) added: _typos.toml, cargo make typos (in the lint chain),
+    and .github/workflows/spelling.yml. Deliberately NOT a job in ci.yml, which
+    has a workflow-level paths-ignore "**.md" - markdown is where prose typos
+    live. Excludes docs/ and vendored/ (verbatim third-party) and the generated
+    CHANGELOGs; extend-words covers NES jargon (BA bit-fields, ANC/SHS opcodes,
+    romanized ROM titles).
+  - Downstream survey: only 2 real third-party users of tetanes-core. nesbox/
+    dappicom/zk-nintendo all vendor the PRE-SPLIT tetanes 0.8/0.9 crate and are
+    unaffected. djanatyn/chaos-seeker uses ControlDeck normally from crates.io
+    0.12.2 - the deprecations cover it. tedsteen/nes-bundler (166*, active)
+    pins a GIT REV so it sees no deprecation warnings at all, and bypasses
+    ControlDeck entirely (drives Cpu/Bus, reimplements clock_frame + run-ahead);
+    it is ALREADY broken by phases 4/5 in six places (deleted traits, mem ->
+    memory, Memory::new signature, Bus::sram, Apu::clock_flush, ppu.bus.mapper).
+    TODO: changelog migration section + open an issue on nes-bundler. Do NOT
+    re-add those internals; that would undo phases 4/5.
+
+- phase 6 follow-ups -- DONE
+  - MSRV 1.85 -> 1.88 (Cargo.toml, README, CLAUDE.md, ci.yml matrix). 1.85 could
+    not build the crate AT ALL - let-chains in ppu.rs need 1.88 - so that CI job
+    had been red for a while. Stable was red too (collapsible_if in
+    m176_fk23c.rs); fixed as a match guard, which is equivalent here because the
+    guard falls through to `_` and still reaches the trailing update_banks().
+    bandai_fcg.rs got a let-chain and hexdump uses is_multiple_of, both now that
+    1.88 allows it. nightly/stable/1.88 all green.
+  - Frame buffers are sized: Ppu::frame_buffer and ControlDeck::frame_buffer_raw
+    return &[u16; ppu::size::FRAME]; ControlDeck::frame_buffer returns
+    &[u8; Frame::SIZE]; frame_buffer_into and all of Video's filter fns take
+    &mut [u8; Frame::SIZE]. Callers no longer have to guess a length and the doc
+    comments lost a paragraph each. Frame::as_array/as_array_mut are the bridge
+    from the Vec-backed Frame - they carry the one try_into().expect(), which
+    phase 8 removes by making Frame hold a boxed array.
+  - Map::sync -> Map::update_banks, Ppu::sync_mapper -> rebuild_mapper_state,
+    and the per-board helpers went with them: sync_prg/sync_chr/sync_nametables/
+    sync_ex_ram -> update_prg_banks/update_chr_banks/update_nametables/
+    update_ex_ram. So every board now reads update_banks -> update_*_banks.
+    The one exception is Exrom, which HAD an update_chr_banks(memory, force)
+    that collided. It was misnamed: it is not a banking function but the policy
+    layer ABOVE sync_chr, and it exists only because MMC5 is the sole board with
+    two CHR register sets ('A' sprite / 'B' background) that it swaps between
+    mid-frame as the PPU alternates fetches. Everyone else maps as a pure
+    function of one register set. Renamed to select_chr_set, which is what it
+    does - compares the required set against the active one and re-maps only on
+    a change (it is on the hot PPU-fetch path); `force` is for callers that just
+    rewrote the registers.
+  - TETANES_BENCH_OUTPUT is now TETANES_BENCH_NO_OUTPUT, i.e. filtering is ON by
+    default, since every real frame is filtered. Measured cost: 2.556 -> 2.708
+    ms/frame, +5.9%. Use NO_OUTPUT=1 when A/B-ing a core change, where that
+    constant offset just dilutes the delta. EVERY baseline in benches/README.md
+    predates this flip and excluded the filter - compare those against
+    NO_OUTPUT=1 runs only.
+
+- phase 7 - ROM test debt (PLANNED, see below)
+- phase 8 - deferred API work (PLANNED, see below)
+
+TODO for Luke (not Claude): open an issue on tedsteen/nes-bundler about the
+phases 4/5 breaks. They pin a git rev so cargo warns them about nothing.
 - post:
   - rename prg_read/etc
   - fold extra_sram into memory by re-using Src::ExRam -- NOT DOING, see below
@@ -80,3 +166,97 @@ follow on tasks:
 - network multiplayer
 - swap localstorage for origin private file system or indexdb
 - add development console for debugger allowing inspection/poking at memory
+
+================================================================================
+PHASE 7 PLAN - ROM test debt                                    (DRAFT, review)
+================================================================================
+
+Current state, measured (scripts/one-off survey, not committed):
+
+  group        dir                            active  ignored  roms   in json
+  cpu          test_roms/cpu                      39        0    39        39
+  ppu          test_roms/ppu                      41        1    42        42
+  apu          test_roms/apu                      46       18    64        46
+  input        test_roms/input                     2        2     4         4
+  m004_txrom   test_roms/mapper/m004_txrom         7        0     7         7
+  m005_exram   test_roms/mapper/m005_exrom         2        0     2         2
+                                              -------  -------
+                                                  137       21
+
+21 ignored, and they are NOT one problem - they are four, in increasing
+difficulty. The 20 non-PPU ones have no tests.json entry at all, so there is
+nothing to compare against; only ppu::vbl_nmi_even_odd_timing has an
+expectation and genuinely fails.
+
+7a. BLOCKER, fix first: `audio` is unassertable-by-accident.
+    TestFrame.audio and RomTest.audio are both #[serde(skip_serializing)]. They
+    deserialize fine, so a hand-written audio test works - but UPDATE_SNAPSHOT=1
+    rewrites tests.json WITHOUT them, silently converting every audio test into
+    a frame-buffer test. Any audio work below is built on sand until this is
+    fixed. Also: zero tests currently set audio:true, so the whole audio-hash
+    path in the harness has never actually run. Fix the serde, then land one
+    known-good audio test to prove the path end to end.
+
+7b. Cheapest real win: the $6000 status protocol.  [7 tests]
+    apu::{dmc,noise,square,triangle} ("compare $6000 output") and
+    apu::{dmc_buffer_retained,dmc_status,dmc_status_irq} ("check status") are
+    blargg ROMs that write $DE $B0 $G1 to $6001-$6003 and a result code to
+    $6000: $80 = running, $81 = needs reset, $00-$7F = done, 0 = pass.
+    That is a mechanical assertion, no snapshot and no hash needed. Add a
+    TestFrame variant that asserts the $6000 code instead of hashing, and read
+    it via Src::PrgRam rather than ControlDeck::wram (which is $0000-$07FF only
+    and does NOT cover $6000). Converts 7 ignores into real pass/fail, and gives
+    far better failure messages than a hash mismatch.
+
+7c. Audio-waveform tests.  [11 tests]
+    apu::{apu_env,dmc_latency,dmc_pitch,lin_ctr,noise_pitch,square_pitch,
+    sweep_cutoff,sweep_sub,triangle_pitch} plus the two "unknown" ones,
+    phase_reset and volumes. These have no textual output - the result IS the
+    waveform. Needs 7a, then audio:true entries + UPDATE_SNAPSHOT.
+    RISK: an audio hash is far more brittle than a frame hash - it pins every
+    sample, so any filter/mixer/sample-rate change churns all 11. Decide up
+    front whether to hash raw samples or something coarser (e.g. per-channel
+    RMS, or a downsampled envelope) that tests pitch/envelope behavior without
+    pinning the exact filter output. Recommend coarser; revisit if it misses
+    real regressions. The two "unknown" ones need their expected behavior
+    established by hand first - do them last, and do not snapshot a wrong
+    result into tests.json.
+
+7d. The genuine failure.  [1 test]
+    ppu::vbl_nmi_even_odd_timing - "clock is skipped too late relative to
+    enabling BG, Failed #3". A real timing bug in when the odd-frame cycle skip
+    is evaluated against BG-enable. Hardest item; budget it separately and do
+    not let it block 7a-7c.
+
+7e. Zapper.  [2 tests]
+    input::{zapper_stream,zapper_trigger}, just "todo". Needs Action support in
+    tests.json for aiming/triggering over time. Check whether the existing
+    Action enum can already express it before writing new harness code.
+
+7f. Missing coverage (nothing ignored - simply absent).
+    22 boards in the boards! table; exactly 2 have a test group (m004, m005).
+    Everything else - MMC1/Sxrom, Uxrom, Cnrom, Axrom, Vrc6, Namco163,
+    SunsoftFme7, BandaiFCG, FK23C ... - has zero ROM coverage, and the mapper
+    rework touched all of them. Suggest picking boards by risk: the ones with
+    IRQ counters or expansion audio (Vrc6, Namco163, SunsoftFme7, FK23C, MMC5)
+    over the trivially-banked ones. Needs ROMs sourced from nes-test-roms.
+
+Suggested order: 7a -> 7b -> 7f (a few high-risk boards) -> 7c -> 7e -> 7d.
+7a and 7b together turn 7 of 21 ignores green for little work and make the
+audio path trustworthy; 7f is where the mapper rework actually carries risk.
+
+================================================================================
+PHASE 8 PLAN - deferred API work                                (DRAFT, review)
+================================================================================
+
+8a. Make video::Frame hold Box<[u8; Frame::SIZE]> instead of Vec<u8>, and drop
+    Deref/DerefMut<Target = Vec<u8>>. Today the Deref leaks push/clear/truncate,
+    any of which breaks the SIZE invariant that as_array/as_array_mut assert -
+    those two expects go away entirely once the type cannot be resized. Callers:
+    tetanes/src/nes/emulation.rs and renderer.rs use it as the thingbuf item.
+8b. #![warn(missing_docs)] on tetanes-core and fill the gaps (~400 pub items,
+    concentrated in ppu.rs, memory.rs, mapper.rs). Large but mechanical.
+8c. Audit pub fields on Ppu/Bus/Cpu/Video. These are load-bearing for the
+    component tree, so this is a judgement call per field, not a sweep - and
+    nes-bundler depends on several of them (see the downstream survey above).
+8d. Changelog migration section covering every break on this branch.

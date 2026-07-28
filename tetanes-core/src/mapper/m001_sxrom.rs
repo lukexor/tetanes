@@ -39,7 +39,7 @@ impl Sxrom {
             submapper_num: cart.submapper_num(),
             prg_select: cart.prg_rom_size == 0x80000,
         };
-        sxrom.sync(&mut cart.memory);
+        sxrom.update_banks(&mut cart.memory);
         Ok(sxrom.into())
     }
 }
@@ -58,11 +58,11 @@ impl Map for Sxrom {
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         // $6000..=$7FFF is PRG-RAM, already stored by the caller when the window is writable.
         if addr >= 0x8000 && self.mmc1.process_shift_register_write(addr, val) {
-            self.sync(memory);
+            self.update_banks(memory);
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         let mmc1 = &self.mmc1;
         // In 4K CHR mode the second CHR register supplies the extra PRG bank bit once it has been
         // the most recently written one.

@@ -1,12 +1,17 @@
-//! Common traits and constants.
+//! Types shared across the emulation components.
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use thiserror::Error;
 
 /// Default directory for save states.
+#[deprecated(since = "0.15.0", note = "unused; pick your own save state directory")]
 pub const SAVE_DIR: &str = "save";
 /// Default directory for save RAM.
+#[deprecated(
+    since = "0.15.0",
+    note = "use `control_deck::Config::SRAM_DIR` / `Config::sram_dir`"
+)]
 pub const SRAM_DIR: &str = "sram";
 
 #[derive(Error, Debug)]
@@ -134,7 +139,21 @@ pub enum ResetKind {
     Hard,
 }
 
-/// Prints a hex dump of a given byte array starting at `addr_offset`.
+/// Formats `data` as a hex dump, one returned [`String`] per 16-byte line, with addresses starting
+/// at `addr_offset`.
+///
+/// Runs of identical lines collapse to a single `*`, the way `hexdump -C` does. Intended for
+/// inspecting emulator memory - [`ControlDeck::wram`](crate::control_deck::ControlDeck::wram), a
+/// [`Memory`](crate::memory::Memory) region, or a [`Cart`](crate::cart::Cart)'s PRG-ROM - from a
+/// debugger or a dump tool.
+///
+/// ```
+/// use tetanes_core::common::hexdump;
+///
+/// let lines = hexdump(&[0xDE, 0xAD, 0xBE, 0xEF], 0x8000);
+/// assert!(lines[0].starts_with("00008000"));
+/// assert!(lines[0].contains("DE AD BE EF"));
+/// ```
 #[must_use]
 pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
     use std::cmp;
@@ -155,7 +174,7 @@ pub fn hexdump(data: &[u8], addr_offset: usize) -> Vec<String> {
             let _ = write!(line, " {byte:02X}");
         }
 
-        if line_len % 16 > 0 {
+        if !line_len.is_multiple_of(16) {
             let words_left = (16 - line_len) / 2;
             for _ in 0..3 * words_left {
                 line.push(' ');
@@ -429,6 +448,9 @@ pub(crate) mod tests {
 
         let mut deck = load_control_deck(&rom);
         deck.cpu_mut().bus.apu.skip_mixing = !test.audio;
+        // An audio test hashes every sample from the start of the run up to the snapshot frame, so
+        // it needs samples to accumulate rather than being dropped each frame.
+        deck.set_clear_audio_on_clock(!test.audio);
 
         let mut results = Vec::new();
         assert!(!test.frames.is_empty(), "No test frames found for {rom:?}");
@@ -437,9 +459,6 @@ pub(crate) mod tests {
 
             while deck.frame_number() < test_frame.number {
                 deck.clock_frame().expect("valid frame clock");
-                if deck.frame_number() != test_frame.number && !test_frame.audio {
-                    deck.clear_audio_samples();
-                }
                 deck.joypad_mut(Player::One).reset(ResetKind::Soft);
                 deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
             }
@@ -572,7 +591,7 @@ pub(crate) mod tests {
         vbl_nmi_off_timing,      // Tests vblank NMI off timing
         vbl_nmi_on_timing,       // Tests vblank NMI on timing
         vbl_nmi_set_time,        // Tests vblank NMI set timing
-        vbl_nmi_suppression,     // Tests vblank NMI supression
+        vbl_nmi_suppression,     // Tests vblank NMI suppression
         vbl_nmi_timing,          // Tests vblank NMI timing
         vbl_timing,              // Tests vblank timing
         vram_access,             // Tests video RAM access

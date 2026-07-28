@@ -1,0 +1,25 @@
+---
+name: Spelling
+
+# A separate workflow rather than a job in `ci.yml`, which has a workflow-level
+# `paths-ignore: "**.md"` - markdown is where prose typos live, so a job there would be skipped on
+# exactly the pull requests that need checking. Config lives in `_typos.toml`; run it locally with
+# `cargo make typos`.
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  typos:
+    name: Check spelling
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - uses: crate-ci/typos@master

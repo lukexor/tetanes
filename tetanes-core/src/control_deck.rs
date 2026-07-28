@@ -1,8 +1,38 @@
-//! Control Deck implementation. The primary entry-point for emulating the NES.
+//! [`ControlDeck`], the primary entry point for emulating an NES.
+//!
+//! A deck owns the whole console - CPU, PPU, APU, the cartridge and its mapper - and is driven one
+//! frame at a time:
+//!
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use tetanes_core::prelude::*;
+//!
+//! let mut deck = ControlDeck::new();
+//! deck.load_rom_path("some_awesome_game.nes")?;
+//!
+//! while deck.is_running() {
+//!     deck.clock_frame()?;
+//!     let samples = deck.audio_samples(); // queue to an audio device
+//!     let frame = deck.frame_buffer();    // blit to the screen
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`ControlDeck::clock_frame`] is the one you want; [`ControlDeck::clock_scanline`],
+//! [`ControlDeck::clock_instr`] and [`ControlDeck::clock_seconds`] step at finer granularities for
+//! debuggers and tests. Each of them refreshes what [`ControlDeck::frame_buffer`] and
+//! [`ControlDeck::audio_samples`] report, and discards what the previous call produced - so audio
+//! cannot silently accumulate. See [`Config::clear_audio_on_clock`] to opt out of that.
+//!
+//! Behavior that would otherwise be a per-call argument lives on the deck instead:
+//! [`ControlDeck::set_run_ahead`] for latency hiding, [`ControlDeck::set_frame_speed`] for
+//! emulation speed, [`ControlDeck::set_filter`] for video filtering. Everything a [`Config`] sets
+//! up front also has a setter, so it can be changed on a running deck.
 
 use crate::{
     apu::{self, Apu, Channel},
-    bus::Bus,
+    bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
     cpu::Cpu,
@@ -12,8 +42,8 @@ use crate::{
     input::{FourPlayer, Joypad, Player},
     mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
     memory::RamState,
-    ppu::Ppu,
-    video::{Video, VideoFilter},
+    ppu::{self, Ppu},
+    video::{Frame, Video, VideoFilter},
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -56,6 +86,7 @@ pub enum Error {
     /// Invalid file path.
     #[error("invalid file path {0:?}")]
     InvalidFilePath(PathBuf),
+    /// The ROM's mapper number has no board implementation.
     #[error("unimplemented mapper `{0}`")]
     UnimplementedMapper(u16),
     /// A save state that does not belong to the loaded cart.
@@ -145,6 +176,17 @@ pub struct Config {
     ///
     /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
     pub emulate_ppu_warmup: bool,
+    /// How many frames [`ControlDeck::clock_frame`] runs ahead of the console to hide input lag.
+    ///
+    /// `0`, the default, disables it. See [`ControlDeck::set_run_ahead`].
+    pub run_ahead: usize,
+    /// Whether clocking discards the previous call's audio samples first.
+    ///
+    /// `true`, the default, means [`ControlDeck::audio_samples`] holds exactly what the most recent
+    /// clock produced. Set it to `false` to accumulate samples across several clock calls, in which
+    /// case you must call [`ControlDeck::clear_audio_samples`] yourself or the buffer grows without
+    /// bound.
+    pub clear_audio_on_clock: bool,
 }
 
 impl Config {
@@ -185,6 +227,8 @@ impl Default for Config {
             data_dir: Self::default_data_dir(),
             mapper_revisions: MapperRevisionsConfig::default(),
             emulate_ppu_warmup: false,
+            run_ahead: 0,
+            clear_audio_on_clock: true,
         }
     }
 }
@@ -200,6 +244,28 @@ pub struct LoadedRom {
     pub region: NesRegion,
 }
 
+/// Frame buffers [`ControlDeck`] recycles for run-ahead.
+///
+/// Run-ahead rewinds the console *past* the frame it wants to display, which would take that
+/// frame's pixels with it - so `pending` parks them where [`ControlDeck::frame_buffer`] can still
+/// reach them afterwards. `spare` holds the console's real frame meanwhile, and comes back on
+/// restore.
+///
+/// They exist to be swapped rather than allocated: [`Buffer`](crate::ppu::frame::Buffer)'s
+/// `Default` allocates and zeroes 120 KiB, which this path would otherwise pay on every frame.
+#[derive(Debug, Clone, Default)]
+struct RunAheadFrames {
+    /// The pixels of the frame that should be displayed, parked here before the console is rewound.
+    pending: crate::ppu::frame::Buffer,
+    /// Frame number `pending` was rendered as. The NTSC filter is phase-dependent on it, so it has
+    /// to travel with the pixels rather than being read back off the rewound console.
+    pending_frame_number: u32,
+    /// Whether `pending` holds the frame to display. Cleared at the start of every clock.
+    pending_valid: bool,
+    /// The console's own frame, parked while the run-ahead frames render.
+    spare: crate::ppu::frame::Buffer,
+}
+
 /// Represents an NES Control Deck. Encapsulates the entire emulation state.
 #[derive(Debug, Clone)]
 #[must_use]
@@ -208,8 +274,16 @@ pub struct ControlDeck {
     running: bool,
     /// Video output and filtering.
     video: Video,
-    /// Last frame number rendered, allowing `frame_buffer` to be cached if called multiple times.
-    last_frame_number: u32,
+    /// Whether `video.frame` still needs the filter applied, letting `frame_buffer` be cached when
+    /// called more than once between clocks.
+    video_frame_stale: bool,
+    /// How many frames to run ahead of the console to hide input lag. `0` disables it.
+    run_ahead: usize,
+    /// Frame buffers recycled by run-ahead. `None` until run-ahead is first used, so a deck that
+    /// never enables it never allocates them.
+    run_ahead_frames: Option<Box<RunAheadFrames>>,
+    /// Whether clocking discards the previous call's audio samples first.
+    clear_audio_on_clock: bool,
     /// The currently loaded ROM [`Cart`], if any.
     loaded_rom: Option<LoadedRom>,
     /// Directory for storing battery-backed Cart RAM if a ROM is loaded.
@@ -235,12 +309,36 @@ impl Default for ControlDeck {
 }
 
 impl ControlDeck {
-    /// Create a NES `ControlDeck` with the default configuration.
+    /// Creates a NES `ControlDeck` with the default configuration.
+    ///
+    /// It has no cartridge yet, so [`ControlDeck::is_running`] is `false` until a ROM is loaded
+    /// with [`ControlDeck::load_rom`] or [`ControlDeck::load_rom_path`].
+    ///
+    /// ```
+    /// use tetanes_core::prelude::*;
+    ///
+    /// let deck = ControlDeck::new();
+    /// assert!(!deck.is_running());
+    /// assert!(deck.loaded_rom().is_none());
+    /// ```
     pub fn new() -> Self {
         Self::with_config(Config::default())
     }
 
-    /// Create a NES `ControlDeck` with a configuration.
+    /// Creates a NES `ControlDeck` with the given [`Config`].
+    ///
+    /// ```
+    /// use tetanes_core::prelude::*;
+    /// use tetanes_core::control_deck::{Config, HeadlessMode};
+    ///
+    /// // A deck for batch processing: no video or audio work, deterministic RAM.
+    /// let deck = ControlDeck::with_config(Config {
+    ///     headless_mode: HeadlessMode::NO_AUDIO | HeadlessMode::NO_VIDEO,
+    ///     ram_state: RamState::AllZeros,
+    ///     ..Default::default()
+    /// });
+    /// assert_eq!(deck.region(), NesRegion::Ntsc);
+    /// ```
     pub fn with_config(cfg: Config) -> Self {
         let mut cpu = Cpu::new(Bus::new(cfg.region, cfg.ram_state));
         cpu.bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
@@ -267,7 +365,10 @@ impl ControlDeck {
         Self {
             running: false,
             video,
-            last_frame_number: 0,
+            video_frame_stale: true,
+            run_ahead: cfg.run_ahead,
+            run_ahead_frames: None,
+            clear_audio_on_clock: cfg.clear_audio_on_clock,
             loaded_rom: None,
             sram_dir: cfg.sram_dir(),
             mapper_revisions: cfg.mapper_revisions,
@@ -279,20 +380,38 @@ impl ControlDeck {
         }
     }
 
-    /// Returns the path to the SRAM save file for a given ROM name which is used to store
-    /// battery-backed Cart RAM. Returns `None` when the current platform doesn't have a
-    /// `data` directory and no custom `data_dir` was configured.
+    /// Returns the path to the SRAM save file for a given ROM name, which is used to store
+    /// battery-backed Cart RAM.
     pub fn sram_path(&self, name: &str) -> PathBuf {
         self.sram_dir
             .join(name)
             .with_extension(Config::SRAM_EXTENSION)
     }
 
-    /// Loads a ROM cartridge into memory
+    /// Loads a ROM cartridge from anything implementing [`Read`], hard-resetting the console and
+    /// restoring the cart's battery-backed RAM if it has any.
+    ///
+    /// `name` identifies the ROM, and is what [`ControlDeck::sram_path`] derives the save file name
+    /// from. Use [`ControlDeck::load_rom_path`] to load from the filesystem.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tetanes_core::prelude::*;
+    ///
+    /// let mut deck = ControlDeck::new();
+    /// let rom = std::fs::read("some_awesome_game.nes")?;
+    /// let loaded = deck.load_rom("some_awesome_game", &mut rom.as_slice())?;
+    ///
+    /// println!("{} ({:?})", loaded.name, loaded.region);
+    /// assert!(deck.is_running());
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
-    /// If there is any issue loading the ROM, then an error is returned.
+    /// If the ROM header is malformed, its mapper is unimplemented, or the data can't be read, then
+    /// an error is returned.
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<LoadedRom> {
         let name = name.to_string();
         self.unload_rom()?;
@@ -358,19 +477,18 @@ impl ControlDeck {
         Ok(())
     }
 
-    /// Load a previously saved CPU state.
-    #[inline]
-    /// Replace the running console with a restored state.
+    /// Replaces the running console with a previously saved [`Cpu`] state.
     ///
     /// # Errors
     ///
     /// If the state was not produced by the currently loaded cart, in which case the running
     /// console is left untouched.
+    #[inline]
     pub fn load_cpu(&mut self, cpu: Cpu) -> Result<()> {
         self.cpu.load(cpu)?;
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
-        self.cpu.bus.ppu.sync_mapper();
+        self.cpu.bus.ppu.rebuild_mapper_state();
         Ok(())
     }
 
@@ -493,7 +611,7 @@ impl ControlDeck {
     /// Returns the NES Work RAM.
     #[inline]
     #[must_use]
-    pub fn wram(&self) -> &[u8] {
+    pub fn wram(&self) -> &[u8; bus::size::WRAM] {
         self.cpu.bus.wram()
     }
 
@@ -575,54 +693,159 @@ impl ControlDeck {
         }
     }
 
-    /// Load the raw underlying frame buffer from the PPU for further processing.
+    /// Returns the frame to display as raw PPU pixels, one palette index per pixel, for callers
+    /// doing their own color decoding.
+    ///
+    /// This is the frame the most recent clock produced. With run-ahead enabled that is a frame
+    /// from *ahead* of where the console now sits, not [`ControlDeck::ppu`]'s current buffer.
     #[inline]
-    pub fn frame_buffer_raw(&mut self) -> &[u16] {
-        self.cpu.bus.ppu.frame_buffer()
-    }
-
-    /// Load a frame worth of pixels.
-    #[inline]
-    pub fn frame_buffer(&mut self) -> &[u8] {
-        // Avoid applying filter if the frame number hasn't changed
-        let frame_number = self.cpu.bus.ppu.frame_number();
-        if self.last_frame_number == frame_number {
-            return &self.video.frame;
+    #[must_use]
+    pub fn frame_buffer_raw(&self) -> &[u16; ppu::size::FRAME] {
+        match &self.run_ahead_frames {
+            Some(frames) if frames.pending_valid => &frames.pending,
+            _ => self.cpu.bus.ppu.frame_buffer(),
         }
-
-        self.last_frame_number = frame_number;
-        self.video
-            .apply_filter(self.cpu.bus.ppu.frame_buffer(), frame_number)
     }
 
-    /// Load a frame worth of pixels into the given buffer.
+    /// Returns the frame to display as RGBA pixels, with the configured [`VideoFilter`] applied.
+    ///
+    /// The filter runs on the first call after a clock and the result is cached, so calling this
+    /// more than once per frame is cheap.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tetanes_core::prelude::*;
+    ///
+    /// let mut deck = ControlDeck::new();
+    /// deck.load_rom_path("some_awesome_game.nes")?;
+    /// deck.clock_frame()?;
+    ///
+    /// let frame = deck.frame_buffer(); // 256 * 240 pixels, 4 bytes each
+    /// # Ok(())
+    /// # }
+    /// ```
     #[inline]
-    pub fn frame_buffer_into(&self, buffer: &mut [u8]) {
-        self.video.apply_filter_into(
-            self.cpu.bus.ppu.frame_buffer(),
-            self.cpu.bus.ppu.frame_number(),
-            buffer,
-        );
+    pub fn frame_buffer(&mut self) -> &[u8; Frame::SIZE] {
+        if !self.video_frame_stale {
+            return self.video.frame.as_array();
+        }
+        self.video_frame_stale = false;
+        // Matched inline rather than via `frame_buffer_raw` so the borrow checker can see that the
+        // pixels and `self.video` are disjoint fields.
+        match &self.run_ahead_frames {
+            Some(frames) if frames.pending_valid => self
+                .video
+                .apply_filter(&frames.pending, frames.pending_frame_number),
+            _ => self.video.apply_filter(
+                self.cpu.bus.ppu.frame_buffer(),
+                self.cpu.bus.ppu.frame_number(),
+            ),
+        }
     }
 
-    /// Get the current frame number.
+    /// Writes the frame to display into `buffer` as RGBA pixels, with the configured
+    /// [`VideoFilter`] applied.
+    ///
+    /// Use this over [`ControlDeck::frame_buffer`] to render into a buffer you already own, such as
+    /// one from a pool. [`Frame::as_array_mut`] gets you the argument from a [`Frame`].
+    #[inline]
+    pub fn frame_buffer_into(&self, buffer: &mut [u8; Frame::SIZE]) {
+        match &self.run_ahead_frames {
+            Some(frames) if frames.pending_valid => {
+                self.video
+                    .apply_filter_into(&frames.pending, frames.pending_frame_number, buffer)
+            }
+            _ => self.video.apply_filter_into(
+                self.cpu.bus.ppu.frame_buffer(),
+                self.cpu.bus.ppu.frame_number(),
+                buffer,
+            ),
+        }
+    }
+
+    /// Returns the number of frames the console has rendered since power on.
+    ///
+    /// This tracks the console, so with run-ahead enabled it lags the frame
+    /// [`ControlDeck::frame_buffer`] returns.
     #[inline(always)]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
         self.cpu.bus.ppu.frame_number()
     }
 
-    /// Get audio samples.
+    /// Returns the audio samples produced by the most recent clock, at the configured sample rate.
+    ///
+    /// The samples are cleared at the start of each clock, so this is exactly one clock's worth of
+    /// audio and nothing accumulates. Push them to your audio device before clocking again:
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tetanes_core::prelude::*;
+    ///
+    /// let mut deck = ControlDeck::new();
+    /// deck.load_rom_path("some_awesome_game.nes")?;
+    ///
+    /// deck.clock_frame()?;
+    /// let samples = deck.audio_samples(); // this frame's audio only
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// If you would rather clock several times before draining, set
+    /// [`Config::clear_audio_on_clock`] to `false` and call [`ControlDeck::clear_audio_samples`]
+    /// yourself - see [`ControlDeck::set_clear_audio_on_clock`].
     #[inline(always)]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         self.cpu.bus.audio_samples()
     }
 
-    /// Clear audio samples.
+    /// Discards the audio samples produced so far.
+    ///
+    /// Only needed when [`Config::clear_audio_on_clock`] is `false`, or to drop audio outright -
+    /// when it is `true` each clock does this for you.
     #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.cpu.bus.clear_audio_samples();
+    }
+
+    /// Returns whether clocking discards the previous call's audio samples first.
+    #[inline]
+    #[must_use]
+    pub const fn clear_audio_on_clock(&self) -> bool {
+        self.clear_audio_on_clock
+    }
+
+    /// Sets whether clocking discards the previous call's audio samples first.
+    ///
+    /// `true`, the default, keeps [`ControlDeck::audio_samples`] to exactly what the most recent
+    /// clock produced. Set it to `false` if you clock several times before draining audio, and call
+    /// [`ControlDeck::clear_audio_samples`] yourself - otherwise the buffer grows without bound.
+    #[inline]
+    pub const fn set_clear_audio_on_clock(&mut self, enabled: bool) {
+        self.clear_audio_on_clock = enabled;
+    }
+
+    /// Returns how many frames [`ControlDeck::clock_frame`] runs ahead of the console.
+    #[inline]
+    #[must_use]
+    pub const fn run_ahead(&self) -> usize {
+        self.run_ahead
+    }
+
+    /// Sets how many frames [`ControlDeck::clock_frame`] runs ahead of the console to hide input
+    /// lag. `0`, the default, disables it.
+    ///
+    /// With run-ahead on, each [`ControlDeck::clock_frame`] clocks the current frame, snapshots the
+    /// console, clocks `frames` more, and rewinds - so what you display is the console's state
+    /// `frames` in the future and a button press appears to take effect that much sooner. The cost
+    /// is clocking every frame `frames + 1` times, so it trades CPU for latency.
+    ///
+    /// Values above about 4 are rarely useful, and it should be turned off above 1x emulation
+    /// speed, where the extra frames cost more than the latency they hide.
+    #[inline]
+    pub const fn set_run_ahead(&mut self, frames: usize) {
+        self.run_ahead = frames;
     }
 
     /// CPU clock rate based on currently configured NES region.
@@ -632,11 +855,15 @@ impl ControlDeck {
         self.cpu.clock_rate()
     }
 
-    /// Steps the control deck one CPU clock.
+    /// Steps the control deck a single CPU instruction.
+    ///
+    /// Unlike the other `clock_*` methods this does not discard the previous audio samples, since
+    /// one instruction is far shorter than one sample - the methods built on it clear once, up
+    /// front, instead.
     ///
     /// # Errors
     ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
+    /// If the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_instr(&mut self) -> Result<()> {
         self.clock();
         if self.cpu_corrupted() {
@@ -646,12 +873,13 @@ impl ControlDeck {
         Ok(())
     }
 
-    /// Steps the control deck the given number of seconds.
+    /// Steps the control deck the given number of seconds, returning the CPU cycles elapsed.
     ///
     /// # Errors
     ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
+    /// If the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_seconds(&mut self, seconds: f32) -> Result<u32> {
+        self.begin_clock();
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
@@ -664,43 +892,25 @@ impl ControlDeck {
         Ok(total_cycles)
     }
 
-    /// Steps the control deck the given  number of seconds, calling `handle_audito` with audio
-    /// samples and `handle_frame` with the `frame_buffer` if a frame is completed.
+    /// Invalidates the outputs of the previous clock.
     ///
-    /// # Errors
-    ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_seconds_output(
-        &mut self,
-        seconds: f32,
-        handle_audio: impl FnOnce(&[f32]),
-        handle_frame: impl FnOnce(&[u8]),
-    ) -> Result<()> {
-        let frame = self.frame_number();
-        self.clock_seconds(seconds)?;
-        let audio = self.cpu.bus.audio_samples();
-        handle_audio(audio);
-        self.cpu.bus.clear_audio_samples();
-        if frame != self.frame_number() {
-            let frame = self.video.apply_filter(
-                self.cpu.bus.ppu.frame_buffer(),
-                self.cpu.bus.ppu.frame_number(),
-            );
-            handle_frame(frame);
+    /// Called once at the top of each outer `clock_*` entry point - never per NES frame, because at
+    /// 2x speed a single [`ControlDeck::clock_frame`] clocks two of them and both frames' audio has
+    /// to survive.
+    #[inline]
+    fn begin_clock(&mut self) {
+        self.video_frame_stale = true;
+        if let Some(frames) = &mut self.run_ahead_frames {
+            frames.pending_valid = false;
         }
-        Ok(())
+        if self.clear_audio_on_clock {
+            self.cpu.bus.clear_audio_samples();
+        }
     }
 
-    /// Steps the control deck an entire frame.
-    ///
-    /// # Errors
-    ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame(&mut self) -> Result<()> {
-        if !self.running {
-            return Err(Error::RomNotLoaded);
-        }
-
+    /// Clocks whole NES frames, without any of the per-call bookkeeping `begin_clock` does - so
+    /// run-ahead can drive it repeatedly within one [`ControlDeck::clock_frame`].
+    fn clock_frames(&mut self) -> Result<()> {
         // Frames that aren't multiples of the default render 1 more/less frames
         // every other frame
         // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
@@ -723,150 +933,110 @@ impl ControlDeck {
         Ok(())
     }
 
-    /// Steps the control deck an entire frame, calling `handle_output` with the `frame_buffer` and
-    /// `audio_samples` for that frame.
+    /// Steps the control deck an entire frame.
+    ///
+    /// This is the default way to drive the emulator. Afterwards, [`ControlDeck::frame_buffer`]
+    /// holds the frame to display and [`ControlDeck::audio_samples`] the audio to play:
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tetanes_core::prelude::*;
+    ///
+    /// let mut deck = ControlDeck::new();
+    /// deck.load_rom_path("some_awesome_game.nes")?;
+    ///
+    /// while deck.is_running() {
+    ///     deck.clock_frame()?;
+    ///     let samples = deck.audio_samples(); // queue to an audio device
+    ///     let frame = deck.frame_buffer();    // blit to the screen
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// How many NES frames this clocks depends on [`ControlDeck::set_frame_speed`]: at 2x speed it
+    /// clocks two, at 0.5x it alternates between none and one. Either way the outputs above cover
+    /// everything it clocked.
+    ///
+    /// If run-ahead is enabled with [`ControlDeck::set_run_ahead`], the frame reported is from that
+    /// many frames in the future and the console is rewound back afterwards.
     ///
     /// # Errors
     ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame_output<T>(
-        &mut self,
-        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
-    ) -> Result<T> {
-        self.clock_frame()?;
-        let frame = self.video.apply_filter(
-            self.cpu.bus.ppu.frame_buffer(),
-            self.cpu.bus.ppu.frame_number(),
-        );
-        let audio = self.cpu.bus.audio_samples();
-        let res = handle_output(frame, audio);
-        self.cpu.bus.clear_audio_samples();
-        Ok(res)
-    }
-
-    /// Steps the control deck an entire frame, copying the `frame_buffer` and
-    /// `audio_samples` for that frame into the provided buffers.
-    ///
-    /// # Errors
-    ///
-    /// If CPU encounteres an invalid opcode, an error is returned.
-    pub fn clock_frame_into(
-        &mut self,
-        frame_buffer: &mut [u8],
-        audio_samples: &mut [f32],
-    ) -> Result<()> {
-        self.clock_frame()?;
-        let frame = self.video.apply_filter(
-            self.cpu.bus.ppu.frame_buffer(),
-            self.cpu.bus.ppu.frame_number(),
-        );
-        frame_buffer.copy_from_slice(&frame[..frame_buffer.len()]);
-        let audio = self.cpu.bus.audio_samples();
-        audio_samples.copy_from_slice(&audio[..audio_samples.len()]);
-        self.clear_audio_samples();
-        Ok(())
-    }
-
-    /// Steps the control deck an entire frame with run-ahead frames to reduce input lag.
-    ///
-    /// # Errors
-    ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame_ahead<T>(
-        &mut self,
-        run_ahead: usize,
-        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
-    ) -> Result<T> {
-        if run_ahead == 0 {
-            return self.clock_frame_output(handle_output);
+    /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
+    pub fn clock_frame(&mut self) -> Result<()> {
+        if !self.running {
+            return Err(Error::RomNotLoaded);
         }
+        self.begin_clock();
+        if self.run_ahead == 0 {
+            return self.clock_frames();
+        }
+        self.clock_frame_run_ahead()
+    }
+
+    /// Clocks a frame, then `run_ahead` more, reports the last of them, and rewinds the console
+    /// back to the first.
+    ///
+    /// Split out of [`ControlDeck::clock_frame`] so the common `run_ahead == 0` path stays a
+    /// straight call to `clock_frames`.
+    fn clock_frame_run_ahead(&mut self) -> Result<()> {
+        // Clock the frame the console is really on.
+        self.clock_frames()?;
+
+        let mut frames = self.run_ahead_frames.take().unwrap_or_default();
+
+        // Park the frame just rendered and hand the PPU a recycled buffer to scribble over.
+        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.spare);
 
         // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
         // the same session one frame later, so a compact encoding buys nothing and measures
         // 1.6-5.1x slower than the clone (see benches/README.md). The clone also carries the page
-        // tables, so no `sync_mapper` is needed on the way back.
+        // tables, so no `rebuild_mapper_state` is needed on the way back.
         //
         // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
         // RAM at once, where a clone each would be hundreds of megabytes.
-        //
-        // The frame buffer is moved out rather than cloned - 120 KiB that the run-ahead frames
-        // overwrite anyway - and put back on restore.
-        self.clock_frame()?;
-        let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
         let saved = self.cpu.clone();
 
-        // Clock additional frames and discard video/audio
+        // Clock the intermediate frames, whose video is never seen. Restored rather than set back
+        // to `false`, so this does not quietly turn rendering on for a headless deck.
+        let skip_rendering = self.cpu.bus.ppu.skip_rendering;
         self.cpu.bus.ppu.skip_rendering = true;
-        for _ in 1..run_ahead {
-            self.clock_frame()?;
-        }
-        self.cpu.bus.ppu.skip_rendering = false;
+        let result = (1..self.run_ahead).try_for_each(|_| self.clock_frames());
+        self.cpu.bus.ppu.skip_rendering = skip_rendering;
+        result?;
 
-        // Output the future frame video/audio
-        self.clear_audio_samples();
-        let result = self.clock_frame_output(handle_output)?;
+        // Their audio belongs to a timeline that is about to be rewound, so it is always dropped,
+        // whatever `clear_audio_on_clock` says.
+        self.cpu.bus.clear_audio_samples();
 
-        // Restore back to the current frame.
+        // Clock the frame to actually display.
+        self.clock_frames()?;
+
+        // Park its pixels where `frame_buffer` can still reach them once the console has been
+        // rewound past them.
+        frames.pending_frame_number = self.cpu.bus.ppu.frame_number();
+        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.pending);
+        frames.pending_valid = true;
+
+        // Rewind, and give the console back the frame it had rendered.
         self.cpu = saved;
-        self.cpu.bus.ppu.frame.buffer = frame;
+        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.spare);
 
-        Ok(result)
-    }
-
-    /// Steps the control deck an entire frame with run-ahead frames to reduce input lag.
-    ///
-    /// # Errors
-    ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame_ahead_into(
-        &mut self,
-        run_ahead: usize,
-        frame_buffer: &mut [u8],
-        audio_samples: &mut [f32],
-    ) -> Result<()> {
-        if run_ahead == 0 {
-            return self.clock_frame_into(frame_buffer, audio_samples);
-        }
-
-        // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
-        // the same session one frame later, so a compact encoding buys nothing and measures
-        // 1.6-5.1x slower than the clone (see benches/README.md). The clone also carries the page
-        // tables, so no `sync_mapper` is needed on the way back.
-        //
-        // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
-        // RAM at once, where a clone each would be hundreds of megabytes.
-        //
-        // The frame buffer is moved out rather than cloned - 120 KiB that the run-ahead frames
-        // overwrite anyway - and put back on restore.
-        self.clock_frame()?;
-        let frame = std::mem::take(&mut self.cpu.bus.ppu.frame.buffer);
-        let saved = self.cpu.clone();
-
-        // Clock additional frames and discard video/audio
-        for _ in 1..run_ahead {
-            self.clock_frame()?;
-        }
-
-        // Output the future frame/audio
-        self.clear_audio_samples();
-        self.clock_frame_into(frame_buffer, audio_samples)?;
-
-        // Restore back to the current frame.
-        self.cpu = saved;
-        self.cpu.bus.ppu.frame.buffer = frame;
-
+        self.run_ahead_frames = Some(frames);
         Ok(())
     }
 
-    /// Steps the control deck a single scanline.
+    /// Steps the control deck a single PPU scanline.
     ///
     /// # Errors
     ///
-    /// If CPU encounters an invalid opcode, then an error is returned.
+    /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<()> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
+        self.begin_clock();
 
         let current_scanline = self.cpu.bus.ppu.scanline;
         while current_scanline == self.cpu.bus.ppu.scanline {
@@ -875,10 +1045,9 @@ impl ControlDeck {
         Ok(())
     }
 
-    /// Returns whether the CPU is corrupted or not which means it encounted an invalid/unhandled
+    /// Returns whether the CPU is corrupted, which means it encountered an invalid/unhandled
     /// opcode and can't proceed executing the current ROM.
-    #[cold]
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {
         self.cpu.corrupted
@@ -908,7 +1077,7 @@ impl ControlDeck {
         &mut self.cpu.bus.ppu
     }
 
-    /// Retu[ns the current [`Bus`] state.
+    /// Returns the current [`Bus`] state.
     #[inline]
     pub const fn bus(&self) -> &Bus {
         &self.cpu.bus
@@ -928,7 +1097,7 @@ impl ControlDeck {
 
     /// Returns a mutable reference to the current [`Apu`] state.
     #[inline]
-    pub const fn apu_mut(&mut self) -> &Apu {
+    pub const fn apu_mut(&mut self) -> &mut Apu {
         &mut self.cpu.bus.apu
     }
 
@@ -958,7 +1127,7 @@ impl ControlDeck {
 
     /// Returns the current [`Joypad`] state for a given controller slot.
     #[inline]
-    pub const fn joypad(&mut self, slot: Player) -> &Joypad {
+    pub const fn joypad(&self, slot: Player) -> &Joypad {
         self.cpu.bus.input.joypad(slot)
     }
 
@@ -1004,6 +1173,8 @@ impl ControlDeck {
     #[inline]
     pub const fn set_filter(&mut self, filter: VideoFilter) {
         self.video.filter = filter;
+        // The cached frame was filtered with the old one.
+        self.video_frame_stale = true;
     }
 
     /// Set the [`Apu`] sample rate.
@@ -1045,8 +1216,16 @@ impl ControlDeck {
     /// Returns whether a given [`Apu`] [`Channel`] is enabled.
     #[inline]
     #[must_use]
-    pub const fn channel_enabled(&self, channel: Channel) -> bool {
+    pub const fn apu_channel_enabled(&self, channel: Channel) -> bool {
         self.cpu.bus.apu.channel_enabled(channel)
+    }
+
+    /// Returns whether a given [`Apu`] [`Channel`] is enabled.
+    #[inline]
+    #[must_use]
+    #[deprecated(since = "0.15.0", note = "renamed to `apu_channel_enabled`")]
+    pub const fn channel_enabled(&self, channel: Channel) -> bool {
+        self.apu_channel_enabled(channel)
     }
 
     /// Enable or disable a given [`Apu`] [`Channel`].
@@ -1068,7 +1247,10 @@ impl ControlDeck {
         self.running
     }
 
-    /// Steps the control deck a single clock cycle.
+    /// Steps the control deck a single CPU instruction, without checking for CPU corruption.
+    ///
+    /// Prefer [`ControlDeck::clock_instr`], which reports an invalid opcode instead of leaving the
+    /// console wedged.
     #[inline(always)]
     pub fn clock(&mut self) {
         self.cpu.clock()
@@ -1092,9 +1274,145 @@ impl ControlDeck {
     /// Resets the console.
     pub fn reset(&mut self, kind: ResetKind) {
         self.cpu.reset(kind);
+        self.video_frame_stale = true;
+        if let Some(frames) = &mut self.run_ahead_frames {
+            frames.pending_valid = false;
+        }
         if self.loaded_rom.is_some() {
             self.running = true;
         }
+    }
+}
+
+/// Clocking methods superseded by [`ControlDeck::clock_frame`] plus the output accessors.
+///
+/// They bundled advancing the emulation with retrieving its output, in one variant per combination
+/// of allocating-vs-copying, closure-vs-accessor and run-ahead-vs-not. [`ControlDeck::clock_frame`]
+/// now covers all of it: it honours [`ControlDeck::set_run_ahead`], and
+/// [`ControlDeck::frame_buffer`] / [`ControlDeck::frame_buffer_into`] /
+/// [`ControlDeck::audio_samples`] report what it produced.
+#[allow(deprecated)]
+impl ControlDeck {
+    /// Steps the control deck an entire frame, calling `handle_output` with the `frame_buffer` and
+    /// `audio_samples` for that frame.
+    ///
+    /// # Errors
+    ///
+    /// If the CPU encounters an invalid opcode, then an error is returned.
+    #[deprecated(
+        since = "0.15.0",
+        note = "use `clock_frame` then `frame_buffer` and `audio_samples`"
+    )]
+    pub fn clock_frame_output<T>(
+        &mut self,
+        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
+    ) -> Result<T> {
+        self.clock_frame()?;
+        // Fills `self.video.frame`, so the two outputs can then be borrowed as disjoint fields.
+        let _ = self.frame_buffer();
+        Ok(handle_output(
+            &self.video.frame[..],
+            self.cpu.bus.audio_samples(),
+        ))
+    }
+
+    /// Steps the control deck an entire frame, copying the `frame_buffer` and
+    /// `audio_samples` for that frame into the provided buffers.
+    ///
+    /// Each buffer is filled as far as it goes; a longer one keeps its remaining contents.
+    ///
+    /// # Errors
+    ///
+    /// If the CPU encounters an invalid opcode, then an error is returned.
+    #[deprecated(
+        since = "0.15.0",
+        note = "use `clock_frame` then `frame_buffer_into` and `audio_samples`"
+    )]
+    pub fn clock_frame_into(
+        &mut self,
+        frame_buffer: &mut [u8],
+        audio_samples: &mut [f32],
+    ) -> Result<()> {
+        self.clock_frame()?;
+        // This shim keeps taking unsized slices, so it filters into `self.video.frame` and copies
+        // out. `frame_buffer_into` now requires a `&mut [u8; Frame::SIZE]`.
+        let frame = self.frame_buffer();
+        let len = frame.len().min(frame_buffer.len());
+        frame_buffer[..len].copy_from_slice(&frame[..len]);
+        let audio = self.cpu.bus.audio_samples();
+        // The original truncated to `audio_samples.len()`, which panicked whenever the caller's
+        // buffer was longer than the frame - and a caller cannot know how many samples a frame
+        // produces.
+        let len = audio.len().min(audio_samples.len());
+        audio_samples[..len].copy_from_slice(&audio[..len]);
+        Ok(())
+    }
+
+    /// Steps the control deck an entire frame with run-ahead frames to reduce input lag.
+    ///
+    /// # Errors
+    ///
+    /// If the CPU encounters an invalid opcode, then an error is returned.
+    #[deprecated(
+        since = "0.15.0",
+        note = "use `set_run_ahead` then `clock_frame` and the output accessors"
+    )]
+    pub fn clock_frame_ahead<T>(
+        &mut self,
+        run_ahead: usize,
+        handle_output: impl FnOnce(&[u8], &[f32]) -> T,
+    ) -> Result<T> {
+        let prev = std::mem::replace(&mut self.run_ahead, run_ahead);
+        let res = self.clock_frame_output(handle_output);
+        self.run_ahead = prev;
+        res
+    }
+
+    /// Steps the control deck an entire frame with run-ahead frames to reduce input lag, copying
+    /// the `frame_buffer` and `audio_samples` for that frame into the provided buffers.
+    ///
+    /// # Errors
+    ///
+    /// If the CPU encounters an invalid opcode, then an error is returned.
+    #[deprecated(
+        since = "0.15.0",
+        note = "use `set_run_ahead` then `clock_frame` and the output accessors"
+    )]
+    pub fn clock_frame_ahead_into(
+        &mut self,
+        run_ahead: usize,
+        frame_buffer: &mut [u8],
+        audio_samples: &mut [f32],
+    ) -> Result<()> {
+        let prev = std::mem::replace(&mut self.run_ahead, run_ahead);
+        let res = self.clock_frame_into(frame_buffer, audio_samples);
+        self.run_ahead = prev;
+        res
+    }
+
+    /// Steps the control deck the given number of seconds, calling `handle_audio` with the audio
+    /// samples and `handle_frame` with the `frame_buffer` if a frame was completed.
+    ///
+    /// # Errors
+    ///
+    /// If the CPU encounters an invalid opcode, then an error is returned.
+    #[deprecated(
+        since = "0.15.0",
+        note = "use `clock_seconds` then `frame_buffer` and `audio_samples`"
+    )]
+    pub fn clock_seconds_output(
+        &mut self,
+        seconds: f32,
+        handle_audio: impl FnOnce(&[f32]),
+        handle_frame: impl FnOnce(&[u8]),
+    ) -> Result<()> {
+        let frame = self.frame_number();
+        self.clock_seconds(seconds)?;
+        handle_audio(self.cpu.bus.audio_samples());
+        if frame != self.frame_number() {
+            handle_frame(self.frame_buffer());
+        }
+        Ok(())
     }
 }
 
@@ -1123,7 +1441,6 @@ mod tests {
     fn run(deck: &mut ControlDeck, frames: u32) -> u64 {
         for _ in 0..frames {
             deck.clock_frame().expect("clocks");
-            deck.clear_audio_samples();
         }
         let mut hasher = DefaultHasher::new();
         deck.frame_buffer().hash(&mut hasher);
@@ -1131,7 +1448,7 @@ mod tests {
     }
 
     /// A restored state has to resume bit-identically. Page tables are `#[serde(skip)]` derived
-    /// state, so this only holds if `load_cpu` replays the mapper's registers through `Map::sync` -
+    /// state, so this only holds if `load_cpu` replays the mapper's registers through `Map::update_banks` -
     /// without it every page comes back unmapped and the machine reads zeroes.
     #[test]
     fn save_state_resumes_identically() {
@@ -1162,14 +1479,13 @@ mod tests {
         for run_ahead in 1..=4 {
             let mut ahead = spritecans();
             run(&mut ahead, 30);
-            ahead
-                .clock_frame_ahead(run_ahead, |_, _| ())
-                .expect("clocks ahead");
+            ahead.set_run_ahead(run_ahead);
+            ahead.clock_frame().expect("clocks ahead");
+            ahead.set_run_ahead(0);
 
             let mut plain = spritecans();
             run(&mut plain, 30);
             plain.clock_frame().expect("clocks");
-            plain.clear_audio_samples();
 
             assert_eq!(
                 run(&mut ahead, 30),
@@ -1177,6 +1493,114 @@ mod tests {
                 "run_ahead {run_ahead} must resume identically"
             );
         }
+    }
+
+    /// The whole point of run-ahead is that you *display* the future frame, but the console is
+    /// rewound past it before `clock_frame` returns - so the pixels have to be parked somewhere or
+    /// they go with it. Before this was fixed, `frame_buffer` handed back the pre-run-ahead frame
+    /// and the only way to see the right one was the old `clock_frame_ahead` closure.
+    #[test]
+    fn run_ahead_reports_the_future_frame_not_the_rewound_one() {
+        // What the screen should show is whatever a console clocked `run_ahead` frames further
+        // along would show.
+        for run_ahead in 1..=4 {
+            let mut ahead = spritecans();
+            run(&mut ahead, 30);
+            ahead.set_run_ahead(run_ahead);
+            ahead.clock_frame().expect("clocks ahead");
+
+            let mut expected = spritecans();
+            run(&mut expected, 30);
+            for _ in 0..=run_ahead {
+                expected.clock_frame().expect("clocks");
+            }
+
+            let mut hasher = DefaultHasher::new();
+            ahead.frame_buffer().hash(&mut hasher);
+            let displayed = hasher.finish();
+
+            let mut hasher = DefaultHasher::new();
+            expected.frame_buffer().hash(&mut hasher);
+
+            assert_eq!(
+                displayed,
+                hasher.finish(),
+                "run_ahead {run_ahead} must display the frame from {run_ahead} frames ahead"
+            );
+
+            // ...and `frame_buffer_into` has to agree with `frame_buffer`. Destination is a
+            // `Frame`, not a zeroed `Vec`: the filters write RGB only, leaving the alpha byte
+            // `Frame::new` pre-fills with 255.
+            let mut into = Frame::new();
+            ahead.frame_buffer_into(into.as_array_mut());
+            assert_eq!(
+                into.as_array(),
+                ahead.frame_buffer(),
+                "run_ahead {run_ahead}: frame_buffer_into must match frame_buffer"
+            );
+        }
+    }
+
+    /// Audio used to accumulate until the caller remembered `clear_audio_samples`, which made
+    /// forgetting it an unbounded leak. Clocking now drops the previous call's samples by default.
+    #[test]
+    fn audio_samples_do_not_accumulate_across_frames() {
+        let mut deck = spritecans();
+        deck.clock_frame().expect("clocks");
+        let one_frame = deck.audio_samples().len();
+        assert!(one_frame > 0, "a frame should produce audio");
+
+        // Per-frame counts wobble by a sample or two, because `Apu::sample_counter` carries across
+        // frames - so this bounds the buffer at a frame's worth rather than pinning it. What it
+        // rules out is the old behavior, where frame 60 would hold 60 frames of audio.
+        let mut max = 0;
+        for _ in 0..60 {
+            deck.clock_frame().expect("clocks");
+            max = max.max(deck.audio_samples().len());
+        }
+        assert!(
+            max < one_frame * 2,
+            "samples accumulated across frames without a manual clear: \
+             one frame is {one_frame}, peaked at {max}"
+        );
+    }
+
+    /// Opting out restores the old behavior for callers who clock several times before draining.
+    #[test]
+    fn audio_samples_accumulate_when_opted_out() {
+        let mut deck = spritecans();
+        deck.set_clear_audio_on_clock(false);
+        deck.clock_frame().expect("clocks");
+        let one_frame = deck.audio_samples().len();
+
+        for _ in 0..9 {
+            deck.clock_frame().expect("clocks");
+        }
+        assert!(
+            deck.audio_samples().len() > one_frame * 9,
+            "10 frames should have accumulated roughly 10 frames of audio"
+        );
+
+        deck.clear_audio_samples();
+        assert_eq!(deck.audio_samples().len(), 0);
+    }
+
+    /// The clear happens once per `clock_frame`, not per NES frame - above 1x speed one call clocks
+    /// several and every one of their samples has to reach the caller.
+    #[test]
+    fn faster_than_realtime_reports_every_clocked_frames_audio() {
+        let mut deck = spritecans();
+        deck.clock_frame().expect("clocks");
+        let one_frame = deck.audio_samples().len();
+
+        deck.set_frame_speed(2.0);
+        deck.clock_frame().expect("clocks");
+        // `set_frame_speed` also halves the APU's sample period, so two frames at 2x speed produce
+        // about as many samples as one at 1x - the point is that neither frame is dropped.
+        assert!(
+            deck.audio_samples().len() >= one_frame,
+            "2x speed dropped one of the two frames it clocked"
+        );
     }
 
     /// Battery-backed state is written and restored through the board, since what is backed

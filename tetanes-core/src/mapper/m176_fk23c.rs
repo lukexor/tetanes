@@ -105,7 +105,7 @@ impl Fk23C {
             mirroring: cart.mirroring(),
         };
         fk23c.reset(ResetKind::Hard);
-        fk23c.sync(&mut cart.memory);
+        fk23c.update_banks(&mut cart.memory);
         Ok(fk23c.into())
     }
 
@@ -265,42 +265,40 @@ impl Map for Fk23C {
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
-            0x4000..=0x5FFF => {
-                // $5xxx is the register window when FK23C registers are enabled
-                // (or RAM config is off); otherwise it is banked WRAM.
-                if self.fk23_registers_enabled || !self.wram_config_enabled {
-                    // Solder-pad address mask: a register write must have the
-                    // $5010 bits set (mask $Fxx3 selects $5xx0-$5xx3).
-                    if addr & 0x5010 != 0x5010 {
-                        return;
-                    }
-                    match addr & 0x03 {
-                        0 => {
-                            self.prg_banking_mode = val & 0x07;
-                            self.outer_chr_bank_size = val & 0x10 != 0;
-                            self.select_chr_ram = val & 0x20 != 0;
-                            self.mmc3_chr_mode = val & 0x40 == 0;
-                            self.prg_base_bits = (self.prg_base_bits & !0x180)
-                                | (u16::from(val & 0x80) << 1)
-                                | (u16::from(val & 0x08) << 4);
-                        }
-                        1 => {
-                            self.prg_base_bits =
-                                (self.prg_base_bits & !0x7F) | u16::from(val & 0x7F);
-                        }
-                        2 => {
-                            self.prg_base_bits =
-                                (self.prg_base_bits & !0x200) | (u16::from(val & 0x40) << 3);
-                            self.chr_base_bits = val;
-                            self.cnrom_chr_reg = 0;
-                        }
-                        _ => {
-                            self.extended_mmc3_mode = val & 0x02 != 0;
-                            self.cnrom_chr_mode = val & 0x44 != 0;
-                        }
-                    }
-                    self.update_state();
+            // $5xxx is the register window when FK23C registers are enabled (or RAM config is
+            // off); otherwise it is banked WRAM, and the guard falls through to `_` - which still
+            // reaches the `self.update_banks(memory)` below, exactly as an empty arm body would.
+            0x4000..=0x5FFF if self.fk23_registers_enabled || !self.wram_config_enabled => {
+                // Solder-pad address mask: a register write must have the
+                // $5010 bits set (mask $Fxx3 selects $5xx0-$5xx3).
+                if addr & 0x5010 != 0x5010 {
+                    return;
                 }
+                match addr & 0x03 {
+                    0 => {
+                        self.prg_banking_mode = val & 0x07;
+                        self.outer_chr_bank_size = val & 0x10 != 0;
+                        self.select_chr_ram = val & 0x20 != 0;
+                        self.mmc3_chr_mode = val & 0x40 == 0;
+                        self.prg_base_bits = (self.prg_base_bits & !0x180)
+                            | (u16::from(val & 0x80) << 1)
+                            | (u16::from(val & 0x08) << 4);
+                    }
+                    1 => {
+                        self.prg_base_bits = (self.prg_base_bits & !0x7F) | u16::from(val & 0x7F);
+                    }
+                    2 => {
+                        self.prg_base_bits =
+                            (self.prg_base_bits & !0x200) | (u16::from(val & 0x40) << 3);
+                        self.chr_base_bits = val;
+                        self.cnrom_chr_reg = 0;
+                    }
+                    _ => {
+                        self.extended_mmc3_mode = val & 0x02 != 0;
+                        self.cnrom_chr_mode = val & 0x44 != 0;
+                    }
+                }
+                self.update_state();
             }
             // WRAM stores already happened in `Bus`.
             0x6000..=0x7FFF => (),
@@ -361,10 +359,10 @@ impl Map for Fk23C {
             }
             _ => (),
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         // Each CHR slot independently reads CHR-ROM or the 8K CHR-RAM overlay, depending on the
         // RAM-config register and the slot's own bank value.
         for (slot, page) in self.chr_pages().into_iter().enumerate() {

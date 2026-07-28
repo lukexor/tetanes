@@ -86,7 +86,7 @@ impl JalecoSs88006 {
             prg_ram_readable: true,
             prg_ram_writable: true,
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -158,10 +158,10 @@ impl Map for JalecoSs88006 {
             0xF003 => (),
             _ => (),
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         for (slot, bank) in self.chr_banks.iter().enumerate() {
             let addr = (slot * Self::CHR_WINDOW) as u16;
             memory.map_chr(addr, Self::CHR_WINDOW, i32::from(*bank), Src::Chr);
@@ -194,7 +194,7 @@ impl Map for JalecoSs88006 {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        // The last PRG slot is fixed in `sync`, which the caller runs after reset.
+        // The last PRG slot is fixed in `update_banks`, which the caller runs after reset.
         self.regs = Regs::default();
     }
 }

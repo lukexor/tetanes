@@ -30,7 +30,7 @@ impl Axrom {
             mirroring: cart.mirroring(),
             prg_bank: 0,
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -58,7 +58,7 @@ impl Map for Axrom {
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(
             0x8000,
             Self::PRG_WINDOW,

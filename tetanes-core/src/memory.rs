@@ -142,7 +142,7 @@ pub struct Memory {
 /// funnels through.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
-/// mapper's registers by `Map::sync`.
+/// mapper's registers by `Map::update_banks`.
 #[derive(Serialize)]
 struct MemoryState<'a> {
     len: usize,
@@ -308,7 +308,7 @@ impl Memory {
         };
         // CIRAM is console-internal, not part of the cart, so the nametables are readable before
         // any board has mapped anything. Boards that route them elsewhere - MMC5 picks a source
-        // per nametable - overwrite these entries in their `sync`.
+        // per nametable - overwrite these entries in their `update_banks`.
         memory.set_mirroring(Mirroring::default());
         memory
     }

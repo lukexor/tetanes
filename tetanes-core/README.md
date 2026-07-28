@@ -43,7 +43,7 @@ Some community examples:
 
 ## Minimum Supported Rust Version (MSRV)
 
-The current minimum Rust version is `1.85.0`.
+The current minimum Rust version is `1.88.0`.
 
 ## Features
 
@@ -80,23 +80,37 @@ fn main() -> anyhow::Result<()> {
     control_deck.load_rom_path("some_awesome_game.nes")?;
 
     while control_deck.is_running() {
-      // See also: `ControlDeck::clock_frame_output` and `ControlDeck::clock_frame_into`
-      control_deck.clock_frame()?;
+        control_deck.clock_frame()?;
 
-      let audio_samples = control_deck.audio_samples();
-      // Process audio samples (e.g. by sending it to an audio device)
-      control_deck.clear_audio_samples();
+        // The audio this frame produced. Queue it to an audio device. Each clock
+        // discards the previous call's samples, so nothing accumulates - see
+        // `Config::clear_audio_on_clock` if you would rather drain them yourself.
+        let audio_samples = control_deck.audio_samples();
 
-      let frame_buffer = control_deck.frame_buffer();
-      // Process frame buffer (e.g. by rendering it to the screen)
+        // The frame to display, as RGBA pixels. Blit it to the screen.
+        // See also: `ControlDeck::frame_buffer_into` to render into a buffer you
+        // already own, and `frame_buffer_raw` for undecoded PPU pixels.
+        let frame_buffer = control_deck.frame_buffer();
 
-      // If not relying on vsync, sleep or otherwise wait the remainder of the
-      // 16ms frame time to clock again
+        // If not relying on vsync, sleep or otherwise wait the remainder of the
+        // 16ms frame time to clock again.
     }
 
     Ok(())
 }
 ```
+
+To hide input lag, have the deck run ahead of itself and display a frame from the
+future, rewinding back each time:
+
+```rust no_run
+# use tetanes_core::prelude::*;
+# let mut control_deck = ControlDeck::new();
+control_deck.set_run_ahead(2);
+```
+
+Input goes through `ControlDeck::joypad_mut`, and `ControlDeck::save_state` /
+`load_state` capture and restore the whole console.
 
 ## Stability
 

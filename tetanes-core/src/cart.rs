@@ -193,6 +193,23 @@ impl Cart {
 
     /// Load `Cart` from ROM data, selecting the board its mapper number calls for.
     ///
+    /// Accepts both iNES and NES 2.0 headers. Most callers want
+    /// [`ControlDeck::load_rom`](crate::control_deck::ControlDeck::load_rom) instead, which does
+    /// this and installs the cart; reach for this to inspect a ROM without running it.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use tetanes_core::{cart::Cart, memory::RamState};
+    ///
+    /// let rom = std::fs::read("some_awesome_game.nes")?;
+    /// let cart = Cart::from_rom("some_awesome_game", &mut rom.as_slice(), RamState::Random)?;
+    ///
+    /// println!("mapper {} ({})", cart.mapper_num(), cart.mapper_board());
+    /// println!("{} PRG-ROM bytes, battery: {}", cart.prg_rom().len(), cart.battery_backed());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// If the NES header is invalid, the ROM data does not match the header, or no board
@@ -653,7 +670,7 @@ impl NesHeader {
                         byte: i as u8,
                         value: *value,
                         message: format!(
-                            "unrecogonized data found at header byte {i}. repair and try again"
+                            "unrecognized data found at header byte {i}. repair and try again"
                         ),
                     });
                 }

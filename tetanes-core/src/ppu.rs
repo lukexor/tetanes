@@ -209,7 +209,7 @@ pub struct Ppu {
     /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
     /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
     /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
-    /// test. Derived state, not serialized: recomputed in `load_mapper` and `sync_mapper`.
+    /// test. Derived state, not serialized: recomputed in `load_mapper` and `rebuild_mapper_state`.
     #[serde(skip)]
     pub mapper_ops: MapperOps,
     /// NMI pending.
@@ -507,7 +507,7 @@ impl Ppu {
     /// Return the current frame buffer.
     #[inline]
     #[must_use]
-    pub fn frame_buffer(&self) -> &[u16] {
+    pub fn frame_buffer(&self) -> &[u16; size::FRAME] {
         self.frame.buffer()
     }
 
@@ -569,9 +569,9 @@ impl Ppu {
     ///
     /// Required after loading a save state: page tables are derived state and are not serialized,
     /// so without this a restored state would have every page unmapped.
-    pub fn sync_mapper(&mut self) {
+    pub fn rebuild_mapper_state(&mut self) {
         let Self { mapper, memory, .. } = self;
-        mapper.sync(memory);
+        mapper.update_banks(memory);
         // mapper_ops is #[serde(skip)] - a restored save state replaced the whole Cpu, so this is
         // the state-load path's chance to recompute it from the (serialized, and thus correct)
         // mapper.
@@ -1738,7 +1738,7 @@ impl Ppu {
 
         self.mapper.reset(kind);
         // Reset can change banking, and `Reset` has no access to `Memory`.
-        self.sync_mapper();
+        self.rebuild_mapper_state();
 
         self.status.reset(kind);
         self.nmi_pending = false;

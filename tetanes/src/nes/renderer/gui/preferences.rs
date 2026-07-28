@@ -502,7 +502,7 @@ impl Preferences {
             let icon = shortcut.as_ref().map(|_| "🔝 ").unwrap_or_default();
             let checkbox = Checkbox::new(&mut always_on_top, format!("{icon}Always on Top"))
                 .shortcut_text(shortcut.unwrap_or_default());
-            // FIXME: Currently when not using embeded viewports, toggling always on top from
+            // FIXME: Currently when not using embedded viewports, toggling always on top from
             // the preferences window will focus the primary window, potentially obscuring the
             // preferences window
             if ui.add(checkbox).clicked() {

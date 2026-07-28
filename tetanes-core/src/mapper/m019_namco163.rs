@@ -89,7 +89,7 @@ impl Namco163 {
             chr_banks: [0; 12],
             prg_banks: [0; 3],
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 
@@ -269,10 +269,10 @@ impl Map for Namco163 {
             }
             _ => (),
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         // Twelve 1K slots cover $0000-$2FFF; each independently selects CHR-ROM or CIRAM, which is
         // how this board expresses both pattern banking and nametable layout.
         for slot in 0..12 {

@@ -1,6 +1,86 @@
-//! Memory Mappers for cartridges.
+//! Memory mappers for cartridges - the board hardware that decides what a CPU or PPU address
+//! actually reaches.
 //!
 //! <https://wiki.nesdev.org/w/index.php/Mapper>
+//!
+//! [`Mapper`] is an enum with static dispatch rather than a boxed trait object; this is deliberate,
+//! since board dispatch sits on the hottest paths in the emulator. Each board implements [`Map`],
+//! and lives inside the [`Ppu`](crate::ppu::Ppu), because CHR and CIRAM access is the hot path.
+//!
+//! # Adding a board
+//!
+//! Two edits. First, `src/mapper/m0NN_<name>.rs`, named for the board's primary (lowest) mapper
+//! number - logic shared by a family lives in an un-numbered file instead (`mmc1.rs`, `mmc3.rs`,
+//! `vrc_irq.rs`). A board is a plain serializable struct with a `load` constructor and a [`Map`]
+//! impl. UxROM, in `m002_uxrom.rs`, is about as small as they get:
+//!
+//! ```ignore
+//! pub struct Uxrom { pub mirroring: Mirroring, pub prg_bank: u8 }
+//!
+//! impl Uxrom {
+//!     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
+//!         let mut board = Self { mirroring: cart.mirroring(), prg_bank: 0 };
+//!         board.update_banks(&mut cart.memory); // establish the power-on banking
+//!         Ok(board.into())                      // `From<Uxrom> for Mapper` is generated
+//!     }
+//! }
+//!
+//! impl Map for Uxrom {
+//!     fn mirroring(&self) -> Mirroring { self.mirroring }
+//!
+//!     fn write_register(&mut self, memory: &mut Memory, _addr: u16, val: u8) {
+//!         self.prg_bank = val & 0x0F;
+//!         self.update_banks(memory);
+//!     }
+//!
+//!     fn update_banks(&mut self, memory: &mut Memory) {
+//!         memory.map_prg(0x8000, Self::PRG_WINDOW, i32::from(self.prg_bank), Src::PrgRom);
+//!         memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom); // -1 = last bank
+//!         memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
+//!         memory.set_mirroring(self.mirroring);
+//!     }
+//! }
+//! ```
+//!
+//! Only [`Map::mirroring`] is required - everything else defaults, so a board writes exactly the
+//! hooks its hardware has. The two that matter most are [`Map::write_register`], called for every
+//! CPU write in `$4020..=$FFFF`, and [`Map::update_banks`], which republishes the whole banking
+//! layout into the page tables from the board's current registers.
+//!
+//! Keeping all banking in `update_banks` is what lets save states restore correctly: page tables
+//! are derived state and are not serialized, so
+//! [`Ppu::rebuild_mapper_state`](crate::ppu::Ppu::rebuild_mapper_state) rebuilds them by replaying
+//! `update_banks` against the restored registers. A board that banks anywhere *else* will load a
+//! broken state.
+//!
+//! Beyond that: [`Map::clock`] for boards with a per-cycle IRQ counter, [`Map::irq_pending`],
+//! [`Map::output`] for expansion audio, [`Map::prg_read`]/[`Map::chr_read`] as escape hatches for
+//! things no page entry can express, and [`Map::save_sram`]/[`Map::load_sram`] when the battery
+//! covers something other than PRG-RAM. Declare whichever of the per-cycle hooks you use in
+//! [`Map::mapper_ops`], or they will not be called.
+//!
+//! Second, one row in the `boards!` table below, in mapper-number order:
+//!
+//! ```ignore
+//! Uxrom(Uxrom) = 2 in m002_uxrom { 2 => Uxrom::load(cart) },
+//! ```
+//!
+//! That row generates the `pub mod`, the `pub use`, the [`Mapper`] variant, the [`From`] impls,
+//! every dispatch arm, the mapper-number match in [`Mapper::from_cart`], and the `print_layouts`
+//! entry. Note:
+//!
+//! - **`= 2` is the stable serialization id: assign-once, never reused, never renumbered.** It is
+//!   what goes on disk. Rows may therefore be reordered freely. A board sharing a mapper number
+//!   with an earlier one takes `0x1000 + n` instead.
+//! - Spell the storage as `Board(Box<Board>)` for a large board, to keep [`Mapper`] small. Boxing
+//!   is a *measured* trade - it costs an indirection on boards clocked every CPU cycle, and both
+//!   directions have surprised us. See `benches/README.md`.
+//! - A board exporting something besides the board type (so far only a revision enum) needs a
+//!   `pub use` next to the table.
+//!
+//! A mapper number no row claims is [`Error::Unimplemented`], so an unsupported ROM says so rather
+//! than loading as open bus and showing a black screen. Optionally add a `test_roms!` group in
+//! `common.rs`.
 
 use crate::{
     cart::Cart,
@@ -36,7 +116,7 @@ bitflags! {
         /// A board does not see PPU reads themselves, so the A12 rising-edge scanline counters
         /// (MMC3, FK23C) and CHR latches (MMC2, MMC4) need the PPU to notify them explicitly via
         /// [`Map::ppu_bus_addr`]. Whatever this reaches runs thousands of times a frame: re-map
-        /// only what changed, never [`Map::sync`].
+        /// only what changed, never [`Map::update_banks`].
         const WATCHES_PPU_BUS = 1 << 4;
         /// Board serves some CPU reads itself rather than from page tables.
         ///
@@ -406,8 +486,8 @@ macro_rules! impl_dispatch {
             }
 
             /// Rebuild the page tables from this board's register state.
-            pub fn sync(&mut self, memory: &mut Memory) {
-                dispatch!(self, [$($variant),+], m => m.sync(memory))
+            pub fn update_banks(&mut self, memory: &mut Memory) {
+                dispatch!(self, [$($variant),+], m => m.update_banks(memory))
             }
         }
 
@@ -450,7 +530,7 @@ macro_rules! impl_dispatch {
 
 /// One `match` over every `Mapper` variant, running the same call against each.
 ///
-/// The call is taken whole (`m => m.sync(memory)`) rather than as a method name plus an argument
+/// The call is taken whole (`m => m.update_banks(memory)`) rather than as a method name plus an argument
 /// list, because an argument repetition nested inside the per-variant repetition is a
 /// "meta-variable repeats N times, but M times" error - the two have different depths.
 macro_rules! dispatch {
@@ -549,7 +629,7 @@ impl Default for Mapper {
 /// Trait implemented by every board a [`Mapper`] can hold.
 ///
 /// Boards are pure register state: every read is served from [`Memory`]'s page tables, which a
-/// board rewrites from [`Map::write_register`] and [`Map::sync`]. The only reads that reach a
+/// board rewrites from [`Map::write_register`] and [`Map::update_banks`]. The only reads that reach a
 /// board are the ones no page entry can describe - expansion hardware and MMC5's synthesised
 /// fetches - and those go through [`Map::prg_read`] and [`Map::chr_read`], which return `None` to
 /// mean "ordinary memory, read the page table". Each is gated on a cached `MapperOps` bit so the
@@ -588,7 +668,7 @@ pub trait Map {
     /// Returns the current [`Mirroring`] mode.
     ///
     /// Reported for debuggers and for boards to read back; the nametables themselves are page
-    /// entries, applied through [`Memory::set_mirroring`] from a board's `sync`.
+    /// entries, applied through [`Memory::set_mirroring`] from a board's `update_banks`.
     // All mappers have mirroring, even if it's hard-wired.
     fn mirroring(&self) -> Mirroring;
 
@@ -654,7 +734,7 @@ pub trait Map {
     /// loading a save state; a board's registers survive, the mapping does not. Also called after
     /// reset, where `Reset` has no access to [`Memory`]. Boards implement their initial mapping
     /// here and call it from `load`, so a fresh cart and a restored save state take the same path.
-    fn sync(&mut self, _memory: &mut Memory) {}
+    fn update_banks(&mut self, _memory: &mut Memory) {}
 
     /// Clock the board once, for boards whose `mapper_ops()` includes `MapperOps::CLOCKED`.
     fn clock(&mut self) {}
@@ -662,7 +742,7 @@ pub trait Map {
     /// Reset the board given the [`ResetKind`].
     ///
     /// [`Memory`] is not reachable here, so a board that re-banks on reset sets its registers and
-    /// leaves the re-mapping to the [`Map::sync`] that follows.
+    /// leaves the re-mapping to the [`Map::update_banks`] that follows.
     fn reset(&mut self, _kind: ResetKind) {}
 
     /// Return the board's region.
@@ -814,7 +894,7 @@ mod tests {
     }
 
     /// Page tables are `#[serde(skip)]` derived state, and `Cpu::load` replaces the whole console
-    /// when a save state is loaded. Without a `sync` on the way back in, every page comes back
+    /// when a save state is loaded. Without an `update_banks` on the way back in, every page comes back
     /// unmapped and a restored state reads zeroes.
     #[test]
     fn sync_rebuilds_page_tables_after_a_save_state_round_trip() {
@@ -846,7 +926,7 @@ mod tests {
         );
         // ROM is not serialized either; `Cpu::load` reattaches it from the running console.
         assert!(restored.restore_rom_from(&cart.memory), "same cart");
-        mapper.sync(&mut restored);
+        mapper.update_banks(&mut restored);
         assert_eq!(
             restored.prg_peek(0x8000),
             16,
@@ -855,7 +935,7 @@ mod tests {
     }
 
     /// Nametable mapping lives in the CHR page table, which is also skipped by serde, so a board
-    /// that does not restore mirroring in `sync` comes back with unmapped nametables and renders
+    /// that does not restore mirroring in `update_banks` comes back with unmapped nametables and renders
     /// from a zero-filled page.
     #[test]
     fn sync_restores_nametable_mirroring() {
@@ -877,7 +957,7 @@ mod tests {
                 bincode::serde::decode_from_slice::<crate::memory::Memory, _>(&bytes, config)
                     .expect("memory deserializes");
 
-            mapper.sync(&mut restored);
+            mapper.update_banks(&mut restored);
             assert_eq!(
                 restored.chr_peek(0x2000),
                 0x5A,

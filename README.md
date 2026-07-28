@@ -304,7 +304,7 @@ Controller Layout:
 
 SDL-compatible mappings are used:
 <https://github.com/mdqinc/SDL_GameControllerDB?tab=readme-ov-file> but can be
-overriden by setting `SDL_GAMECONTROLLERCONFIG`.
+overridden by setting `SDL_GAMECONTROLLERCONFIG`.
 
 ```text
            Left Triggers                        Right Triggers

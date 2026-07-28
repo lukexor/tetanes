@@ -54,6 +54,7 @@ impl TryFrom<usize> for VideoFilter {
 pub struct Frame(Vec<u8>);
 
 impl Frame {
+    /// Size of a frame in bytes: one RGBA pixel per [`ppu::size::FRAME`] pixel.
     pub const SIZE: usize = ppu::size::FRAME * 4;
 
     /// Allocate a new frame for video output.
@@ -64,6 +65,36 @@ impl Frame {
                 .flat_map(|_| [0, 0, 0, 255])
                 .collect(),
         )
+    }
+
+    /// Borrows the frame's pixels as a fixed-size array.
+    ///
+    /// # Panics
+    ///
+    /// If the frame is not [`Frame::SIZE`] bytes. [`Frame::new`] always allocates exactly that and
+    /// nothing in this crate resizes it, so this cannot fire unless a caller has resized the frame
+    /// through the [`Deref`]/[`DerefMut`] to [`Vec`] - which this accessor exists to replace.
+    #[inline]
+    #[must_use]
+    pub fn as_array(&self) -> &[u8; Self::SIZE] {
+        self.0
+            .as_slice()
+            .try_into()
+            .expect("`Frame` is always `Frame::SIZE` bytes")
+    }
+
+    /// Mutably borrows the frame's pixels as a fixed-size array.
+    ///
+    /// # Panics
+    ///
+    /// See [`Frame::as_array`].
+    #[inline]
+    #[must_use]
+    pub fn as_array_mut(&mut self) -> &mut [u8; Self::SIZE] {
+        self.0
+            .as_mut_slice()
+            .try_into()
+            .expect("`Frame` is always `Frame::SIZE` bytes")
     }
 }
 
@@ -113,18 +144,28 @@ impl Video {
         }
     }
 
-    /// Applies the given filter to the given video buffer and returns the result.
-    pub fn apply_filter(&mut self, buffer: &[u16], frame_number: u32) -> &[u8] {
+    /// Applies the configured filter to a raw PPU frame and returns the RGBA result.
+    pub fn apply_filter(
+        &mut self,
+        buffer: &[u16; ppu::size::FRAME],
+        frame_number: u32,
+    ) -> &[u8; Frame::SIZE] {
+        let output = self.frame.as_array_mut();
         match self.filter {
-            VideoFilter::Pixellate => Self::decode_buffer(buffer, &mut self.frame),
-            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, &mut self.frame),
+            VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
+            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
         }
 
-        &self.frame
+        self.frame.as_array()
     }
 
-    /// Applies the given filter to the given video buffer by coping into the provided buffer.
-    pub fn apply_filter_into(&self, buffer: &[u16], frame_number: u32, output: &mut [u8]) {
+    /// Applies the configured filter to a raw PPU frame, writing the RGBA result into `output`.
+    pub fn apply_filter_into(
+        &self,
+        buffer: &[u16; ppu::size::FRAME],
+        frame_number: u32,
+        output: &mut [u8; Frame::SIZE],
+    ) {
         match self.filter {
             VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
             VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
@@ -132,7 +173,7 @@ impl Video {
     }
 
     /// Fills a fully rendered frame with RGB colors.
-    pub fn decode_buffer(buffer: &[u16], output: &mut [u8]) {
+    pub fn decode_buffer(buffer: &[u16; ppu::size::FRAME], output: &mut [u8; Frame::SIZE]) {
         for (color, pixels) in buffer.iter().zip(output.chunks_exact_mut(4)) {
             let index = (*color as usize) * 3;
             assert!(Ppu::NTSC_PALETTE.len() > index + 2);
@@ -149,7 +190,11 @@ impl Video {
     /// to translate it to Rust
     /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
     /// See also: <https://wiki.nesdev.org/w/index.php/NTSC_video>
-    pub fn apply_ntsc_filter(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
+    pub fn apply_ntsc_filter(
+        buffer: &[u16; ppu::size::FRAME],
+        frame_number: u32,
+        output: &mut [u8; Frame::SIZE],
+    ) {
         // Hoisted out of the per-pixel loop: `get_or_init` is a one-time init check afterwards,
         // and `even_phase` only depends on the frame parity, not the pixel.
         let palette = NTSC_PALETTE.get_or_init(generate_ntsc_palette);
@@ -319,14 +364,21 @@ mod tests {
     #[test]
     fn ntsc_filter_matches_reference_formula() {
         // A synthetic full-frame buffer exercising every palette index, not a real capture.
-        let buffer: Vec<u16> = (0..ppu::size::FRAME as u16).map(|i| i % 64).collect();
-        let mut actual = vec![0u8; buffer.len() * 4];
-        let mut expected = vec![0u8; buffer.len() * 4];
+        let mut buffer = Box::new([0u16; ppu::size::FRAME]);
+        for (i, px) in buffer.iter_mut().enumerate() {
+            *px = (i % 64) as u16;
+        }
+        let mut actual = Box::new([0u8; Frame::SIZE]);
+        let mut expected = vec![0u8; Frame::SIZE];
 
         for frame_number in [0u32, 1, 2, 3, 100, 101] {
             Video::apply_ntsc_filter(&buffer, frame_number, &mut actual);
-            apply_ntsc_filter_reference(&buffer, frame_number, &mut expected);
-            assert_eq!(actual, expected, "mismatch at frame_number={frame_number}");
+            apply_ntsc_filter_reference(&buffer[..], frame_number, &mut expected);
+            assert_eq!(
+                &actual[..],
+                &expected[..],
+                "mismatch at frame_number={frame_number}"
+            );
         }
     }
 }

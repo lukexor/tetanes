@@ -56,7 +56,7 @@ impl SunsoftFme7 {
             prg_banks: [0; 3],
             prg_ram_bank: 0,
         };
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 }
@@ -107,10 +107,10 @@ impl Map for SunsoftFme7 {
             0xC000..=0xFFFF => self.audio.write_register(addr, val),
             _ => return,
         }
-        self.sync(memory);
+        self.update_banks(memory);
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         for (slot, bank) in self.chr_banks.iter().enumerate() {
             let addr = (slot * Self::CHR_WINDOW) as u16;
             memory.map_chr(addr, Self::CHR_WINDOW, i32::from(*bank), Src::Chr);

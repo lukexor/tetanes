@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TetaNES is a cross-platform NES emulator. The workspace has three crates:
 
 - **`tetanes-core`** — the emulation library (CPU/PPU/APU/mappers/cart). Published, aims for stronger
-  API stability, and must compile on stable and MSRV `1.85` in addition to nightly.
+  API stability, and must compile on stable and MSRV `1.88` in addition to nightly.
 - **`tetanes`** — the UI binary: `winit` event loop + `egui` GUI + `wgpu` renderer. Targets desktop
   and `wasm32-unknown-unknown` (web via `trunk`).
 - **`tetanes-utils`** — unpublished dev binaries (`generate_db`, `list_boards`).
@@ -16,7 +16,7 @@ TetaNES is a cross-platform NES emulator. The workspace has three crates:
 
 The toolchain is pinned to **nightly** (`rust-toolchain.toml`) and edition 2024. `.cargo/config.toml`
 sets nightly-only `RUSTFLAGS`; when invoking a non-nightly toolchain you must unset
-`CARGO_ENCODED_RUSTFLAGS` (CI does this for the stable/1.85 clippy jobs).
+`CARGO_ENCODED_RUSTFLAGS` (CI does this for the stable/1.88 clippy jobs).
 
 Most workflows go through [`cargo-make`](https://github.com/sagiegurari/cargo-make) (`Makefile.toml`):
 
@@ -33,7 +33,7 @@ cargo make build                      # PGO build (cargo-pgo)
 ```
 
 Clippy must be clean with `-D warnings` for: native `tetanes`, wasm `tetanes`, and `tetanes-core` on
-nightly/stable/1.85.
+nightly/stable/1.88.
 
 ### Tests
 
@@ -91,14 +91,14 @@ layout plus `data[ram_start..]` only, and `Cpu::load` copies the ROM back in fro
 running. `Cpu::load` is the single funnel for *every* restore path — `load_state`, rewind and
 run-ahead — so it is also where a state belonging to a different cart is rejected
 (`cpu::StateMismatch`) rather than left running one game's RAM against another's ROM. Page tables are
-likewise absent, rebuilt by `Ppu::sync_mapper` from the restored mapper registers.
+likewise absent, rebuilt by `Ppu::rebuild_mapper_state` from the restored mapper registers.
 
 ### Mappers
 
 `Mapper` is an **enum with static dispatch**, not a boxed trait object — this is deliberate for
 performance. Each board implements the `Map` trait, where only `mirroring` is required and
 everything else has a default, so a board writes exactly the hooks its hardware has: register
-writes, `sync`, the `prg_read`/`chr_read` escape hatches for things no page entry can describe,
+writes, `update_banks`, the `prg_read`/`chr_read` escape hatches for things no page entry can describe,
 IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits — `Mapper` is what
 implements `Clock`/`Reset`/`Regional`/`Sample` and forwards them down the ownership tree.
 

@@ -44,7 +44,7 @@ pub struct Nes {
     /// `EventLoopProxy` can only be created on the initial `EventLoop` and not on
     /// `&EventLoopWindowTarget`.
     pub(crate) init_state: Option<(Config, NesEventProxy)>,
-    /// Initially `Suspended`. `Pending` after `Resume` event received and spanwed. `Running` after
+    /// Initially `Suspended`. `Pending` after `Resume` event received and spawned. `Running` after
     /// resources future completes.
     pub(crate) state: State,
 }

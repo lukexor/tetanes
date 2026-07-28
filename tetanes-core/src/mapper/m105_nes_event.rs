@@ -136,7 +136,7 @@ impl NesEvent {
             prg_banks: [0; 2],
         };
         board.update_state();
-        board.sync(&mut cart.memory);
+        board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
 
@@ -194,11 +194,11 @@ impl Map for NesEvent {
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         if addr >= 0x8000 && self.mmc1.process_shift_register_write(addr, val) {
             self.update_state();
-            self.sync(memory);
+            self.update_banks(memory);
         }
     }
 
-    fn sync(&mut self, memory: &mut Memory) {
+    fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
         memory.map_prg(
             0x8000,

@@ -26,6 +26,13 @@ category = "Development"
 command = "cargo"
 args = ["fmt", "--all", "--check"]
 
+[tasks.typos]
+description = "Check spelling"
+category = "Development"
+install_crate = { crate_name = "typos-cli", binary = "typos", test_arg = "--version" }
+command = "typos"
+args = ["${@}"]
+
 [tasks.lint-web]
 description = "Lint TetaNES Web"
 category = "Development"
@@ -38,7 +45,7 @@ description = "Lint TetaNES"
 category = "Development"
 command = "cargo"
 args = ["clippy", "--locked", "--all-features", "--keep-going"]
-dependencies = ["lint-web"]
+dependencies = ["typos", "lint-web"]
 
 [tasks.pgo-profile]
 description = "Run benchmark to generate PGO profile"
