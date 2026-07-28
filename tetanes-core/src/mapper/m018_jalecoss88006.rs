@@ -198,3 +198,185 @@ impl Map for JalecoSs88006 {
         self.regs = Regs::default();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (16 8K banks), 8K PRG-RAM, 64K CHR-ROM (64 1K banks).
+    fn load() -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        let mapper = JalecoSs88006::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// Writes a bank register as the two 4-bit halves the board actually takes: the even address
+    /// carries the low nibble and the odd one the high nibble.
+    fn bank(mapper: &mut Mapper, cart: &mut Cart, addr: u16, bank: u8) {
+        write(mapper, cart, addr, bank & 0x0F);
+        write(mapper, cart, addr + 1, bank >> 4);
+    }
+
+    /// Three switchable 8K windows and a fixed last bank. The registers are at $8000/$8002/$9000 -
+    /// not at the window each controls.
+    #[test]
+    fn prg_windows_are_three_switchable_8k_banks_and_a_fixed_last() {
+        let (mut mapper, mut cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120, "last bank at $E000");
+
+        bank(&mut mapper, &mut cart, 0x8000, 3);
+        bank(&mut mapper, &mut cart, 0x8002, 5);
+        bank(&mut mapper, &mut cart, 0x9000, 7);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 5 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120, "still fixed");
+    }
+
+    /// Every bank register arrives as two 4-bit halves, and each half must land in its own nibble
+    /// without disturbing the other.
+    #[test]
+    fn bank_registers_are_written_as_two_independent_nibbles() {
+        let (mut mapper, mut cart) = load();
+
+        // Low nibble first: bank $02.
+        write(&mut mapper, &mut cart, 0xA000, 0x02);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 0x02);
+
+        // Then the high nibble alone, making it bank $12 - the low nibble must survive.
+        write(&mut mapper, &mut cart, 0xA001, 0x01);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 0x12);
+
+        // And rewriting the low nibble alone must leave the high one alone.
+        write(&mut mapper, &mut cart, 0xA000, 0x05);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 0x15);
+    }
+
+    /// Eight 1K CHR windows, spread over $A000-$D003 two nibbles at a time.
+    #[test]
+    fn chr_registers_map_eight_1k_banks() {
+        let (mut mapper, mut cart) = load();
+        let regs = [0xA000, 0xA002, 0xB000, 0xB002, 0xC000, 0xC002, 0xD000, 0xD002];
+        for (slot, reg) in regs.into_iter().enumerate() {
+            bank(&mut mapper, &mut cart, reg, 20 + slot as u8);
+        }
+        for slot in 0..8u16 {
+            assert_eq!(
+                chr_peek(&mapper, &cart, slot * 1024),
+                0x80 | (20 + slot as u8),
+                "slot {slot}"
+            );
+        }
+    }
+
+    /// $9002 controls PRG-RAM: bit 0 maps it at all, bit 1 makes it writable - and write access
+    /// requires read access too.
+    #[test]
+    fn prg_ram_access_is_controlled_by_9002() {
+        let (mut mapper, mut cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "mapped at power-on");
+
+        write(&mut mapper, &mut cart, 0x9002, 0x00);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "unmapped reads as 0");
+
+        // Readable but not writable.
+        write(&mut mapper, &mut cart, 0x9002, 0x01);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A);
+        cart.memory.prg_write(0x6000, 0x77);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "write-protected");
+
+        write(&mut mapper, &mut cart, 0x9002, 0x03);
+        cart.memory.prg_write(0x6000, 0x77);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x77, "writable");
+    }
+
+    /// The IRQ counter is a down-counter reloaded from four 4-bit registers, and it fires when the
+    /// counter is already zero at the start of a clock - so a reload of `n` gives `n + 1` clocks.
+    #[test]
+    fn irq_counter_reloads_from_four_nibbles_and_counts_down() {
+        let (mut mapper, mut cart) = load();
+
+        // Reload $0003, full 16-bit width.
+        write(&mut mapper, &mut cart, 0xE000, 3);
+        write(&mut mapper, &mut cart, 0xF001, 0x01); // enable, 16-bit
+        write(&mut mapper, &mut cart, 0xF000, 0); // latch the reload into the counter
+
+        for clock in 0..3 {
+            mapper.clock();
+            assert!(!mapper.irq_pending(), "too early, at clock {clock}");
+        }
+        mapper.clock();
+        assert!(mapper.irq_pending(), "fires once the counter reaches zero");
+    }
+
+    /// The counter width is selectable, and a narrower width must count only its own low bits while
+    /// leaving the rest of the register untouched.
+    #[test]
+    fn a_narrow_counter_counts_only_its_low_bits() {
+        let (mut mapper, mut cart) = load();
+
+        // Reload $1234, then run it as a 4-bit counter: only the $4 counts.
+        for (nibble, val) in [4, 3, 2, 1].into_iter().enumerate() {
+            write(&mut mapper, &mut cart, 0xE000 + nibble as u16, val);
+        }
+        write(&mut mapper, &mut cart, 0xF001, 0x09); // enable, 4-bit
+        write(&mut mapper, &mut cart, 0xF000, 0);
+
+        for clock in 0..4 {
+            mapper.clock();
+            assert!(!mapper.irq_pending(), "too early, at clock {clock}");
+        }
+        mapper.clock();
+        assert!(mapper.irq_pending(), "a 4-bit counter fires after 5 clocks");
+    }
+
+    /// Writing either IRQ control register acknowledges a pending interrupt, and a disabled counter
+    /// never fires.
+    #[test]
+    fn the_irq_is_acknowledged_by_either_control_register() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0xE000, 1);
+        write(&mut mapper, &mut cart, 0xF001, 0x01);
+        write(&mut mapper, &mut cart, 0xF000, 0);
+        for _ in 0..2 {
+            mapper.clock();
+        }
+        assert!(mapper.irq_pending());
+
+        write(&mut mapper, &mut cart, 0xF000, 0);
+        assert!(!mapper.irq_pending(), "reload acknowledges");
+
+        write(&mut mapper, &mut cart, 0xF001, 0x00); // disable
+        for _ in 0..1000 {
+            mapper.clock();
+        }
+        assert!(!mapper.irq_pending(), "a disabled counter never fires");
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = load();
+        bank(&mut mapper, &mut cart, 0x8000, 3);
+        bank(&mut mapper, &mut cart, 0x8002, 5);
+        bank(&mut mapper, &mut cart, 0x9000, 7);
+        bank(&mut mapper, &mut cart, 0xA000, 9);
+
+        let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
+            [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+                .into_iter()
+                .map(|addr| prg_peek(mapper, cart, addr))
+                .chain([chr_peek(mapper, cart, 0x0000)])
+                .collect()
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}

@@ -430,3 +430,231 @@ impl Map for Fk23C {
         self.update_state();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 256K PRG-ROM (32 8K banks), 32K PRG-RAM (4 WRAM banks), 64K CHR-ROM (64 1K banks).
+    fn load() -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(256 * 1024, 32 * 1024, 64 * 1024);
+        cart.header.mapper_num = 176;
+        let mapper = Fk23C::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// Selects an MMC3 register and writes its value.
+    fn bank(mapper: &mut Mapper, cart: &mut Cart, reg: u8, val: u8) {
+        write(mapper, cart, 0x8000, reg);
+        write(mapper, cart, 0x8001, val);
+    }
+
+    /// Writes one of the four `$5xx0-$5xx3` mode registers. The solder-pad mask means only
+    /// addresses with the `$5010` bits set decode as registers at all.
+    fn mode(mapper: &mut Mapper, cart: &mut Cart, reg: u16, val: u8) {
+        write(mapper, cart, 0x5010 | reg, val);
+    }
+
+    /// The board boots as a plain MMC3: $C000/$E000 fixed to the last two banks by the $FE/$FF
+    /// power-on register values.
+    #[test]
+    fn powers_on_as_an_mmc3_with_the_last_banks_fixed() {
+        let (mapper, cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0, "R6 = bank 0");
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 8, "R7 = bank 1");
+        // $FE and $FF masked to 6 bits are banks 62 and 63, which wrap onto this cart's 32.
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), (62 % 32) * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), (63 % 32) * 8, "last bank");
+    }
+
+    /// The MMC3 registers still bank PRG and CHR the ordinary way.
+    #[test]
+    fn mmc3_registers_bank_prg_and_chr() {
+        let (mut mapper, mut cart) = load();
+
+        bank(&mut mapper, &mut cart, 6, 3);
+        bank(&mut mapper, &mut cart, 7, 5);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 5 * 8);
+
+        // R0 and R1 are 2K windows: the low bit of the register is forced.
+        bank(&mut mapper, &mut cart, 0, 10);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 10);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0400), 0x80 | 11, "2K window");
+
+        // R2-R5 are 1K windows.
+        bank(&mut mapper, &mut cart, 2, 20);
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), 0x80 | 20);
+    }
+
+    /// Bits 6 and 7 of $8000 are this board's own inversion bits, swapping the PRG and CHR halves.
+    #[test]
+    fn bits_6_and_7_of_8000_invert_the_prg_and_chr_halves() {
+        let (mut mapper, mut cart) = load();
+        bank(&mut mapper, &mut cart, 6, 3);
+
+        // Bit 6 swaps the $8000 and $C000 slots.
+        write(&mut mapper, &mut cart, 0x8000, 0x40);
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xC000),
+            3 * 8,
+            "R6 moved to $C000"
+        );
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), (62 % 32) * 8);
+
+        // Bit 7 swaps the two 4K CHR halves.
+        let (mut mapper, mut cart) = load();
+        let before: Vec<u8> = (0..8).map(|s| chr_peek(&mapper, &cart, s * 1024)).collect();
+        write(&mut mapper, &mut cart, 0x8000, 0x80);
+        let after: Vec<u8> = (0..8).map(|s| chr_peek(&mapper, &cart, s * 1024)).collect();
+        assert_eq!(after[..4], before[4..], "the halves swapped");
+        assert_eq!(after[4..], before[..4]);
+    }
+
+    /// PRG mode 3 is NROM-128: one 16K bank from the outer base, mirrored into both halves.
+    #[test]
+    fn prg_mode_3_is_nrom_128_mirrored_from_the_outer_base() {
+        let (mut mapper, mut cart) = load();
+        mode(&mut mapper, &mut cart, 1, 3); // outer base
+        mode(&mut mapper, &mut cart, 0, 3); // banking mode 3
+
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 6 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 7 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 6 * 8, "mirrored");
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 7 * 8, "mirrored");
+    }
+
+    /// PRG mode 4 is NROM-256: one 32K bank, ignoring the low bit of the outer base.
+    #[test]
+    fn prg_mode_4_is_nrom_256() {
+        let (mut mapper, mut cart) = load();
+        mode(&mut mapper, &mut cart, 1, 4);
+        mode(&mut mapper, &mut cart, 0, 4);
+
+        for (slot, bank) in [8, 9, 10, 11].into_iter().enumerate() {
+            let addr = 0x8000 + (slot * 0x2000) as u16;
+            assert_eq!(prg_peek(&mapper, &cart, addr), bank * 8, "slot {slot}");
+        }
+    }
+
+    /// A register write that misses the solder-pad mask is not a register write at all.
+    #[test]
+    fn the_5010_solder_pad_mask_gates_the_mode_registers() {
+        let (mut mapper, mut cart) = load();
+
+        // $5000 lacks the $10 bit, so this must not select NROM-128 mode.
+        write(&mut mapper, &mut cart, 0x5000, 3);
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xE000),
+            (63 % 32) * 8,
+            "still in MMC3 mode"
+        );
+
+        mode(&mut mapper, &mut cart, 0, 3);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 8, "now NROM-128");
+    }
+
+    /// $A001 controls WRAM. In the banked RAM-config mode it appears at $4000 as well as $6000,
+    /// one bank apart - which is the only reason this board maps anything at $4000.
+    #[test]
+    fn a001_controls_wram_mapping_and_the_4000_window() {
+        let (mut mapper, mut cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "unmapped at power-on");
+
+        // Bit 7 alone: plain 8K WRAM at $6000, nothing at $4000.
+        write(&mut mapper, &mut cart, 0xA001, 0x80);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A);
+        assert_eq!(prg_peek(&mapper, &cart, 0x4000), 0, "no $4000 window");
+
+        // Bit 5 turns on RAM-config banking, which also opens the $4000 window.
+        write(&mut mapper, &mut cart, 0xA001, 0x20);
+        cart.memory.prg_write(0x6000, 0x11);
+        cart.memory.prg_write(0x4000, 0x22);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x11);
+        assert_eq!(prg_peek(&mapper, &cart, 0x4000), 0x22);
+        assert_ne!(
+            prg_peek(&mapper, &cart, 0x4000),
+            prg_peek(&mapper, &cart, 0x6000),
+            "$4000 is the next WRAM bank, not a mirror"
+        );
+    }
+
+    /// Single-screen mirroring is only reachable once $A001 bit 3 unlocks it; without it the
+    /// mirroring register is masked to one bit.
+    #[test]
+    fn single_screen_mirroring_needs_unlocking_by_a001() {
+        let (mut mapper, mut cart) = load();
+
+        // Mirroring 2 would be single-screen A, but the mask keeps it at vertical.
+        write(&mut mapper, &mut cart, 0xA000, 0x02);
+        cart.memory.chr_write(0x2000, 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x11, "still vertical");
+
+        write(&mut mapper, &mut cart, 0xA001, 0x20 | 0x08); // unlock
+        write(&mut mapper, &mut cart, 0xA000, 0x02);
+        cart.memory.chr_write(0x2000, 0x33);
+        for nt in [0x2400, 0x2800, 0x2C00] {
+            assert_eq!(chr_peek(&mapper, &cart, nt), 0x33, "single screen A");
+        }
+    }
+
+    /// The MMC3 scanline counter still drives the IRQ, clocked from A12 rising edges rather than
+    /// from the CPU clock.
+    #[test]
+    fn the_mmc3_scanline_irq_still_works() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0xC000, 2); // latch
+        write(&mut mapper, &mut cart, 0xC001, 0); // reload
+        write(&mut mapper, &mut cart, 0xE001, 0); // enable
+
+        // Each low-to-high A12 transition is one scanline. A12 has to stay low for several CPU
+        // clocks first, which is how the real chip rejects the rapid toggling of a normal fetch
+        // pattern - so the clocks here are load-bearing.
+        // `a12_low_clock == 0` doubles as "A12 is not currently low", so the very first transition
+        // out of a zero master clock is swallowed. Advance past it before measuring.
+        mapper.clock();
+
+        let scanline = |mapper: &mut Mapper, cart: &mut Cart| {
+            mapper.ppu_bus_addr(&mut cart.memory, 0x0000);
+            for _ in 0..8 {
+                mapper.clock();
+            }
+            mapper.ppu_bus_addr(&mut cart.memory, 0x1000);
+        };
+
+        // The first edge loads the latch, then it counts 2 down to 0.
+        for line in 0..2 {
+            scanline(&mut mapper, &mut cart);
+            assert!(!mapper.irq_pending(), "too early, at line {line}");
+        }
+        scanline(&mut mapper, &mut cart);
+        assert!(mapper.irq_pending(), "fires after the latch counts down");
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0xA001, 0x20);
+        bank(&mut mapper, &mut cart, 6, 3);
+        bank(&mut mapper, &mut cart, 0, 10);
+        mode(&mut mapper, &mut cart, 2, 1);
+
+        let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
+            [0x4000, 0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+                .into_iter()
+                .map(|addr| prg_peek(mapper, cart, addr))
+                .chain((0..8).map(|slot| chr_peek(mapper, cart, slot * 1024)))
+                .collect()
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}

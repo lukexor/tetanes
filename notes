@@ -262,13 +262,59 @@ expectation and genuinely fails.
     tests.json for aiming/triggering over time. Check whether the existing
     Action enum can already express it before writing new harness code.
 
-7f. Missing coverage (nothing ignored - simply absent).
-    22 boards in the boards! table; exactly 2 have a test group (m004, m005).
-    Everything else - MMC1/Sxrom, Uxrom, Cnrom, Axrom, Vrc6, Namco163,
-    SunsoftFme7, BandaiFCG, FK23C ... - has zero ROM coverage, and the mapper
-    rework touched all of them. Suggest picking boards by risk: the ones with
-    IRQ counters or expansion audio (Vrc6, Namco163, SunsoftFme7, FK23C, MMC5)
-    over the trivially-banked ones. Needs ROMs sourced from nes-test-roms.
+7f. Missing coverage -- 7 of the 8 high-risk boards DONE, [64 tests]
+    22 boards in the boards! table; exactly 2 had a test group (m004, m005),
+    and the mapper rework touched all of them.
+
+    NOT done with ROMs. christopherpow/nes-test-roms has almost no mapper
+    coverage beyond the mmc3_*/mmc5test/exram dirs we already use - there is no
+    holydiverbatman-style per-board set in it - and the useful ROMs for these
+    boards do not exist publicly at all (nobody has written a VRC6 or N163 IRQ
+    test ROM). So this went to in-crate unit tests instead, which is the better
+    tool anyway: the rework changed the *read path* (Banks -> page tables), not
+    the per-board bank arithmetic, so a page-table assertion pins exactly what
+    moved and names what broke, where a frame hash would only say "different".
+
+    mapper::test_utils (factored out of the MMC5 test module) builds a cart
+    with every 1K page filled with its own index - PRG page n = n, CHR page n =
+    0x80|n, PRG-RAM = 0x5A - so a peek names the bank it came from and a test
+    reads as "writing $8000 = 3 puts PRG page 3 at $8000". No ROM needed. Plus
+    write/prg_peek/chr_peek that mirror Bus::write / Bus::peek / Ppu::chr_peek
+    routing.
+
+    Covered: VrcIrq (7), Vrc6 (12), Namco163 (10), SunsoftFme7 (8), Sxrom/MMC1
+    (8), JalecoSs88006 (8), BandaiFCG (8), Fk23C (10). Every board also gets an
+    update_banks_rebuilds_every_window_from_register_state test, since that is
+    what Ppu::rebuild_mapper_state relies on after a save state - page tables
+    are never serialized.
+
+    THREE BUGS FOUND, all in VRC6, all latent (i.e. reachable by legal register
+    values, would panic a debug build, but not hit by Akumajou Densetsu / Esper
+    Dream 2 / Mouryou Senki Madara in 900 frames - measured: saw rate peaks at
+    25, none use IRQ cycle mode):
+      - VrcIrq::clock ran the prescaler in cycle mode too, netting +338/clock,
+        overflowing the i16 after ~97 CPU cycles.
+      - The VRC6 saw's 8-bit accumulator overflowed at any rate above 42; the
+        hardware discards the carry, so it now wraps.
+      - VrcIrq::reset cleared every field EXCEPT irq_pending, leaving the line
+        asserted with nothing able to reach the acknowledge that clears it.
+    The other 45 tests passed against the reworked code unchanged, so those
+    seven boards' page-table wiring is sound.
+
+    STILL UNCOVERED (13 boards, all trivially banked - no IRQ, no audio, and a
+    single bank register each): Nrom, Uxrom, Cnrom, Axrom, Pxrom/MMC2,
+    Fxrom/MMC4, ColorDreams, Bnrom, Nina001, Gxrom, Bf909x, Nina003006,
+    NesEvent. Pxrom/Fxrom are the only ones with any subtlety (the $FD/$FE
+    CHR latch) and are worth doing next if this continues.
+
+    Follow-up noticed, NOT changed: JalecoSs88006 stores the IRQ reload
+    nibbles as full bytes (`irq_reload[i] = val`) and then ORs them shifted by
+    4*i, so a write above $0F bleeds into the neighbouring nibble. Real
+    SS88006 latches 4 bits. One-word fix (`val & 0x0F`) but no way to validate
+    it here, so it is left alone deliberately rather than guessed at.
+    Also pre-existing: `items after a test module` clippy warning in
+    m005_exrom.rs (impl Debug for Exrom sits after mod tests). Only shows under
+    --all-targets, which `cargo make lint` does not pass.
 
 Suggested order: 7a -> 7b -> 7f (a few high-risk boards) -> 7c -> 7e -> 7d.
 7a and 7b together turn 7 of 21 ignores green for little work and make the

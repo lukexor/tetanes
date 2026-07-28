@@ -924,3 +924,178 @@ mod tests {
         assert_eq!(reader.data.len(), 132);
     }
 }
+
+#[cfg(test)]
+mod board_tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (8 16K banks), 8K PRG-RAM, 64K CHR-ROM (64 1K banks).
+    fn load(mapper_num: u16, submapper_num: u8) -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        cart.header.mapper_num = mapper_num;
+        cart.header.submapper_num = submapper_num;
+        let mapper = BandaiFCG::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// LZ93D50, the common configuration: banked CHR-ROM and a latched IRQ counter.
+    fn lz93d50() -> (Mapper, Cart) {
+        load(16, 5)
+    }
+
+    /// A 16K switchable window at $8000 and the last bank fixed at $C000.
+    #[test]
+    fn prg_is_one_switchable_16k_bank_and_a_fixed_last() {
+        let (mut mapper, mut cart) = lz93d50();
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 16, "last bank");
+
+        write(&mut mapper, &mut cart, 0x8008, 3);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 16, "still fixed");
+    }
+
+    /// The eight low registers are 1K CHR windows.
+    #[test]
+    fn chr_registers_map_eight_1k_banks() {
+        let (mut mapper, mut cart) = lz93d50();
+        for slot in 0..8u16 {
+            write(&mut mapper, &mut cart, 0x8000 + slot, 20 + slot as u8);
+        }
+        for slot in 0..8u16 {
+            assert_eq!(
+                chr_peek(&mapper, &cart, slot * 1024),
+                0x80 | (20 + slot as u8),
+                "slot {slot}"
+            );
+        }
+    }
+
+    /// $8009 sets mirroring, and this board's encoding starts at vertical rather than horizontal.
+    #[test]
+    fn register_9_sets_mirroring() {
+        let (mut mapper, mut cart) = lz93d50();
+
+        write(&mut mapper, &mut cart, 0x8009, 0b00);
+        cart.memory.chr_write(0x2000, 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x11, "vertical");
+
+        write(&mut mapper, &mut cart, 0x8009, 0b01);
+        cart.memory.chr_write(0x2000, 0x22);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2400), 0x22, "horizontal");
+    }
+
+    /// On the LZ93D50 the two counter registers load a *latch*; only a write to $800A copies it
+    /// into the running counter. Writing them mid-count must therefore not disturb it.
+    #[test]
+    fn lz93d50_latches_the_counter_until_800a_is_written() {
+        let (mut mapper, mut cart) = lz93d50();
+
+        write(&mut mapper, &mut cart, 0x800B, 3); // latch low
+        write(&mut mapper, &mut cart, 0x800C, 0); // latch high
+        write(&mut mapper, &mut cart, 0x800A, 0x01); // enable, and copy latch to counter
+
+        // Loading the latch again must not restart the counter that is already running.
+        write(&mut mapper, &mut cart, 0x800B, 0xFF);
+        for clock in 0..3 {
+            mapper.clock();
+            assert!(!mapper.irq_pending(), "too early, at clock {clock}");
+        }
+        mapper.clock();
+        assert!(mapper.irq_pending(), "the original latch value still governs");
+    }
+
+    /// On the FCG-1/2 the same registers write straight through to the counter, with no latch.
+    #[test]
+    fn fcg_1_2_writes_the_counter_directly() {
+        let (mut mapper, mut cart) = load(16, 4);
+
+        write(&mut mapper, &mut cart, 0x800A, 0x01); // enable
+        write(&mut mapper, &mut cart, 0x800B, 3); // straight into the counter
+        write(&mut mapper, &mut cart, 0x800C, 0);
+
+        for clock in 0..3 {
+            mapper.clock();
+            assert!(!mapper.irq_pending(), "too early, at clock {clock}");
+        }
+        mapper.clock();
+        assert!(mapper.irq_pending());
+    }
+
+    /// Writing the control register acknowledges, and a disabled counter never fires.
+    #[test]
+    fn the_irq_is_acknowledged_and_gated_by_the_enable_bit() {
+        let (mut mapper, mut cart) = lz93d50();
+        write(&mut mapper, &mut cart, 0x800B, 0);
+        write(&mut mapper, &mut cart, 0x800C, 0);
+        write(&mut mapper, &mut cart, 0x800A, 0x01);
+        mapper.clock();
+        assert!(mapper.irq_pending());
+
+        write(&mut mapper, &mut cart, 0x800A, 0x00); // acknowledge and disable
+        assert!(!mapper.irq_pending(), "acknowledged");
+        for _ in 0..1000 {
+            mapper.clock();
+        }
+        assert!(!mapper.irq_pending(), "a disabled counter never fires");
+    }
+
+    /// Mapper 153 is the odd one out: its CHR registers do not bank CHR at all, they each
+    /// contribute a bit to an *outer* PRG bank select, and it has ordinary PRG-RAM at $6000 gated
+    /// by $800D.
+    #[test]
+    fn mapper_153_uses_the_chr_registers_as_an_outer_prg_bank() {
+        let (mut mapper, mut cart) = load(153, 0);
+
+        write(&mut mapper, &mut cart, 0x8008, 3);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "inner bank only");
+
+        // Any CHR register with bit 0 set adds bank bit 4, i.e. +16 banks - which wraps back onto
+        // the 8 banks this cart has, landing on bank 3 again.
+        write(&mut mapper, &mut cart, 0x8000, 0x01);
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x8000),
+            (0x13 % 8) * 16,
+            "the CHR register supplies the outer bank bit"
+        );
+    }
+
+    /// Mapper 153's PRG-RAM is real memory behind $6000, unlike the EEPROM the other variants
+    /// answer that range with, and $800D bit 5 gates it.
+    #[test]
+    fn mapper_153_gates_its_prg_ram_with_800d() {
+        let (mut mapper, mut cart) = load(153, 0);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled at power-on");
+
+        write(&mut mapper, &mut cart, 0x800D, 0x20);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "enabled");
+
+        write(&mut mapper, &mut cart, 0x800D, 0x00);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled again");
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = lz93d50();
+        write(&mut mapper, &mut cart, 0x8008, 3);
+        write(&mut mapper, &mut cart, 0x8000, 9);
+        write(&mut mapper, &mut cart, 0x8009, 0x01);
+
+        let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
+            [0x8000, 0xC000]
+                .into_iter()
+                .map(|addr| prg_peek(mapper, cart, addr))
+                .chain([chr_peek(mapper, cart, 0x0000)])
+                .collect()
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}
