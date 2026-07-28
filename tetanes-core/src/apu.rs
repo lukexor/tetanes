@@ -687,3 +687,44 @@ pub static TND_TABLE: [f32; 203] = [
     0.721_924_25,  0.724_020_96,  0.726_108_,    0.728_185_65,  0.730_253_8,   0.732_312_56,
     0.734_361_95,  0.736_402_1,   0.738_433_1,   0.740_454_9,   0.742_467_6,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The NES mixes its channels in the analog domain through a resistor ladder, so the mixer is
+    /// non-linear: two channels at a given level are quieter than twice one channel at that level,
+    /// and each additional step of volume buys less than the last.
+    ///
+    /// This is what `test_roms/apu/volumes.nes` demonstrates by ear against reference recordings.
+    /// Asserting the property directly needs no recordings and no listener.
+    #[test]
+    fn the_mixer_is_non_linear() {
+        // Two pulses summing to 20 must be quieter than twice one pulse at 10.
+        assert!(
+            PULSE_TABLE[20] < 2.0 * PULSE_TABLE[10],
+            "pulse mixing must compress: {} vs {}",
+            PULSE_TABLE[20],
+            2.0 * PULSE_TABLE[10]
+        );
+        assert!(
+            TND_TABLE[100] < 2.0 * TND_TABLE[50],
+            "triangle/noise/DMC mixing must compress"
+        );
+
+        // Monotonic, and with a diminishing step, all the way up.
+        for level in 1..PULSE_TABLE.len() - 1 {
+            let step = PULSE_TABLE[level] - PULSE_TABLE[level - 1];
+            let next = PULSE_TABLE[level + 1] - PULSE_TABLE[level];
+            assert!(step > 0.0, "PULSE_TABLE must rise at {level}");
+            assert!(
+                next < step,
+                "each step must be smaller than the last, at {level}: {next} vs {step}"
+            );
+        }
+
+        // Silence really is silence, or a muted channel would leak DC into the mix.
+        assert_eq!(PULSE_TABLE[0], 0.0, "no pulse output is silent");
+        assert_eq!(TND_TABLE[0], 0.0, "no triangle/noise/DMC output is silent");
+    }
+}

@@ -318,6 +318,8 @@ impl Bus {
 mod test {
     use super::*;
     use crate::{
+        apu::noise::ShiftMode,
+        input::JoypadBtn,
         mapper::{Cnrom, Nrom},
         memory::Src,
     };
@@ -468,67 +470,237 @@ mod test {
         assert_eq!(bus.read(0x0002), 0x99, "write mirror 3");
     }
 
+    /// $2000-$2007 repeat every 8 bytes up to $3FFF, so the mirror mask is what decides which
+    /// register a write lands on. Reads of the write-only registers return the PPU's open bus
+    /// rather than anything latched.
     #[test]
-    #[ignore = "todo"]
     fn read_write_ppu() {
-        // read: PPUSTATUS, OAMDATA, PPUDATA + Mirrors
-        // peek: PPUSTATUS, OAMDATA, PPUDATA + Mirrors
-        // write: PPUCTRL, PPUMASK, OAMADDR, OAMDATA, PPUSCROLL, PPUADDR, PPUDATA + Mirrors
-        todo!()
+        let mut bus = Bus::default();
+
+        bus.write(0x2000, 0x80);
+        assert_eq!(bus.ppu.ctrl.bits.bits(), 0x80, "$2000 PPUCTRL");
+        bus.write(0x3FF8, 0x00);
+        assert_eq!(bus.ppu.ctrl.bits.bits(), 0x00, "$3FF8 mirrors $2000");
+
+        bus.write(0x2001, 0x1E);
+        assert_eq!(bus.ppu.mask.bits.bits(), 0x1E, "$2001 PPUMASK");
+        bus.write(0x3FF9, 0x00);
+        assert_eq!(bus.ppu.mask.bits.bits(), 0x00, "$3FF9 mirrors $2001");
+        bus.write(0x2003, 0x42);
+        assert_eq!(bus.ppu.oamaddr, 0x42, "$2003 OAMADDR");
+
+        // OAMDATA round-trips through $2004, and the address post-increments on write.
+        bus.write(0x2003, 0x10);
+        bus.write(0x2004, 0x99);
+        assert_eq!(bus.ppu.oamaddr, 0x11, "OAMADDR increments on write");
+        bus.write(0x2003, 0x10);
+        assert_eq!(bus.read(0x2004), 0x99, "$2004 OAMDATA");
+
+        // The write-only registers read back the PPU's open bus, not their contents.
+        bus.ppu.open_bus = 0xA5;
+        for addr in [0x2000, 0x2001, 0x2003, 0x2005, 0x2006] {
+            assert_eq!(bus.read(addr), 0xA5, "${addr:04X} is write-only");
+        }
+
+        // $2002 clears the vblank flag as a side effect, so a second read differs - and `peek`
+        // must not do it.
+        bus.ppu.status.set_in_vblank(true);
+        assert_ne!(bus.peek(0x2002) & 0x80, 0, "peek sees vblank");
+        assert_ne!(bus.peek(0x2002) & 0x80, 0, "and leaves it set");
+        assert_ne!(bus.read(0x2002) & 0x80, 0, "read sees vblank");
+        assert_eq!(bus.read(0x2002) & 0x80, 0, "and clears it");
     }
 
+    /// $4015 is the APU status register both ways, but $4017 is not symmetric: writing it sets the
+    /// APU frame counter while reading it returns controller two. Getting that backwards is silent.
     #[test]
-    #[ignore = "todo"]
     fn read_write_apu() {
-        // read: APU_STATUS
-        // write: APU_STATUS, APU_FRAME_COUNTER
-        todo!()
+        let mut bus = Bus::default();
+
+        // $4015 write enables length counters; reading it reports which are non-zero.
+        bus.write(0x4015, 0x0F);
+        assert!(bus.apu.pulse1.length.enabled, "pulse1 enabled");
+        assert!(bus.apu.pulse2.length.enabled, "pulse2 enabled");
+        assert!(bus.apu.triangle.length.enabled, "triangle enabled");
+        assert!(bus.apu.noise.length.enabled, "noise enabled");
+        bus.write(0x4015, 0x00);
+        assert!(!bus.apu.pulse1.length.enabled, "pulse1 disabled");
+
+        // $4017 write is the frame counter; bit 6 inhibits the frame IRQ.
+        bus.write(0x4017, 0x40);
+        assert!(
+            bus.apu.frame_counter.inhibit_irq,
+            "$4017 bit 6 inhibits the frame IRQ"
+        );
+
+        // $4017 read is controller two, not the frame counter.
+        bus.input.joypads[1].set_button(JoypadBtn::A, true);
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+        assert_eq!(bus.read(0x4017) & 0x01, 0x01, "$4017 reads controller two");
     }
 
+    /// $4000-$4003 is pulse 1 and $4004-$4007 is pulse 2. The two blocks must stay independent.
     #[test]
-    #[ignore = "todo"]
     fn write_apu_pulse() {
-        // write: APU_CTRL_PULSE1, APU_SWEEP_PULSE1, APU_TIMER_LO_PULSE1, APU_TIMER_HI_PULSE1
-        // write: APU_CTRL_PULSE2, APU_SWEEP_PULSE2, APU_TIMER_LO_PULSE2, APU_TIMER_HI_PULSE2
-        todo!();
+        let mut bus = Bus::default();
+
+        bus.write(0x4000, 0x3F); // duty 0, constant volume 15
+        bus.write(0x4002, 0x34); // timer low
+        bus.write(0x4003, 0x01); // timer high
+        assert_eq!(bus.apu.pulse1.real_period, 0x134, "pulse1 period");
+        assert_eq!(bus.apu.pulse2.real_period, 0, "pulse2 untouched");
+
+        bus.write(0x4006, 0x78);
+        bus.write(0x4007, 0x02);
+        assert_eq!(bus.apu.pulse2.real_period, 0x278, "pulse2 period");
+        assert_eq!(bus.apu.pulse1.real_period, 0x134, "pulse1 still untouched");
+
+        // $4001/$4005 are the sweep units.
+        bus.write(0x4001, 0x8F);
+        assert!(bus.apu.pulse1.sweep.enabled, "$4001 pulse1 sweep");
+        assert!(!bus.apu.pulse2.sweep.enabled, "pulse2 sweep untouched");
+        bus.write(0x4005, 0x8F);
+        assert!(bus.apu.pulse2.sweep.enabled, "$4005 pulse2 sweep");
     }
 
+    /// $4008/$400A/$400B is the triangle. $4009 is unmapped and must do nothing.
     #[test]
-    #[ignore = "todo"]
     fn write_apu_triangle() {
-        // write: APU_LIN_CTR_TRIANGLE, APU_TIMER_LO_TRIANGLE, APU_TIMER_HI_TRIANGLE
-        todo!();
+        let mut bus = Bus::default();
+
+        bus.write(0x400A, 0x56);
+        bus.write(0x400B, 0x03);
+        assert_eq!(bus.apu.triangle.timer.period, 0x356, "triangle period");
+
+        bus.write(0x4008, 0x7F);
+        assert_eq!(
+            bus.apu.triangle.linear.counter_reload, 0x7F,
+            "$4008 linear counter"
+        );
+
+        // $4009 is not a register; it must not disturb the channel.
+        let before = bus.apu.triangle.timer.period;
+        bus.write(0x4009, 0xFF);
+        assert_eq!(bus.apu.triangle.timer.period, before, "$4009 is unmapped");
     }
 
+    /// $400C/$400E/$400F is the noise channel. $400D is unmapped.
     #[test]
-    #[ignore = "todo"]
     fn write_apu_noise() {
-        // write: APU_CTRL_NOISE, APU_TIMER_NOISE, APU_LENGTH_NOISE
-        todo!()
+        let mut bus = Bus::default();
+
+        bus.write(0x400E, 0x80 | 0x04);
+        assert_eq!(bus.apu.noise.shift_mode, ShiftMode::One, "$400E shift mode");
+
+        bus.write(0x400C, 0x3F);
+        assert!(bus.apu.noise.envelope.constant_volume, "$400C envelope");
+
+        // The length counter latches a reload value here; the frame counter loads it later.
+        bus.write(0x4015, 0x08); // enable, or the write is ignored entirely
+        bus.write(0x400F, 0x08);
+        assert_ne!(bus.apu.noise.length.reload, 0, "$400F length reload");
+        bus.write(0x4015, 0x00);
+        bus.write(0x400F, 0x10);
+        assert_eq!(
+            bus.apu.noise.length.reload, 254,
+            "a disabled channel ignores the write"
+        );
+
+        let before = bus.apu.noise.timer.period;
+        bus.write(0x400D, 0xFF);
+        assert_eq!(bus.apu.noise.timer.period, before, "$400D is unmapped");
     }
 
+    /// $4010-$4013 is the DMC. Sample address and length are stored scaled, not raw.
     #[test]
-    #[ignore = "todo"]
     fn write_dmc() {
-        // write: APU_TIMER_DMC, APU_OUTPUT_DMC, APU_ADDR_LOAD_DMC, APU_LENGTH_DMC
-        todo!()
+        let mut bus = Bus::default();
+
+        bus.write(0x4010, 0x0F); // rate index 15, IRQ and loop clear
+        assert!(!bus.apu.dmc.irq_enabled, "$4010 IRQ disabled");
+        assert!(!bus.apu.dmc.loops, "$4010 loop clear");
+        bus.write(0x4010, 0xC0);
+        assert!(bus.apu.dmc.irq_enabled, "$4010 bit 7 enables the IRQ");
+        assert!(bus.apu.dmc.loops, "$4010 bit 6 sets loop");
+
+        bus.write(0x4011, 0xFF);
+        assert_eq!(bus.apu.dmc.output_level, 0x7F, "$4011 keeps 7 bits");
+
+        bus.write(0x4012, 0x02);
+        assert_eq!(bus.apu.dmc.sample_addr, 0xC080, "$4012 is $C000 + n*64");
+
+        bus.write(0x4013, 0x02);
+        assert_eq!(bus.apu.dmc.sample_length, 0x21, "$4013 is n*16 + 1");
     }
 
+    /// $4016 writes strobe both controllers; $4016 and $4017 read them back one bit at a time.
     #[test]
-    #[ignore = "todo"]
     fn read_write_input() {
-        todo!()
+        let mut bus = Bus::default();
+
+        bus.input.joypads[0].set_button(JoypadBtn::A, true);
+        bus.input.joypads[0].set_button(JoypadBtn::Right, true);
+
+        // Strobe high then low latches the button state and rewinds to bit 0.
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+
+        // A, B, Select, Start, Up, Down, Left, Right - so bit 0 is A and bit 7 is Right.
+        let bits: Vec<u8> = (0..8).map(|_| bus.read(0x4016) & 0x01).collect();
+        assert_eq!(bits, [1, 0, 0, 0, 0, 0, 0, 1], "controller one shifts out");
+
+        // Re-strobing rewinds it.
+        bus.write(0x4016, 0x01);
+        bus.write(0x4016, 0x00);
+        assert_eq!(bus.read(0x4016) & 0x01, 0x01, "back to the A button");
+
+        // Controller two is a separate shift register on $4017.
+        assert_eq!(bus.read(0x4017) & 0x01, 0x00, "controller two is idle");
     }
 
+    /// Everything from $4100 up is the cartridge: the write goes to memory first and then to the
+    /// board, and reads come back through the page table.
     #[test]
-    #[ignore = "todo"]
     fn read_write_mapper() {
-        todo!()
+        let mut bus = Bus::default();
+        // 16K of CHR-ROM, i.e. two 8K banks, so a bank switch is visible.
+        let mut cart = Cart::empty_sized(0x8000, 0x4000);
+        cart.mapper = Cnrom::load(&mut cart).expect("valid mapper");
+        cart.memory.region_mut(Src::Chr).fill(0x11);
+        cart.memory.region_mut(Src::Chr)[0x2000..].fill(0x22);
+        bus.load_cart(cart);
+
+        let read_chr = |bus: &mut Bus| {
+            bus.write(0x2006, 0x00);
+            bus.write(0x2006, 0x00);
+            bus.read(0x2007); // discard the buffered read
+            bus.read(0x2007)
+        };
+        assert_eq!(read_chr(&mut bus), 0x11, "CHR bank 0");
+
+        // CNROM takes its bank from any write to $8000-$FFFF.
+        bus.write(0x8000, 0x01);
+        assert_eq!(read_chr(&mut bus), 0x22, "the write reached the board");
+
+        // Below $4100 is not the cartridge, so it must not reach the board.
+        bus.write(0x4000, 0x00);
+        assert_eq!(read_chr(&mut bus), 0x22, "$4000 is the APU, not the mapper");
     }
 
+    /// A hard reset re-fills WRAM from the configured RAM state; a soft reset leaves it alone.
     #[test]
-    #[ignore = "todo"]
     fn reset() {
-        todo!()
+        let mut bus = Bus::default();
+        bus.ram_state = RamState::AllZeros;
+
+        bus.write(0x0001, 0x66);
+        bus.write(0x2000, 0x80);
+
+        bus.reset(ResetKind::Soft);
+        assert_eq!(bus.peek(0x0001), 0x66, "a soft reset preserves WRAM");
+
+        bus.reset(ResetKind::Hard);
+        assert_eq!(bus.peek(0x0001), 0x00, "a hard reset clears WRAM");
     }
 }

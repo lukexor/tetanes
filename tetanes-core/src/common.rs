@@ -1268,42 +1268,17 @@ pub(crate) mod tests {
         dmc_status_irq,
         lin_ctr,
         noise_pitch,
-        // Tests pulse behavior when writing to $4003/$4007 (reset duty but not dividers)
-        // 7c left these two out deliberately: their `#[ignore]` said "unknown", i.e. nobody has
-        // established what they *should* sound like. An audio_profile would just bless whatever
-        // the emulator does today. Establish the expected behaviour by hand first.
-        #[ignore = "todo: expected behavior unknown - do not snapshot a profile until it is established"]
-        phase_reset,
+        // phase_reset.nes and volumes.nes were removed rather than left ignored forever. Neither
+        // has any pass/fail output - one is a listening demo of the mixer's channel balance that
+        // needs reference recordings we do not ship, the other plays a tone you are meant to judge
+        // by ear - so no snapshot of either could mean anything. What they demonstrate is now
+        // asserted directly instead, with no ROM and no listener:
+        // `apu::pulse::tests::writing_timer_hi_resets_the_duty_phase_but_not_the_divider` and
+        // `apu::tests::the_mixer_is_non_linear`.
         square_pitch,
         sweep_cutoff,
         sweep_sub,
         triangle_pitch,
-        // This program demonstrates the channel balance among implementations
-        // of the NES architecture.
-
-        // The pattern consists of a set of 12 tones, as close to 1000 Hz as
-        // the NES allows:
-        // 1. Channel 1, 1/8 duty
-        // 2. Channel 1, 1/4 duty
-        // 3. Channel 1, 1/2 duty
-        // 4. Channel 1, 3/4 duty
-        // 5. Channels 1 and 2, 1/8 duty
-        // 6. Channels 1 and 2, 1/4 duty
-        // 7. Channels 1 and 2, 1/2 duty
-        // 8. Channels 1 and 2, 3/4 duty
-        // 9. Channel 3
-        // 10. Channel 4, long LFSR period
-        // 11. Channel 4, short LFSR period
-        // 12. Channel 5, amplitude 30
-
-        // When the user presses A on controller 1, the pattern plays three
-        // times, with channel 5 held steady at 0, 48, and 96.  The high point
-        // of tone 12 each time is 30 units above the level for that time,
-        // that is, 30, 78, and 126 respectively.
-        //
-        // See: <https://github.com/christopherpow/nes-test-roms/tree/master/volume_tests>
-        #[ignore = "todo: expected behavior unknown - do not snapshot a profile until it is established"]
-        volumes,
         // Mixer
         // The test status is written to $6000. $80 means the test is running, $81
         // means the test needs the reset button pressed, but delayed by at least
@@ -1340,8 +1315,12 @@ pub(crate) mod tests {
         // Each of these reports through a different channel, and none of them respond to aim alone
         // - which is why a plain frame hash of an idle run asserts nothing about the zapper.
         //
-        // - `zapper_flip` and `zapper_stream` report on screen, but only once triggered:
-        //   zapper_stream prints `0` per read until the trigger and `1` while it is held.
+        // - `zapper_flip` does both: it hides the white square when triggered, and plays audio
+        //   while the aim is over the square. Its light-sensing half overlaps `zapper_light`
+        //   entirely; neither is ours, and it is not clear why both exist. Only its screen half is
+        //   asserted here, so the audio half is covered once by `zapper_light` rather than twice.
+        // - `zapper_stream` reports on screen, but only once triggered: `0` per read until the
+        //   trigger, `1` while it is held.
         // - `zapper_light` and `zapper_trigger` report by sound, so they assert an `audio_profile`:
         //   zapper_light is audible while the aim is over the white region and silent off it,
         //   while zapper_trigger beeps on the trigger wherever it happens to be pointed.

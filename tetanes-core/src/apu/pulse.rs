@@ -260,3 +260,35 @@ impl Sweep {
         self.target_period = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writing `$4003`/`$4007` restarts the duty sequencer but leaves the timer divider running.
+    ///
+    /// This is what `test_roms/apu/phase_reset.nes` demonstrates audibly; asserting it directly is
+    /// both stricter and checkable, since that ROM has no pass/fail output of its own.
+    #[test]
+    fn writing_timer_hi_resets_the_duty_phase_but_not_the_divider() {
+        let mut pulse = Pulse::new(PulseChannel::One, OutputFreq::Default);
+        pulse.set_enabled(true);
+        pulse.write_timer_lo(0x40);
+        pulse.write_timer_hi(0x00);
+
+        // Advance far enough that both the sequencer and the divider are mid-stride.
+        for _ in 0..100 {
+            pulse.clock();
+        }
+        let divider = pulse.timer.counter;
+        assert_ne!(pulse.duty_cycle, 0, "the sequencer has advanced");
+        assert_ne!(divider, pulse.timer.period, "the divider is mid-count");
+
+        pulse.write_timer_hi(0x00);
+        assert_eq!(pulse.duty_cycle, 0, "the duty phase restarts");
+        assert_eq!(
+            pulse.timer.counter, divider,
+            "but the divider keeps counting from where it was"
+        );
+    }
+}

@@ -100,10 +100,10 @@ phases:
     predates this flip and excluded the filter - compare those against
     NO_OUTPUT=1 runs only.
 
-- phase 7 - ROM test debt -- DONE. 21 ignored ROM tests -> 2 (apu::phase_reset
-  and apu::volumes, whose expected behaviour has never been established).
-  Suite 217 -> 308. Three latent VRC6 overflow panics fixed; 64 new mapper unit
-  tests over 8 previously-uncovered boards. See below for what each item found.
+- phase 7 - ROM test debt -- DONE. ZERO ignored tests left in the crate, from
+  21 ignored ROM tests plus 9 never-counted bus::test stubs. Suite 217 -> 319.
+  Three latent VRC6 overflow panics fixed; 64 new mapper unit tests over 8
+  previously-uncovered boards. See below for what each item found.
 - phase 8 - deferred API work (PLANNED, see below)
 
 TODO for Luke (not Claude): open an issue on tedsteen/nes-bundler about the
@@ -406,3 +406,55 @@ PHASE 8 PLAN - deferred API work                                (DRAFT, review)
     component tree, so this is a judgement call per field, not a sweep - and
     nes-bundler depends on several of them (see the downstream survey above).
 8d. Changelog migration section covering every break on this branch.
+
+
+================================================================================
+PHASE 7g - the leftovers, after Luke's clarifications                       DONE
+================================================================================
+
+Three loose ends, all closed. The crate now has ZERO ignored tests.
+
+1. bus::test - 9 ignored stubs, now implemented.
+   All nine were bare `todo!()` bodies with a comment naming the registers they
+   were meant to cover, so they would have panicked if run. Nothing else covers
+   bus-level register ROUTING - the mapper tests cover board internals, the PPU
+   and APU tests cover those components directly, but which address reaches
+   which component was untested. Implemented all nine against what the routing
+   actually does:
+     - read_write_ppu: $2000-$2007 and their mirrors up to $3FFF, write-only
+       registers reading back PPU open bus, and $2002's vblank clear happening
+       on read but NOT on peek.
+     - read_write_apu: the $4017 asymmetry - WRITING it is the APU frame
+       counter, READING it is controller two. Getting that backwards is silent.
+     - write_apu_pulse/triangle/noise/dmc: each block reaches its own channel
+       and leaves the others alone, plus the unmapped holes ($4009, $400D) doing
+       nothing, and the DMC's scaled $4012/$4013 encodings.
+     - read_write_input: $4016 strobe, and both pads shifting out independently.
+     - read_write_mapper: writes >= $4100 reach the board, writes below it do
+       not.
+     - reset: hard clears WRAM, soft preserves it.
+   Negative-tested: misrouting the $4017 write, dropping the PPU mirror mask,
+   and pointing pulse 2's timer at pulse 1 each fail exactly one test.
+
+   Two of the nine failed first time on MY expectations, not on bugs:
+   LengthCounter::write sets `reload`, not `counter` (the frame counter loads it
+   later), and an 8K CHR cart has only one bank so a bank switch is invisible.
+
+2. phase_reset.nes / volumes.nes - REMOVED, behaviour asserted directly.
+   Neither has any pass/fail output. volumes.txt is explicit that it is a
+   listening test: you compare relative channel volumes against reference
+   recordings in a `recordings/` folder we do not ship, and it needs A pressed
+   on controller 1 for its second half. phase_reset is a tone you judge by ear.
+   No snapshot of either could have meant anything.
+   What they demonstrate is now asserted with no ROM and no listener:
+     - apu::pulse::tests::writing_timer_hi_resets_the_duty_phase_but_not_the_divider
+       ($4003/$4007 restart the duty sequencer but leave the divider running)
+     - apu::tests::the_mixer_is_non_linear (the resistor-ladder mixer compresses:
+       every step is smaller than the last, and silence is truly silent)
+   Strictly better than the ROMs - checkable, and they name what broke.
+
+3. zapper_flip, per Luke: it does BOTH - hides the white square when triggered
+   AND plays audio while the aim is over the square. So its light-sensing half
+   overlaps zapper_light entirely. Neither ROM is ours and it is not clear why
+   both exist. Left as-is: only zapper_flip's screen half is asserted, so the
+   audio half is covered once (by zapper_light) rather than twice.
