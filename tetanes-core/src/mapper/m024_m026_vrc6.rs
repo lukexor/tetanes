@@ -33,7 +33,6 @@ pub struct Regs {
 }
 
 /// `VRC6` (Mapper 024).
-/// `VRC6` (Mapper 024).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Vrc6 {
@@ -512,9 +511,289 @@ impl Saw {
                 if self.step == 0 {
                     self.accum = 0;
                 } else if self.step & 0x01 == 0x00 {
-                    self.accum += self.accum_rate;
+                    // The accumulator is 8 bits and the hardware simply discards the carry. Six
+                    // accumulations of a rate above 42 exceed 255, so this must wrap rather than
+                    // panic a debug build.
+                    self.accum = self.accum.wrapping_add(self.accum_rate);
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (128 1K pages), 8K PRG-RAM, 64K CHR-ROM (64 1K pages).
+    fn load(revision: Revision) -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        let mapper = Vrc6::load(&mut cart, revision).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    fn vrc6a() -> (Mapper, Cart) {
+        load(Revision::A)
+    }
+
+    fn audio(mapper: &mut Mapper) -> &mut Audio {
+        match mapper {
+            Mapper::Vrc6(vrc6) => &mut vrc6.audio,
+            _ => unreachable!("mapper is a Vrc6"),
+        }
+    }
+
+    /// $E000 is hard-wired to the last 8K, which is where the reset vector lives - if this is wrong
+    /// nothing boots at all.
+    #[test]
+    fn powers_on_with_the_last_prg_bank_fixed_at_e000() {
+        let (mapper, cart) = vrc6a();
+        // 128K in 1K pages is 128; the last 8K window starts at page 120.
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120);
+        assert_eq!(prg_peek(&mapper, &cart, 0xFFFF), 127);
+    }
+
+    /// $8000 is a 16K window and $C000 an 8K one, so the same bank number means a different page in
+    /// each - the easiest thing to get wrong when moving to a page table.
+    #[test]
+    fn prg_windows_are_16k_at_8000_and_8k_at_c000() {
+        let (mut mapper, mut cart) = vrc6a();
+
+        write(&mut mapper, &mut cart, 0x8000, 3);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "16K bank 3");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xA000),
+            3 * 16 + 8,
+            "the window really is 16K, so $A000 is 8K into it"
+        );
+
+        write(&mut mapper, &mut cart, 0xC000, 5);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 5 * 8, "8K bank 5");
+
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120, "$E000 stays fixed");
+    }
+
+    /// Bit 7 of the banking mode gates PRG-RAM; with it clear the window must read as unmapped
+    /// rather than as whatever was there before.
+    #[test]
+    fn prg_ram_at_6000_follows_the_banking_mode_bit() {
+        let (mut mapper, mut cart) = vrc6a();
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled at power-on");
+
+        write(&mut mapper, &mut cart, 0xB003, 0x80);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "enabled");
+
+        write(&mut mapper, &mut cart, 0xB003, 0x00);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled again");
+    }
+
+    /// Banking mode 0 is eight independent 1K banks, one per register.
+    #[test]
+    fn chr_mode_0_maps_eight_independent_1k_banks() {
+        let (mut mapper, mut cart) = vrc6a();
+        write(&mut mapper, &mut cart, 0xB003, 0x00);
+        for reg in 0..4 {
+            write(&mut mapper, &mut cart, 0xD000 + reg, 1 + reg as u8);
+            write(&mut mapper, &mut cart, 0xE000 + reg, 5 + reg as u8);
+        }
+        for (slot, bank) in [1, 2, 3, 4, 5, 6, 7, 8].into_iter().enumerate() {
+            let addr = (slot * 1024) as u16;
+            assert_eq!(chr_peek(&mapper, &cart, addr), 0x80 | bank, "slot {slot}");
+        }
+    }
+
+    /// Banking mode 1 is four 2K banks: each register covers two consecutive 1K slots.
+    #[test]
+    fn chr_mode_1_maps_four_2k_banks() {
+        let (mut mapper, mut cart) = vrc6a();
+        write(&mut mapper, &mut cart, 0xB003, 0x01);
+        for reg in 0..4 {
+            write(&mut mapper, &mut cart, 0xD000 + reg, 10 + reg as u8);
+        }
+        // Bit 5 is clear, so a register's low bit is used as-is and both halves of the pair select
+        // the same 1K bank.
+        for (slot, bank) in [10, 10, 11, 11, 12, 12, 13, 13].into_iter().enumerate() {
+            let addr = (slot * 1024) as u16;
+            assert_eq!(chr_peek(&mapper, &cart, addr), 0x80 | bank, "slot {slot}");
+        }
+    }
+
+    /// Bit 5 aligns the pairs, so a 2K bank really is two consecutive 1K banks.
+    #[test]
+    fn chr_bank_pairs_align_when_bit_5_is_set() {
+        let (mut mapper, mut cart) = vrc6a();
+        write(&mut mapper, &mut cart, 0xB003, 0x21);
+        for reg in 0..4 {
+            // Odd values, to prove the low bit is being masked off rather than ignored.
+            write(&mut mapper, &mut cart, 0xD000 + reg, 11 + 2 * reg as u8);
+        }
+        for (slot, bank) in [10, 11, 12, 13, 14, 15, 16, 17].into_iter().enumerate() {
+            let addr = (slot * 1024) as u16;
+            assert_eq!(chr_peek(&mapper, &cart, addr), 0x80 | bank, "slot {slot}");
+        }
+    }
+
+    /// Bit 4 switches the nametables from CIRAM to CHR-ROM. The rework made these ordinary page
+    /// entries, which is what removed the special case from the PPU read path - so this is the
+    /// regression test for that change.
+    #[test]
+    fn nametables_come_from_ciram_or_chr_rom_per_bit_4() {
+        let (mut mapper, mut cart) = vrc6a();
+
+        // Bit 4 clear: CIRAM, and writable, so a write-then-read round trips.
+        write(&mut mapper, &mut cart, 0xB003, 0x00);
+        cart.memory.chr_write(0x2000, 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x11, "CIRAM is writable");
+
+        // Bit 4 set: banking mode $10 selects [chr6, chr6, chr7, chr7] out of CHR-ROM.
+        write(&mut mapper, &mut cart, 0xE002, 10);
+        write(&mut mapper, &mut cart, 0xE003, 20);
+        write(&mut mapper, &mut cart, 0xB003, 0x10);
+        for (slot, bank) in [10, 10, 20, 20].into_iter().enumerate() {
+            let addr = 0x2000 + (slot * 1024) as u16;
+            assert_eq!(chr_peek(&mapper, &cart, addr), 0x80 | bank, "slot {slot}");
+            assert_eq!(
+                chr_peek(&mapper, &cart, addr + 0x1000),
+                0x80 | bank,
+                "$3000 mirrors $2000, slot {slot}"
+            );
+        }
+    }
+
+    /// VRC6b is the same board with A0 and A1 swapped, so $8001 on a VRC6b is $8002 on a VRC6a.
+    /// Getting this backwards silently sends bank writes to the audio registers.
+    #[test]
+    fn vrc6b_swaps_the_low_two_address_lines() {
+        let (mut a, mut cart_a) = load(Revision::A);
+        let (mut b, mut cart_b) = load(Revision::B);
+
+        // $D001 selects chr[1] on a VRC6a; on a VRC6b the same wire is $D002.
+        write(&mut a, &mut cart_a, 0xD001, 7);
+        write(&mut b, &mut cart_b, 0xD002, 7);
+        assert_eq!(chr_peek(&a, &cart_a, 0x0400), 0x80 | 7);
+        assert_eq!(
+            chr_peek(&b, &cart_b, 0x0400),
+            0x80 | 7,
+            "VRC6b reaches chr[1] through $D002"
+        );
+
+        // $B003 is unaffected: both low bits are set, so the swap is a no-op.
+        write(&mut b, &mut cart_b, 0xB003, 0x80);
+        assert_eq!(prg_peek(&b, &cart_b, 0x6000), 0x5A);
+    }
+
+    /// `update_banks` has to rebuild every window from the register state alone - that is what
+    /// `Ppu::rebuild_mapper_state` calls after loading a save state, which carries no page tables.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = vrc6a();
+        write(&mut mapper, &mut cart, 0x8000, 3);
+        write(&mut mapper, &mut cart, 0xC000, 5);
+        write(&mut mapper, &mut cart, 0xB003, 0x80);
+        write(&mut mapper, &mut cart, 0xD000, 9);
+
+        let before: Vec<u8> = [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+            .into_iter()
+            .map(|addr| prg_peek(&mapper, &cart, addr))
+            .chain([0x0000, 0x2000].into_iter().map(|addr| {
+                chr_peek(&mapper, &cart, addr)
+            }))
+            .collect();
+
+        // Wipe every mapping, then rebuild from the registers alone.
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        let after: Vec<u8> = [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+            .into_iter()
+            .map(|addr| prg_peek(&mapper, &cart, addr))
+            .chain([0x0000, 0x2000].into_iter().map(|addr| {
+                chr_peek(&mapper, &cart, addr)
+            }))
+            .collect();
+        assert_eq!(before, after);
+    }
+
+    /// A channel is silent until its enable bit is set, and `halt` stops the whole audio unit.
+    #[test]
+    fn pulse_is_silent_until_enabled_and_halt_freezes_it() {
+        let (mut mapper, _cart) = vrc6a();
+        let audio = audio(&mut mapper);
+
+        // Volume 15, duty ignored, so the only gate left is the enable bit.
+        audio.write_register(0x9000, 0x8F);
+        audio.clock();
+        assert_eq!(audio.output(), 0.0, "silent while disabled");
+
+        audio.write_register(0x9002, 0x80);
+        audio.clock();
+        let running = audio.output();
+        assert!(running > 0.0, "audible once enabled, got {running}");
+
+        // Halt stops the clock, so the output freezes where it was rather than resetting.
+        audio.write_register(0x9003, 0x01);
+        audio.write_register(0x9000, 0x80); // volume 0 - would silence it if it were still clocking
+        audio.clock();
+        assert_eq!(audio.output(), running, "halted, so the output is frozen");
+    }
+
+    /// The duty cycle gates the pulse, unless bit 7 of the volume register overrides it.
+    #[test]
+    fn duty_cycle_gates_the_pulse_unless_ignored() {
+        let (mut mapper, _cart) = vrc6a();
+        let audio = audio(&mut mapper);
+
+        // Duty 0, volume 15, frequency 0 so the step advances every clock.
+        audio.write_register(0x9000, 0x0F);
+        audio.write_register(0x9001, 0x00);
+        audio.write_register(0x9002, 0x80);
+
+        // Only step 0 is within a duty of 0, and the step advances every clock, so exactly one of
+        // the 16 steps is audible.
+        let audible = (0..16)
+            .filter(|_| {
+                audio.clock();
+                audio.output() > 0.0
+            })
+            .count();
+        assert_eq!(audible, 1, "duty 0 is audible for one step in 16");
+
+        audio.write_register(0x9000, 0x8F); // ignore duty
+        let audible = (0..16)
+            .filter(|_| {
+                audio.clock();
+                audio.output() > 0.0
+            })
+            .count();
+        assert_eq!(audible, 16, "ignoring duty is audible on every step");
+    }
+
+    /// The saw accumulates its rate on alternate steps and resets every 14, and the accumulator is
+    /// 8-bit: a rate above 42 overflows it, which the hardware simply wraps.
+    #[test]
+    fn saw_accumulates_and_wraps_its_8_bit_accumulator() {
+        let (mut mapper, _cart) = vrc6a();
+        let audio = audio(&mut mapper);
+
+        // Maximum rate, frequency 0 so a step happens every clock.
+        audio.write_register(0xB000, 0x3F);
+        audio.write_register(0xB001, 0x00);
+        audio.write_register(0xB002, 0x80);
+
+        let mut outputs = Vec::new();
+        for _ in 0..14 {
+            audio.clock();
+            outputs.push(audio.output());
+        }
+        assert!(
+            outputs.iter().any(|&out| out > 0.0),
+            "the saw must ramp: {outputs:?}"
+        );
+        assert_eq!(
+            outputs[13], 0.0,
+            "step 0 comes back around after 14 and resets the accumulator"
+        );
     }
 }

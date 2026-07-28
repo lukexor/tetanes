@@ -772,6 +772,81 @@ impl Map for () {
 }
 
 #[cfg(test)]
+pub(crate) mod test_utils {
+    //! Shared scaffolding for the per-board banking tests.
+    //!
+    //! A board's job is to put the right physical bank behind the right CPU/PPU address, so these
+    //! build a cart whose every 1K page is filled with its own index. A single `peek` then names
+    //! the bank it was served from, and a test reads as "writing $8000 = 3 puts PRG page 3 at
+    //! $8000" instead of as an opaque hash.
+
+    use super::*;
+    use crate::{
+        cart::Cart,
+        memory::{MemoryLayout, PAGE_SIZE},
+    };
+
+    /// A `Cart` with page-indexed contents: PRG-ROM page `n` is filled with `n`, CHR page `n` with
+    /// `0x80 | n`, so PRG and CHR reads can never be mistaken for each other.
+    ///
+    /// Sizes are in bytes. A `chr` of 0 gives 8K of CHR-RAM instead of CHR-ROM. Keep regions under
+    /// 128K: page indices are written as bytes and the CHR tag costs the top bit.
+    pub fn page_indexed_cart(prg_rom: usize, prg_ram: usize, chr: usize) -> Cart {
+        let chr_writable = chr == 0;
+        let chr_size = if chr_writable { 8 * 1024 } else { chr };
+        let mut cart = Cart::empty_sized(prg_rom, chr);
+        cart.memory = Memory::new(MemoryLayout {
+            prg_rom,
+            prg_ram,
+            chr: chr_size,
+            chr_writable,
+            ciram: 2 * 1024,
+            ex_ram: 0,
+        });
+        for (page, data) in cart
+            .memory
+            .region_mut(Src::PrgRom)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            data.fill(page as u8);
+        }
+        for (page, data) in cart
+            .memory
+            .region_mut(Src::Chr)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            data.fill(0x80 | page as u8);
+        }
+        // Distinguishable from both, so "did PRG-RAM land at $6000" needs no separate setup.
+        cart.memory.region_mut(Src::PrgRam).fill(0x5A);
+        cart
+    }
+
+    /// Mirrors `Bus::write`: the data store happens first, then the board acts on the register.
+    pub fn write(mapper: &mut Mapper, cart: &mut Cart, addr: u16, val: u8) {
+        cart.memory.prg_write(addr, val);
+        mapper.write_register(&mut cart.memory, addr, val);
+    }
+
+    /// Mirrors `Bus::peek`'s routing for a page-table board: the mapper's escape hatch first, then
+    /// the page tables.
+    pub fn prg_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        mapper
+            .prg_peek(addr)
+            .unwrap_or_else(|| cart.memory.prg_peek(addr))
+    }
+
+    /// Mirrors `Ppu::chr_peek`'s routing for a page-table board.
+    pub fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        mapper
+            .chr_peek(&cart.memory, addr)
+            .unwrap_or_else(|| cart.memory.chr_peek(addr))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
