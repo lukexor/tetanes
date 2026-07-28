@@ -821,7 +821,10 @@ pub(crate) mod tests {
         vbl_nmi_control,         // Tests vblank NMI control
         vbl_nmi_disable,         // Tests vblank NMI disable
         vbl_nmi_even_odd_frames, // Tests vblank NMI on even/odd frames
-        #[ignore = "clock is skipped too late relative to enabling BG Failed #3"]
+        // Was ignored as "clock is skipped too late relative to enabling BG Failed #3". It is
+        // not: the ROM reports code 0 and prints "10-even_odd_timing / Passed". Whatever that
+        // described was fixed and never re-checked, because the expectation was a placeholder
+        // `hash: 0` that could not pass. Now a $6000 status assertion, which says so out loud.
         vbl_nmi_even_odd_timing, // Tests vblank NMI even/odd frame timing
         vbl_nmi_frame_basics,    // Tests vblank NMI frame basics
         vbl_nmi_off_timing,      // Tests vblank NMI off timing
@@ -1334,11 +1337,17 @@ pub(crate) mod tests {
     test_roms!(
         input,
         "test_roms/input",
+        // Each of these reports through a different channel, and none of them respond to aim alone
+        // - which is why a plain frame hash of an idle run asserts nothing about the zapper.
+        //
+        // - `zapper_flip` and `zapper_stream` report on screen, but only once triggered:
+        //   zapper_stream prints `0` per read until the trigger and `1` while it is held.
+        // - `zapper_light` and `zapper_trigger` report by sound, so they assert an `audio_profile`:
+        //   zapper_light is audible while the aim is over the white region and silent off it,
+        //   while zapper_trigger beeps on the trigger wherever it happens to be pointed.
         zapper_flip,
         zapper_light,
-        #[ignore = "todo"]
         zapper_stream,
-        #[ignore = "todo"]
         zapper_trigger,
     );
     test_roms!(

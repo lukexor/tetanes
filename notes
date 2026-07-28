@@ -100,7 +100,10 @@ phases:
     predates this flip and excluded the filter - compare those against
     NO_OUTPUT=1 runs only.
 
-- phase 7 - ROM test debt (PLANNED, see below)
+- phase 7 - ROM test debt -- DONE. 21 ignored ROM tests -> 2 (apu::phase_reset
+  and apu::volumes, whose expected behaviour has never been established).
+  Suite 217 -> 308. Three latent VRC6 overflow panics fixed; 64 new mapper unit
+  tests over 8 previously-uncovered boards. See below for what each item found.
 - phase 8 - deferred API work (PLANNED, see below)
 
 TODO for Luke (not Claude): open an issue on tedsteen/nes-bundler about the
@@ -168,7 +171,7 @@ follow on tasks:
 - add development console for debugger allowing inspection/poking at memory
 
 ================================================================================
-PHASE 7 PLAN - ROM test debt                                    (DRAFT, review)
+PHASE 7 - ROM test debt                                                   DONE
 ================================================================================
 
 Current state, measured (scripts/one-off survey, not committed):
@@ -280,16 +283,55 @@ expectation and genuinely fails.
     established by hand first - do them last, and do not snapshot a wrong
     result into tests.json.
 
-7d. The genuine failure.  [1 test]
-    ppu::vbl_nmi_even_odd_timing - "clock is skipped too late relative to
-    enabling BG, Failed #3". A real timing bug in when the odd-frame cycle skip
-    is evaluated against BG-enable. Hardest item; budget it separately and do
-    not let it block 7a-7c.
+7d. The "genuine failure". -- DONE, and it was NOT a failure. [1 test]
+    ppu::vbl_nmi_even_odd_timing was ignored as "clock is skipped too late
+    relative to enabling BG, Failed #3". It passes. The ROM reports $6000 code
+    0 and prints "10-even_odd_timing / Passed".
 
-7e. Zapper.  [2 tests]
-    input::{zapper_stream,zapper_trigger}, just "todo". Needs Action support in
-    tests.json for aiming/triggering over time. Check whether the existing
-    Action enum can already express it before writing new harness code.
+    Whatever that reason described was fixed at some point and never
+    re-checked, because the test was ignored AND its expectation was a
+    placeholder `hash: 0` - a value no real frame ever hashes to, so it could
+    not have passed even once the bug went away. Converting it to a $6000
+    status assertion (7b's mechanism) surfaced this immediately.
+
+    LESSON: `hash: 0` is a placeholder, not an expectation, and it hides
+    exactly this. Worth grepping for others - and the rest of the blargg-based
+    ppu/cpu tests are still frame hashes when they could be status assertions
+    with real messages. That is a cheap follow-up.
+
+7e. Zapper. -- DONE, both, plus a vacuous existing test made real. [4 green]
+    The existing Action enum already covered all of it (ToggleZapperConnected,
+    ZapperAim, ZapperTrigger are all handled in on_frame_action), so no harness
+    work was needed there.
+
+    KEY FACT (from Luke, and it is the whole puzzle): EACH OF THESE ROMS
+    REPORTS THROUGH A DIFFERENT CHANNEL, AND NONE RESPOND TO AIM ALONE. That is
+    why every "aim somewhere and hash the screen" approach came up empty, and
+    it is what made an earlier read of this - "their output does not depend on
+    the zapper" - WRONG. It depends on the trigger, or on the audio, or both.
+
+      - zapper_light reports BY SOUND: audible while the aim is over the white
+        region, silent off it, and audible constantly when unplugged. Measured
+        RMS 0.055 vs 0.002, a 28x split. Asserts 7c's audio_profile: loud
+        buckets 0-7 (aimed at the white box), silent 8-15 (aimed off it).
+      - zapper_trigger reports BY SOUND on the trigger, and does NOT depend on
+        aim - it is a trigger test, so it beeps wherever it is pointed. Also an
+        audio_profile: quiet, then a spike right after the trigger.
+      - zapper_stream reports ON SCREEN, but only once triggered: it prints `0`
+        per read until the trigger and `1` while it is held. Eyeballed both
+        frames before snapshotting - all `0`s at frame 15, a run of `111111` at
+        frame 30. Two frame hashes.
+
+    zapper_light was previously ENABLED AND VACUOUS: all four of its frames
+    asserted the same hash of the same static screen, so it passed with the
+    zapper unplugged. It now asserts something.
+
+    Negative-tested, and the failures land exactly where they should: making
+    the trigger never assert fails 3 of 4 (flip, stream, trigger); making
+    light_sense always report darkness fails only zapper_light. Note that
+    merely RAISING the light threshold from 85 to 250 fails nothing - the white
+    region is brighter than both - so this tests light-vs-dark, not the
+    threshold itself.
 
 7f. Missing coverage -- 7 of the 8 high-risk boards DONE, [64 tests]
     22 boards in the boards! table; exactly 2 had a test group (m004, m005),
