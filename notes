@@ -188,7 +188,10 @@ difficulty. The 20 non-PPU ones have no tests.json entry at all, so there is
 nothing to compare against; only ppu::vbl_nmi_even_odd_timing has an
 expectation and genuinely fails.
 
-  After 7b: 145 active / 13 ignored (apu 54/10, everything else unchanged).
+  After 7b: 145 active / 13 ignored (apu 54/10).
+  After 7f: +64 mapper unit tests (not ROM tests).
+  After 7c: 153 active / 5 ignored - apu 62/2 (phase_reset, volumes),
+            ppu 41/1 (vbl_nmi_even_odd_timing), input 2/2 (zapper).
 
 7a. BLOCKER, fix first: `audio` is unassertable-by-accident. -- DONE (with 7b)
     TestFrame.audio and RomTest.audio were both #[serde(skip_serializing)]. They
@@ -234,14 +237,40 @@ expectation and genuinely fails.
     you to add an Action::Reset frame, since tests.json can already express
     that.
 
-7c. Audio-waveform tests.  [10 tests, was 11 - dmc_latency went to 7b]
-    apu::{apu_env,dmc_pitch,lin_ctr,noise_pitch,square_pitch,sweep_cutoff,
-    sweep_sub,triangle_pitch} plus the two "unknown" ones, phase_reset and
-    volumes. These have no textual output - the result IS the waveform.
-    7a is done, so this needs audio:true entries + UPDATE_SNAPSHOT.
+7c. Audio-waveform tests. -- 8 of 10 DONE (was 11; dmc_latency went to 7b)
+    Enabled: apu_env, dmc_pitch, lin_ctr, noise_pitch, square_pitch,
+    sweep_cutoff, sweep_sub, triangle_pitch. NOT enabled: phase_reset and
+    volumes, whose #[ignore] said "unknown" - nobody has established what they
+    should sound like, so a snapshot would just bless whatever we do today.
+    Their ignore reason now says that explicitly.
+
+    DECISION (this was the open question): NOT a raw-sample hash. New
+    TestFrame.audio_profile records one (rms, crossing_rate) pair per 1/16th
+    of the run:
+      - RMS about the bucket's mean, in 1/10000 full scale - the envelope,
+        about the mean so a DC offset does not move it.
+      - Mean-crossing rate in Hz - also DC-offset invariant, and per SECOND
+        rather than per sample so changing the sample rate does not move it.
+    Compared with a tolerance (+/-5 each) so float drift needs no re-snapshot.
+    Seed with "audio_profile": [] in tests.json + UPDATE_SNAPSHOT=1.
+
+    The crossing rate is a TIMBRE FINGERPRINT, NOT a fundamental-frequency
+    estimate - on a filtered harmonic waveform it tracks high-frequency content
+    and can move opposite to the fundamental. Do not read it as pitch. So this
+    is a change detector that names the bucket that moved, not a correctness
+    oracle.
+
+    CALIBRATED, not guessed: perturbing the pulse timer period by 2 is caught
+    by all four pulse-driven tests (apu_env, square_pitch, sweep_cutoff,
+    sweep_sub) and by none of the four driving other channels - no misses, no
+    false positives. Which channel each ROM drives was measured, not assumed:
+    apu_env/square_pitch/sweep_sub/sweep_cutoff = pulse1, lin_ctr/triangle_pitch
+    = triangle, noise_pitch = noise, dmc_pitch = DMC. An earlier 8-bucket,
+    coarser-quantised version missed 2 of the 4 - hence 16 buckets and 1/10000.
+
     NB the tone-count trick from 7b does NOT transfer: these ROMs are demos
     whose audio is the test content, not a report, so their burst counts
-    (measured: 0,1 or 2 depending on ROM) mean nothing.
+    (measured: 0, 1 or 2 depending on ROM) mean nothing.
     RISK: an audio hash is far more brittle than a frame hash - it pins every
     sample, so any filter/mixer/sample-rate change churns all 11. Decide up
     front whether to hash raw samples or something coarser (e.g. per-channel
