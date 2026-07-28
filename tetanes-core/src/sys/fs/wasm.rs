@@ -8,6 +8,8 @@ use std::{
 };
 use web_sys::js_sys;
 
+/// A [`Write`] that buffers everything and commits it to local storage on drop, since local
+/// storage takes a whole value per key rather than a stream.
 #[derive(Debug)]
 #[must_use]
 pub struct StoreWriter {
@@ -15,10 +17,16 @@ pub struct StoreWriter {
     data: Vec<u8>,
 }
 
+/// A [`Read`] over one local-storage entry, read out in full up front.
 pub struct StoreReader {
     cursor: io::Cursor<Vec<u8>>,
 }
 
+/// The window's local storage, which is what stands in for a filesystem on the web.
+///
+/// # Errors
+///
+/// If there is no window, or storage is unavailable - private browsing modes refuse it.
 pub fn local_storage() -> Result<web_sys::Storage> {
     let window = web_sys::window().ok_or_else(|| Error::custom("failed to get js window"))?;
     window
@@ -66,6 +74,11 @@ impl Read for StoreReader {
     }
 }
 
+/// Opens `path` for writing, as a local-storage key.
+///
+/// # Errors
+///
+/// Infallible today; the `Result` matches the native backend's signature.
 pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
     let path = path.as_ref();
     Ok(StoreWriter {
@@ -74,6 +87,11 @@ pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
     })
 }
 
+/// Opens `path` for reading, from a local-storage key. A missing key reads as empty.
+///
+/// # Errors
+///
+/// If storage is unavailable or the entry is not valid JSON.
 pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let path = path.as_ref();
     let local_storage = local_storage()?;
@@ -95,6 +113,11 @@ pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     })
 }
 
+/// Removes every local-storage key beginning with `path`, local storage having no directories.
+///
+/// # Errors
+///
+/// If storage is unavailable.
 pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref().to_string_lossy();
     let local_storage = local_storage()?;
@@ -110,6 +133,7 @@ pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
+/// Whether a local-storage entry exists for `path`.
 pub fn exists_impl(path: impl AsRef<Path>) -> bool {
     let path = path.as_ref();
     let Ok(local_storage) = local_storage() else {

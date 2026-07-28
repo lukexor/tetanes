@@ -4,11 +4,13 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/assets/linux/icon.png?raw=true"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 
 pub mod action;
 pub mod apu;
 pub mod bus;
 pub mod cart;
+/// Component debuggers.
 pub mod debug;
 pub mod fs;
 pub mod time;

@@ -6,8 +6,10 @@ use thiserror::Error;
 
 static GENIE_MAP: OnceLock<HashMap<char, u8>> = OnceLock::new();
 
+/// A `Result` from parsing a Game Genie code.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// An invalid Game Genie code.
 #[derive(Error, Debug)]
 #[error("invalid genie code {code:?}. {kind}")]
 pub struct Error {
@@ -23,16 +25,20 @@ impl Error {
         }
     }
 
+    /// What was wrong with the code.
     pub const fn kind(&self) -> ErrorKind {
         self.kind
     }
 }
 
+/// Why a Game Genie code was rejected.
 #[derive(Error, Debug, Copy, Clone)]
 #[must_use]
 pub enum ErrorKind {
+    /// A code is 6 or 8 characters; this one was neither.
     #[error("length must be 6 or 8 characters. found `{0}`")]
     InvalidLength(usize),
+    /// A character outside the Game Genie alphabet.
     #[error("invalid character: `{0}`")]
     InvalidCharacter(char),
 }
@@ -126,6 +132,11 @@ impl GenieCode {
         ])
     }
 
+    /// Decodes a code's characters into their nibble values.
+    ///
+    /// # Errors
+    ///
+    /// If the code is the wrong length or holds a character outside the alphabet.
     pub fn parse(code: &str) -> Result<Box<[u8]>> {
         if code.len() != 6 && code.len() != 8 {
             return Err(Error::new(code, ErrorKind::InvalidLength(code.len())));
@@ -144,17 +155,21 @@ impl GenieCode {
         Ok(hex.into())
     }
 
+    /// The code as entered.
     #[must_use]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn code(&self) -> &str {
         &self.code
     }
 
+    /// The CPU address the code patches.
     #[must_use]
     pub const fn addr(&self) -> u16 {
         self.addr
     }
 
+    /// Applies the code to a value read from that address, honouring the compare byte if the
+    /// code has one.
     #[must_use]
     pub const fn read(&self, val: u8) -> u8 {
         if let Some(compare) = self.compare {

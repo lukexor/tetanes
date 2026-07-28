@@ -1,6 +1,14 @@
 //! NES Memory/Data Bus implementation.
 //!
 //! <https://wiki.nesdev.org/w/index.php/CPU_memory_map>
+//!
+//! # Stability
+//!
+//! [`Bus`]'s fields are the emulation's internal wiring - the components it routes to, and the
+//! open-bus and region state it routes with. They are public so that embedders and debuggers can
+//! reach the component tree, but they track the implementation rather than the crate version, and
+//! a release may add, rename or retype any of them. The stable entry point is
+//! [`ControlDeck`](crate::control_deck::ControlDeck).
 
 use crate::{
     apu::{Apu, Channel},
@@ -55,7 +63,7 @@ pub struct Bus {
     pub apu: Apu,
     /// Joypad and Zapper inputs.
     pub input: Input,
-    // 2K NES Work Ram available to the CPU.
+    /// 2K of work RAM on the console itself, at $0000-$07FF and mirrored to $1FFF.
     //
     // Measured un-boxed (embedded directly in `Bus`): ~1.2% slower on the bench corpus, not
     // faster, despite removing a pointer chase - inlining it grows `Bus`'s footprint enough to
@@ -79,11 +87,14 @@ impl Default for Bus {
 }
 
 pub mod size {
-    // 2K NES Work Ram available to the CPU.
+    //! Memory size constants.
+
+    /// 2K of work RAM on the console itself, available to the CPU.
     pub const WRAM: usize = 0x800;
 }
 
 impl Bus {
+    /// Creates a bus timed for `region`, with work RAM initialised per `ram_state`.
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
             wram: Box::new(ConstArray::new()),
@@ -97,14 +108,17 @@ impl Bus {
         }
     }
 
+    /// Installs a cart, handing its board and memory to the PPU.
     pub fn load_cart(&mut self, cart: Cart) {
         self.ppu.load_cart(cart.mapper, cart.memory);
     }
 
+    /// Removes the cart, leaving the console with no board.
     pub fn unload_cart(&mut self) {
         self.ppu.load_mapper(Mapper::default());
     }
 
+    /// The console's 2K of work RAM.
     #[must_use]
     #[inline]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
@@ -143,17 +157,20 @@ impl Bus {
             .map_or(val, |genie_code| genie_code.read(val))
     }
 
+    /// Samples the APU has mixed since the last clear.
     #[inline]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
         &self.apu.audio_samples
     }
 
+    /// Drops the mixed samples, which the clocking API does at the start of each call.
     #[inline]
     pub fn clear_audio_samples(&mut self) {
         self.apu.audio_samples.clear();
     }
 
+    /// Clocks everything the CPU's cycle drives: the board, the APU, input and the PPU.
     #[inline(always)]
     pub fn cpu_clock(&mut self) {
         let ops = self.ppu.mapper_ops;
@@ -285,10 +302,12 @@ impl Write for Bus {
 }
 
 impl Bus {
+    /// The region the bus and its components are timed for.
     pub const fn region(&self) -> NesRegion {
         self.region
     }
 
+    /// Sets the region, forwarding it to every component.
     pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.ppu.set_region(region);
@@ -296,6 +315,7 @@ impl Bus {
         self.input.set_region(region);
     }
 
+    /// Resets the bus and every component. A hard reset also re-initialises work RAM.
     pub fn reset(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
@@ -304,10 +324,20 @@ impl Bus {
         self.apu.reset(kind);
     }
 
+    /// Writes battery-backed cart RAM to `path`.
+    ///
+    /// # Errors
+    ///
+    /// If the file cannot be written.
     pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
     }
 
+    /// Reads battery-backed cart RAM from `path`.
+    ///
+    /// # Errors
+    ///
+    /// If the file cannot be read.
     pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let Ppu { mapper, memory, .. } = &mut self.ppu;
         mapper.load_sram(memory, path.as_ref())

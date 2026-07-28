@@ -1,4 +1,14 @@
 //! NES PPU (Picture Processing Unit) implementation.
+//!
+//! # Stability
+//!
+//! [`Ppu`]'s fields are the emulation's internal wiring. They are public so that embedders and
+//! debuggers can read them - the PPU viewer in the `tetanes` UI does exactly that - but they track
+//! the implementation rather than the crate version, and a release may add, rename or retype any
+//! of them. The stable entry point is
+//! [`ControlDeck`](crate::control_deck::ControlDeck). Fields documented as *derived* are caches of
+//! state that lives elsewhere; writing one from outside desynchronizes the emulator rather than
+//! changing what it does.
 
 use crate::{
     common::{NesRegion, ResetKind},
@@ -29,11 +39,16 @@ pub mod status;
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub enum Mirroring {
+    /// Nametables mirrored left-to-right, giving two vertically-scrollable screens.
     Vertical = 0,
+    /// Nametables mirrored top-to-bottom, giving two horizontally-scrollable screens.
     #[default]
     Horizontal = 1,
+    /// All four nametables show CIRAM's first 1K bank.
     SingleScreenA = 2,
+    /// All four nametables show CIRAM's second 1K bank.
     SingleScreenB = 3,
+    /// Four distinct nametables, which needs 2K of RAM on the cartridge beyond the console's CIRAM.
     FourScreen = 4,
 }
 
@@ -143,11 +158,14 @@ pub struct Ppu {
     /// (cold) `debugger` field on every dot when nothing is attached.
     pub debugger_active: bool,
 
-    /// Scanline is visible.
+    /// Scanline is visible. *Derived* from `scanline`; recomputed once per scanline so the
+    /// per-dot paths test a bool instead of a range. Writing it does not move the PPU.
     pub is_visible_scanline: bool,
-    /// Scanline is a pre-render scanline.
+    /// Scanline is a pre-render scanline. *Derived* from `scanline`; see
+    /// [`Ppu::is_visible_scanline`].
     pub is_prerender_scanline: bool,
-    /// Scanline is a render scanline.
+    /// Scanline is a render scanline. *Derived* from `scanline`; see
+    /// [`Ppu::is_visible_scanline`].
     pub is_render_scanline: bool,
 
     // === 64 : end of cache line ===
@@ -183,7 +201,7 @@ pub struct Ppu {
     /// Current PPU frame buffer.
     pub frame: Frame,
     // === 128 : end of cache line ===
-    // Palette RAM
+    /// Palette RAM: the 32 colours currently loaded, at $3F00-$3F1F.
     pub palette: PaletteRam,
     /// Secondary OAM data on a given scanline.
     pub secondary_oamdata: ConstArray<u8, 32>,
@@ -209,7 +227,9 @@ pub struct Ppu {
     /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
     /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
     /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
-    /// test. Derived state, not serialized: recomputed in `load_mapper` and `rebuild_mapper_state`.
+    /// test. *Derived* from [`Map::mapper_ops`](crate::mapper::Map::mapper_ops) and not
+    /// serialized: recomputed in `load_mapper` and `rebuild_mapper_state`. Writing it from outside
+    /// desynchronizes dispatch from the board that is actually loaded.
     #[serde(skip)]
     pub mapper_ops: MapperOps,
     /// NMI pending.
@@ -239,26 +259,38 @@ impl Default for Ppu {
 pub mod addr {
     //! Address constants.
 
+    /// First nametable, at the start of the PPU's VRAM window.
     pub const NAMETABLE_START: u16 = 0x2000;
+    /// Offset of a nametable's attribute table from its own start.
     pub const ATTR_OFFSET: u16 = 0x03C0;
 
+    /// First palette entry, i.e. the universal background colour.
     pub const PALETTE_START: u16 = 0x3F00;
+    /// One past the last palette entry.
     pub const PALETTE_END: u16 = 0x3F20;
 }
 
 pub mod size {
     //! Memory size constants.
 
+    /// Visible pixels per scanline.
     pub const WIDTH: u16 = 256;
+    /// Visible scanlines per frame.
     pub const HEIGHT: u16 = 240;
+    /// Pixels in one frame.
     pub const FRAME: usize = (WIDTH * HEIGHT) as usize;
 
+    /// Bytes in one nametable, attribute table included.
     pub const NAMETABLE: u16 = 0x0400;
-    pub const OAM: usize = 256; // 64 4-byte sprites per frame
-    pub const SECONDARY_OAM: usize = 32; // 8 4-byte sprites per scanline
+    /// Bytes of primary OAM: 64 four-byte sprites, the most a frame can hold.
+    pub const OAM: usize = 256;
+    /// Bytes of secondary OAM: 8 four-byte sprites, the most a scanline can hold.
+    pub const SECONDARY_OAM: usize = 32;
 
-    pub const VRAM: usize = 0x0800; // Two 1k Nametables
-    pub const PALETTE: usize = 32; // 32 possible colors at a time
+    /// Bytes of CIRAM, i.e. the two 1K nametables on the console itself.
+    pub const VRAM: usize = 0x0800;
+    /// Bytes of palette RAM: the 32 colours loadable at a time, out of the 64 the PPU can make.
+    pub const PALETTE: usize = 32;
 }
 
 pub mod cycle {
@@ -267,41 +299,67 @@ pub mod cycle {
 
     use std::ops::RangeInclusive;
 
+    /// First cycle of a scanline, an idle dot.
     pub const START: u16 = 0;
-    pub const ODD_SKIP: u16 = 339; // Odd frames skip the last cycle
+    /// The cycle odd frames skip when rendering is enabled.
+    pub const ODD_SKIP: u16 = 339;
+    /// Last cycle of a scanline.
     pub const END: u16 = 340;
 
-    pub const VISIBLE_START: u16 = 1; // Tile data fetching starts
-    pub const VISIBLE_END: u16 = 256; // 2 cycles each for 4 fetches = 32 tiles
+    /// Tile data fetching starts.
+    pub const VISIBLE_START: u16 = 1;
+    /// Tile data fetching ends: 2 cycles each for 4 fetches = 32 tiles.
+    pub const VISIBLE_END: u16 = 256;
 
-    pub const VBLANK: u16 = VISIBLE_START; // When VBlank flag gets set/cleared
+    /// Cycle on which the VBlank flag is set and cleared.
+    pub const VBLANK: u16 = VISIBLE_START;
 
+    /// Secondary OAM clear starts.
     pub const OAM_CLEAR_START: u16 = 1;
+    /// Secondary OAM clear ends.
     pub const OAM_CLEAR_END: u16 = 64;
 
+    /// Sprite evaluation for the next scanline starts.
     pub const SPR_EVAL_START: u16 = 65;
-    pub const SPR_EVAL_START1: u16 = 66; // Used to split up match arms
-    pub const SPR_EVAL_END0: u16 = 255; // Used to split up match arms
+    /// One past [`SPR_EVAL_START`], to split up match arms.
+    pub const SPR_EVAL_START1: u16 = 66;
+    /// One before [`SPR_EVAL_END`], to split up match arms.
+    pub const SPR_EVAL_END0: u16 = 255;
+    /// Sprite evaluation ends.
     pub const SPR_EVAL_END: u16 = 256;
-    pub const SPR_FETCH_START: u16 = 257; // Sprites for next scanline fetch starts
-    pub const SPR_FETCH_END: u16 = 320; // 2 cycles each for 4 fetches = 8 sprites
+    /// Fetching the next scanline's sprites starts.
+    pub const SPR_FETCH_START: u16 = 257;
+    /// Sprite fetching ends: 2 cycles each for 4 fetches = 8 sprites.
+    pub const SPR_FETCH_END: u16 = 320;
+    /// [`SPR_FETCH_START`]..=[`SPR_FETCH_END`].
     pub const SPR_FETCH_RANGE: RangeInclusive<u16> = SPR_FETCH_START..=SPR_FETCH_END;
 
-    pub const BG_PREFETCH_START: u16 = 321; // Tile data for next scanline fetched
-    pub const BG_PREFETCH_END: u16 = 336; // 2 cycles each for 4 fetches = 2 tiles
+    /// Prefetching the next scanline's tile data starts.
+    pub const BG_PREFETCH_START: u16 = 321;
+    /// Background prefetch ends: 2 cycles each for 4 fetches = 2 tiles.
+    pub const BG_PREFETCH_END: u16 = 336;
+    /// [`BG_PREFETCH_START`]..=[`BG_PREFETCH_END`].
     pub const BG_PREFETCH_RANGE: RangeInclusive<u16> = BG_PREFETCH_START..=BG_PREFETCH_END;
 
-    pub const BG_DUMMY_START: u16 = 337; // Dummy fetches - use is unknown
+    /// Two dummy nametable fetches start; what the hardware does with them is unknown.
+    pub const BG_DUMMY_START: u16 = 337;
+    /// Dummy fetches end, at the end of the scanline.
     pub const BG_DUMMY_END: u16 = END;
 
-    pub const INC_Y: u16 = 256; // Increase Y scroll when it reaches end of the screen
-    pub const COPY_Y_START: u16 = 280; // Copy Y scroll start
-    pub const COPY_Y_END: u16 = 304; // Copy Y scroll stop
+    /// Increment the Y scroll, the screen's last visible pixel having been reached.
+    pub const INC_Y: u16 = 256;
+    /// Copying the Y scroll from `t` to `v` starts (pre-render scanline only).
+    pub const COPY_Y_START: u16 = 280;
+    /// Copying the Y scroll ends.
+    pub const COPY_Y_END: u16 = 304;
+    /// [`COPY_Y_START`]..=[`COPY_Y_END`].
     pub const COPY_Y_RANGE: RangeInclusive<u16> = COPY_Y_START..=COPY_Y_END;
 
-    // Clock dividers
+    /// Master clock cycles per PPU cycle on NTSC.
     pub const DIVIDER_NTSC: u8 = 4;
+    /// Master clock cycles per PPU cycle on PAL.
     pub const DIVIDER_PAL: u8 = 5;
+    /// Master clock cycles per PPU cycle on Dendy.
     pub const DIVIDER_DENDY: u8 = DIVIDER_PAL;
 }
 
@@ -309,22 +367,34 @@ pub mod scanline {
     //! Scanline constants.
     //! <https://www.nesdev.org/wiki/PPU_rendering>
 
+    /// First scanline of a frame.
     pub const START: u16 = 0;
 
+    /// First visible scanline.
     pub const VISIBLE_START: u16 = START;
+    /// Last visible scanline.
     pub const VISIBLE_END: u16 = 239;
 
+    /// The idle scanline between the last visible one and VBlank.
     pub const POSTRENDER: u16 = 240;
+    /// NTSC pre-render scanline, where the next frame's state is set up.
     pub const PRERENDER_NTSC: u16 = 261;
+    /// PAL pre-render scanline.
     pub const PRERENDER_PAL: u16 = 311;
+    /// Dendy pre-render scanline.
     pub const PRERENDER_DENDY: u16 = PRERENDER_PAL;
 
+    /// NTSC scanline on which VBlank starts.
     pub const VBLANK_NTSC: u16 = 241;
+    /// PAL scanline on which VBlank starts.
     pub const VBLANK_PAL: u16 = VBLANK_NTSC;
+    /// Dendy scanline on which VBlank starts; its longer post-render gap is what makes Dendy's
+    /// VBlank later than PAL's despite the same frame height.
     pub const VBLANK_DENDY: u16 = 291;
 }
 
 impl Ppu {
+    /// The NTSC palette the `Ntsc` video filter samples, as raw RGB triples.
     pub const NTSC_PALETTE: &'static [u8] = include_bytes!("../ntscpalette.pal");
 
     /// NES PPU System Palette
@@ -1237,6 +1307,7 @@ impl Ppu {
         );
     }
 
+    /// Clocks the PPU forward until it catches up to `clock` master cycles.
     #[inline(always)]
     pub fn clock_to(&mut self, clock: u32) {
         let divider = u32::from(self.clock_divider);
@@ -1269,6 +1340,8 @@ impl Ppu {
     //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
     //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
     //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
+    /// Writes $2000 PPUCTRL: nametable select, VRAM increment, pattern table selects, sprite size
+    /// and NMI enable.
     pub fn write_ctrl(&mut self, val: u8) {
         self.open_bus = val;
         if self.reset_signal {
@@ -1304,6 +1377,8 @@ impl Ppu {
     //       |   3 | BG Switch, 1 = show background, 0 = hide background
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
+    /// Writes $2001 PPUMASK: greyscale, the two left-column clips, the two render enables and
+    /// colour emphasis.
     #[inline(always)]
     pub fn write_mask(&mut self, val: u8) {
         self.open_bus = val;
@@ -1321,6 +1396,8 @@ impl Ppu {
     //       |     | This flag resets to 0 when VBlank starts, or CPU reads $2002
     //       |   7 | VBlank Flag, 1 = PPU is generating a Vertical Blanking Impulse
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
+    /// Reads $2002 PPUSTATUS, which clears the VBlank flag and resets the address latch as a side
+    /// effect. Use [`Ppu::peek_status`] to look without disturbing it.
     pub fn read_status(&mut self) -> u8 {
         let status = self.peek_status();
         // Top three bits ignored for open bus
@@ -1354,6 +1431,7 @@ impl Ppu {
     //       |     | This flag resets to 0 when VBlank ends, or CPU reads $2002
     //
     // Non-mutating version of `read_status`.
+    /// Reads $2002 PPUSTATUS without its side effects.
     #[inline(always)]
     pub const fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
@@ -1365,6 +1443,7 @@ impl Ppu {
     //       |     | accessed via $2004. This address will increment by 1 after
     //       |     | each access to $2004. The Sprite Memory contains coordinates,
     //       |     | colors, and other attributes of the sprites.
+    /// Writes $2003 OAMADDR, the index the next OAM access starts from.
     #[inline(always)]
     pub const fn write_oamaddr(&mut self, val: u8) {
         self.open_bus = val;
@@ -1376,6 +1455,7 @@ impl Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
+    /// Reads $2004 OAMDATA at the current OAM address.
     #[inline(always)]
     pub fn read_oamdata(&mut self) -> u8 {
         self.open_bus = self.peek_oamdata();
@@ -1388,6 +1468,7 @@ impl Ppu {
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
     // Non-mutating version of `read_oamdata`.
+    /// Reads $2004 OAMDATA without side effects.
     #[inline(always)]
     pub fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
@@ -1406,6 +1487,7 @@ impl Ppu {
     //       |     | $2003 and increments after each access. The Sprite Memory
     //       |     | contains coordinates, colors, and other attributes of the
     //       |     | sprites.
+    /// Writes $2004 OAMDATA at the current OAM address, incrementing it.
     pub fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
 
@@ -1445,6 +1527,7 @@ impl Ppu {
     //       |     | When scrolled, the picture may span over several Name Tables.
     //       |     | Remember, though, that because of the mirroring, there are
     //       |     | only 2 real Name Tables, not 4.
+    /// Writes $2005 PPUSCROLL: X then Y, selected by the shared address latch.
     #[inline(always)]
     pub fn write_scroll(&mut self, val: u8) {
         self.open_bus = val;
@@ -1456,6 +1539,7 @@ impl Ppu {
     }
 
     // $2006 | W   | PPUADDR
+    /// Writes $2006 PPUADDR: high byte then low, selected by the shared address latch.
     #[inline(always)]
     pub fn write_addr(&mut self, val: u8) {
         self.open_bus = val;
@@ -1467,6 +1551,8 @@ impl Ppu {
     }
 
     // $2007 | RW  | PPUDATA
+    /// Reads $2007 PPUDATA. Everything below the palettes returns the *previous* read's buffered
+    /// value, and the address is incremented either way.
     pub fn read_data(&mut self) -> u8 {
         let addr = self.scroll.addr();
         self.increment_vram_addr();
@@ -1501,6 +1587,7 @@ impl Ppu {
     // $2007 | RW  | PPUDATA
     //
     // Non-mutating version of `read_data`.
+    /// Reads $2007 PPUDATA without side effects.
     pub fn peek_data(&self) -> u8 {
         let addr = self.scroll.addr();
         if addr < addr::PALETTE_START {
@@ -1513,6 +1600,7 @@ impl Ppu {
     }
 
     // $2007 | RW  | PPUDATA
+    /// Writes $2007 PPUDATA at the current VRAM address, incrementing it.
     pub fn write_data(&mut self, val: u8) {
         let addr = self.scroll.addr();
         trace!(
@@ -1524,6 +1612,7 @@ impl Ppu {
         // MMC3 clocks using A12
         self.notify_ppu_bus(self.scroll.addr());
     }
+
     /// Advance to the next scanline. Taken once every 341 dots, so kept out of line to keep it
     /// out of the hot path's instruction footprint.
     #[cold]
@@ -1639,6 +1728,8 @@ impl Ppu {
             (*self.debugger.callback)(self.snapshot());
         }
     }
+
+    /// Clocks the PPU a single dot.
     pub fn clock(&mut self) {
         // === SCANLINE TRANSITION (cycle 340) ===
         if self.cycle >= cycle::END {
@@ -1689,10 +1780,13 @@ impl Ppu {
 
         self.check_debugger();
     }
+
+    /// Returns the region the PPU is timed for.
     pub const fn region(&self) -> NesRegion {
         self.region
     }
 
+    /// Sets the region, which re-times the frame and forwards the change to the loaded mapper.
     pub fn set_region(&mut self, region: NesRegion) {
         // https://www.nesdev.org/wiki/Cycle_reference_chart
         let (clock_divider, vblank_scanline, prerender_scanline) = match region {
@@ -1722,6 +1816,8 @@ impl Ppu {
         // rate table, exactly as the APU's does.
         self.mapper.set_region(region);
     }
+
+    /// Resets the PPU. A soft reset leaves VRAM and palette RAM alone, as the console does.
     pub fn reset(&mut self, kind: ResetKind) {
         self.master_clock = 0;
         self.cycle = 0;

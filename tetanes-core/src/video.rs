@@ -9,20 +9,25 @@ use std::{
 };
 use thiserror::Error;
 
+/// Error parsing a [`VideoFilter`] from a string.
 #[derive(Error, Debug)]
 #[must_use]
 #[error("failed to parse `VideoFilter`")]
 pub struct ParseVideoFilterError;
 
+/// How a raw PPU frame is turned into RGBA pixels.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum VideoFilter {
+    /// One RGBA pixel per PPU pixel, straight from the palette.
     Pixellate,
+    /// An NTSC composite simulation, which is what a CRT would have shown.
     #[default]
     Ntsc,
 }
 
 impl VideoFilter {
+    /// Every filter, for enumerating them in a UI.
     pub const fn as_slice() -> &'static [Self] {
         &[Self::Pixellate, Self::Ntsc]
     }
@@ -49,6 +54,7 @@ impl TryFrom<usize> for VideoFilter {
     }
 }
 
+/// One frame of RGBA output, always [`Frame::SIZE`] bytes.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Frame(Vec<u8>);
@@ -117,10 +123,13 @@ impl DerefMut for Frame {
     }
 }
 
+/// Turns raw PPU frames into RGBA output.
 #[derive(Clone)]
 #[must_use]
 pub struct Video {
+    /// The filter applied to each frame.
     pub filter: VideoFilter,
+    /// The frame the last [`Video::apply_filter`] wrote into.
     pub frame: Frame,
 }
 
@@ -235,6 +244,7 @@ impl std::fmt::Debug for Video {
     }
 }
 
+/// The NTSC filter's lookup table, generated on first use.
 pub static NTSC_PALETTE: OnceLock<Vec<u32>> = OnceLock::new();
 fn generate_ntsc_palette() -> Vec<u32> {
     // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but

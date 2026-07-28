@@ -1,5 +1,9 @@
 //! CPU Asddressing cmps and Operations
 
+// The 6502 instruction tables: one variant per opcode and addressing mode, named after the
+// hardware. Documenting each would restate its name.
+#![allow(missing_docs)]
+
 use crate::{
     cpu::{Cpu, IrqFlags, Status},
     memory::{Read, Write},

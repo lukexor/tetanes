@@ -14,11 +14,14 @@ pub const SAVE_DIR: &str = "save";
 )]
 pub const SRAM_DIR: &str = "sram";
 
+/// Error parsing a [`NesRegion`] from a string.
 #[derive(Error, Debug)]
 #[must_use]
 #[error("failed to parse `NesRegion`")]
 pub struct ParseNesRegionError;
 
+/// Which regional console a ROM runs on, which sets the clock rates, the frame height and a
+/// handful of behavioural differences.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
@@ -34,6 +37,7 @@ pub enum NesRegion {
 }
 
 impl NesRegion {
+    /// Every region, for enumerating them in a UI.
     pub const fn as_slice() -> &'static [Self] {
         &[
             NesRegion::Auto,
@@ -43,26 +47,31 @@ impl NesRegion {
         ]
     }
 
+    /// Whether the region is detected from the ROM rather than fixed.
     #[must_use]
     pub const fn is_auto(&self) -> bool {
         matches!(self, Self::Auto)
     }
 
+    /// Whether this is NTSC timing.
     #[must_use]
     pub const fn is_ntsc(&self) -> bool {
         matches!(self, Self::Auto | Self::Ntsc)
     }
 
+    /// Whether this is PAL timing.
     #[must_use]
     pub const fn is_pal(&self) -> bool {
         matches!(self, Self::Pal)
     }
 
+    /// Whether this is Dendy timing.
     #[must_use]
     pub const fn is_dendy(&self) -> bool {
         matches!(self, Self::Dendy)
     }
 
+    /// The region's pixel aspect ratio, which is not 1:1 on any of them.
     #[must_use]
     pub fn aspect_ratio(&self) -> f32 {
         // https://www.nesdev.org/wiki/Overscan
@@ -72,6 +81,7 @@ impl NesRegion {
         }
     }
 
+    /// The region's stable string name, as used in config files.
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {

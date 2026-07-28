@@ -7,6 +7,11 @@ use std::{
     path::Path,
 };
 
+/// Opens `path` for writing, creating parent directories as needed.
+///
+/// # Errors
+///
+/// If the directories or file cannot be created.
 pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
     let path = path.as_ref();
     let Some(directory) = path.parent() else {
@@ -20,11 +25,21 @@ pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
         .map_err(|source| Error::io(source, format!("failed to create file {path:?}")))
 }
 
+/// Opens `path` for reading.
+///
+/// # Errors
+///
+/// If the file cannot be opened.
 pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let path = path.as_ref();
     File::open(path).map_err(|source| Error::io(source, format!("failed to open file {path:?}")))
 }
 
+/// Removes a directory and everything in it.
+///
+/// # Errors
+///
+/// If the directory cannot be removed.
 pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
     if !path.exists() {
@@ -34,6 +49,7 @@ pub fn clear_dir_impl(path: impl AsRef<Path>) -> Result<()> {
         .map_err(|source| Error::io(source, format!("failed to remove directory {path:?}")))
 }
 
+/// Whether `path` exists.
 pub fn exists_impl(path: impl AsRef<Path>) -> bool {
     let path = path.as_ref();
     path.exists()

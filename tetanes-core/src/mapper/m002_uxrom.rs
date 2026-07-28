@@ -2,6 +2,10 @@
 //!
 //! <https://wiki.nesdev.org/w/index.php/UxROM>
 
+// Board register state, whose meaning is the mapper hardware's rather than this crate's. See the
+// module docs on `mapper` for what a board is.
+#![allow(missing_docs)]
+
 use crate::{
     cart::Cart,
     mapper::{self, Map, Mapper},

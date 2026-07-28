@@ -1,6 +1,13 @@
 //! 6502 Central Processing Unit (CPU) implementation.
 //!
 //! <https://wiki.nesdev.org/w/index.php/CPU>
+//!
+//! # Stability
+//!
+//! [`Cpu`]'s fields are the emulation's internal wiring - registers, cycle counters and the
+//! [`Bus`] it owns. They are public so that embedders and debuggers can read them, but they track
+//! the implementation rather than the crate version, and a release may add, rename or retype any
+//! of them. The stable entry point is [`ControlDeck`](crate::control_deck::ControlDeck).
 
 use crate::{
     bus::Bus,
@@ -23,16 +30,28 @@ use tracing::trace;
 pub mod instr;
 
 bitflags! {
+    /// Interrupt and DMA state, kept as one byte because it is tested on every cycle.
+    ///
+    /// The `PREV_` flags are the previous cycle's values, which is what makes an interrupt take
+    /// effect one instruction late the way the hardware does.
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct IrqFlags: u8 {
+        /// NMI line asserted.
         const NMI = 1 << 0;
+        /// NMI line as of the previous cycle.
         const PREV_NMI = 1 << 1;
+        /// NMI was pending as of the previous cycle.
         const PREV_NMI_PENDING = 1 << 2;
+        /// An IRQ will be serviced after the current instruction.
         const RUN_IRQ = 1 << 3;
+        /// `RUN_IRQ` as of the previous cycle.
         const PREV_RUN_IRQ = 1 << 4;
+        /// A DMC sample fetch is stealing cycles.
         const DMA_DMC = 1 << 5;
+        /// The CPU is halted for a DMA.
         const DMA_HALT = 1 << 6;
+        /// The DMA's alignment dummy read.
         const DMA_DUMMY_READ = 1 << 7;
     }
 }
@@ -55,14 +74,22 @@ bitflags! {
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
     #[must_use]
     pub struct Status: u8 {
-        const C = 1;      // Carry
-        const Z = 1 << 1; // Zero
-        const I = 1 << 2; // Disable Interrupt
-        const D = 1 << 3; // Decimal Mode
-        const B = 1 << 4; // Break
-        const U = 1 << 5; // Unused
-        const V = 1 << 6; // Overflow
-        const N = 1 << 7; // Negative
+        /// Carry.
+        const C = 1;
+        /// Zero.
+        const Z = 1 << 1;
+        /// Disable interrupt.
+        const I = 1 << 2;
+        /// Decimal mode; unused by the NES, but the flag itself still works.
+        const D = 1 << 3;
+        /// Break: set when pushed by PHP/BRK, clear when pushed by IRQ/NMI.
+        const B = 1 << 4;
+        /// Unused; always set when pushed to the stack.
+        const U = 1 << 5;
+        /// Overflow.
+        const V = 1 << 6;
+        /// Negative.
+        const N = 1 << 7;
     }
 }
 /// Returned by [`Cpu::load`] when a save state was not produced by the loaded cart.
@@ -79,24 +106,40 @@ pub struct StateMismatch;
 #[must_use]
 #[repr(C)]
 pub struct Cpu {
-    pub cycle: u32, // total number of cycles ran
+    /// Total CPU cycles run.
+    pub cycle: u32,
+    /// Master clock cycles run, which is what the PPU and APU are caught up against.
     pub master_clock: u32,
-    // start/end cycle counts for reads/writes
+    /// Master cycles before a read or write within the current instruction.
     pub start_cycles: u8,
+    /// Master cycles after a read or write within the current instruction.
     pub end_cycles: u8,
-    pub pc: u16,             // program counter
-    pub operand: u16,        // opcode operand
-    pub addr_mode: AddrMode, // Addressing mode
-    pub sp: u8,              // stack pointer - stack is at $0100-$01FF
-    pub acc: u8,             // accumulator
-    pub x: u8,               // x register
-    pub y: u8,               // y register
-    pub status: Status,      // Status Registers
+    /// Program counter.
+    pub pc: u16,
+    /// The current instruction's operand.
+    pub operand: u16,
+    /// The current instruction's addressing mode.
+    pub addr_mode: AddrMode,
+    /// Stack pointer; the stack itself is at $0100-$01FF.
+    pub sp: u8,
+    /// Accumulator.
+    pub acc: u8,
+    /// X index register.
+    pub x: u8,
+    /// Y index register.
+    pub y: u8,
+    /// Status register.
+    pub status: Status,
+    /// Interrupt and DMA state.
     pub irq_flags: IrqFlags,
+    /// Source page of an OAM DMA in progress.
     pub dma_oam_addr: Option<u16>,
+    /// The bus, and through it the rest of the console.
     pub bus: Bus,
+    /// Set when an invalid opcode has jammed the CPU; it keeps cycling but stops fetching.
     #[serde(skip)]
-    pub corrupted: bool, // Encountering an invalid opcode corrupts CPU processing
+    pub corrupted: bool,
+    /// The last instruction disassembled, filled only while a debugger is attached.
     #[serde(skip)]
     pub disasm: String,
 }
@@ -865,11 +908,13 @@ impl Write for Cpu {
 }
 
 impl Cpu {
+    /// The region the CPU is clocked for.
     #[inline(always)]
     pub const fn region(&self) -> NesRegion {
         self.bus.region
     }
 
+    /// Sets the region, which re-times the CPU and forwards the change to the bus.
     pub fn set_region(&mut self, region: NesRegion) {
         let (start_cycles, end_cycles) = match region {
             NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2

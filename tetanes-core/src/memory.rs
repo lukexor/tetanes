@@ -62,7 +62,9 @@ const NAMETABLE_PAGE: usize = 0x2000 >> PAGE_SHIFT;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum Src {
+    /// Program ROM.
     PrgRom,
+    /// Program RAM, battery-backed or not.
     PrgRam,
     /// CHR-ROM or CHR-RAM, whichever the cart provides.
     Chr,
@@ -242,14 +244,18 @@ impl fmt::Debug for Memory {
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct MemoryLayout {
+    /// Bytes of PRG-ROM.
     pub prg_rom: usize,
+    /// Bytes of PRG-RAM.
     pub prg_ram: usize,
+    /// Bytes of CHR, ROM or RAM per `chr_writable`.
     pub chr: usize,
     /// Whether the CHR region is RAM. CHR-ROM is placed with the other immutable regions and is
     /// excluded from save states.
     pub chr_writable: bool,
     /// Nametable RAM. Defaults to 2 KiB when zero; four-screen boards supply 4 KiB.
     pub ciram: usize,
+    /// Extra RAM on the board itself; only MMC5 has any.
     pub ex_ram: usize,
 }
 
@@ -570,6 +576,7 @@ impl Buffer<Box<[u8]>> {
         }
     }
 
+    /// Allocates `size` bytes initialised per `state`.
     pub fn with_ram_state(size: usize, state: RamState) -> Self {
         let mut mem = Self::new(size);
         state.fill(&mut mem.data);
@@ -698,6 +705,8 @@ impl<T> IndexMut<RangeInclusive<usize>> for Buffer<Box<[T]>> {
     }
 }
 
+/// A fixed-size array that serializes as a slice, so a save state does not need `serde`'s
+/// const-generic array support.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct ConstArray<T, const N: usize> {
@@ -901,9 +910,12 @@ pub trait Write {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub enum RamState {
+    /// Every byte zero, which is what most emulators do.
     #[default]
     AllZeros,
+    /// Every byte $FF.
     AllOnes,
+    /// Pseudo-random bytes, closest to a real console's power-on state.
     Random,
 }
 

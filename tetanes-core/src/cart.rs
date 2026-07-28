@@ -44,27 +44,38 @@ const DEFAULT_CHR_RAM_SIZE: usize = 8 * 1024;
 const PRG_ROM_BANK_SIZE: usize = 0x4000;
 const CHR_ROM_BANK_SIZE: usize = 0x2000;
 
+/// A `Result` from loading a cartridge.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Errors from loading a cartridge.
 #[derive(Error, Debug)]
 #[must_use]
 pub enum Error {
+    /// The iNES/NES 2.0 header did not describe a cartridge this crate can build.
     #[error("invalid nes header (found: ${value:04X} at byte: {byte}). {message}")]
     InvalidHeader {
+        /// Which header byte was rejected.
         byte: u8,
+        /// The value found there.
         value: u8,
+        /// What was wrong with it.
         message: String,
     },
+    /// The header named a mapper no board in the table serves.
     #[error("mapper: {0}")]
     InvalidMapper(#[from] mapper::Error),
+    /// The ROM could not be read.
     #[error("{context}: {source:?}")]
     Io {
+        /// What was being read when this happened.
         context: String,
+        /// The underlying I/O error.
         source: std::io::Error,
     },
 }
 
 impl Error {
+    /// Wraps an I/O error with a description of what was being read.
     pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
         Self::Io {
             context: context.into(),
@@ -77,17 +88,27 @@ impl Error {
 #[derive(Debug)]
 #[must_use]
 pub struct Cart {
+    /// The ROM's name, taken from the path it was loaded from.
     pub name: String,
+    /// The iNES/NES 2.0 header it was built from.
     pub header: NesHeader,
+    /// The region the cart runs in.
     pub region: NesRegion,
+    /// How the cart's RAM was initialised at power-on.
     pub ram_state: RamState,
+    /// The board serving this cart.
     pub mapper: Mapper,
     /// All of the cart's memory, and the page tables that address it.
     pub memory: Memory,
+    /// Bytes of CHR-ROM; 0 for a cart with CHR-RAM instead.
     pub chr_rom_size: usize,
+    /// Bytes of CHR-RAM; 0 for a cart with CHR-ROM instead.
     pub chr_ram_size: usize,
+    /// Bytes of PRG-ROM.
     pub prg_rom_size: usize,
+    /// Bytes of PRG-RAM, battery-backed or not.
     pub prg_ram_size: usize,
+    /// What the game database knows about this ROM, matched by CRC.
     pub game_info: Option<GameInfo>,
 }
 
@@ -98,6 +119,7 @@ impl Default for Cart {
 }
 
 impl Cart {
+    /// Creates a cart with one PRG-ROM bank and one CHR-ROM bank of zeros, and no board.
     pub fn empty() -> Self {
         Self::empty_sized(PRG_ROM_BANK_SIZE, CHR_ROM_BANK_SIZE)
     }
@@ -356,12 +378,14 @@ impl Cart {
         Ok(cart)
     }
 
+    /// The ROM's name.
     #[must_use]
     #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Whether the header is iNES rather than NES 2.0.
     #[must_use]
     pub const fn is_ines(&self) -> bool {
         matches!(
@@ -370,6 +394,7 @@ impl Cart {
         )
     }
 
+    /// Whether the header is NES 2.0.
     #[must_use]
     pub const fn is_nes2(&self) -> bool {
         matches!(self.header.variant, NesVariant::Nes2)
@@ -489,10 +514,12 @@ impl Cart {
             }
         }
     }
+    /// The region this cart runs in.
     pub const fn region(&self) -> NesRegion {
         self.region
     }
 
+    /// Sets the region this cart runs in.
     pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }
@@ -515,22 +542,35 @@ impl std::fmt::Display for Cart {
     }
 }
 
+/// What the bundled game database knows about a ROM, matched by CRC32.
+///
+/// It exists because a fair number of ROMs carry a header that is wrong about their board, region
+/// or submapper; a database entry overrides the header.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct GameInfo {
+    /// CRC32 of the ROM's PRG and CHR data, which is what the database is keyed by.
     pub crc32: u32,
+    /// The region the database says this ROM runs in.
     pub region: NesRegion,
+    /// The mapper number the database says this ROM uses, overriding a wrong header.
     pub mapper_num: u16,
+    /// The submapper number the database says this ROM uses.
     pub submapper_num: u8,
 }
 
+/// Which cartridge header format a ROM carries.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub enum NesVariant {
+    /// The original iNES header, before byte 7 was assigned any meaning.
     #[default]
     ArchaicINes,
+    /// iNES 0.7, whose byte 7 holds a mapper high nibble but no padding requirement.
     INes07,
+    /// iNES, i.e. the format with bytes 8-15 required to be zero.
     INes,
+    /// NES 2.0, which adds submappers, sized RAM fields and a region field.
     Nes2,
 }
 
@@ -542,16 +582,28 @@ pub enum NesVariant {
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct NesHeader {
+    /// Which of the four header formats this is.
     pub variant: NesVariant,
-    pub mapper_num: u16,    // The primary mapper number
-    pub submapper_num: u8,  // NES 2.0 https://wiki.nesdev.org/w/index.php/NES_2.0_submappers
-    pub flags: u8,          // Mirroring, Battery, Trainer, VS Unisystem, Playchoice-10, NES 2.0
-    pub prg_rom_banks: u16, // Number of 16KB PRG-ROM banks (Program ROM)
-    pub chr_rom_banks: u16, // Number of 8KB CHR-ROM banks (Character ROM)
-    pub prg_ram_shift: u8,  // NES 2.0 PRG-RAM
-    pub chr_ram_shift: u8,  // NES 2.0 CHR-RAM
-    pub tv_mode: u8,        // NES 2.0 NTSC/PAL indicator
-    pub vs_data: u8,        // NES 2.0 VS System data
+    /// The primary mapper number.
+    pub mapper_num: u16,
+    /// NES 2.0 submapper number.
+    ///
+    /// <https://wiki.nesdev.org/w/index.php/NES_2.0_submappers>
+    pub submapper_num: u8,
+    /// Mirroring, battery, trainer, VS Unisystem, PlayChoice-10 and the NES 2.0 marker.
+    pub flags: u8,
+    /// Number of 16K PRG-ROM banks.
+    pub prg_rom_banks: u16,
+    /// Number of 8K CHR-ROM banks.
+    pub chr_rom_banks: u16,
+    /// NES 2.0 PRG-RAM size, as a shift count.
+    pub prg_ram_shift: u8,
+    /// NES 2.0 CHR-RAM size, as a shift count.
+    pub chr_ram_shift: u8,
+    /// NES 2.0 NTSC/PAL indicator.
+    pub tv_mode: u8,
+    /// NES 2.0 VS System data.
+    pub vs_data: u8,
 }
 
 impl NesHeader {
@@ -707,6 +759,7 @@ impl NesHeader {
         })
     }
 
+    /// The board name conventionally associated with a mapper number, for display.
     #[must_use]
     pub const fn mapper_board(mapper_num: u16) -> &'static str {
         match mapper_num {

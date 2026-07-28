@@ -1,4 +1,11 @@
 //! [`Joypad`] and [`Zapper`] implementation.
+//!
+//! # Stability
+//!
+//! The methods here - [`Joypad::set_button`], [`Zapper::aim`] and the rest - are the input API and
+//! are covered like any other. The *fields* are the emulation's internal wiring, public so that
+//! embedders and debuggers can read them, and they track the implementation rather than the crate
+//! version.
 
 use crate::{
     common::{NesRegion, ResetKind},
@@ -11,18 +18,24 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::trace;
 
+/// Error parsing a [`Player`] from a string.
 #[derive(Error, Debug)]
 #[must_use]
 #[error("failed to parse `Player`")]
 pub struct ParsePlayerError;
 
+/// Which controller port an input belongs to.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Player {
+    /// Controller port 1.
     #[default]
     One,
+    /// Controller port 2.
     Two,
+    /// Port 3, reachable only through a [`FourPlayer`] adapter.
     Three,
+    /// Port 4, reachable only through a [`FourPlayer`] adapter.
     Four,
 }
 
@@ -63,20 +76,27 @@ impl TryFrom<usize> for Player {
     }
 }
 
+/// Which four-player adapter, if any, is plugged in. The two wire their extra pads up
+/// differently, so a game written for one does not see the other.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum FourPlayer {
+    /// No adapter: two controllers.
     #[default]
     Disabled,
+    /// NES Four Score, which shifts all four pads plus a signature out of the two ports.
     FourScore,
+    /// Famicom Four Players Adapter, which reports the extra pads through $4016/$4017 bit 1.
     Satellite,
 }
 
 impl FourPlayer {
+    /// Every adapter setting, for enumerating them in a UI.
     pub const fn as_slice() -> &'static [Self] {
         &[Self::Disabled, Self::FourScore, Self::Satellite]
     }
 
+    /// The setting's stable string name, as used in config files.
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Disabled => "disabled",
@@ -117,17 +137,24 @@ impl FromStr for FourPlayer {
     }
 }
 
+/// The console's input hardware: the controller ports, the zapper and the four-player adapter.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Input {
+    /// The four controller ports; only the first two exist without an adapter.
     pub joypads: [Joypad; 4],
+    /// The Four Score's two signature registers, shifted out after the pads.
     pub signatures: [Joypad; 2],
+    /// The zapper, whether or not it is plugged in.
     pub zapper: Zapper,
+    /// Frames left before the turbo buttons toggle.
     pub turbo_timer: u32,
+    /// Which four-player adapter is plugged in.
     pub four_player: FourPlayer,
 }
 
 impl Input {
+    /// Creates input state timed for `region`.
     pub fn new(region: NesRegion) -> Self {
         Self {
             joypads: [Joypad::new(); 4],
@@ -142,39 +169,49 @@ impl Input {
         }
     }
 
+    /// Borrows one port's controller.
     pub const fn joypad(&self, player: Player) -> &Joypad {
         &self.joypads[player as usize]
     }
 
+    /// Mutably borrows one port's controller, which is how buttons are set.
     pub const fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
         &mut self.joypads[player as usize]
     }
 
+    /// Sets the region, which re-times the zapper's trigger release.
     pub fn set_region(&mut self, region: NesRegion) {
         self.zapper.trigger_release_delay = Cpu::region_clock_rate(region) / 10.0;
     }
 
+    /// Allows opposing D-Pad directions to be held at once. The hardware permits it and a few
+    /// games rely on it, but most were never tested against it.
     pub fn set_concurrent_dpad(&mut self, enabled: bool) {
         self.joypads
             .iter_mut()
             .for_each(|pad| pad.concurrent_dpad = enabled);
     }
 
+    /// Plugs the zapper into port 2, or unplugs it.
     pub const fn connect_zapper(&mut self, connected: bool) {
         self.zapper.connected = connected;
     }
 
+    /// Selects the four-player adapter, clearing all input state.
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
         self.four_player = four_player;
         self.reset(ResetKind::Hard);
     }
 
+    /// Releases every button and clears the zapper trigger.
     pub fn clear(&mut self) {
         for pad in &mut self.joypads {
             pad.clear();
         }
         self.zapper.clear();
     }
+
+    /// Reads $4016/$4017 for one port, shifting the controller's register on.
     pub fn read(&mut self, player: Player, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
@@ -208,6 +245,7 @@ impl Input {
         zapper | val | 0x40
     }
 
+    /// Reads $4016/$4017 without shifting.
     pub fn peek(&self, player: Player, ppu: &Ppu) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
@@ -241,6 +279,7 @@ impl Input {
         zapper | val | 0x40
     }
 
+    /// Writes $4016, whose bit 0 is the strobe that reloads every controller register.
     pub fn write(&mut self, val: u8) {
         for pad in &mut self.joypads {
             pad.write(val);
@@ -249,6 +288,8 @@ impl Input {
             sig.write(val);
         }
     }
+
+    /// Clocks the turbo timer and the zapper's trigger release.
     pub fn clock(&mut self) {
         self.zapper.clock();
         if self.turbo_timer > 0 {
@@ -269,6 +310,8 @@ impl Input {
             }
         }
     }
+
+    /// Resets input state.
     pub fn reset(&mut self, kind: ResetKind) {
         for pad in &mut self.joypads {
             pad.reset(kind);
@@ -279,6 +322,7 @@ impl Input {
     }
 }
 
+/// A single controller button, including the two synthetic turbo buttons.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum JoypadBtn {
     /// Left D-Pad.
@@ -321,18 +365,29 @@ impl AsRef<str> for JoypadBtn {
 }
 
 bitflags! {
+    /// The set of controller buttons currently held, as one bit each.
     #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
     pub struct JoypadBtnState: u16 {
+        /// A button.
         const A = 0x01;
+        /// B button.
         const B = 0x02;
+        /// Select button.
         const SELECT = 0x04;
+        /// Start button.
         const START = 0x08;
+        /// Up on the D-Pad.
         const UP = 0x10;
+        /// Down on the D-Pad.
         const DOWN = 0x20;
+        /// Left on the D-Pad.
         const LEFT = 0x40;
+        /// Right on the D-Pad.
         const RIGHT = 0x80;
+        /// Synthetic: A, auto-fired by the turbo timer.
         const TURBO_A = 0x100;
+        /// Synthetic: B, auto-fired by the turbo timer.
         const TURBO_B = 0x200;
     }
 }
@@ -354,16 +409,22 @@ impl From<JoypadBtn> for JoypadBtnState {
     }
 }
 
+/// A standard NES controller: eight buttons behind a shift register.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Joypad {
+    /// Which buttons are currently held.
     pub buttons: JoypadBtnState,
+    /// Whether opposing D-Pad directions may be held at once.
     pub concurrent_dpad: bool,
+    /// How far the shift register has been read.
     pub index: u8,
+    /// Whether $4016 bit 0 is holding the register in reload.
     pub strobe: bool,
 }
 
 impl Joypad {
+    /// Creates a controller with nothing pressed.
     pub const fn new() -> Self {
         Self {
             buttons: JoypadBtnState::empty(),
@@ -373,11 +434,13 @@ impl Joypad {
         }
     }
 
+    /// Whether a button is currently held.
     #[must_use]
     pub const fn button(&self, button: JoypadBtnState) -> bool {
         self.buttons.contains(button)
     }
 
+    /// Presses or releases a button, applying the D-Pad rule from `concurrent_dpad`.
     pub fn set_button(&mut self, button: impl Into<JoypadBtnState>, pressed: bool) {
         let button = button.into();
         let prevent_concurrent_dpad = pressed && !self.concurrent_dpad;
@@ -395,6 +458,7 @@ impl Joypad {
         self.buttons.set(button, pressed);
     }
 
+    /// Builds a controller whose held buttons come from a raw [`JoypadBtnState`] bit pattern.
     pub const fn from_bytes(val: u16) -> Self {
         Self {
             buttons: JoypadBtnState::from_bits_truncate(val),
@@ -404,6 +468,7 @@ impl Joypad {
         }
     }
 
+    /// Shifts the next button out of the register.
     #[must_use]
     pub const fn read(&mut self) -> u8 {
         let val = self.peek();
@@ -413,6 +478,7 @@ impl Joypad {
         val
     }
 
+    /// Returns the next button without shifting.
     #[must_use]
     pub const fn peek(&self) -> u8 {
         if self.index < 8 {
@@ -422,6 +488,7 @@ impl Joypad {
         }
     }
 
+    /// Writes the strobe line; while it is high the register reloads continuously.
     pub const fn write(&mut self, val: u8) {
         let prev_strobe = self.strobe;
         self.strobe = val & 0x01 == 0x01;
@@ -430,14 +497,18 @@ impl Joypad {
         }
     }
 
+    /// How far the shift register has been read.
     #[must_use]
     pub const fn index(&self) -> u8 {
         self.index
     }
 
+    /// Releases every button.
     pub const fn clear(&mut self) {
         self.buttons = JoypadBtnState::empty();
     }
+
+    /// Resets the shift register.
     pub const fn reset(&mut self, _kind: ResetKind) {
         self.buttons = JoypadBtnState::empty();
         self.index = 0;
@@ -445,33 +516,44 @@ impl Joypad {
     }
 }
 
+/// The NES Zapper light gun, which reports whether its trigger is pulled and whether the pixel
+/// it is aimed at is lit.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Zapper {
+    /// Seconds left before the trigger releases itself; 0 when not pulled.
     #[serde(skip)] // Don't save triggered state
     pub triggered: f32,
+    /// How long a pull lasts, in seconds.
     pub trigger_release_delay: f32,
+    /// Aim position in screen pixels.
     #[serde(skip)] // Don't save zapper position
     pub x: u16,
+    /// Aim position in screen pixels.
     #[serde(skip)] // Don't save zapper position
     pub y: u16,
+    /// Radius in pixels around the aim point sampled for light.
     pub radius: u16,
+    /// Whether the zapper is plugged in.
     pub connected: bool,
 }
 
 impl Zapper {
+    /// The aim's X position in screen pixels.
     #[inline(always)]
     #[must_use]
     pub const fn x(&self) -> u16 {
         self.x
     }
 
+    /// The aim's Y position in screen pixels.
     #[inline(always)]
     #[must_use]
     pub const fn y(&self) -> u16 {
         self.y
     }
 
+    /// Pulls the trigger, which releases itself after `trigger_release_delay`.
     #[inline(always)]
     pub fn trigger(&mut self) {
         if self.triggered <= 0.0 {
@@ -479,12 +561,14 @@ impl Zapper {
         }
     }
 
+    /// Points the zapper at a screen pixel.
     #[inline(always)]
     pub const fn aim(&mut self, x: u16, y: u16) {
         self.x = x;
         self.y = y;
     }
 
+    /// Releases the trigger.
     pub const fn clear(&mut self) {
         self.triggered = 0.0;
     }
@@ -535,11 +619,15 @@ impl Zapper {
         }
         0x08
     }
+
+    /// Counts the trigger's self-release down by one CPU cycle.
     pub fn clock(&mut self) {
         if self.triggered > 0.0 {
             self.triggered -= 1.0;
         }
     }
+
+    /// Resets the zapper, releasing the trigger.
     pub const fn reset(&mut self, _kind: ResetKind) {
         self.triggered = 0.0;
     }

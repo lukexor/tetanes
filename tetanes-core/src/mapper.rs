@@ -237,6 +237,7 @@ macro_rules! boards {
         #[derive(Debug, Clone)]
         #[must_use]
         pub enum Mapper {
+            /// No board, i.e. no cart loaded. Reads come back as open bus.
             None(()),
             $($(#[$meta])* $variant($($storage)+),)+
         }

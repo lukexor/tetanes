@@ -2,6 +2,10 @@
 //!
 //! See: <https://www.nesdev.org/wiki/PPU_OAM>
 
+// The PPU's internal register and fetch state, whose meaning is the hardware's rather than this
+// crate's. Public for embedders and debuggers, not a stable surface - see the module docs on `ppu`.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 

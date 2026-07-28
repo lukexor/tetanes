@@ -98,12 +98,15 @@ pub enum Error {
     /// IO error.
     #[error("{context}: {source:?}")]
     Io {
+        /// What was being done when this happened.
         context: String,
+        /// The underlying I/O error.
         source: std::io::Error,
     },
 }
 
 impl Error {
+    /// Wraps an I/O error with a description of what was being done.
     pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
         Self::Io {
             context: context.into(),
@@ -144,10 +147,10 @@ impl MapperRevisionsConfig {
     }
 }
 
+/// Control deck configuration settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[must_use]
-/// Control deck configuration settings.
 pub struct Config {
     /// Video filter.
     pub filter: VideoFilter,

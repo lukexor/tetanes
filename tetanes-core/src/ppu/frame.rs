@@ -1,5 +1,9 @@
 //! PPU frame implementation.
 
+// The PPU's internal register and fetch state, whose meaning is the hardware's rather than this
+// crate's. Public for embedders and debuggers, not a stable surface - see the module docs on `ppu`.
+#![allow(missing_docs)]
+
 use crate::{
     common::ResetKind,
     memory::ConstArray,

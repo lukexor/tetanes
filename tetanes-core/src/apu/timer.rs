@@ -1,5 +1,10 @@
 //! Timer abstraction for the [`Apu`](crate::apu::Apu).
 
+// The APU's internal wiring: channel state, dividers and filter taps, whose meaning is the
+// hardware's rather than this crate's. Public for embedders and debuggers, not a stable surface -
+// see the module docs on `apu`.
+#![allow(missing_docs)]
+
 use crate::common::ResetKind;
 use serde::{Deserialize, Serialize};
 

@@ -7,6 +7,10 @@
 //!
 //! <https://www.nesdev.org/wiki/NES_2.0_Mapper_176>
 
+// Board register state, whose meaning is the mapper hardware's rather than this crate's. See the
+// module docs on `mapper` for what a board is.
+#![allow(missing_docs)]
+
 use crate::{
     cart::Cart,
     common::ResetKind,

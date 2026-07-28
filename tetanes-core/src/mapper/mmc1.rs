@@ -1,3 +1,8 @@
+//! mmc1.
+
+// Board register state, whose meaning is the mapper hardware's rather than this crate's. See the
+// module docs on `mapper` for what a board is.
+#![allow(missing_docs)]
 use serde::{Deserialize, Serialize};
 
 use crate::{common::ResetKind, ppu::Mirroring};

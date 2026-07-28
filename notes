@@ -445,20 +445,97 @@ Suggested order: 7a -> 7b -> 7f (a few high-risk boards) -> 7c -> 7e -> 7d.
 audio path trustworthy; 7f is where the mapper rework actually carries risk.
 
 ================================================================================
-PHASE 8 PLAN - deferred API work                                (DRAFT, review)
+PHASE 8 - deferred API work                                (8b/8c DONE, 8a/8d open)
 ================================================================================
 
 8a. Make video::Frame hold Box<[u8; Frame::SIZE]> instead of Vec<u8>, and drop
     Deref/DerefMut<Target = Vec<u8>>. Today the Deref leaks push/clear/truncate,
     any of which breaks the SIZE invariant that as_array/as_array_mut assert -
-    those two expects go away entirely once the type cannot be resized. Callers:
-    tetanes/src/nes/emulation.rs and renderer.rs use it as the thingbuf item.
-8b. #![warn(missing_docs)] on tetanes-core and fill the gaps (~400 pub items,
-    concentrated in ppu.rs, memory.rs, mapper.rs). Large but mechanical.
-8c. Audit pub fields on Ppu/Bus/Cpu/Video. These are load-bearing for the
-    component tree, so this is a judgement call per field, not a sweep - and
-    nes-bundler depends on several of them (see the downstream survey above).
+    those two expects go away entirely once the type cannot be resized.
+    STILL OPEN. Measured, so it is smaller than it looks: the producer already
+    goes through as_array_mut (emulation.rs), so only TWO Deref consumers are
+    left - renderer.rs's overscan slice, and control_deck.rs's `&frame[..]`
+    inside a deprecated shim.
+    TWO TRAPS, both found by reading rather than by compiling:
+      - Frame::SIZE is 245,760 bytes. `Box::new([0u8; SIZE])` materialises that
+        240 KiB on the stack before the move, which overflows a debug build.
+        Construct through a Vec and into_boxed_slice().try_into().
+      - Frame::new initialises alpha to 255, not zeros. `[0u8; SIZE]` ships
+        transparent frames and nothing in the tests would catch it.
+    OPEN CHOICE: dropping Deref entirely costs the two callers an as_array(),
+    where RETARGETING it to Deref<Target = [u8; SIZE]> keeps slicing and .len()
+    working and still removes push/clear/truncate, which is the whole point.
+    Recommend retargeting. Also decide there whether two public types named
+    `Frame` (video::Frame, ppu::frame::Frame) is worth keeping.
+
+8b. #![warn(missing_docs)] on tetanes-core -- DONE.
+    The draft guessed ~400 items. Measured by turning the lint on: 1,118.
+    479 struct fields, 253 methods, 190 variants, 67 assoc fns, 50 constants,
+    79 other. By area: mapper 385, apu 236, ppu 167, cpu 123, input 63,
+    cart 48, fs 27, bus 15, memory 11, video 10, genie 10, common 9, rest 14.
+    Concentrations tell the story - cpu/instr.rs alone is 95 variants (the
+    opcode and addressing-mode tables), m005_exrom.rs is 51 fields + 16
+    variants. Those are not API; they are the internals the crate publishes.
+
+    So: file-level #![allow(missing_docs)] on the internal wiring, each with a
+    comment saying why - every board module, apu/*, ppu/* and cpu/instr.rs -
+    and real docs for the ~150 items of genuine API that were left. That is
+    ppu.rs's register accessors and its addr/size/cycle/scanline constant
+    modules, all of input.rs, cart.rs, fs.rs, genie.rs, common.rs, memory.rs,
+    video.rs, debug.rs, bus.rs and the two fs backends.
+
+    NB the WASM fs backend was missing all 7 of its items and only the
+    wasm doc job sees it - `cargo make docs` runs docs-web first, which is the
+    only thing that catches this. Exactly the omission CLAUDE.md warns about.
+    Verified: cargo make lint, check-fmt and docs all clean, 396 tests and 14
+    doctests pass, and clippy is clean on nightly, stable AND 1.88.
+
+8c. Audit pub fields on Ppu/Bus/Cpu/Video -- DONE, and the answer was to NOT
+    demote anything. The measurement is the useful part.
+
+    MEASURED EXACTLY, not grepped: demote every field on Ppu/Cpu/Bus/Video/
+    Apu/Input to pub(crate), then iterate with the compiler until the workspace
+    builds again (tetanes + tetanes-utils, --all-targets, and the 16 doctests,
+    which link the crate externally and so count as consumers).
+    12 of 105 fields survive; 93 demote with zero call-site changes:
+      Ppu    8/52: ctrl cycle scanline scroll prerender_scanline
+                   vblank_scanline frame memory
+      Cpu    2/17: bus pc
+      Bus    2/ 8: ppu input
+      Video  0/ 2, Apu 0/21, Input 0/5
+    And the 12 are three consumers, not a scattered mess: the PPU debugger
+    (which destructures a Ppu copy it already owns), rewind swapping
+    ppu.frame.buffer, and chrdump reading ppu.memory - plus cpu.bus/bus.ppu as
+    pure navigation to reach them.
+    Two gotchas if this is ever re-run: Cpu::bus being private masks every
+    error behind it, so it takes several rounds; and E0451 reports struct-
+    literal fields in the PLURAL ("fields `a`, `b` ... are private"), which a
+    regex written for E0616 silently misses.
+
+    WHY NOT DEMOTE, per Luke: demoting 93 leaves Ppu with 8 pub and 44 private
+    fields, which is exactly the clippy::partial_pub_fields smell, in exchange
+    for an encapsulation that Cpu::bus being pub defeats anyway. ControlDeck
+    already shows the shape of that bargain - private fields, but cpu_mut()
+    hands out the whole tree, so the privacy buys a `()`. And once 8b allows
+    the internals, demoting no longer shrinks the doc surface either, which was
+    the original justification for doing 8c first.
+    DONE INSTEAD: a "# Stability" section on ppu/cpu/bus/apu/input saying these
+    fields are internal wiring exposed for embedders and debuggers and track
+    the implementation rather than the crate version, and *derived* marked on
+    the four cache fields that desynchronize the emulator if written -
+    mapper_ops and the three is_*_scanline flags.
+
+    IF the surface is ever to shrink for real, fields are the wrong lever:
+    385 of the 1,118 are in mapper, where every board struct is public only
+    because boards! generates a `pub use`. Not re-exporting the board types
+    removes a third of the API surface in one edit and nothing outside the
+    crate names them.
+
 8d. Changelog migration section covering every break on this branch.
+    STILL OPEN. Note that NONE of the 62 commits is marked `!` or carries a
+    BREAKING CHANGE footer, and cliff.toml only renders [**breaking**] from
+    commit.breaking - so the generated 0.15.0 entry will list every one of them
+    as an ordinary feat/refactor with no signal at all. Hand-write it.
 
 
 ================================================================================

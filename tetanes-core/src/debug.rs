@@ -1,9 +1,11 @@
 use crate::ppu::Ppu;
 use std::sync::Arc;
 
+/// A debugger attached to one component.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub enum Debugger {
+    /// A callback run at a chosen PPU dot.
     Ppu(PpuDebugger),
 }
 
@@ -13,11 +15,15 @@ impl From<PpuDebugger> for Debugger {
     }
 }
 
+/// Runs a callback once the PPU reaches a given dot, handing it a copy of the PPU.
 #[derive(Clone)]
 #[must_use]
 pub struct PpuDebugger {
+    /// The cycle within `scanline` to break on.
     pub cycle: u16,
+    /// The scanline to break on.
     pub scanline: u16,
+    /// What to run when that dot is reached.
     pub callback: Arc<dyn Fn(Ppu) + Send + Sync + 'static>,
 }
 

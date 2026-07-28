@@ -1,6 +1,13 @@
 //! NES APU (Audio Processing Unit) implementation.
 //!
 //! See: <https://www.nesdev.org/wiki/APU>
+//!
+//! # Stability
+//!
+//! [`Apu`]'s fields, and the per-channel types in this module's submodules, are the emulation's
+//! internal wiring. They are public so that embedders and debuggers can read them, but they track
+//! the implementation rather than the crate version, and a release may add, rename or retype any
+//! of them. The stable entry point is [`ControlDeck`](crate::control_deck::ControlDeck).
 
 use crate::{
     apu::{
@@ -39,11 +46,17 @@ pub struct ParseChannelError;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum Channel {
+    /// The first square-wave channel.
     Pulse1,
+    /// The second square-wave channel.
     Pulse2,
+    /// The triangle-wave channel.
     Triangle,
+    /// The noise channel.
     Noise,
+    /// The sample channel.
     Dmc,
+    /// Expansion audio from the cartridge, if the board has any.
     Mapper,
 }
 
@@ -69,28 +82,49 @@ impl TryFrom<usize> for Channel {
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Apu {
+    /// The frame sequencer that clocks envelopes, sweeps and length counters.
     pub frame_counter: FrameCounter,
+    /// Cycles into the current [`Apu::CYCLE_SIZE`] block of buffered channel output.
     pub master_clock: u32,
+    /// Total CPU cycles clocked.
     pub cpu_cycle: u32,
+    /// APU cycles clocked.
     pub clock: u32,
+    /// CPU clock rate for the current region, in Hz.
     pub clock_rate: f32,
+    /// The region the APU is timed for.
     pub region: NesRegion,
+    /// The first square-wave channel.
     pub pulse1: Pulse,
+    /// The second square-wave channel.
     pub pulse2: Pulse,
+    /// The triangle-wave channel.
     pub triangle: Triangle,
+    /// The noise channel.
     pub noise: Noise,
+    /// The sample channel.
     pub dmc: Dmc,
+    /// The high-pass/low-pass chain the mixed output is run through.
     pub filter_chain: FilterChain,
+    /// Per-cycle output of each channel, mixed in one pass when the block fills.
     #[serde(skip, default = "Apu::default_channel_outputs")]
     pub channel_outputs: Box<[f32]>,
+    /// Mixed samples produced since the last drain.
     #[serde(skip)]
     pub audio_samples: Vec<f32>,
+    /// Output sample rate in Hz.
     pub sample_rate: f32,
+    /// CPU cycles per output sample.
     pub sample_period: f32,
+    /// Cycles remaining until the next sample is taken.
     pub sample_counter: f32,
+    /// Emulation speed multiplier, which stretches the sample period.
     pub speed: f32,
+    /// Whether cartridge expansion audio is mixed in.
     pub mapper_enabled: bool,
+    /// Whether mixing is skipped entirely, as in headless runs.
     pub skip_mixing: bool,
+    /// Whether a channel changed state and so the lazy clock must catch up.
     pub should_clock: bool,
 }
 
@@ -101,9 +135,11 @@ impl Default for Apu {
 }
 
 impl Apu {
+    /// Sample rate used unless the embedder sets another.
     pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
-    // 5 APU channels + 1 Mapper channel
+    /// The 5 APU channels plus one for cartridge expansion audio.
     pub const MAX_CHANNEL_COUNT: usize = 6;
+    /// How many cycles of per-channel output are buffered before being mixed in one pass.
     pub const CYCLE_SIZE: u32 = 10_000;
 
     /// Create a new APU instance.
@@ -136,10 +172,12 @@ impl Apu {
         }
     }
 
+    /// An empty channel-output buffer, which is also how a loaded save state gets one.
     pub fn default_channel_outputs() -> Box<[f32]> {
         vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE as usize].into()
     }
 
+    /// Records this cycle's expansion-audio sample from the cartridge.
     #[inline(always)]
     pub fn add_mapper_output(&mut self, output: f32) {
         self.channel_outputs
@@ -235,6 +273,8 @@ impl Apu {
         }
     }
 
+    /// Clocks the APU one CPU cycle, doing the real work only when a channel needs it or the
+    /// output block fills.
     pub fn clock_lazy(&mut self) {
         self.cpu_cycle = self.cpu_cycle.wrapping_add(1);
         self.master_clock += 1;
@@ -553,26 +593,32 @@ impl Apu {
     }
 
     // Return pending IRQ.
+    /// Whether the frame counter or the DMC is asserting IRQ.
     #[inline(always)]
     pub const fn irq_pending(&self) -> bool {
         self.frame_counter.irq_pending | self.dmc.irq_pending
     }
 
     // Return pending DMA.
+    /// Whether the DMC wants a sample fetched.
     #[inline(always)]
     pub const fn dma_pending(&self) -> bool {
         self.dmc.dma_pending
     }
 
     // Clear pending DMA.
+    /// Clears the DMC's sample-fetch request, once the CPU has served it.
     #[inline(always)]
     pub const fn clear_dma_pending(&mut self) {
         self.dmc.dma_pending = false;
     }
+    /// The region the APU is timed for.
     pub const fn region(&self) -> NesRegion {
         self.region
     }
 
+    /// Sets the region, which re-times the frame counter, the noise and DMC period tables and the
+    /// filter chain.
     pub fn set_region(&mut self, region: NesRegion) {
         if self.region != region {
             self.region = region;
@@ -584,6 +630,7 @@ impl Apu {
             self.dmc.set_region(region);
         }
     }
+    /// Resets the APU.
     pub fn reset(&mut self, kind: ResetKind) {
         self.cpu_cycle = 0;
         self.master_clock = 0;

@@ -20,35 +20,49 @@ const SAVE_VERSION: &str = "2";
 /// the save format must not invalidate it.
 pub const GAME_DB_VERSION: &str = "1";
 
+/// A `Result` from a save-file operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Errors from reading or writing a save file, save state or SRAM.
 #[derive(Error, Debug)]
 #[must_use]
 pub enum Error {
+    /// The file's magic or version did not match what this build writes.
     #[error("invalid tetanes header: {0}")]
     InvalidHeader(String),
+    /// The header could not be written.
     #[error("failed to write tetanes header: {0:?}")]
     WriteHeaderFailed(std::io::Error),
+    /// Deflate compression failed.
     #[error("failed to encode data: {0:?}")]
     EncodingFailed(std::io::Error),
+    /// Deflate decompression failed.
     #[error("failed to decode data: {0:?}")]
     DecodingFailed(std::io::Error),
+    /// The value could not be serialized.
     #[error("failed to serialize data: {0:?}")]
     SerializationFailed(String),
+    /// The bytes could not be deserialized into the expected type.
     #[error("failed to deserialize data: {0:?}")]
     DeserializationFailed(String),
+    /// The path was not usable, e.g. it had no filename.
     #[error("invalid path: {0:?}")]
     InvalidPath(PathBuf),
+    /// An underlying I/O error, with what was being done at the time.
     #[error("{context}: {source:?}")]
     Io {
+        /// The underlying I/O error.
         source: std::io::Error,
+        /// What was being read or written.
         context: String,
     },
+    /// A platform backend's own error.
     #[error("{0}")]
     Custom(String),
 }
 
 impl Error {
+    /// Wraps an I/O error with a description of what was being done.
     pub fn io(source: std::io::Error, context: impl Into<String>) -> Self {
         Self::Io {
             source,
@@ -56,6 +70,7 @@ impl Error {
         }
     }
 
+    /// Builds an error from a platform backend's own message.
     pub fn custom(error: impl Into<String>) -> Self {
         Self::Custom(error.into())
     }
@@ -98,6 +113,11 @@ pub(crate) fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     }
 }
 
+/// Deflate-compresses `data` into `writer`.
+///
+/// # Errors
+///
+/// If the writer fails.
 pub fn encode(mut writer: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
     let mut encoder = DeflateEncoder::new(&mut writer, Compression::default());
     encoder.write_all(data)?;
@@ -105,6 +125,11 @@ pub fn encode(mut writer: &mut impl Write, data: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Deflate-decompresses `data`.
+///
+/// # Errors
+///
+/// If the reader fails or the stream is not valid deflate.
 pub fn decode(data: impl Read) -> std::io::Result<Vec<u8>> {
     let mut decoded = vec![];
     let mut decoder = DeflateDecoder::new(data);
@@ -112,6 +137,11 @@ pub fn decode(data: impl Read) -> std::io::Result<Vec<u8>> {
     Ok(decoded)
 }
 
+/// Serializes, compresses and writes `value` to `path`, behind the current save header.
+///
+/// # Errors
+///
+/// If the value cannot be serialized or the file cannot be written.
 pub fn save<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
 where
     T: Serialize,
@@ -140,6 +170,11 @@ where
     Ok(())
 }
 
+/// Writes bytes to `path` with no header, compression or serialization.
+///
+/// # Errors
+///
+/// If the file cannot be written.
 pub fn save_raw(path: impl AsRef<Path>, value: &[u8]) -> Result<()> {
     let mut writer = fs::writer_impl(path)?;
     writer
@@ -151,6 +186,11 @@ pub fn save_raw(path: impl AsRef<Path>, value: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Reads, decompresses and deserializes a value from `path`.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
 pub fn load<T>(path: impl AsRef<Path>) -> Result<T>
 where
     T: DeserializeOwned,
@@ -164,6 +204,11 @@ where
     Ok(res)
 }
 
+/// Reads, decompresses and deserializes a value from bytes already in memory.
+///
+/// # Errors
+///
+/// If the header does not match or the bytes do not hold a `T`.
 pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>
 where
     T: DeserializeOwned,
@@ -189,6 +234,11 @@ where
     Ok(res)
 }
 
+/// Reads bytes from `path` with no header, decompression or deserialization.
+///
+/// # Errors
+///
+/// If the file cannot be read.
 pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let mut reader = fs::reader_impl(path)?;
     let mut data = vec![];
@@ -198,14 +248,21 @@ pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+/// Removes a directory and everything in it.
+///
+/// # Errors
+///
+/// If the directory cannot be removed.
 pub fn clear_dir(path: impl AsRef<Path>) -> Result<()> {
     fs::clear_dir_impl(path)
 }
 
+/// Whether `path` exists, on platforms that have a filesystem.
 pub fn exists(path: &Path) -> bool {
     fs::exists_impl(path)
 }
 
+/// The final component of `path`, or an empty string.
 pub fn filename(path: &Path) -> &str {
     path.file_name()
         .and_then(std::ffi::OsStr::to_str)
@@ -215,10 +272,12 @@ pub fn filename(path: &Path) -> &str {
         })
 }
 
+/// CRC32 of `data`, which is how ROMs are matched against the game database.
 pub fn compute_crc32(data: &[u8]) -> u32 {
     compute_combine_crc32(0, data)
 }
 
+/// Extends an existing CRC32 with more data, for hashing PRG and CHR as one.
 pub fn compute_combine_crc32(crc32: u32, data: &[u8]) -> u32 {
     const BUFFER_SIZE: usize = 0x2000;
     data.chunks(BUFFER_SIZE).fold(crc32, compute_crc32_buffer)
