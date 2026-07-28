@@ -2,8 +2,8 @@ phases:
 - post 3e - delete Banks and old Map read methods, transitional self.mapped
   branch, fold mem.rs into memory.rs
 - phase 4 - mapper ops and trait diet -- DONE
-  - MapperOps (3e8062a), Map trait diet (da150b1), boards! table (f40c729),
-    stable serialization ids (1910ed8). Net -2.2% on the corpus, which paid
+  - MapperOps (4e40744), Map trait diet (c946cdd), boards! table (ec601ff),
+    stable serialization ids (746165b). Net -2.2% on the corpus, which paid
     back the MapperOps regression.
 - phase 5 - save-state split -- DONE. Memory serializes only data[ram_start..];
   Cpu::load reattaches ROM from the running console and rejects a state from
@@ -114,7 +114,7 @@ phases 4/5 breaks. They pin a git rev so cargo warns them about nothing.
 
 - review debugger_active vs Option<PpuDebugger>?
 
-trait diet -- DONE (495be90 + follow-up). Deleted all nine convention-only
+trait diet -- DONE (5a403f8 + follow-up). Deleted all nine convention-only
 traits: Clock, Reset, Regional, Sample, Sram, TimerCycle, Consume,
 InputRegisters, PpuAddr. There was exactly one generic bound over any of them
 in the whole workspace. Everything is inherent methods now; ResetKind and
@@ -125,7 +125,7 @@ NesRegion stay in common.rs. Measured neutral (2.921 vs 2.927).
     commit, so never A/B across the two.
 
 why extra_sram is not being folded into Memory:
-- Map::extra_sram/set_extra_sram no longer exist; 39df6b2 replaced them with
+- Map::extra_sram/set_extra_sram no longer exist; 8aa6f4b replaced them with
   save_sram/load_sram(&Memory, path) when BandaiFCG went to page tables. So
   the trait method this item was about is already gone.
 - Folding the remaining case (Namco163's 128-byte sound RAM) into Src::ExRam
@@ -142,11 +142,11 @@ why extra_sram is not being folded into Memory:
   save_sram/load_sram need to go for another reason.
 
 follow-ups found during phase 4:
-- Regional for Mapper was dead -- FIXED in 525f11c. Ppu::set_region now
+- Regional for Mapper was dead -- FIXED in de06bc3. Ppu::set_region now
   forwards, Ppu::load_mapper applies the region to a newly installed mapper,
   and Exrom::set_region updates self.region (the half-frame pulse timer) as
   well as self.dmc. Regression test: setting_the_region_reaches_the_mapper.
-- Box SunsoftFme7? -- DONE in 525f11c, -2.2% geomean. FME7 ROMs live in
+- Box SunsoftFme7? -- DONE in de06bc3, -2.2% geomean. FME7 ROMs live in
   $HOME/Games/NES (2722 ROMs; ~/dev/roms is the small set and has no 069).
   Use the big library when a board needs coverage.
 
@@ -542,11 +542,59 @@ PHASE 8 - deferred API work                                (8b/8c DONE, 8a/8d op
     removes a third of the API surface in one edit and nothing outside the
     crate names them.
 
-8d. Changelog migration section covering every break on this branch.
-    STILL OPEN. Note that NONE of the 62 commits is marked `!` or carries a
-    BREAKING CHANGE footer, and cliff.toml only renders [**breaking**] from
-    commit.breaking - so the generated 0.15.0 entry will list every one of them
-    as an ordinary feat/refactor with no signal at all. Hand-write it.
+8d. Breaking changes marked in the commits, not in a hand-written section
+    -- DONE, and done by rewording history rather than by prose, per Luke.
+
+    The premise held: NONE of the 63 commits was marked `!` or carried a
+    BREAKING CHANGE footer, so the generated 0.15.0 entry would have listed
+    every break as an ordinary feat/refactor.
+
+    WHICH commits break was decided MECHANICALLY, not from memory. Enumerating
+    every `pub` item in tetanes-core at main and at HEAD and diffing gives the
+    NET removals - which is the right question, since two commits on the branch
+    (bd60ebc, fb05c4d) change `fs::load_bytes`'s signature and then change it
+    back, and marking either would be a lie. 11 commits, plus the video::Frame
+    one already marked when it landed:
+      f8910db MMC3 page tables       - Mmc3::set_chr_banks
+      87c8753 MMC5 page tables       - six Exrom helpers, Cart::chr_size
+      05e98d2 delete old memory path - Banks, BankAccess, CIRam, mem module,
+                                       Cart::prg_rom/chr_rom, Ppu::ciram
+      5a2a83e MapperOps              - three Map methods -> Map::mapper_ops
+      c946cdd Map trait diet         - supertraits dropped
+      746165b stable board ids       - Fk23C unboxed, Unimplemented is an error
+      de06bc3 box SunsoftFme7        - variant boxed, ids renumbered
+      5a403f8 four traits deleted
+      7c677a7 five traits deleted
+      42089d6 ROM out of save states - Cpu::load/load_cpu now fallible
+      0159c7b clocking API           - MSRV 1.88, renames, sized frame buffers
+    Note `f40c729`'s 22 `pub mod` "removals" are NOT a break: the boards! macro
+    regenerates every one of them.
+
+    Rewritten with three `git filter-branch --msg-filter` passes (the branch has
+    no upstream, so nothing needed force-pushing). Every pass verified with
+    `git diff backup-before-8d HEAD` = empty, i.e. the trees never moved.
+
+    TWO THINGS THAT BIT, both worth knowing before doing this again:
+      - Rewriting hashes STRANDS the hashes quoted inside other commit bodies.
+        Four commits referenced earlier ones by short hash and would have
+        pointed at objects no longer reachable. Fixed with a second pass using
+        filter-branch's own `map` shell function, which resolves old -> new
+        *during* the rewrite; a naive two-step map is wrong, because pass 2
+        changes the hashes again. The same applies to this notes file, whose
+        seven references were remapped by position (verified tree-identical).
+      - git-conventional TRUNCATES a BREAKING CHANGE footer at any continuation
+        line that begins with a backticked `::` path - `Map::sync` at the start
+        of a line reads as a new footer token. Seven of the eleven footers were
+        silently cut mid-sentence, which the rendered changelog showed but
+        `git log` did not. Fixed by reflowing every footer onto ONE line, which
+        is immune to it regardless of content.
+
+    cliff.toml now renders the footer text too, as a lazy markdown continuation
+    of the commit's bullet - `trim = true` strips leading whitespace, so a
+    nested list item is not available, and the template's own indentation
+    depends on that trim. So the changelog says what to change, not just that
+    something changed. Verified with git-cliff 2.13.1: 12 commits carry
+    [**breaking**] and all 12 descriptions now parse in full.
 
 
 ================================================================================
