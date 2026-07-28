@@ -448,25 +448,36 @@ audio path trustworthy; 7f is where the mapper rework actually carries risk.
 PHASE 8 - deferred API work                                (8b/8c DONE, 8a/8d open)
 ================================================================================
 
-8a. Make video::Frame hold Box<[u8; Frame::SIZE]> instead of Vec<u8>, and drop
-    Deref/DerefMut<Target = Vec<u8>>. Today the Deref leaks push/clear/truncate,
-    any of which breaks the SIZE invariant that as_array/as_array_mut assert -
-    those two expects go away entirely once the type cannot be resized.
-    STILL OPEN. Measured, so it is smaller than it looks: the producer already
-    goes through as_array_mut (emulation.rs), so only TWO Deref consumers are
-    left - renderer.rs's overscan slice, and control_deck.rs's `&frame[..]`
-    inside a deprecated shim.
-    TWO TRAPS, both found by reading rather than by compiling:
-      - Frame::SIZE is 245,760 bytes. `Box::new([0u8; SIZE])` materialises that
-        240 KiB on the stack before the move, which overflows a debug build.
-        Construct through a Vec and into_boxed_slice().try_into().
-      - Frame::new initialises alpha to 255, not zeros. `[0u8; SIZE]` ships
-        transparent frames and nothing in the tests would catch it.
-    OPEN CHOICE: dropping Deref entirely costs the two callers an as_array(),
-    where RETARGETING it to Deref<Target = [u8; SIZE]> keeps slicing and .len()
-    working and still removes push/clear/truncate, which is the whole point.
-    Recommend retargeting. Also decide there whether two public types named
-    `Frame` (video::Frame, ppu::frame::Frame) is worth keeping.
+8a. video::Frame holds Box<[u8; Frame::SIZE]> -- DONE.
+    Deref/DerefMut<Target = Vec<u8>> are gone, and with them push/clear/
+    truncate; the size is now part of the type, so as_array/as_array_mut are
+    plain borrows instead of a try_into().expect() on every call. Replaced by
+    len(), as_slice/as_mut_slice, AsRef/AsMut<[u8]> and a generic
+    Index/IndexMut<I: SliceIndex<[u8]>> - slicing is what the renderer's
+    overscan trim needs and it cannot resize anything, which is the whole point.
+    One expect() remains, in the constructor, on a Vec allocated at exactly
+    SIZE two lines above it.
+    Only ONE call site changed: renderer.rs's `&frame_buffer` no longer
+    multi-step-coerces (Ref -> Frame -> Vec -> slice) and is now .as_slice().
+    The overscan slice and control_deck's `&frame[..]` still work through Index.
+
+    BOTH TRAPS WERE REAL:
+      - `Box::new([0u8; SIZE])` would put 240 KiB on the stack. Built through
+        `vec![0; SIZE].into_boxed_slice()` instead.
+      - Frame::new's alpha = 255 is load-bearing, and this was CONFIRMED by
+        reading the filters rather than assumed: decode_buffer and
+        apply_ntsc_filter both write pixels[0..=2] and never index 3, so alpha
+        is written exactly once, at construction. A zeroed array would have
+        rendered every frame fully transparent with every frame-hash test still
+        green, since the hashes cover the same RGB bytes the filters write.
+    Now asserted by video::tests::a_new_frame_is_opaque_black, plus
+    a_frame_can_be_sliced_but_not_resized for the Index path.
+    Verified end-to-end, not just by the type checker: rendering spritecans.nes
+    to a PNG through the screenshot utility gives byte-identical output before
+    and after, alpha 255 throughout.
+    NOT DONE: the two public types named `Frame` (video::Frame,
+    ppu::frame::Frame) are still both called Frame. Left alone - renaming
+    either is churn on an already large branch, and 8d has to describe it.
 
 8b. #![warn(missing_docs)] on tetanes-core -- DONE.
     The draft guessed ~400 items. Measured by turning the lint on: 1,118.

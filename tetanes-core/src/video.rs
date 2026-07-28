@@ -4,7 +4,8 @@ use crate::ppu::{self, Ppu};
 use serde::{Deserialize, Serialize};
 use std::{
     f64::consts::PI,
-    ops::{Deref, DerefMut},
+    ops::{Index, IndexMut},
+    slice::SliceIndex,
     sync::OnceLock,
 };
 use thiserror::Error;
@@ -54,53 +55,81 @@ impl TryFrom<usize> for VideoFilter {
     }
 }
 
-/// One frame of RGBA output, always [`Frame::SIZE`] bytes.
+/// One frame of RGBA output.
+///
+/// The size is part of the type: a `Frame` is always exactly [`Frame::SIZE`] bytes and there is no
+/// way to resize one, so [`Frame::as_array`] hands out a fixed-size array without a fallible
+/// conversion at every call.
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct Frame(Vec<u8>);
+pub struct Frame(Box<[u8; Frame::SIZE]>);
 
 impl Frame {
     /// Size of a frame in bytes: one RGBA pixel per [`ppu::size::FRAME`] pixel.
     pub const SIZE: usize = ppu::size::FRAME * 4;
 
-    /// Allocate a new frame for video output.
+    /// Allocate a new frame for video output, opaque black.
+    ///
+    /// # Panics
+    ///
+    /// Never: the `Vec` is allocated at exactly [`Frame::SIZE`] two lines above the conversion. It
+    /// is built as a `Vec` rather than with `Box::new([0; SIZE])` because the latter materialises
+    /// all 240 KiB as a stack temporary before moving it to the heap, which overflows the stack in
+    /// an unoptimized build.
     pub fn new() -> Self {
+        let mut pixels = vec![0; Self::SIZE];
+        // Load-bearing: the filters write only the RGB bytes of each pixel, so alpha is set once
+        // here and never again. Leaving it zeroed renders every frame fully transparent.
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = u8::MAX;
+        }
         Self(
-            [(); Self::SIZE / 4]
-                .into_iter()
-                .flat_map(|_| [0, 0, 0, 255])
-                .collect(),
+            pixels
+                .into_boxed_slice()
+                .try_into()
+                .expect("`Frame::SIZE` bytes were just allocated"),
         )
     }
 
-    /// Borrows the frame's pixels as a fixed-size array.
-    ///
-    /// # Panics
-    ///
-    /// If the frame is not [`Frame::SIZE`] bytes. [`Frame::new`] always allocates exactly that and
-    /// nothing in this crate resizes it, so this cannot fire unless a caller has resized the frame
-    /// through the [`Deref`]/[`DerefMut`] to [`Vec`] - which this accessor exists to replace.
+    /// The frame's length in bytes, which is always [`Frame::SIZE`].
+    // A frame is a fixed size and never empty, so there is nothing for `is_empty` to report.
+    #[allow(clippy::len_without_is_empty)]
     #[inline]
     #[must_use]
+    pub const fn len(&self) -> usize {
+        Self::SIZE
+    }
+
+    /// Borrows the frame's pixels.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
+    pub fn as_slice(&self) -> &[u8] {
+        &*self.0
+    }
+
+    /// Mutably borrows the frame's pixels.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut *self.0
+    }
+
+    /// Borrows the frame's pixels as a fixed-size array.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn as_array(&self) -> &[u8; Self::SIZE] {
-        self.0
-            .as_slice()
-            .try_into()
-            .expect("`Frame` is always `Frame::SIZE` bytes")
+        &self.0
     }
 
     /// Mutably borrows the frame's pixels as a fixed-size array.
-    ///
-    /// # Panics
-    ///
-    /// See [`Frame::as_array`].
     #[inline]
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
     pub fn as_array_mut(&mut self) -> &mut [u8; Self::SIZE] {
-        self.0
-            .as_mut_slice()
-            .try_into()
-            .expect("`Frame` is always `Frame::SIZE` bytes")
+        &mut self.0
     }
 }
 
@@ -110,16 +139,31 @@ impl Default for Frame {
     }
 }
 
-impl Deref for Frame {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl AsRef<[u8]> for Frame {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
     }
 }
 
-impl DerefMut for Frame {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl AsMut<[u8]> for Frame {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
+    }
+}
+
+// Indexing, but not `Deref<Target = Vec<u8>>`: slicing a frame is useful - the renderer trims
+// overscan with it - while `push`/`clear`/`truncate` would break the size the type promises.
+impl<I: SliceIndex<[u8]>> Index<I> for Frame {
+    type Output = I::Output;
+
+    fn index(&self, index: I) -> &Self::Output {
+        Index::index(self.as_slice(), index)
+    }
+}
+
+impl<I: SliceIndex<[u8]>> IndexMut<I> for Frame {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        IndexMut::index_mut(self.as_mut_slice(), index)
     }
 }
 
@@ -346,6 +390,38 @@ fn generate_ntsc_palette() -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A frame is opaque black at power-on, and the filters only ever write the RGB bytes - so an
+    /// alpha this constructor failed to set would never be set at all, and every frame would
+    /// render fully transparent.
+    #[test]
+    fn a_new_frame_is_opaque_black() {
+        let frame = Frame::new();
+        assert_eq!(frame.len(), Frame::SIZE);
+        assert_eq!(frame.as_array().len(), Frame::SIZE);
+
+        for (i, pixel) in frame.as_slice().chunks_exact(4).enumerate() {
+            assert_eq!(pixel, [0, 0, 0, u8::MAX], "pixel {i}");
+        }
+    }
+
+    /// The overscan trim the renderer does, which is the one thing `Index` exists for now that
+    /// `Deref<Target = Vec<u8>>` is gone.
+    #[test]
+    fn a_frame_can_be_sliced_but_not_resized() {
+        let mut frame = Frame::new();
+        let trim = 4 * usize::from(ppu::size::WIDTH) * 8;
+
+        assert_eq!(
+            frame[trim..frame.len() - trim].len(),
+            Frame::SIZE - 2 * trim
+        );
+        assert_eq!(frame[..].len(), Frame::SIZE);
+
+        frame[0] = 0x12;
+        assert_eq!(frame.as_slice()[0], 0x12);
+        assert_eq!(frame.len(), Frame::SIZE, "still the same size");
+    }
 
     /// Reference form of `apply_ntsc_filter`'s color lookup, computing `phase` directly from
     /// `(2 + y * 341 + x + even_phase) % 3` each pixel rather than the rolling counter. Guards

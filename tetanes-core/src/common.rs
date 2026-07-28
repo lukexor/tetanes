@@ -250,6 +250,10 @@ pub(crate) mod tests {
     static PASS_DIR: OnceLock<PathBuf> = OnceLock::new();
     static FAIL_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+    /// Declares one `#[test]` per named ROM in a `test_roms/` directory.
+    ///
+    /// Expectations come from that directory's `tests.json`; see the module docs on
+    /// [`tests`](self) for what a ROM test asserts and how to add one.
     #[macro_export]
     macro_rules! test_roms {
         ($mod:ident, $directory:expr, $( $(#[ignore = $reason:expr])? $test:ident ),* $(,)?) => {

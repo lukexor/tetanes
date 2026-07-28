@@ -1128,7 +1128,7 @@ impl Renderer {
                         if cfg.renderer.hide_overscan && is_ntsc {
                             &frame_buffer[OVERSCAN_TRIM..frame_buffer.len() - OVERSCAN_TRIM]
                         } else {
-                            &frame_buffer
+                            frame_buffer.as_slice()
                         },
                     );
                 }
