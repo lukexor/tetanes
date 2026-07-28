@@ -514,5 +514,77 @@
         "hash": 2970567939215216479
       }
     ]
+  },
+  {
+    "name": "dmc",
+    "frames": [
+      {
+        "number": 1100,
+        "status": 0
+      }
+    ]
+  },
+  {
+    "name": "noise",
+    "frames": [
+      {
+        "number": 1600,
+        "status": 0
+      }
+    ]
+  },
+  {
+    "name": "square",
+    "frames": [
+      {
+        "number": 1400,
+        "status": 0
+      }
+    ]
+  },
+  {
+    "name": "triangle",
+    "frames": [
+      {
+        "number": 900,
+        "status": 0
+      }
+    ]
+  },
+  {
+    "name": "dmc_buffer_retained",
+    "frames": [
+      {
+        "number": 600,
+        "tones": 1
+      }
+    ]
+  },
+  {
+    "name": "dmc_latency",
+    "frames": [
+      {
+        "number": 600,
+        "tones": 1
+      }
+    ]
+  },
+  {
+    "name": "dmc_status",
+    "frames": [
+      {
+        "number": 600,
+        "tones": 1
+      }
+    ]
+  },
+  {
+    "name": "dmc_status_irq",
+    "frames": [
+      {
+        "number": 600,
+        "tones": 1
+      }
+    ]
   }
 ]

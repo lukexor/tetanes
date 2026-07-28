@@ -215,7 +215,8 @@ pub(crate) mod tests {
         common::ResetKind,
         control_deck::{Config, ControlDeck},
         input::Player,
-        memory::RamState,
+        // Aliased: `std::io::Read` is imported below for reading ROMs off disk.
+        memory::{RamState, Read as _},
         ppu::size,
         video::VideoFilter,
     };
@@ -269,7 +270,16 @@ pub(crate) mod tests {
         hash: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         action: Option<Action>,
-        #[serde(skip_serializing)]
+        /// Expected [blargg status code](blargg_status) at `$6000`.
+        ///
+        /// `number` is an upper bound rather than a target for these: the ROM announces when it is
+        /// done, so the harness stops as soon as it does.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status: Option<u8>,
+        /// Expected number of [report tones](ToneCounter) played by `number`. `1` means passed.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tones: Option<u32>,
+        #[serde(skip_serializing_if = "is_false")]
         audio: bool,
     }
 
@@ -277,9 +287,79 @@ pub(crate) mod tests {
     #[must_use]
     struct RomTest {
         name: String,
-        #[serde(skip_serializing, default)]
+        #[serde(default, skip_serializing_if = "is_false")]
         audio: bool,
         frames: Vec<TestFrame>,
+    }
+
+    /// Keeps `audio: false` - by far the common case - out of the written-back `tests.json`.
+    ///
+    /// This has to be `skip_serializing_if` and not `skip_serializing`: the latter drops the field
+    /// even when it is `true`, so `UPDATE_SNAPSHOT=1` would silently rewrite every audio test into
+    /// a frame-buffer test.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde attribute signature"
+    )]
+    fn is_false(audio: &bool) -> bool {
+        !*audio
+    }
+
+    /// The `$DE $B0 $61` marker a blargg test writes to `$6001..=$6003` to say the region is valid.
+    const BLARGG_MARKER: [u8; 3] = [0xDE, 0xB0, 0x61];
+    /// `$6000` while the test is still running.
+    const BLARGG_RUNNING: u8 = 0x80;
+    /// `$6000` when the test wants the reset button pressed, delayed by at least 100ms.
+    const BLARGG_NEEDS_RESET: u8 = 0x81;
+
+    /// Reads a blargg test's result code from `$6000`, or [`None`] until it publishes
+    /// [`BLARGG_MARKER`].
+    ///
+    /// `$00..=$7F` is a finished run and `0` means passed; see [`BLARGG_RUNNING`] and
+    /// [`BLARGG_NEEDS_RESET`] for the two in-progress codes. The marker matters because PRG-RAM
+    /// powers on as zeros, which would otherwise read as "finished, passed" before the ROM has run
+    /// a single instruction.
+    ///
+    /// Read through [`Bus::peek`](crate::bus::Bus::peek) rather than off `Src::PrgRam` directly so
+    /// it honours whatever the board actually has mapped at `$6000`, and note that
+    /// [`ControlDeck::wram`] is `$0000..=$07FF` and does not reach it.
+    fn blargg_status(deck: &ControlDeck) -> Option<u8> {
+        let bus = &deck.cpu().bus;
+        let marker = [bus.peek(0x6001), bus.peek(0x6002), bus.peek(0x6003)];
+        (marker == BLARGG_MARKER).then(|| bus.peek(0x6000))
+    }
+
+    /// Reads the NUL-terminated human-readable result a blargg test writes at `$6004`.
+    fn blargg_text(deck: &ControlDeck) -> String {
+        let bus = &deck.cpu().bus;
+        (0x6004..0x8000)
+            .map(|addr| bus.peek(addr))
+            .take_while(|&byte| byte != 0)
+            .map(char::from)
+            .collect()
+    }
+
+    /// Counts the result tones a blargg test plays on pulse 1.
+    ///
+    /// Tests with no PPU output - the `dmc_tests` set renders nothing and ends in a `jmp *` -
+    /// report only audibly: the result code in binary, one tone per bit, high for 1 and low for 0,
+    /// leading zeroes skipped, and always a leading zero tone. So a pass (code 0) is exactly one
+    /// tone and any failure is two or more, which means counting bursts is enough to tell them
+    /// apart without knowing which pitch is which.
+    #[derive(Default, Debug)]
+    struct ToneCounter {
+        count: u32,
+        playing: bool,
+    }
+
+    impl ToneCounter {
+        /// Samples pulse 1 once per frame. A report tone runs its length counter down from 253,
+        /// i.e. roughly two seconds, so per-frame resolution is far finer than it needs to be.
+        fn observe(&mut self, deck: &ControlDeck) {
+            let playing = deck.cpu().bus.apu.pulse1.length.counter > 0;
+            self.count += u32::from(playing && !self.playing);
+            self.playing = playing;
+        }
     }
 
     fn get_rom_tests(directory: &str) -> anyhow::Result<(PathBuf, Vec<RomTest>)> {
@@ -330,6 +410,46 @@ pub(crate) mod tests {
                 | Action::ZapperAimOffscreen
                 | Action::FourPlayer(_) => (),
             }
+        }
+    }
+
+    /// Asserts the [blargg status code](blargg_status) and [tone count](ToneCounter) a frame
+    /// expects, if it expects either.
+    ///
+    /// Unlike a hash these are hand-written and mechanically meaningful, so they are never
+    /// rewritten by `UPDATE_SNAPSHOT=1` - a wrong result here is a bug to fix, not a snapshot to
+    /// bless.
+    fn on_report(test: &str, test_frame: &TestFrame, deck: &ControlDeck, tones: &ToneCounter) {
+        if let Some(expected) = test_frame.status {
+            let frames = test_frame.number;
+            match blargg_status(deck) {
+                None => panic!(
+                    "{test}: no $DE $B0 $61 marker at $6001-$6003 within {frames} frames - this \
+                     ROM does not use the $6000 status protocol"
+                ),
+                Some(BLARGG_RUNNING) => panic!(
+                    "{test}: still running after {frames} frames. Text so far: {:?}",
+                    blargg_text(deck)
+                ),
+                Some(BLARGG_NEEDS_RESET) => panic!(
+                    "{test}: asked for a delayed reset after {frames} frames. The harness does not \
+                     press reset on its own - add an `Action::Reset` frame to tests.json"
+                ),
+                Some(actual) => assert!(
+                    actual == expected,
+                    "{test}: status $6000 = {actual} (expected {expected}). Text: {:?}",
+                    blargg_text(deck)
+                ),
+            }
+        }
+        if let Some(expected) = test_frame.tones {
+            assert!(
+                tones.count == expected,
+                "{test}: played {} report tone(s) by frame {} (expected {expected}). One tone is \
+                 result code 0, i.e. passed; more than one encodes the failing code in binary",
+                tones.count,
+                test_frame.number,
+            );
         }
     }
 
@@ -453,17 +573,29 @@ pub(crate) mod tests {
         deck.set_clear_audio_on_clock(!test.audio);
 
         let mut results = Vec::new();
+        let mut tones = ToneCounter::default();
         assert!(!test.frames.is_empty(), "No test frames found for {rom:?}");
         for test_frame in test.frames.iter() {
             debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
 
             while deck.frame_number() < test_frame.number {
                 deck.clock_frame().expect("valid frame clock");
+                tones.observe(&deck);
                 deck.joypad_mut(Player::One).reset(ResetKind::Soft);
                 deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
+
+                // A `status` frame's `number` is a budget, not a target - the ROM says when it is
+                // finished, so stop there instead of clocking out the rest. Only for `status`
+                // frames: a hash frame has to land on exactly the frame it was snapshotted at.
+                if test_frame.status.is_some()
+                    && blargg_status(&deck).is_some_and(|code| code < BLARGG_RUNNING)
+                {
+                    break;
+                }
             }
 
             on_frame_action(test_frame, &mut deck);
+            on_report(&test.name, test_frame, &deck, &tones);
             if let Ok(Some(result)) = on_snapshot(&test.name, test_frame, &mut deck, results.len())
             {
                 results.push(result);
@@ -1020,15 +1152,14 @@ pub(crate) mod tests {
         pal_len_reload_timing,
         #[ignore = "todo: passes, compare output"]
         apu_env,
-        #[ignore = "todo: passes, check status"]
+        // The `dmc_tests` set (buffer_retained/latency/status/status_irq) renders nothing, leaves
+        // nothing at $6000 and nothing in RAM - it ends in a `jmp *` with the result encoded in
+        // the tones it played, so these assert a tone count rather than a hash.
         dmc_buffer_retained,
-        #[ignore = "todo: passes, compare output"]
         dmc_latency,
         #[ignore = "todo: passes, compare output"]
         dmc_pitch,
-        #[ignore = "todo: passes, check status"]
         dmc_status,
-        #[ignore = "todo: passes, check status"]
         dmc_status_irq,
         #[ignore = "todo: passes, compare output"]
         lin_ctr,
@@ -1096,13 +1227,9 @@ pub(crate) mod tests {
         //  low high low   010      2      error 2
         //
         // See <https://github.com/christopherpow/nes-test-roms/tree/master/apu_mixer>
-        #[ignore = "todo: passes, compare $6000 output"]
         dmc,
-        #[ignore = "todo: passes, compare $6000 output"]
         noise,
-        #[ignore = "todo: passes, compare $6000 output"]
         square,
-        #[ignore = "todo: passes, compare $6000 output"]
         triangle,
     );
     test_roms!(

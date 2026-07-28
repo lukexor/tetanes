@@ -188,31 +188,60 @@ difficulty. The 20 non-PPU ones have no tests.json entry at all, so there is
 nothing to compare against; only ppu::vbl_nmi_even_odd_timing has an
 expectation and genuinely fails.
 
-7a. BLOCKER, fix first: `audio` is unassertable-by-accident.
-    TestFrame.audio and RomTest.audio are both #[serde(skip_serializing)]. They
+  After 7b: 145 active / 13 ignored (apu 54/10, everything else unchanged).
+
+7a. BLOCKER, fix first: `audio` is unassertable-by-accident. -- DONE (with 7b)
+    TestFrame.audio and RomTest.audio were both #[serde(skip_serializing)]. They
     deserialize fine, so a hand-written audio test works - but UPDATE_SNAPSHOT=1
-    rewrites tests.json WITHOUT them, silently converting every audio test into
-    a frame-buffer test. Any audio work below is built on sand until this is
-    fixed. Also: zero tests currently set audio:true, so the whole audio-hash
-    path in the harness has never actually run. Fix the serde, then land one
-    known-good audio test to prove the path end to end.
+    rewrote tests.json WITHOUT them, silently converting every audio test into
+    a frame-buffer test. Now skip_serializing_if = "is_false", so `true`
+    survives a rewrite and `false` still stays out of the file. Verified by
+    forcing a hash mismatch on an audio:true entry and confirming both the
+    RomTest and TestFrame flags came back. Landing a real audio test to prove
+    the hash path end to end is still open - it belongs to 7c.
 
-7b. Cheapest real win: the $6000 status protocol.  [7 tests]
-    apu::{dmc,noise,square,triangle} ("compare $6000 output") and
-    apu::{dmc_buffer_retained,dmc_status,dmc_status_irq} ("check status") are
-    blargg ROMs that write $DE $B0 $G1 to $6001-$6003 and a result code to
-    $6000: $80 = running, $81 = needs reset, $00-$7F = done, 0 = pass.
-    That is a mechanical assertion, no snapshot and no hash needed. Add a
-    TestFrame variant that asserts the $6000 code instead of hashing, and read
-    it via Src::PrgRam rather than ControlDeck::wram (which is $0000-$07FF only
-    and does NOT cover $6000). Converts 7 ignores into real pass/fail, and gives
-    far better failure messages than a hash mismatch.
+7b. Cheapest real win: mechanical result assertions.  -- DONE, [8 tests]
+    Two mechanisms, because the notes' premise was wrong about half of them:
 
-7c. Audio-waveform tests.  [11 tests]
-    apu::{apu_env,dmc_latency,dmc_pitch,lin_ctr,noise_pitch,square_pitch,
-    sweep_cutoff,sweep_sub,triangle_pitch} plus the two "unknown" ones,
-    phase_reset and volumes. These have no textual output - the result IS the
-    waveform. Needs 7a, then audio:true entries + UPDATE_SNAPSHOT.
+    - $6000 status protocol (4): apu::{dmc,noise,square,triangle}, the apu_mixer
+      set. They write $DE $B0 $61 to $6001-$6003 and a code to $6000 ($80
+      running, $81 needs reset, $00-$7F done, 0 = pass), plus NUL-terminated
+      text at $6004 which now goes into the failure message. New
+      TestFrame.status; `number` is a BUDGET not a target - the loop stops as
+      soon as the ROM reports, so a pass costs ~1-2s instead of the full cap.
+      Read via Bus::peek (honours whatever the board maps at $6000) rather than
+      Src::PrgRam directly; ControlDeck::wram is $0000-$07FF and never reaches
+      it. The marker check is load-bearing: PRG-RAM powers on as zeros, which
+      reads as "finished, code 0, passed" before the ROM runs an instruction.
+
+    - report tones (4): the whole dmc_tests set - dmc_buffer_retained,
+      dmc_latency, dmc_status, dmc_status_irq. These do NOT use $6000. Measured:
+      they never write PRG-RAM at all, render an all-zero blank screen with
+      rendering off, leave nothing in WRAM but stack remnants, and end in an
+      identical `STA $4015 / LDA #$09 / STA $4003 / JMP *` epilogue. They report
+      ONLY audibly. Per blargg's readme.txt: the code in binary, one tone per
+      bit, leading zeroes skipped, always a leading zero tone - so a pass (code
+      0) is exactly ONE tone and any failure is two or more. New
+      TestFrame.tones counts pulse-1 bursts, which tells pass from fail without
+      needing to know which pitch is which and without hashing a single sample.
+      dmc_latency was filed under 7c ("compare output"); it is one of these.
+
+    Neither expectation is ever rewritten by UPDATE_SNAPSHOT - they are
+    hand-written and mechanically meaningful, so a mismatch is a bug to fix.
+    All four failure paths were negative-tested (wrong code, still-running,
+    no marker, wrong tone count) and produce readable messages.
+    $81/needs-reset is deliberately NOT handled implicitly: it panics telling
+    you to add an Action::Reset frame, since tests.json can already express
+    that.
+
+7c. Audio-waveform tests.  [10 tests, was 11 - dmc_latency went to 7b]
+    apu::{apu_env,dmc_pitch,lin_ctr,noise_pitch,square_pitch,sweep_cutoff,
+    sweep_sub,triangle_pitch} plus the two "unknown" ones, phase_reset and
+    volumes. These have no textual output - the result IS the waveform.
+    7a is done, so this needs audio:true entries + UPDATE_SNAPSHOT.
+    NB the tone-count trick from 7b does NOT transfer: these ROMs are demos
+    whose audio is the test content, not a report, so their burst counts
+    (measured: 0,1 or 2 depending on ROM) mean nothing.
     RISK: an audio hash is far more brittle than a frame hash - it pins every
     sample, so any filter/mixer/sample-rate change churns all 11. Decide up
     front whether to hash raw samples or something coarser (e.g. per-channel
