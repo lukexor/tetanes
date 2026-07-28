@@ -68,3 +68,78 @@ impl Map for Gxrom {
         memory.set_mirroring(self.mirroring);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (4 32K banks), no PRG-RAM, 64K CHR-ROM (8 8K banks).
+    fn gxrom() -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 0, 64 * 1024);
+        let mapper = Gxrom::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// One byte holds both banks: PRG in bits 5-4, CHR in the low bits.
+    #[test]
+    fn one_write_sets_both_banks_from_opposite_ends_of_the_byte() {
+        let (mut mapper, mut cart) = gxrom();
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0, "bank 0 at power-on");
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80);
+
+        write(&mut mapper, &mut cart, 0x8000, 0x23);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 32, "PRG bank 2");
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 2 * 32 + 16, "one 32K bank");
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | (3 * 8), "CHR bank 3");
+    }
+
+    /// Bits 7-6 belong to neither register, and PRG is only the two bits above the CHR nibble.
+    #[test]
+    fn the_top_two_bits_are_not_part_of_either_bank() {
+        let (mut mapper, mut cart) = gxrom();
+        write(&mut mapper, &mut cart, 0x8000, 0xC0);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0, "PRG bank 0");
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80, "CHR bank 0");
+
+        // The CHR field is decoded as a whole nibble, where the board itself only wires up the two
+        // bits its 32K of CHR-ROM needs. The extra bits can only ever select a bank the cart does
+        // not have, which wraps within the region.
+        write(&mut mapper, &mut cart, 0x8000, 0x0F);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | (7 * 8), "wraps");
+    }
+
+    /// The board decodes only $8000-$FFFF; below that is the bus, not a register.
+    #[test]
+    fn writes_below_8000_are_ignored() {
+        let (mut mapper, mut cart) = gxrom();
+        write(&mut mapper, &mut cart, 0x8000, 0x23);
+        for addr in [0x4100, 0x6000, 0x7FFF] {
+            write(&mut mapper, &mut cart, addr, 0x00);
+            assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 32, "${addr:04X}");
+        }
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = gxrom();
+        write(&mut mapper, &mut cart, 0x8000, 0x23);
+
+        let sample = |mapper: &Mapper, cart: &Cart| {
+            [
+                prg_peek(mapper, cart, 0x8000),
+                prg_peek(mapper, cart, 0xC000),
+                chr_peek(mapper, cart, 0x0000),
+            ]
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}

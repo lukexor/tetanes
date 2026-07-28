@@ -1223,6 +1223,27 @@ impl Map for Exrom {
     }
 }
 
+impl std::fmt::Debug for Exrom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Exrom")
+            .field("regs", &self.regs)
+            .field("mirroring", &self.mirroring)
+            .field("ppu_status", &self.ppu_status)
+            .field("irq_state", &self.irq_state)
+            .field("tile_cache", &self.tile_cache)
+            .field("chr_set", &self.chr_set)
+            .field("last_chr_write", &self.last_chr_write)
+            .field("region", &self.region)
+            .field("pulse1", &self.pulse1)
+            .field("pulse2", &self.pulse2)
+            .field("dmc", &self.dmc)
+            .field("dmc_mode", &self.dmc_mode)
+            .field("cpu_cycle", &self.cpu_cycle)
+            .field("pulse_timer", &self.pulse_timer)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1639,26 +1660,5 @@ mod tests {
         assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | 6, "CHR");
         assert_eq!(prg_peek(&mapper, &cart, 0x5C00), 0x37, "ExRAM window");
         assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x64, "nametables");
-    }
-}
-
-impl std::fmt::Debug for Exrom {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Exrom")
-            .field("regs", &self.regs)
-            .field("mirroring", &self.mirroring)
-            .field("ppu_status", &self.ppu_status)
-            .field("irq_state", &self.irq_state)
-            .field("tile_cache", &self.tile_cache)
-            .field("chr_set", &self.chr_set)
-            .field("last_chr_write", &self.last_chr_write)
-            .field("region", &self.region)
-            .field("pulse1", &self.pulse1)
-            .field("pulse2", &self.pulse2)
-            .field("dmc", &self.dmc)
-            .field("dmc_mode", &self.dmc_mode)
-            .field("cpu_cycle", &self.cpu_cycle)
-            .field("pulse_timer", &self.pulse_timer)
-            .finish()
     }
 }

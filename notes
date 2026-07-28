@@ -101,9 +101,9 @@ phases:
     NO_OUTPUT=1 runs only.
 
 - phase 7 - ROM test debt -- DONE. ZERO ignored tests left in the crate, from
-  21 ignored ROM tests plus 9 never-counted bus::test stubs. Suite 217 -> 319.
-  Three latent VRC6 overflow panics fixed; 64 new mapper unit tests over 8
-  previously-uncovered boards. See below for what each item found.
+  21 ignored ROM tests plus 9 never-counted bus::test stubs. Suite 217 -> 396.
+  Three latent VRC6 overflow panics fixed; 141 new mapper unit tests covering
+  every board in the boards! table. See below for what each item found.
 - phase 8 - deferred API work (PLANNED, see below)
 
 TODO for Luke (not Claude): open an issue on tedsteen/nes-bundler about the
@@ -192,7 +192,7 @@ nothing to compare against; only ppu::vbl_nmi_even_odd_timing has an
 expectation and genuinely fails.
 
   After 7b: 145 active / 13 ignored (apu 54/10).
-  After 7f: +64 mapper unit tests (not ROM tests).
+  After 7f: +141 mapper unit tests (not ROM tests), 64 then 77.
   After 7c: 153 active / 5 ignored - apu 62/2 (phase_reset, volumes),
             ppu 41/1 (vbl_nmi_even_odd_timing), input 2/2 (zapper).
 
@@ -333,7 +333,8 @@ expectation and genuinely fails.
     region is brighter than both - so this tests light-vs-dark, not the
     threshold itself.
 
-7f. Missing coverage -- 7 of the 8 high-risk boards DONE, [64 tests]
+7f. Missing coverage -- DONE, every board in the table now has a group
+    [64 tests for the 8 high-risk boards, then 77 more for the last 13]
     22 boards in the boards! table; exactly 2 had a test group (m004, m005),
     and the mapper rework touched all of them.
 
@@ -372,11 +373,63 @@ expectation and genuinely fails.
     The other 45 tests passed against the reworked code unchanged, so those
     seven boards' page-table wiring is sound.
 
-    STILL UNCOVERED (13 boards, all trivially banked - no IRQ, no audio, and a
-    single bank register each): Nrom, Uxrom, Cnrom, Axrom, Pxrom/MMC2,
-    Fxrom/MMC4, ColorDreams, Bnrom, Nina001, Gxrom, Bf909x, Nina003006,
-    NesEvent. Pxrom/Fxrom are the only ones with any subtlety (the $FD/$FE
-    CHR latch) and are worth doing next if this continues.
+    THE REMAINING 13, done second [77 tests]: Nrom (5), Uxrom (6), Cnrom (6),
+    Axrom (5), Pxrom/MMC2 (7), Fxrom/MMC4 (7), ColorDreams (5), Bnrom (5),
+    Nina001 (6), Gxrom (4), Bf909x (7), Nina003006 (4), NesEvent (10). NO BUGS
+    FOUND - all 77 passed against the reworked code unchanged, which is the
+    result to expect for boards this simple and is why they were done last.
+
+    What was worth writing anyway, i.e. what is not just "bank n lands at
+    $8000":
+      - MMC2 vs MMC4 latches. The one documented difference between the two
+        boards is that MMC2's LOW half triggers on exactly $0FD8/$0FE8 while
+        MMC4 takes the whole $0FD8-$0FDF/$0FE8-$0FEF run; both take the run in
+        the high half. Each board's test asserts its own decode AND that the
+        other's addresses do nothing to it. A frame hash cannot see this - it
+        only shows on the tile either side of the trigger.
+      - NesEvent. The lock is a three-state machine that opens on a falling
+        then rising timer-control bit and never shuts again, and `load` and
+        `reset` leave it in DIFFERENT states (load -> one write from open,
+        reset -> needs the full sequence), so the helper loads then resets the
+        way ControlDeck::load_rom does. The tournament timer fires at
+        0x28000000 CPU cycles for the shipped dip switches, ~6:15 of NTSC play,
+        which is asserted as seconds rather than as a magic number. It is
+        tested by setting `value` directly - clocking 671M times is not a test.
+      - Nina001's registers sit ON TOP of PRG-RAM at $7FFD-$7FFF, so a write
+        both banks and stays readable; asserted, since a board that consumed
+        the write would break saves.
+      - Bf909x's $9000 heuristic: the write that identifies a BF9097 must also
+        take effect as mirroring rather than as a bank.
+
+    NEGATIVE-TESTED, 24 mutations, one per behaviour worth pinning (wrong
+    window size, swapped nibbles, dropped mask, inverted polarity, widened
+    decode, latch ranges swapped between MMC2 and MMC4, lock forced open,
+    timer left running). 21 failed exactly the tests that name them. The four
+    that did NOT fail anything first time are the useful part:
+      - UxROM's bank register masked to 3 bits, and Nina001's PRG register
+        left unmasked, were both invisible because the test cart had exactly
+        as many banks as the mask allows - masking and wrapping are the same
+        map. Both carts are now one size bigger so the width is observable.
+      - Timer::reset dropping `started` is invisible through the board, since
+        reset's update_state() stops the timer anyway. Asserted on Timer
+        directly instead.
+      - AxROM's `val & 0x0F` is NOT observable at all: no AxROM has more than
+        16 32K banks, and below that masking and wrapping agree. Left
+        untested with a comment saying so, rather than faking a 24-bank cart.
+
+    Two divergences from other emulators found while writing these, NEITHER
+    changed - no ROM here to settle either, so they are recorded at the test
+    that pins current behaviour:
+      - Bf909x mirroring polarity. This board is a port of Mesen's BF909x and
+        matches it exactly, including `(value & 0x10) ? ScreenA : ScreenB`.
+        FCEUX is the other way round (`MI_0 + ((V >> 4) & 1)`), and the wiki
+        says only that bit 4 "selects the 1 KiB CIRAM bank". Only Fire Hawk
+        cares. Kept Mesen's.
+      - Mapper 144's bus conflict. We OR in the ROM's bit 0; the wiki gives
+        `EffectiveData = ROM[addr] & (WrittenData | 1)`, which ANDs every bit.
+        The two agree whenever a game writes a value to an address holding
+        that same value, which is what a cart with bus conflicts must do, so
+        the difference only shows on Death Race doing something unusual.
 
     Follow-up noticed, NOT changed: JalecoSs88006 stores the IRQ reload
     nibbles as full bytes (`irq_reload[i] = val`) and then ORs them shifted by

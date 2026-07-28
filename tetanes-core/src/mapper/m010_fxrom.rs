@@ -106,3 +106,166 @@ impl Map for Fxrom {
         memory.set_mirroring(self.mirroring);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (8 16K banks), 8K PRG-RAM, 64K CHR-ROM (16 4K banks).
+    fn fxrom() -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        let mapper = Fxrom::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// The four CHR bank registers, in the order MMC4 decodes them: $0000's $FD bank, $0000's $FE
+    /// bank, then the same pair for $1000.
+    fn set_chr_banks(mapper: &mut Mapper, cart: &mut Cart, banks: [u8; 4]) {
+        for (reg, bank) in [0xB000, 0xC000, 0xD000, 0xE000].into_iter().zip(banks) {
+            write(mapper, cart, reg, bank);
+        }
+    }
+
+    /// The byte the first page of 4K CHR bank `bank` holds.
+    fn chr(bank: u8) -> u8 {
+        0x80 | (bank * 4)
+    }
+
+    /// A PPU fetch of `addr`, which is the only thing that moves a latch.
+    fn fetch(mapper: &mut Mapper, cart: &mut Cart, addr: u16) {
+        mapper.ppu_bus_addr(&mut cart.memory, addr);
+    }
+
+    /// MMC4 differs from MMC2 in its PRG layout: one switchable 16K bank and one fixed last 16K
+    /// bank, rather than 8K windows.
+    #[test]
+    fn powers_on_with_the_last_16k_bank_fixed() {
+        let (mapper, cart) = fxrom();
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "PRG-RAM");
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0, "switchable");
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 16, "last bank");
+        assert_eq!(prg_peek(&mapper, &cart, 0xFFFF), 127);
+    }
+
+    /// $A000-$AFFF selects the switchable bank, four bits wide.
+    #[test]
+    fn a000_selects_the_16k_bank_at_8000() {
+        let (mut mapper, mut cart) = fxrom();
+        write(&mut mapper, &mut cart, 0xA000, 5);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 5 * 16);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 16, "still fixed");
+
+        // Bits above the low nibble are not part of the bank number.
+        write(&mut mapper, &mut cart, 0xAFFF, 0xF3);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16);
+    }
+
+    /// Each 4K CHR half has two bank registers and a latch choosing between them.
+    #[test]
+    fn the_latch_picks_which_bank_register_each_chr_half_uses() {
+        let (mut mapper, mut cart) = fxrom();
+        set_chr_banks(&mut mapper, &mut cart, [1, 2, 3, 4]);
+
+        // Both latches power on at 0, i.e. the $FD register of each half.
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(1), "$B000");
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(3), "$D000");
+
+        fetch(&mut mapper, &mut cart, 0x0FE8);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(2), "$C000");
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(3), "unmoved");
+
+        fetch(&mut mapper, &mut cart, 0x1FE8);
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(4), "$E000");
+
+        fetch(&mut mapper, &mut cart, 0x0FD8);
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(1), "back to $B000");
+        fetch(&mut mapper, &mut cart, 0x1FD8);
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(3), "back to $D000");
+    }
+
+    /// Unlike MMC2, MMC4 latches on the whole eight-address run in *both* halves - it is the one
+    /// documented difference between the two boards' latches.
+    #[test]
+    fn both_halves_latch_on_the_whole_address_run() {
+        let (mut mapper, mut cart) = fxrom();
+        set_chr_banks(&mut mapper, &mut cart, [1, 2, 3, 4]);
+
+        for addr in [0x0FE8, 0x0FE9, 0x0FEF] {
+            fetch(&mut mapper, &mut cart, 0x0FD8);
+            fetch(&mut mapper, &mut cart, addr);
+            assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(2), "${addr:04X}");
+        }
+        for addr in [0x1FE8, 0x1FE9, 0x1FEF] {
+            fetch(&mut mapper, &mut cart, 0x1FD8);
+            fetch(&mut mapper, &mut cart, addr);
+            assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(4), "${addr:04X}");
+        }
+
+        // Nothing else on the PPU bus is a trigger, including the nametable fetches that dominate
+        // it.
+        for addr in [0x0000, 0x0FC8, 0x1FF8, 0x2FD8] {
+            fetch(&mut mapper, &mut cart, addr);
+        }
+        assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(2));
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), chr(4));
+    }
+
+    /// $F000-$FFFF is the mirroring register: bit 0 clear is vertical.
+    #[test]
+    fn f000_selects_mirroring() {
+        let (mut mapper, mut cart) = fxrom();
+
+        write(&mut mapper, &mut cart, 0xF000, 0x00);
+        assert_eq!(mapper.mirroring(), Mirroring::Vertical);
+        cart.memory.chr_write(0x2000, 0x11);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x11, "vertical");
+
+        write(&mut mapper, &mut cart, 0xFFFF, 0x01);
+        assert_eq!(mapper.mirroring(), Mirroring::Horizontal);
+        cart.memory.chr_write(0x2000, 0x22);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2400), 0x22, "horizontal");
+    }
+
+    /// $8000-$9FFF is not decoded by the board.
+    #[test]
+    fn writes_below_a000_are_ignored() {
+        let (mut mapper, mut cart) = fxrom();
+        write(&mut mapper, &mut cart, 0xA000, 5);
+        for addr in [0x4100, 0x6000, 0x8000, 0x9FFF] {
+            write(&mut mapper, &mut cart, addr, 2);
+            assert_eq!(prg_peek(&mapper, &cart, 0x8000), 5 * 16, "${addr:04X}");
+        }
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state - including the latch, which
+    /// selects a different bank register than the one a fresh board would use.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = fxrom();
+        write(&mut mapper, &mut cart, 0xA000, 6);
+        set_chr_banks(&mut mapper, &mut cart, [1, 2, 3, 4]);
+        fetch(&mut mapper, &mut cart, 0x0FE8);
+        fetch(&mut mapper, &mut cart, 0x1FE8);
+
+        let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
+            [0x6000, 0x8000, 0xC000]
+                .into_iter()
+                .map(|addr| prg_peek(mapper, cart, addr))
+                .chain(
+                    [0x0000, 0x1000]
+                        .into_iter()
+                        .map(|addr| chr_peek(mapper, cart, addr)),
+                )
+                .collect()
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}

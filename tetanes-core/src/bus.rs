@@ -691,8 +691,10 @@ mod test {
     /// A hard reset re-fills WRAM from the configured RAM state; a soft reset leaves it alone.
     #[test]
     fn reset() {
-        let mut bus = Bus::default();
-        bus.ram_state = RamState::AllZeros;
+        let mut bus = Bus {
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        };
 
         bus.write(0x0001, 0x66);
         bus.write(0x2000, 0x80);
