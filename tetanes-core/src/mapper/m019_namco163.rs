@@ -532,3 +532,222 @@ impl Audio {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, prg_peek, write};
+
+    /// 128K PRG-ROM (128 1K pages), 8K PRG-RAM, 64K CHR-ROM (64 1K pages), as a mapper 019 cart so
+    /// the board auto-detects as a Namco163 rather than staying `Unknown`.
+    fn load() -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        cart.header.mapper_num = 19;
+        let mapper = Namco163::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// Arms the 15-bit counter `ticks` short of firing.
+    fn arm_irq(mapper: &mut Mapper, cart: &mut Cart, ticks: u16) {
+        let counter = 0x8000 | (0x7FFF - ticks);
+        write(mapper, cart, 0x5000, (counter & 0xFF) as u8);
+        write(mapper, cart, 0x5800, (counter >> 8) as u8);
+    }
+
+    /// Three switchable 8K windows and a fixed last bank at $E000. The bank registers live at
+    /// $E000/$E800/$F000 - *not* at the window they control - which is the easy thing to get
+    /// backwards.
+    #[test]
+    fn prg_windows_are_three_switchable_8k_banks_and_a_fixed_last() {
+        let (mut mapper, mut cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120, "last bank at $E000");
+
+        write(&mut mapper, &mut cart, 0xE000, 3);
+        write(&mut mapper, &mut cart, 0xE800, 5);
+        write(&mut mapper, &mut cart, 0xF000, 7);
+        assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xA000), 5 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 7 * 8);
+        assert_eq!(prg_peek(&mapper, &cart, 0xE000), 120, "still fixed");
+    }
+
+    /// The IRQ counter is 15 bits with bit 15 as the enable, counting *up* to $7FFF - so the value
+    /// written is not a period but a starting point.
+    #[test]
+    fn irq_counter_counts_up_to_7fff_when_bit_15_is_set() {
+        let (mut mapper, mut cart) = load();
+        arm_irq(&mut mapper, &mut cart, 15);
+
+        for clock in 0..14 {
+            mapper.clock();
+            assert!(!mapper.irq_pending(), "too early, at clock {clock}");
+        }
+        mapper.clock();
+        assert!(mapper.irq_pending(), "fires on the 15th clock");
+    }
+
+    /// With bit 15 clear the counter is frozen, and once it has fired it stops rather than wrapping.
+    #[test]
+    fn the_counter_is_frozen_while_disabled_and_after_firing() {
+        let (mut mapper, mut cart) = load();
+
+        // Bit 15 clear: armed 15 short of $7FFF, but disabled.
+        write(&mut mapper, &mut cart, 0x5000, 0xF0);
+        write(&mut mapper, &mut cart, 0x5800, 0x7F);
+        for _ in 0..100 {
+            mapper.clock();
+        }
+        assert!(!mapper.irq_pending(), "a disabled counter never fires");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x5000),
+            0xF0,
+            "and never counts either"
+        );
+
+        arm_irq(&mut mapper, &mut cart, 1);
+        mapper.clock();
+        assert!(mapper.irq_pending());
+        for _ in 0..100 {
+            mapper.clock();
+        }
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x5000),
+            0xFF,
+            "the counter halts at $7FFF instead of wrapping"
+        );
+    }
+
+    /// The counter reads back through `prg_read`, which is the escape hatch for addresses no page
+    /// entry can describe - these registers are in the $4800-$5FFF expansion range, not memory.
+    #[test]
+    fn the_counter_reads_back_through_the_prg_escape_hatch() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0x5000, 0x34);
+        write(&mut mapper, &mut cart, 0x5800, 0x12);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5000), 0x34, "low byte");
+        assert_eq!(prg_peek(&mapper, &cart, 0x5800), 0x12, "high byte");
+        // The whole $5000-$57FF and $5800-$5FFF ranges mirror the same register.
+        assert_eq!(prg_peek(&mapper, &cart, 0x57FF), 0x34);
+        assert_eq!(prg_peek(&mapper, &cart, 0x5FFF), 0x12);
+    }
+
+    /// Writing either half of the counter acknowledges a pending IRQ.
+    #[test]
+    fn writing_the_counter_acknowledges_the_irq() {
+        let (mut mapper, mut cart) = load();
+        arm_irq(&mut mapper, &mut cart, 1);
+        mapper.clock();
+        assert!(mapper.irq_pending());
+
+        write(&mut mapper, &mut cart, 0x5000, 0x00);
+        assert!(!mapper.irq_pending(), "acknowledged");
+    }
+
+    /// Each of the twelve 1K slots picks CHR-ROM or CIRAM independently. Values >= $E0 in a
+    /// nametable register select CIRAM; anything lower is a CHR-ROM bank, which is how this board
+    /// puts pattern data behind $2000.
+    #[test]
+    fn nametable_slots_select_ciram_or_chr_rom_per_register() {
+        let (mut mapper, mut cart) = load();
+
+        // $C000/$C800 are slots 8 and 9, i.e. $2000 and $2400.
+        write(&mut mapper, &mut cart, 0xC000, 0xE0);
+        write(&mut mapper, &mut cart, 0xC800, 0xE1);
+        cart.memory.chr_write(0x2000, 0x11);
+        cart.memory.chr_write(0x2400, 0x22);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x11, "CIRAM page 0");
+        assert_eq!(chr_peek(&mapper, &cart, 0x2400), 0x22, "CIRAM page 1");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x3000),
+            0x11,
+            "$3000 mirrors $2000"
+        );
+
+        // Below $E0 the same slot serves CHR-ROM instead.
+        write(&mut mapper, &mut cart, 0xC000, 16);
+        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x80 | 16, "CHR-ROM bank 16");
+    }
+
+    /// The eight CHR registers at $8000-$BFFF cover $0000-$1FFF in 1K slots.
+    #[test]
+    fn chr_registers_map_eight_1k_pattern_slots() {
+        let (mut mapper, mut cart) = load();
+        for slot in 0..8u16 {
+            write(&mut mapper, &mut cart, 0x8000 + slot * 0x800, 20 + slot as u8);
+        }
+        for slot in 0..8u16 {
+            assert_eq!(
+                chr_peek(&mapper, &cart, slot * 1024),
+                0x80 | (20 + slot as u8),
+                "slot {slot}"
+            );
+        }
+    }
+
+    /// The 128-byte sound RAM is addressed indirectly through $F800 and read back through $4800,
+    /// with optional auto-increment. It is battery-backed, so it also has to survive a save.
+    #[test]
+    fn sound_ram_is_addressed_indirectly_with_auto_increment() {
+        let (mut mapper, mut cart) = load();
+
+        // $F800 sets the pointer; bit 7 enables auto-increment.
+        write(&mut mapper, &mut cart, 0xF800, 0x80 | 0x10);
+        for val in 1..=4u8 {
+            write(&mut mapper, &mut cart, 0x4800, val);
+        }
+
+        write(&mut mapper, &mut cart, 0xF800, 0x10);
+        assert_eq!(prg_peek(&mapper, &cart, 0x4800), 1, "no auto-increment now");
+        assert_eq!(prg_peek(&mapper, &cart, 0x4800), 1, "so it stays put");
+
+        write(&mut mapper, &mut cart, 0xF800, 0x80 | 0x10);
+        for val in 1..=4u8 {
+            assert_eq!(
+                mapper.prg_read(0x4800),
+                Some(val),
+                "auto-increment walks the four bytes written"
+            );
+        }
+    }
+
+    /// PRG-RAM is mapped and writable on a Namco163.
+    #[test]
+    fn prg_ram_is_mapped_and_writable() {
+        let (mut mapper, mut cart) = load();
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A);
+        cart.memory.prg_write(0x6000, 0x77);
+        mapper.write_register(&mut cart.memory, 0x6000, 0x77);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x77);
+    }
+
+    /// `update_banks` must rebuild every window from the registers alone, which is what
+    /// `Ppu::rebuild_mapper_state` relies on after a save state - page tables are never serialized.
+    #[test]
+    fn update_banks_rebuilds_every_window_from_register_state() {
+        let (mut mapper, mut cart) = load();
+        write(&mut mapper, &mut cart, 0xE000, 3);
+        write(&mut mapper, &mut cart, 0xE800, 5);
+        write(&mut mapper, &mut cart, 0xF000, 7);
+        write(&mut mapper, &mut cart, 0x8000, 9);
+        write(&mut mapper, &mut cart, 0xC000, 0xE1);
+
+        let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
+            [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+                .into_iter()
+                .map(|addr| prg_peek(mapper, cart, addr))
+                .chain(
+                    [0x0000, 0x2000, 0x3000]
+                        .into_iter()
+                        .map(|addr| chr_peek(mapper, cart, addr)),
+                )
+                .collect()
+        };
+        let before = sample(&mapper, &cart);
+
+        cart.memory.unmap_prg(0x0000, 0x10000);
+        cart.memory.unmap_chr(0x0000, 0x4000);
+        mapper.update_banks(&mut cart.memory);
+
+        assert_eq!(before, sample(&mapper, &cart));
+    }
+}
