@@ -157,8 +157,8 @@ pub use m071_bf909x::Revision as Bf909Revision;
 pub enum Error {
     /// No board in the `boards!` table serves this mapper number.
     ///
-    /// Previously these loaded as [`Mapper::none`] and read as open bus, so an unsupported ROM
-    /// started and showed a black screen with nothing said about why.
+    /// Saying so beats loading as [`Mapper::none`] and reading as open bus, which starts the ROM
+    /// and shows a black screen with nothing said about why.
     #[error("unimplemented mapper: {0}")]
     Unimplemented(u16),
 }
@@ -196,11 +196,12 @@ impl std::fmt::Display for MapperRevision {
 /// A row is `Variant(StorageType) in module { <mapper numbers> => <loader> }`, and generating from
 /// it means **adding a board is two edits: its own file, and one row here.**
 ///
-/// Previously it was six: the file, four separate lists in this module (`pub mod`, `pub use`, the
-/// enum variant, the `From` impl, the dispatch arm), the `match` in `Cart::new`, the audio arm in
-/// `Sample for Mapper`, and the layout entry in `lib.rs`'s `print_layouts`. Each failed differently
-/// when forgotten, and two of them failed only at runtime - a board left out of `Cart::new` loaded
-/// as `Mapper::none()` and read as open bus, and one left out of `Sample for Mapper` was silent.
+/// The row is what keeps it at two. It generates the `pub mod`, the `pub use`, the enum variant, the
+/// `From` impl, every dispatch arm, the `match` in `Cart::new`, the audio arm in `Sample for Mapper`
+/// and the layout entry in `lib.rs`'s `print_layouts` - six lists that, kept by hand, each fail
+/// differently when one is forgotten, two of them only at runtime: a board missing from `Cart::new`
+/// loads as `Mapper::none()` and reads as open bus, and one missing from `Sample for Mapper` is
+/// silent.
 ///
 /// Notes on the row syntax:
 /// - The storage type is spelled out rather than inferred, because it is the one thing that
@@ -621,9 +622,9 @@ boards! {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
     /// `Waixing FK23C`/`FS303` (Mapper 176)
-    // Boxed from when it was 280 bytes; the port to page tables left it holding only registers, so
-    // `print_layouts` now reports 56 and it no longer drives the enum's size (SunsoftFme7's 72
-    // does). Left boxed for now - unboxing is a cache-behaviour question to measure, not assume.
+    // Holds only registers, so `print_layouts` reports 56 and it is not what drives the enum's size
+    // (SunsoftFme7's 72 is). Kept boxed anyway - unboxing is a cache-behaviour question to measure,
+    // not assume.
     Fk23C(Fk23C) = 176 in m176_fk23c { 176 => Fk23C::load(cart) },
 }
 

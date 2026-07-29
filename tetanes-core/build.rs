@@ -1,8 +1,8 @@
 //! Bakes the NTSC filter's color lookup table into the binary.
 //!
-//! Generating it costs ~30 ms of `powf` and `sin_cos`, which used to be paid lazily by whichever
-//! frame first used the NTSC filter - i.e. as a visible hitch the moment the filter was switched
-//! on. It depends on nothing but constants, so it is computed here instead.
+//! Generating it costs ~30 ms of `powf` and `sin_cos`. Paid lazily by whichever frame first uses the
+//! NTSC filter, that lands as a visible hitch the moment the filter is switched on; it depends on
+//! nothing but constants, so it is computed here instead.
 
 include!("src/video/ntsc_palette.rs");
 

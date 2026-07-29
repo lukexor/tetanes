@@ -290,8 +290,8 @@ impl std::fmt::Debug for Video {
 ///
 /// Computed by `build.rs` from `src/video/ntsc_palette.rs` and baked in, rather than generated on
 /// first use.
-// It depends on nothing but constants, and the ~30 ms of `powf` and `sin_cos` it takes used to
-// land on whichever frame first turned the filter on. The length - 512 colors x 64 previous
+// It depends on nothing but constants, and the ~30 ms of `powf` and `sin_cos` it takes would
+// otherwise land on whichever frame first turns the filter on. The length - 512 colors x 64 previous
 // colors x 3 phases, as triples - is spelled out rather than imported from the generator, which
 // `build.rs` owns; `ntsc_palette_matches_the_generator` asserts the two agree byte for byte.
 pub static NTSC_PALETTE: &[u8; 512 * 64 * 3 * 3] =

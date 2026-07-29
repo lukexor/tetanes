@@ -14,10 +14,10 @@ use tracing::error;
 /// fast-forwarded would rewind four times as fast as the rest. It also makes the buffer hold
 /// [`Rewind::seconds`] of *gameplay*, whatever speed it was played at.
 ///
-/// Only state is kept. Pixels are not: `Frame::buffer` is `#[serde(skip)]`, so a snapshot used to
-/// carry a 120 KiB clone of the frame alongside its ~23 KiB of state - at the default 30 s and an
-/// interval of 2 that is 900 snapshots, or ~108 MB of pixels against ~21 MB of everything else.
-/// Rewinding now re-renders instead, by clocking one frame off the restored state, which trades
+/// Only state is kept. Pixels are not: `Frame::buffer` is `#[serde(skip)]`, because a snapshot
+/// carrying a 120 KiB clone of the frame alongside its ~23 KiB of state comes to - at the default
+/// 30 s and an interval of 2, so 900 snapshots - ~108 MB of pixels against ~21 MB of everything
+/// else. Rewinding re-renders instead, by clocking one frame off the restored state, which trades
 /// ~3 ms on the rewind path - a path with a whole frame's budget and nothing else to do - for a
 /// 120 KiB allocation and copy on every push during normal play.
 #[derive(Default, Debug)]

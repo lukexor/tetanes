@@ -1591,10 +1591,10 @@ mod tests {
     ///
     /// The one that bites is emulation speed, because it is split in two: `frame_speed_step` here
     /// decides how many NES frames a `clock_frame` runs, while `Apu::speed` stretches the sample
-    /// period, and only the second is inside `Bus`. Loading a state recorded during fast-forward
-    /// used to leave the APU at 2x under a deck clocking at 1x, which halves the samples produced
-    /// per frame - and a frontend that paces itself by waiting on a full audio queue then never
-    /// waits at all. Rewinding past a fast-forward switched fast-forward back on, and it stuck.
+    /// period, and only the second is inside `Bus`. So loading a state recorded during fast-forward
+    /// must not leave the APU at 2x under a deck clocking at 1x: that halves the samples produced
+    /// per frame, and a frontend that paces itself by waiting on a full audio queue then never
+    /// waits at all. Rewinding past a fast-forward must not switch fast-forward back on either.
     #[test]
     fn a_restored_state_keeps_the_current_settings() {
         let path = std::env::temp_dir().join("tetanes-restored-state-keeps-settings.sav");
@@ -1700,8 +1700,8 @@ mod tests {
 
     /// The whole point of run-ahead is that you *display* the future frame, but the console is
     /// rewound past it before `clock_frame` returns - so the pixels have to be parked somewhere or
-    /// they go with it. Before this was fixed, `frame_buffer` handed back the pre-run-ahead frame
-    /// and the only way to see the right one was the old `clock_frame_ahead` closure.
+    /// they go with it, and `frame_buffer` has to hand back the parked ones rather than whatever the
+    /// rewound console holds.
     #[test]
     fn run_ahead_reports_the_future_frame_not_the_rewound_one() {
         // What the screen should show is whatever a console clocked `run_ahead` frames further
@@ -1744,8 +1744,8 @@ mod tests {
         }
     }
 
-    /// Audio used to accumulate until the caller remembered `clear_audio_samples`, which made
-    /// forgetting it an unbounded leak. Clocking now drops the previous call's samples by default.
+    /// Clocking drops the previous call's samples by default, so a caller that never reaches for
+    /// `clear_audio_samples` still does not grow the buffer without bound.
     #[test]
     fn audio_samples_do_not_accumulate_across_frames() {
         let mut deck = spritecans();
@@ -1755,7 +1755,7 @@ mod tests {
 
         // Per-frame counts wobble by a sample or two, because `Apu::sample_counter` carries across
         // frames - so this bounds the buffer at a frame's worth rather than pinning it. What it
-        // rules out is the old behavior, where frame 60 would hold 60 frames of audio.
+        // rules out is frame 60 holding 60 frames of audio.
         let mut max = 0;
         for _ in 0..60 {
             let _ = deck.clock_frame().expect("clocks");
@@ -1768,7 +1768,7 @@ mod tests {
         );
     }
 
-    /// Opting out restores the old behavior for callers who clock several times before draining.
+    /// Opting out lets the samples accumulate, for callers that clock several times before draining.
     #[test]
     fn audio_samples_accumulate_when_opted_out() {
         let mut deck = spritecans();

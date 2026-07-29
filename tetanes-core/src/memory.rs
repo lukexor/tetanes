@@ -423,9 +423,9 @@ impl Memory {
     ///
     /// Every page offset is wrapped within its region. Regions are allocated in whole pages, so a
     /// wrapped offset always has a full page behind it and the read path can never index outside
-    /// `data`. This matters beyond tidiness: several games read past the end of their own banks,
-    /// and the old `Memory<D>` newtype existed partly to mask those accesses rather than panic.
-    /// Wrapping here preserves that behaviour without a mask on every read.
+    /// `data`. This matters beyond tidiness: several games read past the end of their own banks and
+    /// have to come back with a wrapped byte rather than a panic. Wrapping at map time gets that
+    /// without a mask on every read.
     fn map_pages(&mut self, slot: usize, size: usize, bank: i32, src: Src, prg: bool) {
         let region = self.region(src);
         let writable = self.is_writable(src);

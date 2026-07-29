@@ -211,8 +211,8 @@ mod tests {
         assert!(!irq.irq_pending, "writing control clears the line");
     }
 
-    /// Reset used to clear every field except `irq_pending`, which left the line asserted with no
-    /// way to ever clear it: the counter is disabled, so nothing reaches an acknowledge.
+    /// Reset has to clear `irq_pending` along with every other field. Leaving the line asserted
+    /// leaves no way to ever clear it: the counter is disabled, so nothing reaches an acknowledge.
     #[test]
     fn reset_clears_a_pending_irq() {
         let mut irq = VrcIrq::default();
