@@ -349,10 +349,21 @@ impl State {
     }
 
     /// Pushes the configured run-ahead down to the deck, disabling it above 1x speed where the
-    /// extra frames cost more than the latency they hide.
+    /// extra frames cost more than the latency they hide, and while rewinding, which replays
+    /// recorded states and so has no input latency to hide.
     fn update_run_ahead(&mut self) {
         self.control_deck
-            .set_run_ahead(if self.speed > 1.0 { 0 } else { self.run_ahead });
+            .set_run_ahead(if self.speed > 1.0 || self.rewinding {
+                0
+            } else {
+                self.run_ahead
+            });
+    }
+
+    /// Start or stop rewinding, keeping run-ahead in step with it.
+    fn set_rewinding(&mut self, rewinding: bool) {
+        self.rewinding = rewinding;
+        self.update_run_ahead();
     }
 
     fn write_deck<T>(
@@ -486,7 +497,7 @@ impl State {
             EmulationEvent::Rewinding(rewind) => {
                 if self.control_deck.is_running() {
                     if self.rewind.enabled {
-                        self.rewinding = *rewind;
+                        self.set_rewinding(*rewind);
                         if self.rewinding {
                             self.add_message(MessageType::Info, "Rewinding...");
                         }
@@ -923,13 +934,23 @@ impl State {
                     // stopping beats replaying a broken console.
                     if let Err(err) = self.control_deck.load_bus(bus) {
                         error!("failed to rewind: {err:?}");
-                        self.rewinding = false;
+                        self.set_rewinding(false);
+                        return;
+                    }
+                    // A snapshot carries no pixels, so render them: clocking the restored state
+                    // produces the frame after the one it was taken on, which is a uniform
+                    // one-frame offset across a rewind and costs a frame of emulation on a path
+                    // that has a whole frame to spend. Audio is deliberately left undrained -
+                    // rewinding is silent, and the next clock clears what this one produced.
+                    if let Err(err) = self.control_deck.clock_frame() {
+                        error!("failed to render a rewound frame: {err:?}");
+                        self.set_rewinding(false);
                         return;
                     }
                     self.send_frame();
                     self.update_frame_stats();
                 }
-                None => self.rewinding = false,
+                None => self.set_rewinding(false),
             }
         } else {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {
