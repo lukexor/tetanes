@@ -39,6 +39,11 @@ pub struct BandLimited {
     samples_per_cycle: i64,
     /// Running level, carried across reads so a waveform is continuous over block boundaries.
     level: f32,
+    /// Sub-sample position of cycle 0 of the current block, in fixed point.
+    ///
+    /// A block of cycles is not a whole number of output samples, so the remainder has to be
+    /// carried or the output rate drifts by the fraction dropped each block.
+    offset: i64,
 }
 
 impl BandLimited {
@@ -67,7 +72,16 @@ impl BandLimited {
             samples_per_cycle: ((f64::from(sample_rate) / f64::from(clock_rate)) * Self::ONE as f64)
                 as i64,
             level: 0.0,
+            offset: 0,
         }
+    }
+
+    /// Retune to a new output rate, which dynamic rate control does every frame.
+    ///
+    /// Only safe between blocks: the deltas already recorded were placed using the old rate.
+    pub fn set_rate(&mut self, clock_rate: f32, sample_rate: f32) {
+        self.samples_per_cycle =
+            ((f64::from(sample_rate) / f64::from(clock_rate)) * Self::ONE as f64) as i64;
     }
 
     /// One windowed-sinc impulse response per sub-sample phase.
@@ -105,10 +119,15 @@ impl BandLimited {
         kernel.into()
     }
 
-    /// Number of output samples the block up to `cycle` will produce.
-    #[must_use]
-    pub const fn samples_at(&self, cycle: u32) -> usize {
-        ((cycle as i64 * self.samples_per_cycle) >> Self::FRAC_BITS) as usize
+    /// End a block of `cycles`, returning how many output samples it completed.
+    ///
+    /// The fraction of a sample left over starts the next block, so `add_delta`'s cycle numbering
+    /// can restart at zero without the output rate drifting.
+    pub const fn end_block(&mut self, cycles: u32) -> usize {
+        let end = self.offset + cycles as i64 * self.samples_per_cycle;
+        let count = (end >> Self::FRAC_BITS) as usize;
+        self.offset = end - ((count as i64) << Self::FRAC_BITS);
+        count
     }
 
     /// Record a change of `amplitude` in the mixed output, `cycle` input cycles into the block.
@@ -116,7 +135,7 @@ impl BandLimited {
         if amplitude == 0.0 {
             return;
         }
-        let position = cycle as i64 * self.samples_per_cycle;
+        let position = self.offset + cycle as i64 * self.samples_per_cycle;
         let sample = (position >> Self::FRAC_BITS) as usize;
         // The fractional part chooses the response; anything finer than a phase is below the
         // resolution the table has, so it is truncated rather than rounded toward a neighbour.
@@ -151,6 +170,12 @@ impl BandLimited {
     /// Drop everything recorded, keeping the running level.
     pub fn clear(&mut self) {
         self.deltas.fill(0.0);
+    }
+
+    /// Output samples per input cycle, in fixed point; what the synthesiser is tuned to.
+    #[must_use]
+    pub const fn samples_per_cycle(&self) -> i64 {
+        self.samples_per_cycle
     }
 
     /// The level the last read left, which is what a new delta is relative to.

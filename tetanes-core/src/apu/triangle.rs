@@ -102,6 +102,19 @@ impl Triangle {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
+    /// The next cycle this channel's output could change on.
+    ///
+    /// Below period 2 the output is pinned to a constant, so the sequencer can step as fast as
+    /// every cycle without the output moving - and stepping to a change that cannot happen is
+    /// what would make the mixer's walk degenerate into visiting every cycle.
+    pub const fn next_change(&self) -> u32 {
+        // Either counter at zero gates the sequencer, so the output holds wherever it stopped.
+        if self.timer.period < 2 || self.length.counter == 0 || self.linear.counter == 0 {
+            u32::MAX
+        } else {
+            self.timer.next_expiry()
+        }
+    }
     //       Linear Counter   Length Counter
     //             |                |
     //             v                v

@@ -172,6 +172,33 @@ Two things nearly went wrong, both worth knowing before touching this again:
   in and the timers out - and the actual culprit turned out to be neither, but the block-counter
   reset that had been added along the way to fix an unrelated underflow.
 
+### APU: band-limited synthesis
+
+Recorded 2026-07-29, same protocol, interleaved over three rounds.
+
+| build | geomean | delta |
+|---|---|---|
+| after skip-ahead timers | 2.280 | |
+| + band-limited synthesis | 2.303 | **+1.0%** |
+
+At this machine's noise floor, so **treat this as performance-neutral**. The reason to do it is
+that it is the anti-aliasing the chain has never had: measured against point-sampling the same
+5 kHz square, the alias its 13th harmonic folds to drops from 0.75% of the fundamental to 0.02%.
+Level is unchanged (RMS within 1% on every audio test).
+
+**The first cut was +7.7%, and the reason is worth remembering.** The mixer walks from one cycle a
+channel could change on to the next, which is only sparse if "could change" is honest. A pulse
+whose period register is 0 has a divider that expires every *other* cycle, and a silent game is
+full of them - so stepping at every expiry meant 29,776 stops a frame on SMB3, which is every
+cycle, which is exactly what the skip-ahead work had removed. Skipping a channel whose output
+cannot move - muted, or silenced by its envelope or length counter - took that to **90**. Those
+guards are safe because nothing they test can change without a register write or a frame-counter
+event, and the walk visits both regardless.
+
+So the shape of the cost is: not the synthesis, not the deltas (15-500 a frame), but how often the
+walk stops. Anything added to a channel that makes its output change more often needs a matching
+`next_change` guard or this regresses quietly.
+
 ### Page table vs `Banks` (historical)
 
 Measured with a `page_table` benchmark that has since been deleted along with `Banks` itself.

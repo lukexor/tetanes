@@ -1630,9 +1630,10 @@ mod tests {
         assert_eq!(restored.apu().speed, 1.0, "speed is the session's");
         assert_eq!(restored.apu().sample_rate, 48_000.0, "so is sample rate");
         assert_eq!(
-            restored.apu().sample_period,
-            restored.bus().clock_rate() / 48_000.0,
-            "and the period derived from both, or the apu produces samples at the wrong rate"
+            restored.apu().synth.samples_per_cycle(),
+            crate::apu::band_limited::BandLimited::new(restored.bus().clock_rate(), 48_000.0, 1)
+                .samples_per_cycle(),
+            "and the synthesiser is tuned to them, or it produces samples at the wrong rate"
         );
         assert!(
             restored.apu_channel_enabled(Channel::Triangle),

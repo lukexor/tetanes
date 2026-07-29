@@ -47,6 +47,14 @@ impl Timer {
         false
     }
 
+    /// The cycle this timer's next expiry falls on.
+    ///
+    /// Lets a caller jump straight to the next cycle a channel could change on, rather than
+    /// visiting every cycle in between to find out that nothing happened.
+    pub const fn next_expiry(&self) -> u32 {
+        self.cycle + self.counter as u32 + 1
+    }
+
     /// Advance toward `target`, stopping at each expiry.
     ///
     /// Returns `true` having advanced to the cycle the divider expired on, so a caller drives it

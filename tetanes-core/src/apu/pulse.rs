@@ -200,6 +200,22 @@ impl Pulse {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
+    /// The next cycle this channel's output could change on.
+    ///
+    /// Stepping the duty sequencer only moves the output if there is an output to move. A muted
+    /// channel, or one the envelope or length counter has silenced, is pinned at zero however fast
+    /// its divider runs - and a divider at period 0 runs every other cycle, which is what makes
+    /// this worth checking rather than stepping and finding out.
+    ///
+    /// Nothing here can change without a register write or a frame-counter event, and the mixer
+    /// visits both of those regardless.
+    pub fn next_change(&self) -> u32 {
+        if self.is_muted() || self.volume() == 0 {
+            u32::MAX
+        } else {
+            self.timer.next_expiry()
+        }
+    }
     //                  Sweep -----> Timer
     //                    |            |
     //                    |            |

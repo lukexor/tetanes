@@ -11,6 +11,7 @@
 
 use crate::{
     apu::{
+        band_limited::BandLimited,
         dmc::Dmc,
         filter::FilterChain,
         frame_counter::{FrameCounter, FrameType},
@@ -107,24 +108,27 @@ pub struct Apu {
     pub dmc: Dmc,
     /// The high-pass/low-pass chain the mixed output is run through.
     pub filter_chain: FilterChain,
-    /// Per-cycle expansion audio from the cartridge, for the boards that have any.
-    ///
-    /// The channels are read straight off their own state at the cycle the mixer wants, but the
-    /// board is clocked by the CPU rather than by the APU, so its output has to be recorded as it
-    /// happens. Left all zeroes, and never written, for a board with no audio.
-    #[serde(skip, default = "Apu::default_mapper_outputs")]
-    pub mapper_outputs: Box<[f32]>,
+    /// Turns amplitude changes into output-rate samples.
+    #[serde(skip, default = "Apu::default_synth")]
+    pub synth: BandLimited,
     /// Cycles of this block the mixer has consumed, which trails `master_clock`.
     pub mix_clock: u32,
+    /// Mixed level of the five APU channels as of `mix_clock`, so a change is a delta from it.
+    pub mixed_level: f32,
+    /// Expansion audio level as of the last cycle the board reported one.
+    ///
+    /// Tracked separately because the board is clocked by the CPU rather than the APU, and
+    /// because it is mixed in linearly - so its changes are deltas in their own right rather than
+    /// having to go through the channel tables.
+    pub mapper_level: f32,
+    /// Whether the synthesiser's rate is stale and must be retuned at the next block boundary.
+    #[serde(skip)]
+    pub rate_dirty: bool,
     /// Mixed samples produced since the last drain.
     #[serde(skip)]
     pub audio_samples: Vec<f32>,
     /// Output sample rate in Hz.
     pub sample_rate: f32,
-    /// CPU cycles per output sample.
-    pub sample_period: f32,
-    /// Cycles remaining until the next sample is taken.
-    pub sample_counter: f32,
     /// Emulation speed multiplier, which stretches the sample period.
     pub speed: f32,
     /// Dynamic rate control: a small multiplier on how many samples a frame produces.
@@ -157,7 +161,6 @@ impl Apu {
     pub fn new(region: NesRegion) -> Self {
         let clock_rate = Cpu::region_clock_rate(region);
         let sample_rate = Self::DEFAULT_SAMPLE_RATE;
-        let sample_period = clock_rate / sample_rate;
         Self {
             frame_counter: FrameCounter::new(region),
             master_clock: 0,
@@ -171,12 +174,13 @@ impl Apu {
             noise: Noise::new(region),
             dmc: Dmc::new(region),
             filter_chain: FilterChain::new(region, sample_rate),
-            mapper_outputs: Self::default_mapper_outputs(),
+            synth: Self::default_synth(),
             mix_clock: 0,
+            mixed_level: 0.0,
+            mapper_level: 0.0,
+            rate_dirty: false,
             audio_samples: Vec::with_capacity((sample_rate / 60.0) as usize),
             sample_rate,
-            sample_period,
-            sample_counter: sample_period,
             speed: 1.0,
             sample_ratio: 1.0,
             mapper_enabled: true,
@@ -185,31 +189,43 @@ impl Apu {
         }
     }
 
-    /// An empty expansion-audio buffer, which is also how a loaded save state gets one.
-    pub fn default_mapper_outputs() -> Box<[f32]> {
-        vec![0.0; Self::CYCLE_SIZE as usize].into()
+    /// A synthesiser for the default region and rate, which is how a loaded save state gets one.
+    pub fn default_synth() -> BandLimited {
+        Self::new_synth(
+            Cpu::region_clock_rate(NesRegion::default()),
+            Self::DEFAULT_SAMPLE_RATE,
+        )
+    }
+
+    fn new_synth(clock_rate: f32, sample_rate: f32) -> BandLimited {
+        // A block's worth of output samples, with room to spare for a raised rate or a slowed
+        // emulation speed, both of which put more samples in the same number of cycles.
+        let capacity = (Self::CYCLE_SIZE as f32 * sample_rate / clock_rate * 4.0) as usize;
+        BandLimited::new(clock_rate, sample_rate, capacity)
     }
 
     /// Records this cycle's expansion-audio sample from the cartridge.
     ///
-    /// Only called for a board that has audio; see `Bus::cpu_clock`.
+    /// Only called for a board that has audio; see `Bus::cpu_clock`. Expansion audio is mixed in
+    /// linearly, so a change in it is a delta on its own rather than one that has to be taken
+    /// through the channel tables.
     #[inline(always)]
     pub fn add_mapper_output(&mut self, output: f32) {
-        self.mapper_outputs[self.master_clock as usize] = output;
+        let level = if self.mapper_enabled { output } else { 0.0 };
+        if level != self.mapper_level {
+            self.synth
+                .add_delta(self.master_clock, level - self.mapper_level);
+            self.mapper_level = level;
+        }
     }
 
-    /// Mix the channels into the filter chain for every cycle up to `target`, running them
-    /// forward as it goes.
+    /// Advance every channel to `target`, recording each change in the mixed output as it happens.
     ///
-    /// The chain samples at a little over twice the output rate - roughly one CPU cycle in 20 -
-    /// and nothing between two of its samples can reach its output, so the channels are only run
-    /// up to the cycles it asks for. Over a skipped span the chain's output is by definition
-    /// constant, so an output sample landing inside one just repeats it.
-    ///
-    /// Reading each channel's level directly at the cycle it is wanted, rather than recording
-    /// every cycle's output for a later pass, is what lets
-    /// [`Timer::run_to`](crate::apu::timer::Timer::run_to) collapse the cycles between one
-    /// waveform step and the next.
+    /// Walks from one cycle a channel could change on to the next rather than visiting every
+    /// cycle: for a pulse at a typical period that is one stop every few hundred cycles. What is
+    /// recorded is the change in the *mixed* level, not any one channel's, because the console
+    /// mixes through two non-linear tables - two channels at a given level are quieter than twice
+    /// one channel at it - so a channel's change is not a fixed contribution to the output.
     fn channels_clock_to(&mut self, target: u32) {
         if self.skip_mixing {
             self.mix_clock = target;
@@ -217,47 +233,48 @@ impl Apu {
             return;
         }
 
+        // Anything that moved the mix since the last visit - a register write, a length counter
+        // clocked to zero by the frame counter - lands here, at the cycle it happened on.
+        self.add_mix_delta();
         while self.mix_clock < target {
-            let step = match self.filter_chain.cycles_until_due() {
-                0 => {
-                    // A cycle's sample is the channel state *after* that many clocks, so run them
-                    // one past `mix_clock` before reading.
-                    self.clock_channels(self.mix_clock + 1);
-                    let mixed = self.mix();
-                    self.filter_chain.consume(mixed);
-                    1
-                }
-                due => {
-                    let step = due.min((target - self.mix_clock) as usize);
-                    self.filter_chain.skip(step);
-                    step
-                }
-            };
-
-            self.sample_counter -= step as f32;
-            while self.sample_counter <= 1.0 {
-                self.audio_samples.push(self.filter_chain.output());
-                self.sample_counter += self.sample_period;
-            }
-            self.mix_clock += step as u32;
+            // `max` because a channel can sit ahead of `mix_clock` (see `Timer::run_to`), and a
+            // stop that is not in the future would not make progress.
+            let next = self.next_change().max(self.mix_clock + 1).min(target);
+            self.clock_channels(next);
+            self.mix_clock = next;
+            self.add_mix_delta();
         }
-
-        // The last steps may have been skipped rather than mixed, which leaves the channels behind.
-        self.clock_channels(target);
     }
 
-    /// One cycle's mixed output, through the NES' two non-linear mixer tables.
-    fn mix(&self) -> f32 {
+    /// The next cycle any channel's output could change on.
+    fn next_change(&self) -> u32 {
+        self.pulse1
+            .next_change()
+            .min(self.pulse2.next_change())
+            .min(self.triangle.next_change())
+            .min(self.noise.next_change())
+            .min(self.dmc.next_change())
+    }
+
+    /// Hand the synthesiser however much the mixed level has moved since it was last told.
+    fn add_mix_delta(&mut self) {
+        let level = self.mix_level();
+        if level != self.mixed_level {
+            self.synth
+                .add_delta(self.mix_clock, level - self.mixed_level);
+            self.mixed_level = level;
+        }
+    }
+
+    /// The five channels mixed through the console's two non-linear tables.
+    fn mix_level(&self) -> f32 {
         let pulse_idx = (self.pulse1.output() + self.pulse2.output()) as usize;
         // Not `mul_add`: it guarantees a single rounding, so without hardware FMA it lowers to a
-        // libm `fmaf` call. See `apu::filter::dot`.
+        // libm `fmaf` call.
         let tnd_idx = ((3.0 * self.triangle.output())
             + (2.0 * self.noise.output())
             + self.dmc.output()) as usize;
-        let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-
-        let mapper = self.mapper_outputs[self.mix_clock as usize];
-        apu_output + self.mapper_enabled as u8 as f32 * mapper
+        PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx]
     }
 
     /// Run every channel forward to `cycle`.
@@ -274,14 +291,15 @@ impl Apu {
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
         self.filter_chain = FilterChain::new(self.region, self.sample_rate / self.speed);
-        self.update_sample_period();
+        self.synth = Self::new_synth(self.clock_rate, self.sample_rate / self.speed);
+        self.rate_dirty = false;
     }
 
     /// Set the frame speed of the APU, which affects the sampling rate.
     pub fn set_frame_speed(&mut self, speed: f32) {
         self.speed = speed;
         self.filter_chain = FilterChain::new(self.region, self.sample_rate / self.speed);
-        self.update_sample_period();
+        self.rate_dirty = true;
     }
 
     /// Stretch or squeeze the output rate by a small ratio, for dynamic rate control.
@@ -301,14 +319,11 @@ impl Apu {
     /// cutoffs by nothing worth having, and rebuilding recomputes a 161-tap windowed-sinc kernel,
     /// which is not something to do every frame.
     pub fn set_sample_ratio(&mut self, ratio: f32) {
-        self.sample_ratio = ratio.clamp(0.95, 1.05);
-        self.update_sample_period();
-    }
-
-    /// Recompute the CPU cycles between output samples from the rate, the speed and the ratio.
-    fn update_sample_period(&mut self) {
-        let sample_rate = self.sample_rate / self.speed * self.sample_ratio;
-        self.sample_period = Cpu::region_clock_rate(self.region) / sample_rate;
+        let ratio = ratio.clamp(0.95, 1.05);
+        if ratio != self.sample_ratio {
+            self.sample_ratio = ratio;
+            self.rate_dirty = true;
+        }
     }
 
     /// Whether a given channel is enabled.
@@ -368,6 +383,20 @@ impl Apu {
 
         debug_assert_eq!(self.master_clock, self.clock);
         debug_assert_eq!(self.master_clock, self.mix_clock);
+        if !self.skip_mixing {
+            let count = self.synth.end_block(self.master_clock);
+            let start = self.audio_samples.len();
+            self.synth.read(count, &mut self.audio_samples);
+            self.filter_chain.filter(&mut self.audio_samples[start..]);
+        }
+        // Only between blocks: the deltas already placed were positioned using the old rate.
+        if self.rate_dirty {
+            self.rate_dirty = false;
+            self.synth.set_rate(
+                self.clock_rate,
+                self.sample_rate / self.speed * self.sample_ratio,
+            );
+        }
         self.rewind_block();
     }
 
@@ -553,8 +582,6 @@ impl Apu {
         trace!("APU $4011 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         // Only 7-bits are used
         self.dmc.write_output(val & 0x7F);
-        // $4011 applies its new output right away rather than on the next timer reload, which
-        // needs nothing here: the mixer reads `Dmc::output` at the cycle it wants it.
     }
 
     /// $4012 DMC Sample Addr.
@@ -661,7 +688,7 @@ impl Apu {
             self.region = region;
             self.clock_rate = Cpu::region_clock_rate(region);
             self.filter_chain = FilterChain::new(region, self.sample_rate / self.speed);
-            self.update_sample_period();
+            self.synth = Self::new_synth(self.clock_rate, self.sample_rate / self.speed);
             self.frame_counter.set_region(region);
             self.noise.set_region(region);
             self.dmc.set_region(region);

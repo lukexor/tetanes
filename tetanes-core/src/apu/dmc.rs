@@ -210,6 +210,10 @@ impl Dmc {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
+    /// The next cycle this channel's output could change on.
+    pub const fn next_change(&self) -> u32 {
+        self.timer.next_expiry()
+    }
     //                          Timer
     //                            |
     //                            v

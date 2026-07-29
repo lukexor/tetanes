@@ -139,6 +139,18 @@ impl Noise {
     pub const fn cycle(&self) -> u32 {
         self.timer.cycle
     }
+    /// The next cycle this channel's output could change on.
+    ///
+    /// Silenced by its envelope or length counter, the shift register can run without the output
+    /// following it. `is_muted` is deliberately not consulted: that tracks the shift register
+    /// itself, which is exactly what an expiry changes.
+    pub const fn next_change(&self) -> u32 {
+        if self.volume() == 0 {
+            u32::MAX
+        } else {
+            self.timer.next_expiry()
+        }
+    }
     //    Timer --> Shift Register   Length Counter
     //                    |                |
     //                    v                v

@@ -376,7 +376,9 @@ impl Bus {
         self.apu.speed = session.apu.speed;
         self.apu.sample_rate = session.apu.sample_rate;
         self.apu.sample_ratio = session.apu.sample_ratio;
-        self.apu.sample_period = session.apu.sample_period;
+        // Swapped rather than rebuilt for the same reason as the filter chain below: it holds
+        // steps still being played out, and it is already tuned to the session's rate.
+        std::mem::swap(&mut self.apu.synth, &mut session.apu.synth);
         // Swapped rather than rebuilt: the chain's contents are signal history, so carrying the
         // running one over keeps audio continuous across a restore instead of restarting the
         // filters mid-waveform. It is configured for the session's rate, which is what the three
