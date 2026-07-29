@@ -15,7 +15,6 @@ use std::f32::consts::{PI, TAU};
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
 pub enum FilterKind {
-    Identity,
     HighPass,
     LowPass,
 }
@@ -32,16 +31,6 @@ pub struct Iir {
 }
 
 impl Iir {
-    pub const fn identity() -> Self {
-        Self {
-            alpha: 0.0,
-            prev_output: 0.0,
-            prev_input: 0.0,
-            delta: 0.0,
-            kind: FilterKind::Identity,
-        }
-    }
-
     pub fn high_pass(sample_rate: f32, cutoff: f32) -> Self {
         let period = 1.0 / sample_rate;
         let cutoff_period = 1.0 / cutoff;
@@ -74,7 +63,6 @@ impl Iir {
     }
     pub fn output(&self) -> f32 {
         match self.kind {
-            FilterKind::Identity => self.prev_input,
             FilterKind::HighPass => self.alpha * self.prev_output + self.alpha * self.delta,
             FilterKind::LowPass => self.prev_output + self.alpha * self.delta,
         }
@@ -184,66 +172,33 @@ pub fn windowed_sinc_kernel(sample_rate: f32, cutoff: f32, window_size: usize) -
     normalize(kernel.into())
 }
 
-/// Represents a digital audio filter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub enum Filter {
-    Iir(Iir),
-    Fir(Fir),
-}
-
-impl Filter {
-    pub fn consume(&mut self, sample: f32) {
-        match self {
-            Filter::Iir(iir) => iir.consume(sample),
-            Filter::Fir(fir) => fir.consume(sample),
-        }
-    }
-    pub fn output(&self) -> f32 {
-        match self {
-            Filter::Iir(iir) => iir.output(),
-            Filter::Fir(fir) => fir.output(),
-        }
-    }
-}
-
-impl From<Iir> for Filter {
-    fn from(filter: Iir) -> Self {
-        Self::Iir(filter)
-    }
-}
-
-impl From<Fir> for Filter {
-    fn from(filter: Fir) -> Self {
-        Self::Fir(filter)
-    }
-}
-
-/// Represents a filter with a given sampling period.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct SampledFilter {
-    pub filter: Filter,
-    pub sample_period: f32,
-    pub period_counter: f32,
-}
-
-impl SampledFilter {
-    pub fn new(filter: impl Into<Filter>, sample_rate: f32) -> Self {
-        Self {
-            filter: filter.into(),
-            sample_period: 1.0 / sample_rate,
-            period_counter: 0.0,
-        }
-    }
-}
-
 /// Represents a chain of filters for a given [`NesRegion`].
+///
+/// The chain runs at two rates, not six. `low_pass` samples at the CPU clock rate, so it consumes
+/// every call; the four downstream stages all sample at the same intermediate rate, so one counter
+/// drives all four.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterChain {
     pub region: NesRegion,
+    /// One CPU cycle in seconds, which is what each [`FilterChain::consume`] adds to
+    /// `period_counter`.
     pub dt: f32,
-    pub filters: [SampledFilter; 6],
+    /// Seconds between intermediate-rate samples.
+    pub sample_period: f32,
+    /// Time accumulated toward the next intermediate-rate sample.
+    pub period_counter: f32,
+    /// Whether a sample has been consumed yet. See [`FilterChain::consume`].
+    pub primed: bool,
+    /// Anti-aliasing low-pass, at the CPU clock rate.
+    pub low_pass: Iir,
+    /// First-order high-pass at 90 Hz.
+    pub high_pass_90: Iir,
+    /// First-order high-pass at 440 Hz.
+    pub high_pass_440: Iir,
+    /// First-order low-pass at 14 kHz.
+    pub low_pass_14k: Iir,
+    /// High-quality windowed-sinc low-pass, the chain's output.
+    pub fir: Fir,
 }
 
 impl FilterChain {
@@ -252,63 +207,61 @@ impl FilterChain {
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
         let intermediate_cutoff = output_rate * 0.4;
 
-        let filters = [
-            SampledFilter::new(Iir::identity(), 1.0),
-            SampledFilter::new(Iir::low_pass(clock_rate, intermediate_cutoff), clock_rate),
-            // first-order high-pass filter at 90 Hz
-            SampledFilter::new(
-                Iir::high_pass(intermediate_sample_rate, 90.0),
-                intermediate_sample_rate,
-            ),
-            // first-order high-pass filter at 440 Hz
-            SampledFilter::new(
-                Iir::high_pass(intermediate_sample_rate, 440.0),
-                intermediate_sample_rate,
-            ),
-            // first-order low-pass filter at 14 kHz
-            SampledFilter::new(
-                Iir::low_pass(intermediate_sample_rate, 14000.0),
-                intermediate_sample_rate,
-            ),
-            // TODO: Support famicom filter selection
-            // // first-order high-pass filter at 37 Hz
-            // filters.push(SampledFilter::new(
-            //     Iir::high_pass(intermediate_sample_rate, 37.0),
-            //     intermediate_sample_rate,
-            // ));
-            // high-quality low-pass filter
-            {
-                let window_size = 160;
-                let intermediate_cutoff = output_rate * 0.45;
-                SampledFilter::new(
-                    Fir::low_pass(intermediate_sample_rate, intermediate_cutoff, window_size),
-                    intermediate_sample_rate,
-                )
-            },
-        ];
-
+        // TODO: Support famicom filter selection
+        // // first-order high-pass filter at 37 Hz
+        // Iir::high_pass(intermediate_sample_rate, 37.0),
         Self {
             region,
             dt: 1.0 / clock_rate,
-            filters,
+            sample_period: 1.0 / intermediate_sample_rate,
+            period_counter: 0.0,
+            primed: false,
+            low_pass: Iir::low_pass(clock_rate, intermediate_cutoff),
+            high_pass_90: Iir::high_pass(intermediate_sample_rate, 90.0),
+            high_pass_440: Iir::high_pass(intermediate_sample_rate, 440.0),
+            low_pass_14k: Iir::low_pass(intermediate_sample_rate, 14000.0),
+            fir: {
+                let window_size = 160;
+                let cutoff = output_rate * 0.45;
+                Fir::low_pass(intermediate_sample_rate, cutoff, window_size)
+            },
         }
     }
+
+    /// Consume one CPU cycle's mixed output.
+    ///
+    /// The hot path is a compare and an add: the intermediate stages are due about once every 19
+    /// cycles at a 48 kHz output rate, and only then is anything past `low_pass` touched.
     pub fn consume(&mut self, sample: f32) {
-        // Add sample to identity filter
-        self.filters[0].filter.consume(sample);
-        for i in 1..self.filters.len() {
-            let prev = i - 1;
-            let current = i;
-            while self.filters[current].period_counter >= self.filters[current].sample_period {
-                self.filters[current].period_counter -= self.filters[current].sample_period;
-                let prev_output = self.filters[prev].filter.output();
-                self.filters[current].filter.consume(prev_output);
-            }
-            self.filters[current].period_counter += self.dt;
+        // The clock-rate stage used to be driven by a counter of its own whose period was exactly
+        // `dt`, so it fired on every call but the first. `primed` keeps that: the stages are
+        // recursive, so feeding a fresh chain one extra leading sample shifts every sample after
+        // it, and the rewrite was verified bit-identical to the six-counter chain it replaced.
+        if self.primed {
+            self.low_pass.consume(sample);
+        } else {
+            self.primed = true;
         }
+
+        // `while` rather than `if` only for an output rate high enough to make the intermediate
+        // period shorter than a CPU cycle, which no supported rate is.
+        while self.period_counter >= self.sample_period {
+            self.period_counter -= self.sample_period;
+            self.resample();
+        }
+        self.period_counter += self.dt;
     }
+
+    /// Run the intermediate-rate stages, each consuming the one above it.
+    fn resample(&mut self) {
+        self.high_pass_90.consume(self.low_pass.output());
+        self.high_pass_440.consume(self.high_pass_90.output());
+        self.low_pass_14k.consume(self.high_pass_440.output());
+        self.fir.consume(self.low_pass_14k.output());
+    }
+
     pub fn output(&self) -> f32 {
-        self.filters.last().map_or(0.0, |f| f.filter.output())
+        self.fir.output()
     }
 }
 
