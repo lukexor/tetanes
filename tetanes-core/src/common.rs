@@ -239,9 +239,10 @@ pub(crate) mod tests {
         fmt::Write,
         fs::{self, File},
         hash::{Hash, Hasher},
-        io::{BufReader, Read},
+        io::{self, BufReader, Read},
         path::{Path, PathBuf},
         sync::OnceLock,
+        time::{Duration, Instant},
     };
     use tracing::debug;
 
@@ -450,6 +451,52 @@ pub(crate) mod tests {
             let playing = deck.bus().apu.pulse1.length.counter > 0;
             self.count += u32::from(playing && !self.playing);
             self.playing = playing;
+        }
+    }
+
+    /// Serializes `UPDATE_SNAPSHOT` writes to one `tests.json` across processes.
+    ///
+    /// `tests.json` is per *directory* and holds every ROM in the group, and nextest runs each
+    /// test in its own process, so two tests in one directory that both need re-snapshotting will
+    /// read, mutate and write the same file concurrently. Last writer wins, and the losers still
+    /// report `PASS` - they did record their update, seconds before it was overwritten. Updating
+    /// four `apu` tests in parallel wrote exactly one of them, silently.
+    ///
+    /// A lock file rather than `File::lock`, which is stable only from 1.89 against an MSRV of
+    /// 1.88, and rather than a mutex, which would not span processes. `create_new` is atomic on
+    /// every platform this builds for.
+    struct SnapshotLock(PathBuf);
+
+    impl SnapshotLock {
+        fn acquire(test_file: &Path) -> anyhow::Result<Self> {
+            let path = test_file.with_extension("json.lock");
+            let deadline = Instant::now() + Duration::from_secs(60);
+            loop {
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                {
+                    Ok(_) => return Ok(Self(path)),
+                    Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                        anyhow::ensure!(
+                            Instant::now() < deadline,
+                            "timed out waiting for {path:?}. If no test run is in progress, a \
+                             previous one was killed before it could clean up - delete the file."
+                        );
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(err) => {
+                        return Err(err).with_context(|| format!("failed to lock {path:?}"));
+                    }
+                }
+            }
+        }
+    }
+
+    impl Drop for SnapshotLock {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
         }
     }
 
@@ -677,7 +724,7 @@ pub(crate) mod tests {
             debug!("{} - {:?}", test_frame.number, deck.joypad_mut(Player::One));
 
             while deck.frame_number() < test_frame.number {
-                deck.clock_frame().expect("valid frame clock");
+                let _ = deck.clock_frame().expect("valid frame clock");
                 tones.observe(&deck);
                 deck.joypad_mut(Player::One).reset(ResetKind::Soft);
                 deck.joypad_mut(Player::Two).reset(ResetKind::Soft);
@@ -746,13 +793,21 @@ pub(crate) mod tests {
             );
         }
         if update_required {
-            File::create(&test_file)
-                .context("failed to open rom test file")
-                .and_then(|file| {
-                    serde_json::to_writer_pretty(file, &tests)
-                        .context("failed to serialize rom data")
-                })
-                .with_context(|| format!("failed to update snapshot: {test_file:?}"))?
+            // Write back only *this* ROM's entry, merged into whatever is on disk now. `tests` was
+            // read when this test started, so it is stale by however long the run took: another
+            // test in this directory may have recorded its own snapshot in the meantime, and this
+            // file holds the whole group. See [`SnapshotLock`] for why the merge is also locked.
+            let updated = test.clone();
+            let _lock = SnapshotLock::acquire(&test_file)?;
+            let (_, mut latest) = get_rom_tests(directory)?;
+            match latest.iter_mut().find(|other| other.name == updated.name) {
+                Some(entry) => *entry = updated,
+                None => latest.push(updated),
+            }
+            let json =
+                serde_json::to_string_pretty(&latest).context("failed to serialize rom data")?;
+            fs::write(&test_file, json)
+                .with_context(|| format!("failed to update snapshot: {test_file:?}"))?;
         }
 
         Ok(())

@@ -113,6 +113,24 @@ category = "Development"
 command = "cargo"
 args = ["nextest", "run", "--locked", "--all-features", "--no-fail-fast", "${@}"]
 
+# `--test-threads=1` is not a preference, it is required for correctness.
+#
+# `tests.json` is per *directory* and holds every ROM in that group, and the harness writes the
+# whole file back. nextest runs each test in its own process, so two tests in one directory that
+# both need re-snapshotting read, mutate and write the same file concurrently - last writer wins,
+# and the losers still report `PASS` because they did record their update before it was
+# overwritten. Re-snapshotting four `apu` tests in parallel wrote exactly one of them.
+[tasks.update-snapshots]
+description = "Re-record ROM test snapshots (serialized; see the comment in Makefile.toml)"
+category = "Development"
+command = "cargo"
+args = [
+  "nextest", "run", "--locked", "--all-features", "--no-fail-fast",
+  "--test-threads", "1", "${@}",
+]
+[tasks.update-snapshots.env]
+UPDATE_SNAPSHOT = "1"
+
 [tasks.run]
 description = "Run TetaNES in release mode"
 category = "Development"

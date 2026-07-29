@@ -43,7 +43,7 @@ Only `tetanes-core` has tests; the `tetanes` crate has none (its CI job is comme
 cargo nextest run -p tetanes-core --all-features           # everything
 cargo nextest run -p tetanes-core nestest                  # substring filter for one test
 cargo nextest run -p tetanes-core common::tests::cpu::     # a whole ROM-test group
-UPDATE_SNAPSHOT=1 cargo nextest run -p tetanes-core <test> # rewrite expected frame hashes
+cargo make update-snapshots -- <test>                      # rewrite expected frame hashes
 ```
 
 Most tests are **ROM snapshot tests**. The harness lives in `tetanes-core/src/common.rs` (`mod tests`):
@@ -51,8 +51,10 @@ the `test_roms!` macro declares one `#[test]` per named ROM, expectations come f
 `test_roms/<dir>/tests.json` (frame number → frame-buffer or audio hash, plus optional `Action`s to
 inject), and rendered PNGs land in `tetanes-core/test_results/{pass,fail}/`. Adding a ROM test means
 adding the ROM + a `tests.json` entry + a name in the relevant `test_roms!` invocation at the bottom
-of `common.rs`. `UPDATE_SNAPSHOT=1` rewrites `tests.json` in place — only use it when a hash change is
-intentional and the resulting PNG has been eyeballed.
+of `common.rs`. `cargo make update-snapshots` rewrites `tests.json` in place — only use it when a
+hash change is intentional and the resulting PNG has been eyeballed. It is `UPDATE_SNAPSHOT=1` plus
+`--test-threads=1`; the harness merges its own entry into the file under a lock either way, so the
+raw env var is safe too, but serialising keeps the diff readable.
 
 Commit messages follow Conventional Commits (`cliff.toml` / release-plz generate the changelog and
 releases from them).
