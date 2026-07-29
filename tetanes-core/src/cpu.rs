@@ -331,7 +331,7 @@ impl Bus {
     ///
     /// Every restore path - save states, rewind, run-ahead - goes through here, and it is what
     /// puts back what a state must not carry: the cart's ROM, copied in from the running console,
-    /// the attached debugger, and the player's settings (see [`Bus::keep_session_settings`]).
+    /// the attached debugger, and the player's settings (see `Bus::keep_session_settings`).
     ///
     /// # Errors
     ///
@@ -356,13 +356,13 @@ impl Bus {
     /// with the machine rewinds the player's settings too.
     ///
     /// That was not cosmetic. Emulation speed is split across two fields - `ControlDeck` counts
-    /// how many NES frames to clock, while [`Apu::speed`] stretches the sample period - and only
+    /// how many NES frames to clock, while [`Apu::speed`](crate::apu::Apu::speed) stretches the sample period - and only
     /// the second is inside `Bus`. Rewinding past a stretch of fast-forward therefore left the APU
     /// at 2x while the deck clocked at 1x, so half the expected samples were produced per frame,
     /// the audio queue never filled, and a frontend pacing itself against that queue never waited.
     /// Fast-forward appeared to switch itself back on and stick.
     ///
-    /// Deliberately *not* included is [`NesRegion`](crate::common::NesRegion): unlike these, it
+    /// Deliberately *not* included is [`NesRegion`]: unlike these, it
     /// changes what the machine is, and every counter in the state was produced under the region
     /// the state carries. A state is restored with the region it was recorded at, and
     /// [`ControlDeck::set_region`](crate::control_deck::ControlDeck::set_region) is what changes

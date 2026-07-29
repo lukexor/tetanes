@@ -353,13 +353,13 @@ impl State {
     ///
     /// The speed rule is not here: `ControlDeck` applies run-ahead only at 1x on its own, since
     /// speculating past the current frame only means anything when a display frame is one frame.
-    fn update_run_ahead(&mut self) {
+    const fn update_run_ahead(&mut self) {
         self.control_deck
             .set_run_ahead(if self.rewinding { 0 } else { self.run_ahead });
     }
 
     /// Start or stop rewinding, keeping run-ahead in step with it.
-    fn set_rewinding(&mut self, rewinding: bool) {
+    const fn set_rewinding(&mut self, rewinding: bool) {
         self.rewinding = rewinding;
         self.update_run_ahead();
     }

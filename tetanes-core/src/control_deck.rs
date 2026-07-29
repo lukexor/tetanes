@@ -1668,12 +1668,12 @@ mod tests {
             let mut ahead = spritecans();
             run(&mut ahead, 30);
             ahead.set_run_ahead(run_ahead);
-            ahead.clock_frame().expect("clocks ahead");
+            let _ = ahead.clock_frame().expect("clocks ahead");
             ahead.set_run_ahead(0);
 
             let mut plain = spritecans();
             run(&mut plain, 30);
-            plain.clock_frame().expect("clocks");
+            let _ = plain.clock_frame().expect("clocks");
 
             assert_eq!(
                 run(&mut ahead, 30),
@@ -1695,12 +1695,12 @@ mod tests {
             let mut ahead = spritecans();
             run(&mut ahead, 30);
             ahead.set_run_ahead(run_ahead);
-            ahead.clock_frame().expect("clocks ahead");
+            let _ = ahead.clock_frame().expect("clocks ahead");
 
             let mut expected = spritecans();
             run(&mut expected, 30);
             for _ in 0..=run_ahead {
-                expected.clock_frame().expect("clocks");
+                let _ = expected.clock_frame().expect("clocks");
             }
 
             let mut hasher = DefaultHasher::new();
@@ -1734,7 +1734,7 @@ mod tests {
     #[test]
     fn audio_samples_do_not_accumulate_across_frames() {
         let mut deck = spritecans();
-        deck.clock_frame().expect("clocks");
+        let _ = deck.clock_frame().expect("clocks");
         let one_frame = deck.audio_samples().len();
         assert!(one_frame > 0, "a frame should produce audio");
 
@@ -1743,7 +1743,7 @@ mod tests {
         // rules out is the old behavior, where frame 60 would hold 60 frames of audio.
         let mut max = 0;
         for _ in 0..60 {
-            deck.clock_frame().expect("clocks");
+            let _ = deck.clock_frame().expect("clocks");
             max = max.max(deck.audio_samples().len());
         }
         assert!(
@@ -1758,11 +1758,11 @@ mod tests {
     fn audio_samples_accumulate_when_opted_out() {
         let mut deck = spritecans();
         deck.set_clear_audio_on_clock(false);
-        deck.clock_frame().expect("clocks");
+        let _ = deck.clock_frame().expect("clocks");
         let one_frame = deck.audio_samples().len();
 
         for _ in 0..9 {
-            deck.clock_frame().expect("clocks");
+            let _ = deck.clock_frame().expect("clocks");
         }
         assert!(
             deck.audio_samples().len() > one_frame * 9,
