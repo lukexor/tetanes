@@ -555,6 +555,10 @@ impl ControlDeck {
             | Mapper::BandaiFCG(_)
             | Mapper::JalecoSs88006(_)
             | Mapper::Namco163(_)
+            // VRC2/VRC4 needs no user-selected revision despite being nine boards over four mapper
+            // numbers: a submapper names one outright, and without one the board decodes the union
+            // of the candidates' address lines.
+            | Mapper::Vrc24(_)
             | Mapper::Vrc6(_)
             | Mapper::Bnrom(_)
             | Mapper::Nina001(_)

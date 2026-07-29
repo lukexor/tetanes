@@ -143,6 +143,7 @@ pub use mmc1::{Mmc1, Revision as Mmc1Revision};
 pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 // `boards!` re-exports each board type itself; a board module exporting anything *else* publicly -
 // so far only a revision enum - lists it here.
+pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
 pub use m071_bf909x::Revision as Bf909Revision;
 
@@ -589,6 +590,8 @@ boards! {
     },
     /// `Namco163` (Mappers 019, 210)
     Namco163(Box<Namco163>) = 19 in m019_namco163 { 19 | 210 => Namco163::load(cart) },
+    /// `VRC2`/`VRC4` (Mappers 021, 022, 023, 025)
+    Vrc24(Vrc24) = 21 in m021_vrc24 { 21 | 22 | 23 | 25 => Vrc24::load(cart) },
     /// `VRC6` (Mappers 024, 026)
     Vrc6(Box<Vrc6>) = 24 in m024_m026_vrc6 {
         24 => Vrc6::load(cart, Vrc6Revision::A),

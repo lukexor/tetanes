@@ -26,6 +26,15 @@ impl VrcIrq {
         self.reload = val;
     }
 
+    /// VRC4 splits the reload value across two registers, low nibble first.
+    pub const fn write_reload_lo(&mut self, val: u8) {
+        self.reload = (self.reload & 0xF0) | (val & 0x0F);
+    }
+
+    pub const fn write_reload_hi(&mut self, val: u8) {
+        self.reload = (self.reload & 0x0F) | ((val & 0x0F) << 4);
+    }
+
     pub const fn write_control(&mut self, val: u8) {
         self.enabled_after_ack = val & 0x01 == 0x01;
         self.enabled = val & 0x02 == 0x02;
