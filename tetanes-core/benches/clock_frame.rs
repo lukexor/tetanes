@@ -36,6 +36,12 @@
 //! **Baselines recorded in `README.md` before 2026-07 excluded the filter**, and so are comparable
 //! to `TETANES_BENCH_NO_OUTPUT=1` runs, not to the current default.
 //!
+//! `TETANES_BENCH_NO_AUDIO=1` sets `HeadlessMode::NO_AUDIO`, which makes `Apu::process_outputs`
+//! return early and so skips the mixing tables and the filter chain. It does **not** skip channel
+//! clocking - the channels still tick, the DMC still steals CPU cycles, and emulation is
+//! unchanged - so this isolates the cost of turning channel state into samples, not the cost of
+//! the APU as a whole.
+//!
 //! `TETANES_BENCH_RUN_AHEAD=n` clocks with run-ahead enabled, which costs a console snapshot and
 //! `n` extra frames per call. Off by default so the recorded baselines stay comparable.
 
@@ -80,6 +86,14 @@ fn bench_output() -> bool {
     std::env::var_os("TETANES_BENCH_NO_OUTPUT").is_none()
 }
 
+/// Whether to skip audio mixing (`Apu::process_outputs`), leaving channel clocking intact.
+///
+/// Off by default. Useful for splitting the APU's frame-time share into "producing channel state"
+/// versus "turning that state into samples", which are separate optimization targets.
+fn bench_no_audio() -> bool {
+    std::env::var_os("TETANES_BENCH_NO_AUDIO").is_some()
+}
+
 /// Timing results for a single ROM.
 struct Report {
     name: String,
@@ -98,12 +112,14 @@ fn main() {
     let iterations = env_or("TETANES_BENCH_ITERS", ITERATIONS);
     let warmup = env_or("TETANES_BENCH_WARMUP", WARMUP_FRAMES as usize) as u32;
     let output = bench_output();
+    let no_audio = bench_no_audio();
     let run_ahead = env_or("TETANES_BENCH_RUN_AHEAD", 0);
 
     println!(
-        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}{}\n",
+        "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}{}{}\n",
         roms.len(),
         if output { ", +frame_buffer" } else { "" },
+        if no_audio { ", no audio mixing" } else { "" },
         if run_ahead > 0 {
             format!(", run_ahead {run_ahead}")
         } else {
@@ -114,7 +130,7 @@ fn main() {
     let mut reports = Vec::with_capacity(roms.len());
     let mut skipped = Vec::new();
     for rom in &roms {
-        match bench_rom(rom, frames, iterations, warmup, output, run_ahead) {
+        match bench_rom(rom, frames, iterations, warmup, output, no_audio, run_ahead) {
             Ok(report) => reports.push(report),
             // Sweeping a whole library will turn up boards this emulator does not implement yet.
             // Report them rather than aborting the run.
@@ -168,6 +184,7 @@ fn bench_rom(
     iterations: usize,
     warmup: u32,
     output: bool,
+    no_audio: bool,
     run_ahead: usize,
 ) -> Result<Report, String> {
     let name = path
@@ -187,6 +204,11 @@ fn bench_rom(
             // Deterministic RAM so runs are comparable.
             ram_state: RamState::AllZeros,
             run_ahead,
+            headless_mode: if no_audio {
+                HeadlessMode::NO_AUDIO
+            } else {
+                HeadlessMode::empty()
+            },
             ..Default::default()
         });
         let mut rom = File::open(path).map_err(|err| err.to_string())?;
@@ -223,7 +245,7 @@ fn bench_rom(
 fn run_frames(deck: &mut ControlDeck, frames: u32, output: bool) {
     if output {
         for _ in 0..frames {
-            black_box(deck.clock_frame()).expect("valid frame clock");
+            let _ = black_box(deck.clock_frame()).expect("valid frame clock");
             // `clock_frame` leaves the frame unfiltered; reading it is what pulls in
             // `Video::apply_filter`, which is the cost this mode exists to measure.
             black_box(deck.frame_buffer().len());
@@ -231,7 +253,7 @@ fn run_frames(deck: &mut ControlDeck, frames: u32, output: bool) {
         return;
     }
     for _ in 0..frames {
-        black_box(deck.clock_frame()).expect("valid frame clock");
+        let _ = black_box(deck.clock_frame()).expect("valid frame clock");
     }
 }
 

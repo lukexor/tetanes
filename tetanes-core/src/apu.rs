@@ -106,7 +106,11 @@ pub struct Apu {
     pub dmc: Dmc,
     /// The high-pass/low-pass chain the mixed output is run through.
     pub filter_chain: FilterChain,
-    /// Per-cycle output of each channel, mixed in one pass when the block fills.
+    /// Per-cycle output of each channel, sampled in one pass when the block fills.
+    ///
+    /// Only the ~1 cycle in 20 that [`FilterChain`] samples is read, so the great majority of this
+    /// is written and never looked at. Removing it means the mixer asking a channel for its level
+    /// at an arbitrary cycle instead - see the delta-synthesis item in `tetanes-followups.md`.
     #[serde(skip, default = "Apu::default_channel_outputs")]
     pub channel_outputs: Box<[f32]>,
     /// Mixed samples produced since the last drain.
@@ -186,34 +190,56 @@ impl Apu {
     }
 
     /// Filter and mix audio sample based on region sampling rate.
+    ///
+    /// The filter chain samples at a little over twice the output rate - roughly one CPU cycle in
+    /// 20 - and nothing between two of its samples can reach its output, so only those cycles are
+    /// mixed. The rest are walked in one step, over which the chain's output is by definition
+    /// constant, so an output sample landing in the middle of one just repeats it.
     #[inline]
     pub fn process_outputs(&mut self) {
         if self.skip_mixing {
             return;
         }
 
-        for outputs in self
-            .channel_outputs
-            .chunks_exact(Self::MAX_CHANNEL_COUNT)
-            .take(self.master_clock as usize)
-        {
-            let [pulse1, pulse2, triangle, noise, dmc, mapper] = outputs else {
-                warn!("invalid channel outputs");
-                return;
+        let total = self.master_clock as usize;
+        let mut cycle = 0;
+        while cycle < total {
+            let step = match self.filter_chain.cycles_until_due() {
+                0 => {
+                    let base = cycle * Self::MAX_CHANNEL_COUNT;
+                    let mixed = match self
+                        .channel_outputs
+                        .get(base..base + Self::MAX_CHANNEL_COUNT)
+                    {
+                        Some(&[pulse1, pulse2, triangle, noise, dmc, mapper]) => {
+                            let pulse_idx = (pulse1 + pulse2) as usize;
+                            // Not `mul_add`: it guarantees a single rounding, so without hardware
+                            // FMA it lowers to a libm `fmaf` call. See `apu::filter::dot`.
+                            let tnd_idx = ((3.0 * triangle) + (2.0 * noise) + dmc) as usize;
+                            let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
+                            apu_output + self.mapper_enabled as u8 as f32 * mapper
+                        }
+                        _ => {
+                            warn!("invalid channel outputs");
+                            return;
+                        }
+                    };
+                    self.filter_chain.consume(mixed);
+                    1
+                }
+                due => {
+                    let step = due.min(total - cycle);
+                    self.filter_chain.skip(step);
+                    step
+                }
             };
-            let pulse_idx = (pulse1 + pulse2) as usize;
-            // Not `mul_add`: it guarantees a single rounding, so without hardware FMA it lowers to
-            // a libm `fmaf` call. See `apu::filter::dot`.
-            let tnd_idx = ((3.0 * triangle) + (2.0 * noise) + dmc) as usize;
-            let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-            let mapper_output = self.mapper_enabled as u8 as f32 * *mapper;
 
-            self.filter_chain.consume(apu_output + mapper_output);
-            self.sample_counter -= 1.0;
-            if self.sample_counter <= 1.0 {
+            self.sample_counter -= step as f32;
+            while self.sample_counter <= 1.0 {
                 self.audio_samples.push(self.filter_chain.output());
                 self.sample_counter += self.sample_period;
             }
+            cycle += step;
         }
     }
 

@@ -418,7 +418,15 @@ pub(crate) mod tests {
     fn profiles_match(expected: &[(u32, u32)], actual: &[(u32, u32)]) -> bool {
         expected.len() == actual.len()
             && expected.iter().zip(actual).all(|(want, got)| {
-                want.0.abs_diff(got.0) <= RMS_TOLERANCE && want.1.abs_diff(got.1) <= RATE_TOLERANCE
+                if want.0.abs_diff(got.0) > RMS_TOLERANCE {
+                    return false;
+                }
+                // A bucket whose RMS rounds to zero is silence, and a mean-crossing rate measured
+                // on silence counts the last bits of a decaying filter tail rather than a
+                // waveform: one sample either side of the mean is the difference between 0 Hz and
+                // 8 Hz. Comparing it churns the snapshots on changes nobody can hear, so a bucket
+                // with no signal in it is judged by its RMS alone.
+                want.0 == 0 && got.0 == 0 || want.1.abs_diff(got.1) <= RATE_TOLERANCE
             })
     }
 

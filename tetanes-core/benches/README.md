@@ -103,6 +103,40 @@ within noise and were kept for clarity rather than speed.
 after the FIR rewrite measured at or below noise. What remains is structural: `Ppu::clock` at ~32%
 and `FilterChain::consume` at ~12% both need design changes, not tweaks.
 
+### APU mixing: denormals and the per-cycle filter chain
+
+Recorded 2026-07-29. `--profile perf`, 5 iterations x 600 frames, `TETANES_BENCH_NO_OUTPUT=1`,
+interleaved A/B/C over three rounds. Two independent changes, measured separately because the
+second is only visible once the first is in:
+
+| build | geomean | delta |
+|---|---|---|
+| before | 2.762 | |
+| + denormal flush | 2.598 | **-5.9%** |
+| + mix only on the cycles the chain samples | 2.413 | **-12.6%** total |
+
+Per ROM, before -> after: spritecans 2.464 -> 2.176, Super Mario Bros. 2.594 -> 2.091, Zelda
+2.557 -> 2.242, SMB3 2.753 -> 2.304, Punch-Out!! 2.401 -> 2.130, Castlevania III 3.711 -> 3.410,
+Akumajou Densetsu 3.059 -> 2.787. With the NTSC filter on (the app's real path) 2.806 -> 2.488.
+
+**Denormals were the single largest line item in the APU, and were invisible in a time profile.**
+The 90 Hz high-pass decays ~0.1% per sample, so every time a game goes quiet the chain spends
+thousands of samples in the denormal range, and the FIR then multiplies all 161 taps of a ring full
+of them on every output sample. `perf stat -e fp_assist.any` reported **7.9M assists** in a
+1440-frame run at ~100 cycles each. Flushing anything under `1e-20` to zero took it to **0**.
+
+The mixing restructure is the more interesting measurement, because **instruction count and cycle
+count moved in opposite directions.** Mixing only on the ~1,470 cycles a frame where the filter
+chain actually samples, rather than all ~29,800, cut mixing from 20.6G to 3.9G instructions - a
+5.3x reduction - and *raised* cycles from 9.6G to 12.8G. IPC fell from 2.15 to 0.30. The per-cycle
+loop had been acting as latency-hiding filler for the FIR, and removing it exposed 49M denormal
+assists that the surrounding work had been absorbing. So the two changes are not additive by
+accident: **the restructure is a 20% regression without the denormal fix and a 6.5% win with it.**
+
+The lesson for the next round of this: on this workload `perf stat` counters are worth more than a
+flat profile. A profile said `FilterChain::consume` was 7.7% and `Fir::output` 1.3%; the truth was
+that the FIR was ~10x its apparent cost and the cost was microarchitectural.
+
 ### Page table vs `Banks` (historical)
 
 Measured with a `page_table` benchmark that has since been deleted along with `Banks` itself.
