@@ -464,6 +464,49 @@ impl std::fmt::Debug for Mixer {
     }
 }
 
+/// A gain envelope that ramps between silence and full playback over a couple of milliseconds.
+///
+/// Starting or stopping the stream by jumping straight to or from zero puts a step into the
+/// output, and a step is heard as a pop. Ramping removes it. The ramp is deliberately short: long
+/// enough that the discontinuity is gone, short enough that pausing still feels immediate.
+#[derive(Debug)]
+struct Fade {
+    gain: f32,
+    step: f32,
+}
+
+impl Fade {
+    /// How long a full ramp takes. Below roughly a millisecond the step starts to be audible
+    /// again; much above it and pausing feels like it lags.
+    const DURATION: Duration = Duration::from_millis(2);
+
+    fn new(sample_rate: u32, channels: u16) -> Self {
+        let samples = Self::DURATION.as_secs_f32() * sample_rate as f32 * f32::from(channels);
+        Self {
+            gain: 0.0,
+            step: samples.max(1.0).recip(),
+        }
+    }
+
+    /// Advance one sample toward `target` and return the gain to apply.
+    fn next(&mut self, target: f32) -> f32 {
+        self.gain = if self.gain < target {
+            (self.gain + self.step).min(target)
+        } else {
+            (self.gain - self.step).max(target)
+        };
+        self.gain
+    }
+
+    fn is_silent(&self) -> bool {
+        self.gain <= 0.0
+    }
+
+    const fn silence(&mut self) {
+        self.gain = 0.0;
+    }
+}
+
 impl Mixer {
     fn start(
         device: &cpal::Device,
@@ -602,13 +645,17 @@ impl Mixer {
         let mut primed = false;
         // What the ring last produced, for when it comes up short after that.
         let mut held = 0.0;
+        let mut fade = Fade::new(config.sample_rate, config.channels);
 
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
-                // Pausing must be heard immediately, so this drops what is queued rather than
-                // fading it out or playing it to the end.
-                if silenced.load(Ordering::Relaxed) {
+                let silenced = silenced.load(Ordering::Relaxed);
+
+                // Once the ramp has reached silence there is nothing left to play out, so drop
+                // what is queued: resuming re-primes from a full buffer rather than from whatever
+                // was mid-flight when the pause happened.
+                if silenced && fade.is_silent() {
                     consumer.clear();
                     held = 0.0;
                     primed = false;
@@ -616,7 +663,7 @@ impl Mixer {
                     return;
                 }
 
-                if !primed {
+                if !primed && !silenced {
                     if consumer.occupied_len() < sample_latency {
                         out.fill(T::from_sample(0.0));
                         return;
@@ -624,6 +671,7 @@ impl Mixer {
                     primed = true;
                 }
 
+                let target = if silenced { 0.0 } else { 1.0 };
                 let mut starved = true;
                 for sample in out.iter_mut() {
                     // An underrun decays the last value toward silence rather than stepping to
@@ -635,15 +683,15 @@ impl Mixer {
                         }
                         None => held * Self::UNDERRUN_DECAY,
                     };
-                    *sample = T::from_sample(held);
+                    *sample = T::from_sample(held * fade.next(target));
                 }
 
                 // A callback that got nothing at all is a stall rather than a marginal miss:
                 // occluded, or between ROMs. Prime again so playback resumes from a full ring
-                // instead of clawing its way out of an empty one. It costs nothing audible, since
-                // a starved callback has already run down to silence.
-                if starved {
+                // instead of clawing its way out of an empty one, and ramp back in when it does.
+                if starved && !silenced {
                     primed = false;
+                    fade.silence();
                 }
             },
             |err| error!("an error occurred on stream: {err}"),
@@ -676,5 +724,69 @@ impl Mixer {
             "processed: {processed_len}, queued: {queued_len}, buffer len: {}",
             self.producer.occupied_len()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 48 kHz stereo, the common case.
+    fn fade() -> Fade {
+        Fade::new(48_000, 2)
+    }
+
+    /// Pops on pause and resume are steps in the output, so what the envelope has to guarantee is
+    /// that it never takes one: every change in gain is bounded by a single ramp step.
+    #[test]
+    fn the_envelope_never_steps() {
+        let mut fade = fade();
+        let mut previous = fade.gain;
+        // Ramp in, sit at full, ramp out, sit at silence, ramp back in.
+        for (target, samples) in [(1.0, 500), (1.0, 100), (0.0, 500), (0.0, 100), (1.0, 500)] {
+            for _ in 0..samples {
+                let gain = fade.next(target);
+                // A hair over `step` for the rounding in the accumulation itself.
+                assert!(
+                    (gain - previous).abs() <= fade.step * 1.001,
+                    "stepped from {previous} to {gain}"
+                );
+                assert!((0.0..=1.0).contains(&gain), "gain left its range: {gain}");
+                previous = gain;
+            }
+        }
+    }
+
+    /// The ramp has to be short enough that pausing feels immediate. Its whole reason for existing
+    /// is that an instant cut pops, so this pins both ends of that trade.
+    #[test]
+    fn the_envelope_ramps_in_a_couple_of_milliseconds() {
+        for (rate, channels) in [(44_100, 1), (48_000, 2), (96_000, 2)] {
+            let mut fade = Fade::new(rate, channels);
+            let mut samples = 0;
+            while fade.next(1.0) < 1.0 {
+                samples += 1;
+                assert!(samples < 1_000_000, "ramp never completed");
+            }
+            let seconds = samples as f32 / (rate as f32 * f32::from(channels));
+            assert!(
+                (0.001..=0.004).contains(&seconds),
+                "{rate} Hz x{channels} ramped in {}ms",
+                seconds * 1000.0
+            );
+        }
+    }
+
+    /// Silencing has to be instant as a *state* even though the gain ramps, or a resume would
+    /// pick up the tail of whatever was playing before the pause.
+    #[test]
+    fn silencing_resets_the_envelope_to_zero() {
+        let mut fade = fade();
+        while fade.next(1.0) < 1.0 {}
+        assert!(!fade.is_silent());
+
+        fade.silence();
+        assert!(fade.is_silent(), "must report silence immediately");
+        assert_eq!(fade.next(1.0), fade.step, "and ramp back in from zero");
     }
 }
