@@ -3,10 +3,8 @@
 use crate::ppu::{self, Ppu};
 use serde::{Deserialize, Serialize};
 use std::{
-    f64::consts::PI,
     ops::{Index, IndexMut},
     slice::SliceIndex,
-    sync::OnceLock,
 };
 use thiserror::Error;
 
@@ -248,9 +246,8 @@ impl Video {
         frame_number: u32,
         output: &mut [u8; Frame::SIZE],
     ) {
-        // Hoisted out of the per-pixel loop: `get_or_init` is a one-time init check afterwards,
-        // and `even_phase` only depends on the frame parity, not the pixel.
-        let palette = NTSC_PALETTE.get_or_init(generate_ntsc_palette);
+        // Hoisted out of the per-pixel loop: `even_phase` only depends on the frame parity, not
+        // on the pixel.
         let even_phase = u32::from(frame_number & 0x01 != 0x01);
 
         let mut prev_color = 0;
@@ -259,23 +256,24 @@ impl Video {
         let mut phase = 0;
         for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;
-            let rgba = if x == 0 {
+            let entry = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
                 let y = (idx / 256) as u32;
                 phase = (2 + y * 341 + even_phase) % 3;
-                0
+                None
             } else {
                 phase = if phase == 2 { 0 } else { phase + 1 };
-                palette[phase as usize
+                let index = phase as usize
                     + ((prev_color & 0x3F) as usize) * 3
-                    + (*color as usize) * 3 * 64]
+                    + (*color as usize) * 3 * 64;
+                NTSC_PALETTE.get(index * 3..index * 3 + 3)
             };
             prev_color = u32::from(*color);
-            assert!(pixels.len() > 2);
-            pixels[0] = ((rgba >> 16) & 0xFF) as u8;
-            pixels[1] = ((rgba >> 8) & 0xFF) as u8;
-            pixels[2] = (rgba & 0xFF) as u8;
-            // Alpha should always be 255
+            // Alpha is left alone: `Frame::new` sets it to 255 and nothing here clears it.
+            match entry {
+                Some(rgb) => pixels[..3].copy_from_slice(rgb),
+                None => pixels[..3].fill(0),
+            }
         }
     }
 }
@@ -288,104 +286,16 @@ impl std::fmt::Debug for Video {
     }
 }
 
-/// The NTSC filter's lookup table, generated on first use.
-pub static NTSC_PALETTE: OnceLock<Vec<u32>> = OnceLock::new();
-fn generate_ntsc_palette() -> Vec<u32> {
-    // NOTE: There's lot's to clean up here -- too many magic numbers and duplication but
-    // I'm afraid to touch it now that it works
-    // Source: https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc
-    // https://wiki.nesdev.org/w/index.php/NTSC_video
-
-    // Calculate the luma and chroma by emulating the relevant circuits:
-    const VOLTAGES: [i32; 16] = [
-        -6, -69, 26, -59, 29, -55, 73, -40, 68, -17, 125, 11, 68, 33, 125, 78,
-    ];
-
-    let mut ntsc_palette = vec![0; 512 * 64 * 3];
-
-    // Helper functions for converting YIQ to RGB
-    let gamma = 1.8; // Assumed display gamma
-    let gammafix = |color: f64| {
-        if color <= 0.0 {
-            0.0
-        } else {
-            color.powf(2.2 / gamma)
-        }
-    };
-    let yiq_divider = f64::from(9 * 10u32.pow(6));
-    for palette_offset in 0..3 {
-        for channel in 0..3 {
-            for color0_offset in 0..512 {
-                let emphasis = color0_offset / 64;
-
-                for color1_offset in 0..64 {
-                    let mut y = 0;
-                    let mut i = 0;
-                    let mut q = 0;
-                    // 12 samples of NTSC signal constitute a color.
-                    for sample in 0..12 {
-                        let noise = (sample + palette_offset * 4) % 12;
-                        // Sample either the previous or the current pixel.
-                        // Use pixel=color0_offset to disable artifacts.
-                        let pixel = if noise < 5 - channel * 2 {
-                            color0_offset
-                        } else {
-                            color1_offset
-                        };
-
-                        // Decode the color index.
-                        let chroma = pixel & 0x0F;
-                        // Forces luma to 0, 4, 8, or 12 for easy lookup
-                        let luma = if chroma < 0x0E { (pixel / 4) & 12 } else { 4 };
-                        // NES NTSC modulator (square wave between up to four voltage levels):
-                        let limit = if (chroma + 8 + sample) % 12 < 6 {
-                            12
-                        } else {
-                            0
-                        };
-                        let high = if chroma > limit { 1 } else { 0 };
-                        let emp_effect = if (152_278 >> (sample / 2 * 3)) & emphasis > 0 {
-                            0
-                        } else {
-                            2
-                        };
-                        let level = 40 + VOLTAGES[high + emp_effect + luma];
-                        // Ideal TV NTSC demodulator:
-                        let (sin, cos) = (PI * sample as f64 / 6.0).sin_cos();
-                        y += level;
-                        i += level * (cos * 5909.0) as i32;
-                        q += level * (sin * 5909.0) as i32;
-                    }
-                    // Store color at subpixel precision
-                    let y = f64::from(y) / 1980.0;
-                    let i = f64::from(i) / yiq_divider;
-                    let q = f64::from(q) / yiq_divider;
-                    let idx = palette_offset + color0_offset * 3 * 64 + color1_offset * 3;
-                    match channel {
-                        2 => {
-                            let rgb =
-                                255.0 * gammafix(q.mul_add(0.623_557, i.mul_add(0.946_882, y)));
-                            ntsc_palette[idx] += 0x10000 * rgb.clamp(0.0, 255.0) as u32;
-                        }
-                        1 => {
-                            let rgb =
-                                255.0 * gammafix(q.mul_add(-0.635_691, i.mul_add(-0.274_788, y)));
-                            ntsc_palette[idx] += 0x00100 * rgb.clamp(0.0, 255.0) as u32;
-                        }
-                        0 => {
-                            let rgb =
-                                255.0 * gammafix(q.mul_add(1.709_007, i.mul_add(-1.108_545, y)));
-                            ntsc_palette[idx] += rgb.clamp(0.0, 255.0) as u32;
-                        }
-                        _ => (), // invalid channel
-                    }
-                }
-            }
-        }
-    }
-
-    ntsc_palette
-}
+/// The NTSC filter's lookup table: one red, green, blue triple per (phase, previous color, color).
+///
+/// Computed by `build.rs` from `src/video/ntsc_palette.rs` and baked in, rather than generated on
+/// first use.
+// It depends on nothing but constants, and the ~30 ms of `powf` and `sin_cos` it takes used to
+// land on whichever frame first turned the filter on. The length - 512 colors x 64 previous
+// colors x 3 phases, as triples - is spelled out rather than imported from the generator, which
+// `build.rs` owns; `ntsc_palette_matches_the_generator` asserts the two agree byte for byte.
+pub static NTSC_PALETTE: &[u8; 512 * 64 * 3 * 3] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/ntsc_palette.bin"));
 
 #[cfg(test)]
 mod tests {
@@ -431,19 +341,51 @@ mod tests {
         let mut prev_color = 0;
         for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
             let x = idx % 256;
-            let rgba = if x == 0 {
-                0
+            let rgb = if x == 0 {
+                [0, 0, 0]
             } else {
                 let y = idx / 256;
                 let even_phase = if frame_number & 0x01 == 0x01 { 0 } else { 1 };
                 let phase = (2 + y * 341 + x + even_phase) % 3;
-                NTSC_PALETTE.get_or_init(generate_ntsc_palette)
-                    [phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64]
+                let index = phase + ((prev_color & 0x3F) as usize) * 3 + (*color as usize) * 3 * 64;
+                [
+                    NTSC_PALETTE[index * 3],
+                    NTSC_PALETTE[index * 3 + 1],
+                    NTSC_PALETTE[index * 3 + 2],
+                ]
             };
             prev_color = u32::from(*color);
-            pixels[0] = ((rgba >> 16) & 0xFF) as u8;
-            pixels[1] = ((rgba >> 8) & 0xFF) as u8;
-            pixels[2] = (rgba & 0xFF) as u8;
+            pixels[..3].copy_from_slice(&rgb);
+        }
+    }
+
+    /// The generator `build.rs` runs, so the baked table can be held to what it produces. The
+    /// crate itself never runs it - that is the whole point of baking the table.
+    mod generator {
+        include!("video/ntsc_palette.rs");
+    }
+
+    /// The table shipped in the binary has to be the one `src/video/ntsc_palette.rs` describes:
+    /// nothing else in the suite would notice `build.rs` writing a stale or truncated file, since
+    /// every other test compares the filter against itself.
+    #[test]
+    fn ntsc_palette_matches_the_generator() {
+        let expected = generator::generate_ntsc_palette();
+
+        assert_eq!(
+            NTSC_PALETTE.len(),
+            generator::NTSC_PALETTE_LEN * 3,
+            "baked table is not `NTSC_PALETTE_LEN` triples"
+        );
+        assert_eq!(NTSC_PALETTE.len(), expected.len());
+        for (i, (actual, expected)) in NTSC_PALETTE.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                actual,
+                expected,
+                "byte {i} (entry {}, channel {})",
+                i / 3,
+                i % 3
+            );
         }
     }
 

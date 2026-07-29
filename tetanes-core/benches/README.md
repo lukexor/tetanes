@@ -560,3 +560,69 @@ and the worktree number was a first run after the rebuild that switching commits
 **So: run the benchmark twice and use the second.** Every A/B in this file stands, because both sides
 of each comparison were measured the same way - but the explanation previously given for the
 discrepancy did not.
+
+### The APU filter chain, two rates instead of six (2026-07-28)
+
+`FilterChain::consume` runs once per CPU cycle - ~1.79 M/s - and was the second largest line item
+in the profile at 13.1%. It walked all six `SampledFilter` entries every call, comparing and
+advancing each one's own `period_counter`, with the filter data inline between them.
+
+Five of those six counters were doing one counter's work. Stage 1's period is exactly `dt`, so it
+fires every cycle; stages 2-5 are all constructed at the *same* intermediate rate, so their
+counters hold identical values for the life of the chain and always fire together. The rewrite
+keeps one counter for the intermediate rate, calls stage 1 unconditionally, and drops the `Filter`
+enum, `SampledFilter` and `FilterKind::Identity` with it.
+
+Interleaved A/B, `--profile perf`, `taskset -c 0`, first round of each session discarded, and any
+ROM reporting above 2% cv dropped as the methodology above requires (three measurements out of 84):
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 2.566 | 2.446 | -4.7% |
+| Super Mario Bros. | 000 NROM | 2.610 | 2.536 | -2.8% |
+| Legend of Zelda | 001 MMC1 | 2.593 | 2.524 | -2.6% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.854 | 2.759 | -3.3% |
+| Punch-Out!! | 009 MMC2 | 2.544 | 2.445 | -3.9% |
+| Castlevania III | 005 MMC5 | 3.741 | 3.710 | -0.8% |
+| Akumajou Densetsu | 024 VRC6 | 3.147 | 3.055 | -2.9% |
+| **geometric mean** | | **2.838** | **2.753** | **-3.0%** |
+
+Six interleaved pairs at 3 iterations. A second session of three pairs at 5 iterations, run first,
+gave **-3.9%** (2.865 -> 2.752), and with the filter on (`frame_buffer` in the timed loop) **-2.2%**
+(2.882 -> 2.818). **All 21 ROM-level comparisons across the three configurations moved the same
+direction**, which is what carries the result - this machine was unusually noisy that day, the
+*same* build ranging 2.801 to 2.932 across rounds, so no single pair is worth much on its own.
+
+The absolute saving is ~0.09 ms/frame and is roughly constant across boards, which is what a change
+to a per-CPU-cycle cost that every board pays equally should look like. That is why MMC5 moves least
+in percentage terms: the same saving against a frame 30% longer.
+
+Verified bit-identical to the six-counter chain before landing - 3 regions x 2 output rates x 60k
+cycles compared on `f32::to_bits` - and the check was negative-tested: dropping the one-sample
+warmup quirk (the old stage-1 counter starts empty, so it skips its first call) diverges at cycle
+19 and never reconverges, since the stages are recursive. The reference chain was deleted once it
+had done that job; it is in the history of this commit if it is ever needed again.
+
+### Baking the NTSC palette at build time (same commit)
+
+`generate_ntsc_palette` cost **~34 ms** of `powf` and `sin_cos`, paid lazily by whichever frame
+first used the NTSC filter. It showed up in the profile as 0.52% of a 6.5 s run - i.e. entirely
+one-time, but landing as a hitch the moment the filter is switched on. `build.rs` now computes it.
+
+Frame time is unaffected and cannot be otherwise: the benchmark's 120 untimed warmup frames absorb
+the init even in the old build. The pixel loop did change - the table is stored as RGB triples
+rather than `u32`, so the loop copies three bytes instead of loading four and shifting - and that
+measured neutral, inside the noise of the numbers above.
+
+The cost is binary size. Measured on the bench binary: `.rodata` +294,560 B for the table, `.text`
+-5,062 B for the generator, **net +289 KB**.
+
+| the 288 KiB table | bytes |
+|---|---|
+| raw | 294,912 |
+| gzip -9 | 166,038 |
+| brotli -11 | 117,397 |
+
+Worth knowing for the wasm build: **do not pre-compress the blob in the binary**. A deflated table
+embedded in the wasm is ~166 KB over the wire, where shipping it raw and letting the transport
+compress is ~117 KB - the transport does a better job than an inner layer it can no longer squeeze.
