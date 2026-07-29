@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tetanes_core::{
-    cpu::Cpu,
+    bus::Bus,
     fs,
     input::{JoypadBtn, Player},
 };
@@ -15,7 +15,7 @@ use tracing::warn;
 use winit::event::ElementState;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct State((Cpu, Vec<ReplayFrame>));
+pub struct State((Bus, Vec<ReplayFrame>));
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ReplayEvent {
@@ -57,7 +57,7 @@ pub struct ReplayFrame {
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Record {
-    pub start: Option<Cpu>,
+    pub start: Option<Bus>,
     pub events: Vec<ReplayFrame>,
 }
 
@@ -66,8 +66,8 @@ impl Record {
         Self::default()
     }
 
-    pub fn start(&mut self, cpu: Cpu) {
-        self.start = Some(cpu);
+    pub fn start(&mut self, bus: Bus) {
+        self.start = Some(bus);
         self.events.clear();
     }
 
@@ -121,22 +121,22 @@ impl Replay {
     }
 
     /// Loads a replay recording file.
-    pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Cpu> {
+    pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Bus> {
         let path = path.as_ref();
-        let State((cpu, mut events)) = fs::load(path)?;
+        let State((bus, mut events)) = fs::load(path)?;
         events.reverse(); // So we can pop off the end
         self.events = events;
-        Ok(cpu)
+        Ok(bus)
     }
 
     /// Loads a replay from a reader.
-    pub fn load(&mut self, mut replay: impl Read) -> anyhow::Result<Cpu> {
+    pub fn load(&mut self, mut replay: impl Read) -> anyhow::Result<Bus> {
         let mut events = Vec::new();
         replay.read_to_end(&mut events)?;
-        let State((cpu, mut events)) = fs::load_bytes(&events)?;
+        let State((bus, mut events)) = fs::load_bytes(&events)?;
         events.reverse(); // So we can pop off the end
         self.events = events;
-        Ok(cpu)
+        Ok(bus)
     }
 
     pub fn next(&mut self, frame: u32) -> Option<EmulationEvent> {

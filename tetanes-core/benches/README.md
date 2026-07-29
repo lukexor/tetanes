@@ -43,6 +43,36 @@ dilutes the delta.
 > **Every baseline recorded below predates that default flipping (2026-07) and excluded the
 > filter.** Compare them against `TETANES_BENCH_NO_OUTPUT=1` runs, not against the current default.
 
+## Comparing two builds
+
+**A low `cv` within a run does not make two runs comparable.** Measured 2026-07-28 while A/B-ing the
+ownership flattening, on the 7-ROM corpus with `TETANES_BENCH_NO_OUTPUT=1`:
+
+| round | geometric mean |
+|---|---|
+| A run 1 | 2.949 |
+| B run 1 | 2.875 |
+| A run 2 | **2.860** |
+| B run 2 | 2.871 |
+
+A run 1 and A run 2 are **the same binary**, 3.1% apart, with every ROM reporting `cv` under 1.1%.
+The first run of a session is systematically slow - caches, CPU frequency ramp, whatever the machine
+was doing beforehand - and over a long session the whole machine drifts slower, so runs an hour
+apart are not comparable at all. Taking `before` and `after` as one run each produced a confident,
+entirely fictional 2.5% regression, and a plausible cache-line story to explain it.
+
+So, to compare two builds:
+
+1. **Build both first**, so no compile overlaps a measurement.
+2. **Interleave**: A, B, A, B. Never all of A then all of B.
+3. **Discard the first round.**
+4. Run nothing else - no test suite, no `cargo check` - while measuring. Compilation on other cores
+   perturbs a `taskset`-pinned run through turbo budget and memory bandwidth.
+5. Treat any ROM above ~2% `cv` in a round as an invalid data point for that round.
+
+Anything under ~1% between two interleaved builds is below this machine's noise floor; do not
+report it as a win or a loss.
+
 ## Reading the output
 
 A coefficient of variation (`cv`) under ~1% means the run is clean and a 2% change is real. If `cv`
@@ -433,8 +463,8 @@ own comment already said "save states only need `data[ram_start..]`" — but `Me
 ROM**.
 
 Hand-written `Serialize`/`Deserialize` now store the layout plus the RAM tail only, and
-`Cpu::load` — the single funnel every restore path goes through — copies the ROM back in from the
-console already running.
+`Cpu::load` — the single funnel every restore path goes through; since the ownership flattening it
+is `Bus::load_state` — copies the ROM back in from the console already running.
 
 | ROM | state before | state after | change |
 |---|---|---|---|

@@ -2,6 +2,14 @@
 //!
 //! <https://wiki.nesdev.org/w/index.php/CPU_memory_map>
 //!
+//! [`Bus`] owns the console: the CPU, PPU, APU, input and the cartridge's board, plus the work RAM
+//! and open-bus state it routes with. It is also the unit of emulated state - the whole of what a
+//! save state, a rewind frame and a run-ahead snapshot contain, and nothing else.
+//!
+//! Behavior that needs more than one component lives in an `impl Bus` block in the file that owns
+//! the state it reads: the CPU's in [`cpu`](crate::cpu), the instruction set's in
+//! [`instr`](crate::cpu::instr). Routing - what address reaches which component - is here.
+//!
 //! # Stability
 //!
 //! [`Bus`]'s fields are the emulation's internal wiring - the components it routes to, and the
@@ -14,11 +22,13 @@ use crate::{
     apu::{Apu, Channel},
     cart::Cart,
     common::{NesRegion, ResetKind},
+    cpu::Cpu,
+    debug::Debugger,
     fs,
     genie::GenieCode,
     input::{Input, Player},
     mapper::{Mapper, MapperOps},
-    memory::{ConstArray, RamState, Read, Write},
+    memory::{ConstArray, Memory, RamState},
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
@@ -57,8 +67,30 @@ use std::{collections::HashMap, path::Path};
 #[must_use]
 #[repr(C)]
 pub struct Bus {
+    /// Central Processing Unit registers and cycle counters. What the CPU *does* is an
+    /// `impl Bus` block in [`cpu`](crate::cpu), since every access moves the whole console.
+    pub cpu: Cpu,
     /// Picture Processing Unit.
     pub ppu: Ppu,
+    /// Which of a loaded board's optional hooks apply - whether it needs a per-cycle clock, can
+    /// raise an IRQ or DMA, produces audio, observes every PPU bus address (A12 scanline counters,
+    /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
+    /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
+    /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
+    /// test. *Derived* from [`Map::mapper_ops`](crate::mapper::Map::mapper_ops) and not
+    /// serialized: recomputed in `load_mapper` and `rebuild_mapper_state`. Writing it from outside
+    /// desynchronizes dispatch from the board that is actually loaded.
+    #[serde(skip)]
+    pub mapper_ops: MapperOps,
+    /// The cartridge's board.
+    ///
+    /// Placed after `ppu` deliberately: the PPU is the heaviest user (CHR and CIRAM fetches are
+    /// the hot path) but the CPU reaches PRG through it too, so it belongs to neither and sits
+    /// beside both. Keeping it after `ppu` also leaves `ppu` at the offset the pre-flattening
+    /// layout gave it.
+    pub mapper: Mapper,
+    /// Page-table addressed cartridge memory - every region a cart has.
+    pub memory: Memory,
     /// Audio Processing Unit.
     pub apu: Apu,
     /// Joypad and Zapper inputs.
@@ -78,6 +110,23 @@ pub struct Bus {
     pub ram_state: RamState,
     /// NES Region.
     pub region: NesRegion,
+    /// Whether a [`Debugger`] is attached, cached so the per-dot path can skip touching the
+    /// (cold) `debugger` field when nothing is attached.
+    #[serde(skip)]
+    pub debugger_active: bool,
+    /// Attached debugger, run at a chosen PPU dot.
+    // Don't save debug state
+    #[serde(skip)]
+    pub debugger: Debugger,
+    /// Scratch buffer for [`Bus::disassemble`], filled only while a debugger is attached.
+    ///
+    /// On `Bus` rather than `Cpu` because the disassembler is - it reads through the bus - which
+    /// also keeps `Cpu` a register file and nothing else. It was moved here on a layout argument
+    /// as well (a cold 24-byte `String` in the middle of the hot registers), but an interleaved
+    /// A/B could not measure a difference either way, so treat only the first reason as load
+    /// bearing.
+    #[serde(skip)]
+    pub disasm: String,
 }
 
 impl Default for Bus {
@@ -94,28 +143,49 @@ pub mod size {
 }
 
 impl Bus {
-    /// Creates a bus timed for `region`, with work RAM initialised per `ram_state`.
+    /// Creates a console timed for `region`, with work RAM initialised per `ram_state`.
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
             wram: Box::new(ConstArray::new()),
+            cpu: Cpu::new(region),
             ppu: Ppu::new(region),
+            mapper: Mapper::none(),
+            memory: Memory::default(),
+            mapper_ops: MapperOps::empty(),
             apu: Apu::new(region),
             input: Input::new(region),
             genie_codes: HashMap::new(),
             open_bus: 0x00,
             ram_state,
             region,
+            debugger: Debugger::default(),
+            debugger_active: false,
+            disasm: String::new(),
         }
     }
 
-    /// Installs a cart, handing its board and memory to the PPU.
+    /// Installs a cart: its board and every memory region it came with.
     pub fn load_cart(&mut self, cart: Cart) {
-        self.ppu.load_cart(cart.mapper, cart.memory);
+        self.memory = cart.memory;
+        self.load_mapper(cart.mapper);
     }
 
     /// Removes the cart, leaving the console with no board.
     pub fn unload_cart(&mut self) {
-        self.ppu.load_mapper(Mapper::default());
+        self.load_mapper(Mapper::default());
+    }
+
+    /// Copies the PPU's address space - `$0000-$2FFF`, banked and mirrored as it is right now -
+    /// into `dst`.
+    ///
+    /// The primitive a debugger needs to render CHR on another thread: page tables and the
+    /// board's synthesised reads are resolved here, so the copy is what the PPU would fetch and
+    /// the reader needs no knowledge of the board. Side-effect free, so it will not move an
+    /// MMC2 CHR latch or an MMC3 A12 counter.
+    pub fn copy_ppu_bus(&self, dst: &mut [u8]) {
+        for (addr, byte) in dst.iter_mut().enumerate().take(0x3000) {
+            *byte = self.chr_peek(addr as u16);
+        }
     }
 
     /// The console's 2K of work RAM.
@@ -173,12 +243,12 @@ impl Bus {
     /// Clocks everything the CPU's cycle drives: the board, the APU, input and the PPU.
     #[inline(always)]
     pub fn cpu_clock(&mut self) {
-        let ops = self.ppu.mapper_ops;
+        let ops = self.mapper_ops;
         if ops.intersects(MapperOps::CLOCKED) {
-            self.ppu.mapper.clock();
+            self.mapper.clock();
         }
         let output = if ops.intersects(MapperOps::AUDIO) {
-            self.ppu.mapper.output()
+            self.mapper.output()
         } else {
             0.0
         };
@@ -188,8 +258,12 @@ impl Bus {
     }
 }
 
-impl Read for Bus {
-    fn read(&mut self, addr: u16) -> u8 {
+impl Bus {
+    /// Route a read to whichever component owns `addr`, without moving the console.
+    ///
+    /// This is the address decode alone. [`Bus::read`] is what an instruction calls: it spends a
+    /// CPU cycle - clocking the PPU, APU and board - and then comes through here.
+    pub fn cpu_bus_read(&mut self, addr: u16) -> u8 {
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
             0x2008..=0x3FFF => addr & 0x2007,
@@ -199,17 +273,16 @@ impl Read for Bus {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
                 let val = self
-                    .ppu
                     .mapper_ops
                     .intersects(MapperOps::SERVES_PRG_READS)
-                    .then(|| self.ppu.mapper.prg_read(addr))
+                    .then(|| self.mapper.prg_read(addr))
                     .flatten()
-                    .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));
+                    .unwrap_or_else(|| self.memory.prg_peek(addr));
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oamdata(),
-            0x2007 => self.ppu.read_data(),
+            0x2007 => self.read_data(),
             0x4015 => self.apu.read_status(),
             0x4016 => self.input.read(Player::One, &self.ppu),
             0x4017 => self.input.read(Player::Two, &self.ppu),
@@ -219,7 +292,9 @@ impl Read for Bus {
         self.open_bus
     }
 
-    fn peek(&self, addr: u16) -> u8 {
+    /// Route a read to whichever component owns `addr`, with no side effects at all.
+    #[must_use]
+    pub fn cpu_bus_peek(&self, addr: u16) -> u8 {
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
             0x2008..=0x3FFF => addr & 0x2007,
@@ -229,17 +304,16 @@ impl Read for Bus {
             0x0000..=0x07FF => self.wram[usize::from(addr)],
             0x4100..=0xFFFF => {
                 let val = self
-                    .ppu
                     .mapper_ops
                     .intersects(MapperOps::SERVES_PRG_READS)
-                    .then(|| self.ppu.mapper.prg_peek(addr))
+                    .then(|| self.mapper.prg_peek(addr))
                     .flatten()
-                    .unwrap_or_else(|| self.ppu.memory.prg_peek(addr));
+                    .unwrap_or_else(|| self.memory.prg_peek(addr));
                 self.genie_read(addr, val)
             }
             0x2002 => self.ppu.peek_status(),
             0x2004 => self.ppu.peek_oamdata(),
-            0x2007 => self.ppu.peek_data(),
+            0x2007 => self.peek_data(),
             0x4015 => self.apu.peek_status(),
             0x4016 => self.input.peek(Player::One, &self.ppu),
             0x4017 => self.input.peek(Player::Two, &self.ppu),
@@ -247,10 +321,11 @@ impl Read for Bus {
             _ => self.open_bus,
         }
     }
-}
 
-impl Write for Bus {
-    fn write(&mut self, addr: u16, val: u8) {
+    /// Route a write to whichever component owns `addr`, without moving the console.
+    ///
+    /// See [`Bus::cpu_bus_read`]; [`Bus::write`] is the cycle-spending form.
+    pub fn cpu_bus_write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
@@ -262,18 +337,18 @@ impl Write for Bus {
             0x4100..=0xFFFF => {
                 // Data store first, then let the board act on any register the write hit.
                 // Destructured so both fields can be borrowed at once.
-                let Ppu { mapper, memory, .. } = &mut self.ppu;
+                let Self { mapper, memory, .. } = self;
                 memory.prg_write(addr, val);
                 mapper.write_register(memory, addr, val);
             }
-            0x2000 => self.ppu.write_ctrl(val),
-            0x2001 => self.ppu.write_mask(val),
+            0x2000 => self.write_ctrl(val),
+            0x2001 => self.write_mask(val),
             0x2002 => self.ppu.open_bus = val,
             0x2003 => self.ppu.write_oamaddr(val),
             0x2004 => self.ppu.write_oamdata(val),
             0x2005 => self.ppu.write_scroll(val),
             0x2006 => self.ppu.write_addr(val),
-            0x2007 => self.ppu.write_data(val),
+            0x2007 => self.write_data(val),
             0x4000 => self.apu.write_ctrl(Channel::Pulse1, val),
             0x4001 => self.apu.write_sweep(Channel::Pulse1, val),
             0x4002 => self.apu.write_timer_lo(Channel::Pulse1, val),
@@ -310,17 +385,28 @@ impl Bus {
     /// Sets the region, forwarding it to every component.
     pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
+        self.cpu.set_region(region);
         self.ppu.set_region(region);
+        // The board owns the tree's only other region-dependent timing: MMC5's expansion audio
+        // clocks its half-frame counter off the CPU clock rate, and its DMC channel off the
+        // region rate table, exactly as the APU's does.
+        self.mapper.set_region(region);
         self.apu.set_region(region);
         self.input.set_region(region);
+        self.clock_sync();
     }
 
-    /// Resets the bus and every component. A hard reset also re-initialises work RAM.
-    pub fn reset(&mut self, kind: ResetKind) {
+    /// Resets everything the CPU does not reset itself. A hard reset also re-initialises work RAM.
+    ///
+    /// [`Bus::reset`] is the entry point; this is the half of it that is not the CPU.
+    pub(crate) fn reset_components(&mut self, kind: ResetKind) {
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
         }
         self.ppu.reset(kind);
+        self.mapper.reset(kind);
+        // Reset can change banking, and the board cannot reach `Memory` from `reset`.
+        self.rebuild_mapper_state();
         self.apu.reset(kind);
     }
 
@@ -329,8 +415,8 @@ impl Bus {
     /// # Errors
     ///
     /// If the file cannot be written.
-    pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        self.ppu.mapper.save_sram(&self.ppu.memory, path.as_ref())
+    pub fn save_sram(&self, path: impl AsRef<Path>) -> fs::Result<()> {
+        self.mapper.save_sram(&self.memory, path.as_ref())
     }
 
     /// Reads battery-backed cart RAM from `path`.
@@ -338,8 +424,8 @@ impl Bus {
     /// # Errors
     ///
     /// If the file cannot be read.
-    pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        let Ppu { mapper, memory, .. } = &mut self.ppu;
+    pub fn load_sram(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+        let Self { mapper, memory, .. } = self;
         mapper.load_sram(memory, path.as_ref())
     }
 }
@@ -374,11 +460,11 @@ mod test {
         assert_eq!(bus.ppu.region(), expected_region, "ppu region");
         assert_eq!(bus.apu.region(), expected_region, "apu region");
         assert!(
-            matches!(bus.ppu.mapper, Mapper::Nrom(_)),
+            matches!(bus.mapper, Mapper::Nrom(_)),
             "mapper is Nrom: {:?}",
-            bus.ppu.mapper
+            bus.mapper
         );
-        assert_eq!(bus.ppu.mirroring(), expected_mirroring, "mirroring");
+        assert_eq!(bus.mirroring(), expected_mirroring, "mirroring");
     }
 
     #[test]
@@ -390,24 +476,24 @@ mod test {
         cart.memory.region_mut(Src::Chr).fill(0x66);
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x00);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom start");
-        bus.write(0x2006, 0x1F);
-        bus.write(0x2006, 0xFF);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom end");
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x66, "chr_rom start");
+        bus.cpu_bus_write(0x2006, 0x1F);
+        bus.cpu_bus_write(0x2006, 0xFF);
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x66, "chr_rom end");
 
         // Writes disallowed
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x10);
-        bus.write(0x2007, 0x77);
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x10);
+        bus.cpu_bus_write(0x2007, 0x77);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x10);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_rom read-only");
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x10);
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x66, "chr_rom read-only");
     }
 
     #[test]
@@ -419,30 +505,30 @@ mod test {
         cart.memory.region_mut(Src::Chr).fill(0x66);
         bus.load_cart(cart);
 
-        bus.write(0x2006, 0x00);
-        bus.write(0x2006, 0x00);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_ram start");
-        bus.write(0x2006, 0x1F);
-        bus.write(0x2006, 0xFF);
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x66, "chr_ram end");
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x00);
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x66, "chr_ram start");
+        bus.cpu_bus_write(0x2006, 0x1F);
+        bus.cpu_bus_write(0x2006, 0xFF);
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x66, "chr_ram end");
 
         // Writes allowed
-        bus.write(0x2006, 0x10);
-        bus.write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x10);
+        bus.cpu_bus_write(0x2006, 0x00);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        bus.ppu.clock();
-        bus.ppu.clock();
-        bus.write(0x2007, 0x77);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.cpu_bus_write(0x2007, 0x77);
 
-        bus.write(0x2006, 0x10);
-        bus.write(0x2006, 0x00);
+        bus.cpu_bus_write(0x2006, 0x10);
+        bus.cpu_bus_write(0x2006, 0x00);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        bus.ppu.clock();
-        bus.ppu.clock();
-        bus.read(0x2007);
-        assert_eq!(bus.read(0x2007), 0x77, "chr_ram write");
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.cpu_bus_read(0x2007);
+        assert_eq!(bus.cpu_bus_read(0x2007), 0x77, "chr_ram write");
     }
 
     #[test]
@@ -461,18 +547,18 @@ mod test {
         bus.load_cart(cart);
         bus.add_genie_code(GenieCode::new(code.to_string()).expect("valid genie code"));
 
-        assert_eq!(bus.peek(addr), new_value, "peek code value");
-        assert_eq!(bus.read(addr), new_value, "read code value");
+        assert_eq!(bus.cpu_bus_peek(addr), new_value, "peek code value");
+        assert_eq!(bus.cpu_bus_read(addr), new_value, "read code value");
         bus.remove_genie_code(code);
-        assert_eq!(bus.peek(addr), orig_value, "peek orig value");
-        assert_eq!(bus.read(addr), orig_value, "read orig value");
+        assert_eq!(bus.cpu_bus_peek(addr), orig_value, "peek orig value");
+        assert_eq!(bus.cpu_bus_read(addr), orig_value, "read orig value");
     }
 
     #[test]
     fn clock() {
         let mut bus = Bus::default();
 
-        bus.ppu.clock_to(12);
+        bus.ppu_clock_to(12);
         assert_eq!(bus.ppu.master_clock, 12, "ppu clock");
         bus.cpu_clock();
         assert_eq!(bus.apu.master_clock, 1, "apu clock");
@@ -482,22 +568,22 @@ mod test {
     fn read_write_ram() {
         let mut bus = Bus::default();
 
-        bus.write(0x0001, 0x66);
-        assert_eq!(bus.peek(0x0001), 0x66, "peek ram");
-        assert_eq!(bus.read(0x0001), 0x66, "read ram");
-        assert_eq!(bus.read(0x0801), 0x66, "peek mirror 1");
-        assert_eq!(bus.read(0x0801), 0x66, "read mirror 1");
-        assert_eq!(bus.read(0x1001), 0x66, "peek mirror 2");
-        assert_eq!(bus.read(0x1001), 0x66, "read mirror 2");
-        assert_eq!(bus.read(0x1801), 0x66, "peek mirror 3");
-        assert_eq!(bus.read(0x1801), 0x66, "read mirror 3");
+        bus.cpu_bus_write(0x0001, 0x66);
+        assert_eq!(bus.cpu_bus_peek(0x0001), 0x66, "peek ram");
+        assert_eq!(bus.cpu_bus_read(0x0001), 0x66, "read ram");
+        assert_eq!(bus.cpu_bus_read(0x0801), 0x66, "peek mirror 1");
+        assert_eq!(bus.cpu_bus_read(0x0801), 0x66, "read mirror 1");
+        assert_eq!(bus.cpu_bus_read(0x1001), 0x66, "peek mirror 2");
+        assert_eq!(bus.cpu_bus_read(0x1001), 0x66, "read mirror 2");
+        assert_eq!(bus.cpu_bus_read(0x1801), 0x66, "peek mirror 3");
+        assert_eq!(bus.cpu_bus_read(0x1801), 0x66, "read mirror 3");
 
-        bus.write(0x0802, 0x77);
-        assert_eq!(bus.read(0x0002), 0x77, "write mirror 1");
-        bus.write(0x1002, 0x88);
-        assert_eq!(bus.read(0x0002), 0x88, "write mirror 2");
-        bus.write(0x1802, 0x99);
-        assert_eq!(bus.read(0x0002), 0x99, "write mirror 3");
+        bus.cpu_bus_write(0x0802, 0x77);
+        assert_eq!(bus.cpu_bus_read(0x0002), 0x77, "write mirror 1");
+        bus.cpu_bus_write(0x1002, 0x88);
+        assert_eq!(bus.cpu_bus_read(0x0002), 0x88, "write mirror 2");
+        bus.cpu_bus_write(0x1802, 0x99);
+        assert_eq!(bus.cpu_bus_read(0x0002), 0x99, "write mirror 3");
     }
 
     /// $2000-$2007 repeat every 8 bytes up to $3FFF, so the mirror mask is what decides which
@@ -507,38 +593,38 @@ mod test {
     fn read_write_ppu() {
         let mut bus = Bus::default();
 
-        bus.write(0x2000, 0x80);
+        bus.cpu_bus_write(0x2000, 0x80);
         assert_eq!(bus.ppu.ctrl.bits.bits(), 0x80, "$2000 PPUCTRL");
-        bus.write(0x3FF8, 0x00);
+        bus.cpu_bus_write(0x3FF8, 0x00);
         assert_eq!(bus.ppu.ctrl.bits.bits(), 0x00, "$3FF8 mirrors $2000");
 
-        bus.write(0x2001, 0x1E);
+        bus.cpu_bus_write(0x2001, 0x1E);
         assert_eq!(bus.ppu.mask.bits.bits(), 0x1E, "$2001 PPUMASK");
-        bus.write(0x3FF9, 0x00);
+        bus.cpu_bus_write(0x3FF9, 0x00);
         assert_eq!(bus.ppu.mask.bits.bits(), 0x00, "$3FF9 mirrors $2001");
-        bus.write(0x2003, 0x42);
+        bus.cpu_bus_write(0x2003, 0x42);
         assert_eq!(bus.ppu.oamaddr, 0x42, "$2003 OAMADDR");
 
         // OAMDATA round-trips through $2004, and the address post-increments on write.
-        bus.write(0x2003, 0x10);
-        bus.write(0x2004, 0x99);
+        bus.cpu_bus_write(0x2003, 0x10);
+        bus.cpu_bus_write(0x2004, 0x99);
         assert_eq!(bus.ppu.oamaddr, 0x11, "OAMADDR increments on write");
-        bus.write(0x2003, 0x10);
-        assert_eq!(bus.read(0x2004), 0x99, "$2004 OAMDATA");
+        bus.cpu_bus_write(0x2003, 0x10);
+        assert_eq!(bus.cpu_bus_read(0x2004), 0x99, "$2004 OAMDATA");
 
         // The write-only registers read back the PPU's open bus, not their contents.
         bus.ppu.open_bus = 0xA5;
         for addr in [0x2000, 0x2001, 0x2003, 0x2005, 0x2006] {
-            assert_eq!(bus.read(addr), 0xA5, "${addr:04X} is write-only");
+            assert_eq!(bus.cpu_bus_read(addr), 0xA5, "${addr:04X} is write-only");
         }
 
         // $2002 clears the vblank flag as a side effect, so a second read differs - and `peek`
         // must not do it.
         bus.ppu.status.set_in_vblank(true);
-        assert_ne!(bus.peek(0x2002) & 0x80, 0, "peek sees vblank");
-        assert_ne!(bus.peek(0x2002) & 0x80, 0, "and leaves it set");
-        assert_ne!(bus.read(0x2002) & 0x80, 0, "read sees vblank");
-        assert_eq!(bus.read(0x2002) & 0x80, 0, "and clears it");
+        assert_ne!(bus.cpu_bus_peek(0x2002) & 0x80, 0, "peek sees vblank");
+        assert_ne!(bus.cpu_bus_peek(0x2002) & 0x80, 0, "and leaves it set");
+        assert_ne!(bus.cpu_bus_read(0x2002) & 0x80, 0, "read sees vblank");
+        assert_eq!(bus.cpu_bus_read(0x2002) & 0x80, 0, "and clears it");
     }
 
     /// $4015 is the APU status register both ways, but $4017 is not symmetric: writing it sets the
@@ -548,16 +634,16 @@ mod test {
         let mut bus = Bus::default();
 
         // $4015 write enables length counters; reading it reports which are non-zero.
-        bus.write(0x4015, 0x0F);
+        bus.cpu_bus_write(0x4015, 0x0F);
         assert!(bus.apu.pulse1.length.enabled, "pulse1 enabled");
         assert!(bus.apu.pulse2.length.enabled, "pulse2 enabled");
         assert!(bus.apu.triangle.length.enabled, "triangle enabled");
         assert!(bus.apu.noise.length.enabled, "noise enabled");
-        bus.write(0x4015, 0x00);
+        bus.cpu_bus_write(0x4015, 0x00);
         assert!(!bus.apu.pulse1.length.enabled, "pulse1 disabled");
 
         // $4017 write is the frame counter; bit 6 inhibits the frame IRQ.
-        bus.write(0x4017, 0x40);
+        bus.cpu_bus_write(0x4017, 0x40);
         assert!(
             bus.apu.frame_counter.inhibit_irq,
             "$4017 bit 6 inhibits the frame IRQ"
@@ -565,9 +651,9 @@ mod test {
 
         // $4017 read is controller two, not the frame counter.
         bus.input.joypads[1].set_button(JoypadBtn::A, true);
-        bus.write(0x4016, 0x01);
-        bus.write(0x4016, 0x00);
-        assert_eq!(bus.read(0x4017) & 0x01, 0x01, "$4017 reads controller two");
+        bus.cpu_bus_write(0x4016, 0x01);
+        bus.cpu_bus_write(0x4016, 0x00);
+        assert_eq!(bus.cpu_bus_read(0x4017) & 0x01, 0x01, "$4017 reads controller two");
     }
 
     /// $4000-$4003 is pulse 1 and $4004-$4007 is pulse 2. The two blocks must stay independent.
@@ -575,22 +661,22 @@ mod test {
     fn write_apu_pulse() {
         let mut bus = Bus::default();
 
-        bus.write(0x4000, 0x3F); // duty 0, constant volume 15
-        bus.write(0x4002, 0x34); // timer low
-        bus.write(0x4003, 0x01); // timer high
+        bus.cpu_bus_write(0x4000, 0x3F); // duty 0, constant volume 15
+        bus.cpu_bus_write(0x4002, 0x34); // timer low
+        bus.cpu_bus_write(0x4003, 0x01); // timer high
         assert_eq!(bus.apu.pulse1.real_period, 0x134, "pulse1 period");
         assert_eq!(bus.apu.pulse2.real_period, 0, "pulse2 untouched");
 
-        bus.write(0x4006, 0x78);
-        bus.write(0x4007, 0x02);
+        bus.cpu_bus_write(0x4006, 0x78);
+        bus.cpu_bus_write(0x4007, 0x02);
         assert_eq!(bus.apu.pulse2.real_period, 0x278, "pulse2 period");
         assert_eq!(bus.apu.pulse1.real_period, 0x134, "pulse1 still untouched");
 
         // $4001/$4005 are the sweep units.
-        bus.write(0x4001, 0x8F);
+        bus.cpu_bus_write(0x4001, 0x8F);
         assert!(bus.apu.pulse1.sweep.enabled, "$4001 pulse1 sweep");
         assert!(!bus.apu.pulse2.sweep.enabled, "pulse2 sweep untouched");
-        bus.write(0x4005, 0x8F);
+        bus.cpu_bus_write(0x4005, 0x8F);
         assert!(bus.apu.pulse2.sweep.enabled, "$4005 pulse2 sweep");
     }
 
@@ -599,11 +685,11 @@ mod test {
     fn write_apu_triangle() {
         let mut bus = Bus::default();
 
-        bus.write(0x400A, 0x56);
-        bus.write(0x400B, 0x03);
+        bus.cpu_bus_write(0x400A, 0x56);
+        bus.cpu_bus_write(0x400B, 0x03);
         assert_eq!(bus.apu.triangle.timer.period, 0x356, "triangle period");
 
-        bus.write(0x4008, 0x7F);
+        bus.cpu_bus_write(0x4008, 0x7F);
         assert_eq!(
             bus.apu.triangle.linear.counter_reload, 0x7F,
             "$4008 linear counter"
@@ -611,7 +697,7 @@ mod test {
 
         // $4009 is not a register; it must not disturb the channel.
         let before = bus.apu.triangle.timer.period;
-        bus.write(0x4009, 0xFF);
+        bus.cpu_bus_write(0x4009, 0xFF);
         assert_eq!(bus.apu.triangle.timer.period, before, "$4009 is unmapped");
     }
 
@@ -620,25 +706,25 @@ mod test {
     fn write_apu_noise() {
         let mut bus = Bus::default();
 
-        bus.write(0x400E, 0x80 | 0x04);
+        bus.cpu_bus_write(0x400E, 0x80 | 0x04);
         assert_eq!(bus.apu.noise.shift_mode, ShiftMode::One, "$400E shift mode");
 
-        bus.write(0x400C, 0x3F);
+        bus.cpu_bus_write(0x400C, 0x3F);
         assert!(bus.apu.noise.envelope.constant_volume, "$400C envelope");
 
         // The length counter latches a reload value here; the frame counter loads it later.
-        bus.write(0x4015, 0x08); // enable, or the write is ignored entirely
-        bus.write(0x400F, 0x08);
+        bus.cpu_bus_write(0x4015, 0x08); // enable, or the write is ignored entirely
+        bus.cpu_bus_write(0x400F, 0x08);
         assert_ne!(bus.apu.noise.length.reload, 0, "$400F length reload");
-        bus.write(0x4015, 0x00);
-        bus.write(0x400F, 0x10);
+        bus.cpu_bus_write(0x4015, 0x00);
+        bus.cpu_bus_write(0x400F, 0x10);
         assert_eq!(
             bus.apu.noise.length.reload, 254,
             "a disabled channel ignores the write"
         );
 
         let before = bus.apu.noise.timer.period;
-        bus.write(0x400D, 0xFF);
+        bus.cpu_bus_write(0x400D, 0xFF);
         assert_eq!(bus.apu.noise.timer.period, before, "$400D is unmapped");
     }
 
@@ -647,20 +733,20 @@ mod test {
     fn write_dmc() {
         let mut bus = Bus::default();
 
-        bus.write(0x4010, 0x0F); // rate index 15, IRQ and loop clear
+        bus.cpu_bus_write(0x4010, 0x0F); // rate index 15, IRQ and loop clear
         assert!(!bus.apu.dmc.irq_enabled, "$4010 IRQ disabled");
         assert!(!bus.apu.dmc.loops, "$4010 loop clear");
-        bus.write(0x4010, 0xC0);
+        bus.cpu_bus_write(0x4010, 0xC0);
         assert!(bus.apu.dmc.irq_enabled, "$4010 bit 7 enables the IRQ");
         assert!(bus.apu.dmc.loops, "$4010 bit 6 sets loop");
 
-        bus.write(0x4011, 0xFF);
+        bus.cpu_bus_write(0x4011, 0xFF);
         assert_eq!(bus.apu.dmc.output_level, 0x7F, "$4011 keeps 7 bits");
 
-        bus.write(0x4012, 0x02);
+        bus.cpu_bus_write(0x4012, 0x02);
         assert_eq!(bus.apu.dmc.sample_addr, 0xC080, "$4012 is $C000 + n*64");
 
-        bus.write(0x4013, 0x02);
+        bus.cpu_bus_write(0x4013, 0x02);
         assert_eq!(bus.apu.dmc.sample_length, 0x21, "$4013 is n*16 + 1");
     }
 
@@ -673,20 +759,20 @@ mod test {
         bus.input.joypads[0].set_button(JoypadBtn::Right, true);
 
         // Strobe high then low latches the button state and rewinds to bit 0.
-        bus.write(0x4016, 0x01);
-        bus.write(0x4016, 0x00);
+        bus.cpu_bus_write(0x4016, 0x01);
+        bus.cpu_bus_write(0x4016, 0x00);
 
         // A, B, Select, Start, Up, Down, Left, Right - so bit 0 is A and bit 7 is Right.
-        let bits: Vec<u8> = (0..8).map(|_| bus.read(0x4016) & 0x01).collect();
+        let bits: Vec<u8> = (0..8).map(|_| bus.cpu_bus_read(0x4016) & 0x01).collect();
         assert_eq!(bits, [1, 0, 0, 0, 0, 0, 0, 1], "controller one shifts out");
 
         // Re-strobing rewinds it.
-        bus.write(0x4016, 0x01);
-        bus.write(0x4016, 0x00);
-        assert_eq!(bus.read(0x4016) & 0x01, 0x01, "back to the A button");
+        bus.cpu_bus_write(0x4016, 0x01);
+        bus.cpu_bus_write(0x4016, 0x00);
+        assert_eq!(bus.cpu_bus_read(0x4016) & 0x01, 0x01, "back to the A button");
 
         // Controller two is a separate shift register on $4017.
-        assert_eq!(bus.read(0x4017) & 0x01, 0x00, "controller two is idle");
+        assert_eq!(bus.cpu_bus_read(0x4017) & 0x01, 0x00, "controller two is idle");
     }
 
     /// Everything from $4100 up is the cartridge: the write goes to memory first and then to the
@@ -702,19 +788,19 @@ mod test {
         bus.load_cart(cart);
 
         let read_chr = |bus: &mut Bus| {
-            bus.write(0x2006, 0x00);
-            bus.write(0x2006, 0x00);
-            bus.read(0x2007); // discard the buffered read
-            bus.read(0x2007)
+            bus.cpu_bus_write(0x2006, 0x00);
+            bus.cpu_bus_write(0x2006, 0x00);
+            bus.cpu_bus_read(0x2007); // discard the buffered read
+            bus.cpu_bus_read(0x2007)
         };
         assert_eq!(read_chr(&mut bus), 0x11, "CHR bank 0");
 
         // CNROM takes its bank from any write to $8000-$FFFF.
-        bus.write(0x8000, 0x01);
+        bus.cpu_bus_write(0x8000, 0x01);
         assert_eq!(read_chr(&mut bus), 0x22, "the write reached the board");
 
         // Below $4100 is not the cartridge, so it must not reach the board.
-        bus.write(0x4000, 0x00);
+        bus.cpu_bus_write(0x4000, 0x00);
         assert_eq!(read_chr(&mut bus), 0x22, "$4000 is the APU, not the mapper");
     }
 
@@ -726,13 +812,13 @@ mod test {
             ..Default::default()
         };
 
-        bus.write(0x0001, 0x66);
-        bus.write(0x2000, 0x80);
+        bus.cpu_bus_write(0x0001, 0x66);
+        bus.cpu_bus_write(0x2000, 0x80);
 
         bus.reset(ResetKind::Soft);
-        assert_eq!(bus.peek(0x0001), 0x66, "a soft reset preserves WRAM");
+        assert_eq!(bus.cpu_bus_peek(0x0001), 0x66, "a soft reset preserves WRAM");
 
         bus.reset(ResetKind::Hard);
-        assert_eq!(bus.peek(0x0001), 0x00, "a hard reset clears WRAM");
+        assert_eq!(bus.cpu_bus_peek(0x0001), 0x00, "a hard reset clears WRAM");
     }
 }

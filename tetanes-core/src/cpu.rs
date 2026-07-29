@@ -2,17 +2,21 @@
 //!
 //! <https://wiki.nesdev.org/w/index.php/CPU>
 //!
+//! [`Cpu`] is the register file and cycle counters - the state a 6502 keeps. Everything it *does*
+//! is an inherent method on [`Bus`], because a memory access moves the whole console: reading a
+//! byte clocks the PPU, the APU and the board on the way past. Those `impl Bus` blocks live here
+//! and in [`instr`], next to the state they read, rather than in `bus.rs`.
+//!
 //! # Stability
 //!
-//! [`Cpu`]'s fields are the emulation's internal wiring - registers, cycle counters and the
-//! [`Bus`] it owns. They are public so that embedders and debuggers can read them, but they track
-//! the implementation rather than the crate version, and a release may add, rename or retype any
-//! of them. The stable entry point is [`ControlDeck`](crate::control_deck::ControlDeck).
+//! [`Cpu`]'s fields are the emulation's internal wiring - registers and cycle counters. They are
+//! public so that embedders and debuggers can read them, but they track the implementation rather
+//! than the crate version, and a release may add, rename or retype any of them. The stable entry
+//! point is [`ControlDeck`](crate::control_deck::ControlDeck).
 
 use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
-    memory::{Read, Write},
 };
 use crate::{
     cpu::instr::{
@@ -92,7 +96,7 @@ bitflags! {
         const N = 1 << 7;
     }
 }
-/// Returned by [`Cpu::load`] when a save state was not produced by the loaded cart.
+/// Returned by [`Bus::load_state`] when a save state was not produced by the loaded cart.
 ///
 /// Reachable because save states no longer carry the cart's ROM: the ROM is reattached from the
 /// running console, so a state whose memory layout does not match cannot be applied at all.
@@ -134,14 +138,9 @@ pub struct Cpu {
     pub irq_flags: IrqFlags,
     /// Source page of an OAM DMA in progress.
     pub dma_oam_addr: Option<u16>,
-    /// The bus, and through it the rest of the console.
-    pub bus: Bus,
     /// Set when an invalid opcode has jammed the CPU; it keeps cycling but stops fetching.
     #[serde(skip)]
     pub corrupted: bool,
-    /// The last instruction disassembled, filled only while a debugger is attached.
-    #[serde(skip)]
-    pub disasm: String,
 }
 
 impl Cpu {
@@ -154,17 +153,17 @@ impl Cpu {
     // Represents CPU/PPU alignment and would range from 1..=ppu.clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
-    const PPU_OFFSET: u32 = 1;
+    pub(crate) const PPU_OFFSET: u32 = 1;
 
-    const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
-    const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
-    const RESET_VECTOR: u16 = 0xFFFC; // Vector address at reset
+    pub(crate) const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
+    pub(crate) const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
+    pub(crate) const RESET_VECTOR: u16 = 0xFFFC; // Vector address at reset
     const POWER_ON_STATUS: Status = Status::U.union(Status::I);
     const POWER_ON_SP: u8 = 0xFD;
-    const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
+    pub(crate) const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
 
-    /// Create a new CPU with the given bus.
-    pub fn new(bus: Bus) -> Self {
+    /// Create a new CPU timed for `region`.
+    pub fn new(region: NesRegion) -> Self {
         let mut cpu = Self {
             cycle: 0,
             master_clock: 0,
@@ -180,35 +179,10 @@ impl Cpu {
             status: Self::POWER_ON_STATUS,
             irq_flags: IrqFlags::default(),
             dma_oam_addr: None,
-            bus,
             corrupted: false,
-            disasm: String::new(),
         };
-        cpu.set_region(cpu.bus.region);
+        cpu.set_region(region);
         cpu
-    }
-
-    /// Load a CPU state, leaving `self` untouched if it does not belong to this cart.
-    ///
-    /// Every restore path - `load_state`, rewind, run-ahead - funnels through here, which is why
-    /// the two things a save state deliberately omits are put back here:
-    ///
-    /// - **ROM.** Save states carry only the mutable tail of [`Memory`](crate::memory::Memory), so
-    ///   the cart's ROM is copied in from the console already running. A state from a different game is rejected
-    ///   rather than left running one game's RAM against another's ROM.
-    /// - **The debugger**, which belongs to the session rather than the emulated state.
-    ///
-    /// # Errors
-    ///
-    /// If the state was not produced by the currently loaded cart.
-    pub fn load(&mut self, mut cpu: Self) -> Result<(), StateMismatch> {
-        if !cpu.bus.ppu.memory.restore_rom_from(&self.bus.ppu.memory) {
-            return Err(StateMismatch);
-        }
-        cpu.bus.ppu.debugger = std::mem::take(&mut self.bus.ppu.debugger);
-        cpu.bus.ppu.debugger_active = self.bus.ppu.debugger_active;
-        *self = cpu;
-        Ok(())
     }
 
     /// Returns the CPU clock rate based on [`NesRegion`].
@@ -222,25 +196,171 @@ impl Cpu {
         }
     }
 
+    /// Re-times the CPU for `region`.
+    ///
+    /// Only the cycle lengths; [`Bus::set_region`] is what forwards the change to the rest of the
+    /// console.
+    pub const fn set_region(&mut self, region: NesRegion) {
+        let (start_cycles, end_cycles) = match region {
+            NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2
+            NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
+            NesRegion::Dendy => (7, 8),                  // DENDY_MASTER_CLOCK_DIVIDER / 2
+        };
+        self.start_cycles = start_cycles;
+        self.end_cycles = end_cycles;
+    }
+
+    /// Resets the registers.
+    ///
+    /// Updates the PC, SP, and Status values to defined constants. [`Bus::reset`] is what resets
+    /// the rest of the console and runs the seven cycles the reset itself takes.
+    pub fn reset(&mut self, kind: ResetKind) {
+        match kind {
+            ResetKind::Soft => {
+                self.status.set(Status::I, true);
+                // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
+                // written except the SP being decremented
+                self.sp = self.sp.wrapping_sub(0x03);
+            }
+            ResetKind::Hard => {
+                self.acc = 0x00;
+                self.x = 0x00;
+                self.y = 0x00;
+                self.status = Self::POWER_ON_STATUS;
+                self.sp = Self::POWER_ON_SP;
+            }
+        }
+
+        self.cycle = 0;
+        self.master_clock = 0;
+        self.irq_flags = IrqFlags::default();
+        self.corrupted = false;
+    }
+
+    /// Start OAM DMA.
+    #[inline]
+    pub const fn start_oam_dma(&mut self, addr: u16) {
+        self.irq_flags = self.irq_flags.union(IrqFlags::DMA_HALT);
+        self.dma_oam_addr = Some(addr);
+    }
+
+    // Interrupt flag functions
+
+    /// Clear [`IrqFlags`] flags for the given bits.
+    #[inline(always)]
+    pub(crate) const fn clear_irq_flags(&mut self, flags: IrqFlags) {
+        self.irq_flags = self.irq_flags.difference(flags);
+    }
+
+    /// Returns `true` if the [`IrqFlags`] register is set.
+    #[inline(always)]
+    pub(crate) const fn irq_flags(&self, flags: IrqFlags) -> bool {
+        self.irq_flags.intersection(flags).bits() == flags.bits()
+    }
+
+    // Status Register functions
+
+    /// Set [`Status`] flags for the given bits.
+    #[inline(always)]
+    pub(crate) const fn set_status(&mut self, status: Status) {
+        self.status = status.difference(Status::U).difference(Status::B);
+    }
+
+    /// Returns the [`Status`] register as a byte.
+    #[inline(always)]
+    pub(crate) const fn status_bit(&self, reg: Status) -> u8 {
+        self.status.intersection(reg).bits()
+    }
+
+    /// Set accumulator and update [`Status`] flags based on value.
+    #[inline(always)]
+    pub(crate) fn set_acc(&mut self, val: u8) {
+        self.set_zn_status(val);
+        self.acc = val;
+    }
+
+    /// Set x and update [`Status`] flags based on value.
+    #[inline(always)]
+    pub(crate) fn set_x(&mut self, val: u8) {
+        self.set_zn_status(val);
+        self.x = val;
+    }
+
+    /// Set y and update [`Status`] flags based on value.
+    #[inline(always)]
+    pub(crate) fn set_y(&mut self, val: u8) {
+        self.set_zn_status(val);
+        self.y = val;
+    }
+
+    /// Set stack pointer.
+    #[inline(always)]
+    pub(crate) const fn set_sp(&mut self, val: u8) {
+        self.sp = val;
+    }
+
+    /// Set both [`Status::Z`] and [`Status::N`] flags based on value.
+    #[inline(always)]
+    pub(crate) fn set_zn_status(&mut self, val: u8) {
+        self.status.set(Status::Z, val == 0x00);
+        self.status.set(Status::N, val & 0x80 > 0);
+    }
+
+    // Utilities
+
+    /// Returns whether two addresses are on different memory pages.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn pages_differ(addr1: u16, addr2: u16) -> bool {
+        (addr1 & 0xFF00) != (addr2 & 0xFF00)
+    }
+
+    /// Returns whether a memory page is crossed using relative address.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn page_crossed(addr: u16, offset: i16) -> bool {
+        ((addr as i16 + offset) as u16 & 0xFF00) != (addr & 0xFF00)
+    }
+}
+
+/// The CPU's view of the console: every access below moves the whole machine, so it takes the
+/// [`Bus`] rather than the [`Cpu`].
+impl Bus {
+    /// Load a console state, leaving `self` untouched if it does not belong to this cart.
+    ///
+    /// Every restore path - `load_state`, rewind, run-ahead - funnels through here, which is why
+    /// the two things a save state deliberately omits are put back here:
+    ///
+    /// - **ROM.** Save states carry only the mutable tail of [`Memory`](crate::memory::Memory), so
+    ///   the cart's ROM is copied in from the console already running. A state from a different game is rejected
+    ///   rather than left running one game's RAM against another's ROM.
+    /// - **The debugger**, which belongs to the session rather than the emulated state.
+    ///
+    /// # Errors
+    ///
+    /// If the state was not produced by the currently loaded cart.
+    pub fn load_state(&mut self, mut state: Self) -> Result<(), StateMismatch> {
+        if !state.memory.restore_rom_from(&self.memory) {
+            return Err(StateMismatch);
+        }
+        state.debugger = std::mem::take(&mut self.debugger);
+        state.debugger_active = self.debugger_active;
+        *self = state;
+        Ok(())
+    }
+
     /// Clock rate based on currently configured NES region.
     #[inline]
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
-        Self::region_clock_rate(self.bus.region)
+        Cpu::region_clock_rate(self.region)
     }
 
     /// Peek at the next instruction.
     #[inline]
     pub fn next_instr(&self) -> InstrRef {
-        let opcode = self.peek(self.pc);
+        let opcode = self.peek(self.cpu.pc);
         Cpu::INSTR_REF[usize::from(opcode)]
-    }
-
-    /// Start OAM DMA.
-    #[inline]
-    pub fn start_oam_dma(&mut self, addr: u16) {
-        self.irq_flags.insert(IrqFlags::DMA_HALT);
-        self.dma_oam_addr = Some(addr);
     }
 
     /// Process an interrupted request.
@@ -258,38 +378,38 @@ impl Cpu {
     #[cold]
     #[inline(never)]
     pub fn irq(&mut self) {
-        if self.irq_flags(IrqFlags::DMA_HALT) && self.region() == NesRegion::Pal {
+        if self.cpu.irq_flags(IrqFlags::DMA_HALT) && self.region == NesRegion::Pal {
             // Check for DMA on PAL
-            self.handle_dma(self.pc);
+            self.handle_dma(self.cpu.pc);
         }
 
-        self.read(self.pc); // Dummy read
-        self.read(self.pc); // Dummy read
-        self.push_word(self.pc);
+        self.read(self.cpu.pc); // Dummy read
+        self.read(self.cpu.pc); // Dummy read
+        self.push_word(self.cpu.pc);
 
         // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
         // IRQ when it occurs between cycles 4 and 5.
         // https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking
         //
         // Set U and !B during push
-        let status = ((self.status | Status::U) & !Status::B).bits();
-        let nmi = self.irq_flags(IrqFlags::NMI);
+        let status = ((self.cpu.status | Status::U) & !Status::B).bits();
+        let nmi = self.cpu.irq_flags(IrqFlags::NMI);
         self.push_byte(status);
-        self.status.set(Status::I, true);
+        self.cpu.status.set(Status::I, true);
 
         if nmi {
-            self.clear_irq_flags(IrqFlags::NMI);
-            self.pc = self.read_word(Self::NMI_VECTOR);
+            self.cpu.clear_irq_flags(IrqFlags::NMI);
+            self.cpu.pc = self.read_word(Cpu::NMI_VECTOR);
             self.clock_sync();
             trace!(
                 "NMI - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
+                self.ppu.cycle, self.ppu.scanline, self.cpu.cycle
             );
         } else {
-            self.pc = self.read_word(Self::IRQ_VECTOR);
+            self.cpu.pc = self.read_word(Cpu::IRQ_VECTOR);
             trace!(
                 "IRQ - PPU:{:3},{:3} CYC:{}",
-                self.bus.ppu.cycle, self.bus.ppu.scanline, self.cycle
+                self.ppu.cycle, self.ppu.scanline, self.cpu.cycle
             );
         }
     }
@@ -297,26 +417,29 @@ impl Cpu {
     /// Handle CPU interrupt requests, if any are pending.
     #[inline(always)]
     fn handle_interrupts(&mut self) {
-        let mapper_ops = self.bus.ppu.mapper_ops;
+        let mapper_ops = self.mapper_ops;
         let irq_pending_mapper =
-            mapper_ops.intersects(MapperOps::IRQ) && self.bus.ppu.mapper.irq_pending();
+            mapper_ops.intersects(MapperOps::IRQ) && self.mapper.irq_pending();
         let dma_pending_mapper =
-            mapper_ops.intersects(MapperOps::DMA) && self.bus.ppu.mapper.dma_pending();
-        let nmi_pending = self.bus.ppu.nmi_pending;
-        let irq_pending_apu = self.bus.apu.irq_pending();
-        let dma_pending_apu = self.bus.apu.dma_pending();
+            mapper_ops.intersects(MapperOps::DMA) && self.mapper.dma_pending();
+        let nmi_pending = self.ppu.nmi_pending;
+        let irq_pending_apu = self.apu.irq_pending();
+        let dma_pending_apu = self.apu.dma_pending();
 
         if dma_pending_apu {
-            self.bus.apu.clear_dma_pending();
-            self.irq_flags
+            self.apu.clear_dma_pending();
+            self.cpu
+                .irq_flags
                 .insert(IrqFlags::DMA_DMC | IrqFlags::DMA_HALT | IrqFlags::DMA_DUMMY_READ);
         } else if dma_pending_mapper {
-            self.bus.ppu.mapper.clear_dma_pending();
-            self.irq_flags
+            self.mapper.clear_dma_pending();
+            self.cpu
+                .irq_flags
                 .insert(IrqFlags::DMA_DMC | IrqFlags::DMA_HALT | IrqFlags::DMA_DUMMY_READ);
         }
 
-        let flags = &mut self.irq_flags;
+        let status = self.cpu.status;
+        let flags = &mut self.cpu.irq_flags;
 
         // https://www.nesdev.org/wiki/CPU_interrupts
         //
@@ -338,7 +461,7 @@ impl Cpu {
         // The IRQ status at the end of the second-to-last cycle is what matters,
         // so keep the second-to-last status.
         flags.set(IrqFlags::PREV_RUN_IRQ, flags.contains(IrqFlags::RUN_IRQ));
-        let run_irq = (irq_pending_mapper | irq_pending_apu) & !self.status.intersects(Status::I);
+        let run_irq = (irq_pending_mapper | irq_pending_apu) & !status.intersects(Status::I);
         flags.set(IrqFlags::RUN_IRQ, run_irq);
 
         #[cfg(feature = "trace")]
@@ -346,7 +469,7 @@ impl Cpu {
             trace!(
                 "IRQ: {} - CYC:{}",
                 irq_pending_mapper | irq_pending_apu,
-                self.cycle
+                self.cpu.cycle
             );
         }
     }
@@ -354,17 +477,17 @@ impl Cpu {
     /// Start a CPU cycle.
     #[inline(always)]
     fn start_cycle(&mut self, increment: u8) {
-        self.master_clock = self.master_clock.wrapping_add(u32::from(increment));
-        self.cycle = self.cycle.wrapping_add(1);
-        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
-        self.bus.cpu_clock();
+        self.cpu.master_clock = self.cpu.master_clock.wrapping_add(u32::from(increment));
+        self.cpu.cycle = self.cpu.cycle.wrapping_add(1);
+        self.ppu_clock_to(self.cpu.master_clock - Cpu::PPU_OFFSET);
+        self.cpu_clock();
     }
 
     /// End a CPU cycle.
     #[inline(always)]
     fn end_cycle(&mut self, increment: u8) {
-        self.master_clock = self.master_clock.wrapping_add(u32::from(increment));
-        self.bus.ppu.clock_to(self.master_clock - Self::PPU_OFFSET);
+        self.cpu.master_clock = self.cpu.master_clock.wrapping_add(u32::from(increment));
+        self.ppu_clock_to(self.cpu.master_clock - Cpu::PPU_OFFSET);
 
         self.handle_interrupts();
     }
@@ -373,24 +496,24 @@ impl Cpu {
     #[inline(always)]
     fn start_dma_cycle(&mut self) {
         // OAM DMA cycles count as halt/dummy reads for DMC DMA when both run at the same time
-        if self.irq_flags(IrqFlags::DMA_HALT) {
-            self.clear_irq_flags(IrqFlags::DMA_HALT);
+        if self.cpu.irq_flags(IrqFlags::DMA_HALT) {
+            self.cpu.clear_irq_flags(IrqFlags::DMA_HALT);
         } else {
-            self.clear_irq_flags(IrqFlags::DMA_DUMMY_READ);
+            self.cpu.clear_irq_flags(IrqFlags::DMA_DUMMY_READ);
         }
-        self.start_cycle(self.start_cycles - 1);
+        self.start_cycle(self.cpu.start_cycles - 1);
     }
 
     /// Handle a direct-memory access (DMA) request.
     #[cold]
     #[inline(never)]
     fn handle_dma(&mut self, addr: u16) {
-        trace!("Starting DMA - CYC:{}", self.cycle);
+        trace!("Starting DMA - CYC:{}", self.cpu.cycle);
 
-        self.start_cycle(self.start_cycles - 1);
-        self.bus.read(addr);
-        self.end_cycle(self.start_cycles + 1);
-        self.clear_irq_flags(IrqFlags::DMA_HALT);
+        self.start_cycle(self.cpu.start_cycles - 1);
+        self.cpu_bus_read(addr);
+        self.end_cycle(self.cpu.start_cycles + 1);
+        self.cpu.clear_irq_flags(IrqFlags::DMA_HALT);
 
         let skip_dummy_reads = addr == 0x4016 || addr == 0x4017;
 
@@ -399,166 +522,104 @@ impl Cpu {
         let mut read_val = 0;
 
         loop {
-            let dma_dmc = self.irq_flags(IrqFlags::DMA_DMC);
-            let dma_oam_addr = self.dma_oam_addr;
+            let dma_dmc = self.cpu.irq_flags(IrqFlags::DMA_DMC);
+            let dma_oam_addr = self.cpu.dma_oam_addr;
             if !dma_dmc & dma_oam_addr.is_none() {
                 break;
             }
 
-            if self.cycle & 0x01 == 0x00 {
+            if self.cpu.cycle & 0x01 == 0x00 {
                 if dma_dmc
-                    & !self.irq_flags(IrqFlags::DMA_HALT)
-                    & !self.irq_flags(IrqFlags::DMA_DUMMY_READ)
+                    & !self.cpu.irq_flags(IrqFlags::DMA_HALT)
+                    & !self.cpu.irq_flags(IrqFlags::DMA_DUMMY_READ)
                 {
                     // DMC DMA ready to read a byte (halt and dummy read done before)
                     self.start_dma_cycle();
-                    let dma_addr = self.bus.apu.dmc.dma_addr();
-                    read_val = self.bus.read(dma_addr);
+                    let dma_addr = self.apu.dmc.dma_addr();
+                    read_val = self.cpu_bus_read(dma_addr);
                     trace!(
                         "Loaded DMC DMA byte. ${dma_addr:04X}: {read_val} - CYC:{}",
-                        self.cycle
+                        self.cpu.cycle
                     );
-                    self.end_cycle(self.start_cycles + 1);
-                    self.bus.apu.dmc.load_buffer(read_val);
-                    self.clear_irq_flags(IrqFlags::DMA_DMC);
+                    self.end_cycle(self.cpu.start_cycles + 1);
+                    self.apu.dmc.load_buffer(read_val);
+                    self.cpu.clear_irq_flags(IrqFlags::DMA_DMC);
                 } else if let Some(oam_addr) = dma_oam_addr {
                     // DMC DMA not running or ready, run OAM DMA
                     self.start_dma_cycle();
-                    read_val = self.bus.read(oam_addr + oam_offset);
-                    self.end_cycle(self.start_cycles + 1);
+                    read_val = self.cpu_bus_read(oam_addr + oam_offset);
+                    self.end_cycle(self.cpu.start_cycles + 1);
                     oam_offset += 1;
                     oam_dma_count += 1;
                 } else {
                     // DMC DMA running, but not ready yet (needs to halt, or dummy read) and OAM
                     // DMA isn't running
                     debug_assert!(
-                        self.irq_flags(IrqFlags::DMA_HALT)
-                            | self.irq_flags(IrqFlags::DMA_DUMMY_READ)
+                        self.cpu.irq_flags(IrqFlags::DMA_HALT)
+                            | self.cpu.irq_flags(IrqFlags::DMA_DUMMY_READ)
                     );
                     self.start_dma_cycle();
                     if !skip_dummy_reads {
-                        self.bus.read(addr); // throw away
+                        self.cpu_bus_read(addr); // throw away
                     }
-                    self.end_cycle(self.start_cycles + 1);
+                    self.end_cycle(self.cpu.start_cycles + 1);
                 }
             } else if dma_oam_addr.is_some() & (oam_dma_count & 0x01 == 0x01) {
                 // OAM DMA write cycle, done on odd cycles after a read on even cycles
                 self.start_dma_cycle();
-                self.bus.write(0x2004, read_val);
-                self.end_cycle(self.start_cycles + 1);
+                self.cpu_bus_write(0x2004, read_val);
+                self.end_cycle(self.cpu.start_cycles + 1);
                 oam_dma_count += 1;
                 if oam_dma_count == 0x200 {
-                    self.dma_oam_addr.take();
+                    self.cpu.dma_oam_addr.take();
                 }
             } else {
                 // Align to read cycle before starting OAM DMA (or align to perform DMC read)
                 self.start_dma_cycle();
                 if !skip_dummy_reads {
-                    self.bus.read(addr); // throw away
+                    self.cpu_bus_read(addr); // throw away
                 }
-                self.end_cycle(self.start_cycles + 1);
+                self.end_cycle(self.cpu.start_cycles + 1);
             }
         }
-    }
-
-    // Interrupt flag functions
-
-    /// Clear [`IrqFlags`] flags for the given bits.
-    #[inline(always)]
-    fn clear_irq_flags(&mut self, flags: IrqFlags) {
-        self.irq_flags &= !flags;
-    }
-
-    /// Returns `true` if the [`IrqFlags`] register is set.
-    #[inline(always)]
-    fn irq_flags(&self, flags: IrqFlags) -> bool {
-        (self.irq_flags & flags).bits() == flags.bits()
-    }
-
-    // Status Register functions
-
-    /// Set [`Status`] flags for the given bits.
-    #[inline(always)]
-    fn set_status(&mut self, status: Status) {
-        self.status = status & !Status::U & !Status::B;
-    }
-
-    /// Returns the [`Status`] register as a byte.
-    #[inline(always)]
-    const fn status_bit(&self, reg: Status) -> u8 {
-        self.status.intersection(reg).bits()
-    }
-
-    /// Set accumulator and update [`Status`] flags based on value.
-    #[inline(always)]
-    fn set_acc(&mut self, val: u8) {
-        self.set_zn_status(val);
-        self.acc = val;
-    }
-
-    /// Set x and update [`Status`] flags based on value.
-    #[inline(always)]
-    fn set_x(&mut self, val: u8) {
-        self.set_zn_status(val);
-        self.x = val;
-    }
-
-    /// Set y and update [`Status`] flags based on value.
-    #[inline(always)]
-    fn set_y(&mut self, val: u8) {
-        self.set_zn_status(val);
-        self.y = val;
-    }
-
-    /// Set stack pointer.
-    #[inline(always)]
-    const fn set_sp(&mut self, val: u8) {
-        self.sp = val;
-    }
-
-    /// Set both [`Status::Z`] and [`Status::N`] flags based on value.
-    #[inline(always)]
-    fn set_zn_status(&mut self, val: u8) {
-        self.status.set(Status::Z, val == 0x00);
-        self.status.set(Status::N, val & 0x80 > 0);
     }
 
     // Stack Functions
 
     /// Push a byte to the stack.
     #[inline(always)]
-    fn push_byte(&mut self, val: u8) {
-        self.write(Self::SP_BASE | u16::from(self.sp), val);
-        self.sp = self.sp.wrapping_sub(1);
+    pub(crate) fn push_byte(&mut self, val: u8) {
+        self.write(Cpu::SP_BASE | u16::from(self.cpu.sp), val);
+        self.cpu.sp = self.cpu.sp.wrapping_sub(1);
     }
 
     /// Pull a byte from the stack.
     #[inline(always)]
     #[must_use]
-    fn pop_byte(&mut self) -> u8 {
-        self.sp = self.sp.wrapping_add(1);
-        self.read(Self::SP_BASE | u16::from(self.sp))
+    pub(crate) fn pop_byte(&mut self) -> u8 {
+        self.cpu.sp = self.cpu.sp.wrapping_add(1);
+        self.read(Cpu::SP_BASE | u16::from(self.cpu.sp))
     }
 
     /// Peek byte at the top of the stack.
     #[inline]
     #[must_use]
     pub fn peek_stack(&self) -> u8 {
-        self.peek(Self::SP_BASE | u16::from(self.sp.wrapping_add(1)))
+        self.peek(Cpu::SP_BASE | u16::from(self.cpu.sp.wrapping_add(1)))
     }
 
     /// Peek at the top of the stack.
     #[inline]
     #[must_use]
     pub fn peek_stack_u16(&self) -> u16 {
-        let lo = self.peek(Self::SP_BASE | u16::from(self.sp));
-        let hi = self.peek(Self::SP_BASE | u16::from(self.sp.wrapping_add(1)));
+        let lo = self.peek(Cpu::SP_BASE | u16::from(self.cpu.sp));
+        let hi = self.peek(Cpu::SP_BASE | u16::from(self.cpu.sp.wrapping_add(1)));
         u16::from_le_bytes([lo, hi])
     }
 
     /// Push a word (two bytes) to the stack
     #[inline(always)]
-    fn push_word(&mut self, val: u16) {
+    pub(crate) fn push_word(&mut self, val: u16) {
         let [lo, hi] = val.to_le_bytes();
         self.push_byte(hi);
         self.push_byte(lo);
@@ -566,7 +627,7 @@ impl Cpu {
 
     /// Pull a word (two bytes) from the stack
     #[inline(always)]
-    fn pop_word(&mut self) -> u16 {
+    pub(crate) fn pop_word(&mut self) -> u16 {
         let lo = self.pop_byte();
         let hi = self.pop_byte();
         u16::from_le_bytes([lo, hi])
@@ -574,12 +635,46 @@ impl Cpu {
 
     // Memory accesses
 
+    /// Read a byte, taking a full CPU cycle to do it - which clocks the PPU, the APU and the
+    /// board.
+    #[inline(always)]
+    pub fn read(&mut self, addr: u16) -> u8 {
+        if self.cpu.irq_flags(IrqFlags::DMA_HALT) {
+            self.handle_dma(addr);
+        }
+
+        self.start_cycle(self.cpu.start_cycles - 1);
+        let val = self.cpu_bus_read(addr);
+        self.end_cycle(self.cpu.end_cycles + 1);
+        val
+    }
+
+    /// Read a byte without side effects, and without moving the console.
+    #[inline(always)]
+    #[must_use]
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.cpu_bus_peek(addr)
+    }
+
+    /// Write a byte, taking a full CPU cycle to do it - which clocks the PPU, the APU and the
+    /// board.
+    #[inline(always)]
+    pub fn write(&mut self, addr: u16, val: u8) {
+        self.start_cycle(self.cpu.start_cycles + 1);
+        if addr == 0x4014 {
+            self.cpu.start_oam_dma(u16::from(val) << 8);
+        } else {
+            self.cpu_bus_write(addr, val);
+        }
+        self.end_cycle(self.cpu.end_cycles - 1);
+    }
+
     /// Fetch a byte and increments PC by 1.
     #[inline(always)]
     #[must_use]
-    fn fetch_byte(&mut self) -> u8 {
-        let val = self.read(self.pc);
-        self.pc = self.pc.wrapping_add(1);
+    pub(crate) fn fetch_byte(&mut self) -> u8 {
+        let val = self.read(self.cpu.pc);
+        self.cpu.pc = self.cpu.pc.wrapping_add(1);
         val
     }
 
@@ -587,7 +682,7 @@ impl Cpu {
     #[inline(always)]
     #[must_use]
     fn fetch_operand(&mut self) -> u16 {
-        match self.addr_mode {
+        match self.cpu.addr_mode {
             AddrMode::ACC | AddrMode::IMP => self.acc_imp(),
             AddrMode::IMM | AddrMode::REL | AddrMode::ZP0 => self.imm_rel_zp(),
             AddrMode::ZPX => self.zpx(),
@@ -608,7 +703,7 @@ impl Cpu {
     /// Fetch a 16-bit word and increments PC by 2.
     #[inline(always)]
     #[must_use]
-    fn fetch_word(&mut self) -> u16 {
+    pub(crate) fn fetch_word(&mut self) -> u16 {
         let lo = self.fetch_byte();
         let hi = self.fetch_byte();
         u16::from_le_bytes([lo, hi])
@@ -617,14 +712,14 @@ impl Cpu {
     /// Read operand value.
     #[inline(always)]
     #[must_use]
-    fn read_operand(&mut self) -> u8 {
+    pub(crate) fn read_operand(&mut self) -> u8 {
         if matches!(
-            self.addr_mode,
+            self.cpu.addr_mode,
             AddrMode::ACC | AddrMode::IMP | AddrMode::IMM | AddrMode::REL
         ) {
-            self.operand as u8
+            self.cpu.operand as u8
         } else {
-            self.read(self.operand)
+            self.read(self.cpu.operand)
         }
     }
 
@@ -695,7 +790,7 @@ impl Cpu {
             }
             AddrMode::ZPX => {
                 let byte = peek_byte();
-                let addr = byte.wrapping_add(self.x);
+                let addr = byte.wrapping_add(self.cpu.x);
                 let val = self.peek(addr.into());
                 let _ = write!(
                     self.disasm,
@@ -704,7 +799,7 @@ impl Cpu {
             }
             AddrMode::ZPY => {
                 let byte = peek_byte();
-                let addr = byte.wrapping_add(self.y);
+                let addr = byte.wrapping_add(self.cpu.y);
                 let val = self.peek(addr.into());
                 let _ = write!(
                     self.disasm,
@@ -727,7 +822,7 @@ impl Cpu {
             }
             AddrMode::IDX => {
                 let byte = peek_byte();
-                let zero_addr = byte.wrapping_add(self.x);
+                let zero_addr = byte.wrapping_add(self.cpu.x);
                 let lo = self.peek(u16::from(zero_addr));
                 let hi = self.peek(u16::from(zero_addr.wrapping_add(1)));
                 let addr = u16::from_le_bytes([lo, hi]);
@@ -744,7 +839,7 @@ impl Cpu {
                     let hi = self.peek(u16::from(byte.wrapping_add(1)));
                     u16::from_le_bytes([lo, hi])
                 };
-                let addr = base_addr.wrapping_add(u16::from(self.y));
+                let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
                 let val = self.peek(addr);
                 let _ = write!(
                     self.disasm,
@@ -768,7 +863,7 @@ impl Cpu {
             }
             AddrMode::ABX | AddrMode::ABXW => {
                 let (byte1, byte2, base_addr) = peek_word();
-                let addr = base_addr.wrapping_add(self.x.into());
+                let addr = base_addr.wrapping_add(self.cpu.x.into());
                 let val = self.peek(addr);
                 let _ = write!(
                     self.disasm,
@@ -777,7 +872,7 @@ impl Cpu {
             }
             AddrMode::ABY | AddrMode::ABYW => {
                 let (byte1, byte2, base_addr) = peek_word();
-                let addr = base_addr.wrapping_add(self.y.into());
+                let addr = base_addr.wrapping_add(self.cpu.y.into());
                 let val = self.peek(addr);
                 let _ = write!(
                     self.disasm,
@@ -810,15 +905,15 @@ impl Cpu {
         if !tracing::enabled!(tracing::Level::TRACE) {
             return;
         }
-        let mut pc = self.pc;
-        let status = self.status;
-        let acc = self.acc;
-        let x = self.x;
-        let y = self.y;
-        let sp = self.sp;
-        let ppu_cycle = self.bus.ppu.cycle;
-        let ppu_scanline = self.bus.ppu.scanline;
-        let cycle = self.cycle;
+        let mut pc = self.cpu.pc;
+        let status = self.cpu.status;
+        let acc = self.cpu.acc;
+        let x = self.cpu.x;
+        let y = self.cpu.y;
+        let sp = self.cpu.sp;
+        let ppu_cycle = self.ppu.cycle;
+        let ppu_scanline = self.ppu.scanline;
+        let cycle = self.cpu.cycle;
         let n = if status.contains(Status::N) { 'N' } else { 'n' };
         let v = if status.contains(Status::V) { 'V' } else { 'v' };
         let i = if status.contains(Status::I) { 'I' } else { 'i' };
@@ -830,104 +925,37 @@ impl Cpu {
         );
     }
 
-    // Utilities
-
-    /// Returns whether two addresses are on different memory pages.
-    #[inline(always)]
-    #[must_use]
-    const fn pages_differ(addr1: u16, addr2: u16) -> bool {
-        (addr1 & 0xFF00) != (addr2 & 0xFF00)
-    }
-
-    /// Returns whether a memory page is crossed using relative address.
-    #[inline(always)]
-    #[must_use]
-    const fn page_crossed(addr: u16, offset: i16) -> bool {
-        ((addr as i16 + offset) as u16 & 0xFF00) != (addr & 0xFF00)
-    }
-
-    /// Runs all componnets up to master clock, synchronizing them.
+    /// Runs all components up to master clock, synchronizing them.
     #[inline(always)]
     pub fn clock_sync(&mut self) {
-        self.bus.ppu.clock_to(self.master_clock);
-        self.master_clock = self.master_clock.saturating_sub(self.bus.ppu.master_clock);
-        self.bus.ppu.master_clock = 0;
-        self.bus.apu.clock_sync();
+        self.ppu_clock_to(self.cpu.master_clock);
+        self.cpu.master_clock = self.cpu.master_clock.saturating_sub(self.ppu.master_clock);
+        self.ppu.master_clock = 0;
+        self.apu.clock_sync();
     }
 
     /// Runs the CPU one instruction.
     #[inline(always)]
-    pub fn clock(&mut self) {
+    pub fn clock_instr(&mut self) {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
         let opcode = self.fetch_byte(); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];
-        self.addr_mode = op.addr_mode();
-        self.operand = self.fetch_operand();
+        self.cpu.addr_mode = op.addr_mode();
+        self.cpu.operand = self.fetch_operand();
         op.run(self);
 
         if self
+            .cpu
             .irq_flags
             .intersects(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI)
         {
             self.irq();
         }
     }
-}
 
-impl Read for Cpu {
-    #[inline(always)]
-    fn read(&mut self, addr: u16) -> u8 {
-        if self.irq_flags(IrqFlags::DMA_HALT) {
-            self.handle_dma(addr);
-        }
-
-        self.start_cycle(self.start_cycles - 1);
-        let val = self.bus.read(addr);
-        self.end_cycle(self.end_cycles + 1);
-        val
-    }
-
-    fn peek(&self, addr: u16) -> u8 {
-        self.bus.peek(addr)
-    }
-}
-
-impl Write for Cpu {
-    #[inline(always)]
-    fn write(&mut self, addr: u16, val: u8) {
-        self.start_cycle(self.start_cycles + 1);
-        if addr == 0x4014 {
-            self.start_oam_dma(u16::from(val) << 8);
-        } else {
-            self.bus.write(addr, val);
-        }
-        self.end_cycle(self.end_cycles - 1);
-    }
-}
-
-impl Cpu {
-    /// The region the CPU is clocked for.
-    #[inline(always)]
-    pub const fn region(&self) -> NesRegion {
-        self.bus.region
-    }
-
-    /// Sets the region, which re-times the CPU and forwards the change to the bus.
-    pub fn set_region(&mut self, region: NesRegion) {
-        let (start_cycles, end_cycles) = match region {
-            NesRegion::Auto | NesRegion::Ntsc => (6, 6), // NTSC_MASTER_CLOCK_DIVIDER / 2
-            NesRegion::Pal => (8, 8),                    // PAL_MASTER_CLOCK_DIVIDER / 2
-            NesRegion::Dendy => (7, 8),                  // DENDY_MASTER_CLOCK_DIVIDER / 2
-        };
-        self.start_cycles = start_cycles;
-        self.end_cycles = end_cycles;
-        self.bus.set_region(region);
-        self.clock_sync();
-    }
-
-    /// Resets the CPU
+    /// Resets the CPU and the rest of the console.
     ///
     /// Updates the PC, SP, and Status values to defined constants.
     ///
@@ -935,40 +963,21 @@ impl Cpu {
     pub fn reset(&mut self, kind: ResetKind) {
         trace!("{:?} RESET", kind);
 
-        match kind {
-            ResetKind::Soft => {
-                self.status.set(Status::I, true);
-                // Reset pushes to the stack similar to IRQ, but since the read bit is set, nothing is
-                // written except the SP being decremented
-                self.sp = self.sp.wrapping_sub(0x03);
-            }
-            ResetKind::Hard => {
-                self.acc = 0x00;
-                self.x = 0x00;
-                self.y = 0x00;
-                self.status = Self::POWER_ON_STATUS;
-                self.sp = Self::POWER_ON_SP;
-            }
-        }
+        self.cpu.reset(kind);
+        self.reset_components(kind);
 
-        self.bus.reset(kind);
-        self.cycle = 0;
-        self.master_clock = 0;
-        self.irq_flags = IrqFlags::default();
-        self.corrupted = false;
-
-        // Read directly from bus so as to not clock other components during reset
-        let lo = self.bus.read(Self::RESET_VECTOR);
-        let hi = self.bus.read(Self::RESET_VECTOR + 1);
-        self.pc = u16::from_le_bytes([lo, hi]);
+        // Read directly from the bus so as to not clock other components during reset
+        let lo = self.cpu_bus_read(Cpu::RESET_VECTOR);
+        let hi = self.cpu_bus_read(Cpu::RESET_VECTOR + 1);
+        self.cpu.pc = u16::from_le_bytes([lo, hi]);
 
         // The CPU takes 7 cycles to reset/power on
         // See:
         // * <https://www.nesdev.org/wiki/CPU_interrupts>
         // * <http://archive.6502.org/datasheets/synertek_programming_manual.pdf>
         for _ in 0..7 {
-            self.start_cycle(self.start_cycles - 1);
-            self.end_cycle(self.start_cycles + 1);
+            self.start_cycle(self.cpu.start_cycles - 1);
+            self.end_cycle(self.cpu.start_cycles + 1);
         }
     }
 }
@@ -983,7 +992,6 @@ impl fmt::Debug for Cpu {
             .field("x", &format_args!("${:02X}", self.x))
             .field("y", &format_args!("${:02X}", self.y))
             .field("status", &self.status)
-            .field("bus", &self.bus)
             .field("interrupt_flags", &self.irq_flags)
             .finish()
     }
@@ -996,14 +1004,14 @@ mod tests {
     #[test]
     fn cycle_timing() {
         use super::*;
-        let mut cpu = Cpu::new(Bus::default());
+        let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.mapper = Nrom::load(&mut cart).unwrap();
-        cpu.bus.load_cart(cart);
-        cpu.reset(ResetKind::Hard);
-        cpu.clock();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus.clock_instr();
 
-        assert_eq!(cpu.cycle, 14, "cpu after power + one clock");
+        assert_eq!(bus.cpu.cycle, 14, "cpu after power + one clock");
 
         for instr_ref in Cpu::INSTR_REF.iter() {
             let extra_cycle = match instr_ref.instr {
@@ -1014,12 +1022,12 @@ mod tests {
             if instr_ref.instr == HLT {
                 continue;
             }
-            cpu.reset(ResetKind::Hard);
-            cpu.bus.write(0x0000, instr_ref.opcode);
-            cpu.clock();
+            bus.reset(ResetKind::Hard);
+            bus.cpu_bus_write(0x0000, instr_ref.opcode);
+            bus.clock_instr();
             let cpu_cyc = u32::from(7 + instr_ref.cycles + extra_cycle);
             assert_eq!(
-                cpu.cycle, cpu_cyc,
+                bus.cpu.cycle, cpu_cyc,
                 "cpu ${:02X} {:?} #{:?}",
                 instr_ref.opcode, instr_ref.instr, instr_ref.addr_mode
             );

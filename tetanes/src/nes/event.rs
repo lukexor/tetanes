@@ -7,7 +7,7 @@ use crate::{
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
-            gui::{Menu, MessageType},
+            gui::{Menu, MessageType, ppu_viewer::PpuSnapshot},
             shader::Shader,
         },
         rom::RomData,
@@ -27,7 +27,6 @@ use tetanes_core::{
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     memory::RamState,
-    ppu::Ppu,
     time::{Duration, Instant},
     video::VideoFilter,
 };
@@ -168,7 +167,7 @@ impl From<ConfigEvent> for NesEvent {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
-    Ppu(Box<Ppu>),
+    Ppu(Box<PpuSnapshot>),
 }
 
 impl From<DebugEvent> for NesEvent {

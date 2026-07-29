@@ -61,15 +61,41 @@ releases from them).
 
 ### Emulation core
 
-`ControlDeck` (`control_deck.rs`) is the public entry point: it owns a `Cpu`, loads `Cart`s, and
-exposes `clock_frame`, save states, rewind data, and `Action` handling. Ownership is a strict tree:
+`ControlDeck` (`control_deck.rs`) is the public entry point: it owns a `Bus`, loads `Cart`s, and
+exposes `clock_frame`, save states, rewind data, and `Action` handling.
 
 ```
-ControlDeck → Cpu → Bus → { Ppu → Mapper, Apu, Input, WRAM }
+ControlDeck → Bus → { Cpu, Ppu, Mapper, Memory, Apu, Input, WRAM }
 ```
 
-The `Mapper` lives inside the `Ppu` (CHR/CIRAM access is the hot path); the CPU reaches PRG through
-the bus. Components expose `clock`, `reset(ResetKind)`, `region`/`set_region`, `output` and
+`Bus` is the container the components are wired into, and the whole of the emulated state — a save
+state, a rewind frame and a run-ahead snapshot are each exactly one `Bus`, which is why it holds
+emulated state and nothing else (the session — video, run-ahead buffers, `sram_dir`, config — stays
+on `ControlDeck`).
+
+`Cpu` and `Ppu` are the state a 6502 and a 2C02 keep. **What they do is an `impl Bus` block**,
+because an access moves the whole machine: reading a byte clocks the PPU, the APU and the board on
+the way past, and a CHR fetch goes through the board's page tables. Those blocks live in the file
+that owns the state they read — the CPU's in `cpu.rs`, the instruction set's in `cpu/instr.rs`, the
+PPU's in `ppu.rs` — not in `bus.rs`, which holds CPU-bus routing. What needs only a component's own
+registers stays on that component (`Cpu::set_acc`, `Ppu::render_pixel`, `Ppu::read_status`).
+
+Naming, since one type now carries both address spaces:
+
+| | reads | writes |
+|---|---|---|
+| CPU, spending a cycle (what `instr.rs` calls) | `Bus::read`, `peek` | `Bus::write` |
+| CPU address decode alone | `Bus::cpu_bus_read`, `cpu_bus_peek` | `Bus::cpu_bus_write` |
+| PPU address decode | `Bus::ppu_bus_read`, `ppu_bus_peek` | `Bus::ppu_bus_write` |
+| cartridge, through the page tables | `Bus::chr_read`, `chr_peek` | `Bus::chr_write` |
+
+`Bus::clock_instr` runs one instruction, `Bus::cpu_clock` is the per-CPU-cycle component clock, and
+`Bus::ppu_clock`/`ppu_clock_to` drive the PPU.
+
+`Mapper` and `Memory` hang off `Bus`, not off the `Ppu` as they once did — the PPU is the heaviest
+user but the CPU reaches PRG through them too, so they belong to neither.
+
+Components expose `clock`, `reset(ResetKind)`, `region`/`set_region`, `output` and
 `save`/`load` as **inherent methods**, each forwarding to the components it owns. These used to be
 the `Clock`/`Reset`/`Regional`/`Sample`/`Sram` traits in `common.rs`; they were deleted because
 nothing was ever generic over them — across the whole workspace there was exactly one bound,
@@ -87,11 +113,20 @@ states.
 
 **A save state carries only mutable state.** `Memory` puts its immutable regions (PRG-ROM, CHR-ROM)
 first and marks the boundary with `ram_start`; its hand-written `Serialize`/`Deserialize` store the
-layout plus `data[ram_start..]` only, and `Cpu::load` copies the ROM back in from the console already
-running. `Cpu::load` is the single funnel for *every* restore path — `load_state`, rewind and
-run-ahead — so it is also where a state belonging to a different cart is rejected
+layout plus `data[ram_start..]` only, and `Bus::load_state` copies the ROM back in from the console
+already running. `Bus::load_state` is the single funnel for *every* restore path — `load_state`,
+rewind and run-ahead — so it is also where a state belonging to a different cart is rejected
 (`cpu::StateMismatch`) rather than left running one game's RAM against another's ROM. Page tables are
-likewise absent, rebuilt by `Ppu::rebuild_mapper_state` from the restored mapper registers.
+likewise absent, rebuilt by `Bus::rebuild_mapper_state` from the restored mapper registers.
+
+**A debugger callback is handed the whole `Bus`** (`debug.rs`), not one component's state, because
+what a debugger needs differs per debugger — a CPU debugger wants registers and the disassembly
+around PC, an APU viewer the channels, a hex viewer an arbitrary range, the PPU viewer CHR resolved
+through the board. Each viewer's closure runs at the break point and copies out only what it ships
+to its own thread; `ppu_viewer.rs`'s `PpuSnapshot` is one such choice, not the API. Core's part is
+`Bus::copy_ppu_bus`, which fills a buffer with `$0000-$2FFF` as currently banked, so no consumer
+needs board knowledge. The dot is the only trigger today; `Debugger` is the struct to extend when
+breakpoints land.
 
 ### Mappers
 

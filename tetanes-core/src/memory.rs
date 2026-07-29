@@ -22,8 +22,8 @@
 //! map CHR-ROM into the nametable range fall out for free.
 //!
 //! Alongside the arena this module holds the small memory primitives the rest of the emulator
-//! shares: [`Buffer`] and [`ConstArray`] for plain byte storage, the [`Read`]/[`Write`] bus traits,
-//! and [`RamState`] for power-on fill.
+//! shares: [`Buffer`] and [`ConstArray`] for plain byte storage, and [`RamState`] for power-on
+//! fill.
 
 use crate::ppu::Mirroring;
 use rand::Rng;
@@ -140,8 +140,8 @@ pub struct Memory {
 /// Everything below `ram_start` is ROM. It comes from the cart, cannot change, and was previously
 /// copied verbatim into every save state and every rewind snapshot - 394 KiB of Super Mario Bros.
 /// 3's 408 KiB state, and rewind keeps ~900 of those uncompressed by default. The ROM half is put
-/// back from the running console in [`Cpu::load`](crate::cpu::Cpu::load), which every restore path
-/// funnels through.
+/// back from the running console in [`Bus::load_state`](crate::bus::Bus::load_state), which every
+/// restore path funnels through.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
 /// mapper's registers by `Map::update_banks`.
@@ -886,24 +886,6 @@ where
             .deserialize_tuple(N, ArrayVisitor(PhantomData))
             .map(|data| Self { data })
     }
-}
-
-/// A trait that represents memory read operations. Reads typically have side-effects.
-pub trait Read {
-    /// Read from the given address.
-    #[inline(always)]
-    fn read(&mut self, addr: u16) -> u8 {
-        self.peek(addr)
-    }
-
-    /// Peek from the given address.
-    fn peek(&self, addr: u16) -> u8;
-}
-
-/// A trait that represents memory write operations.
-pub trait Write {
-    /// Write value to the given address.
-    fn write(&mut self, addr: u16, val: u8);
 }
 
 /// RAM in a given state on startup.

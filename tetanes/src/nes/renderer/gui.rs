@@ -53,7 +53,7 @@ use winit::event::WindowEvent;
 
 mod keybinds;
 pub mod lib;
-mod ppu_viewer;
+pub mod ppu_viewer;
 mod preferences;
 
 const UI_SETTINGS_TITLE: &str = "🔧 UI Settings";

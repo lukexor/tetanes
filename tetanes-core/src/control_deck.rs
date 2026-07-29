@@ -301,8 +301,8 @@ pub struct ControlDeck {
     frame_speed_step: u16,
     /// Accumulated frame speed to account for slower 1x speeds.
     frame_accumulator: u16,
-    /// NES CPU.
-    cpu: Cpu,
+    /// The console: CPU, PPU, APU, input and the cart's board.
+    bus: Bus,
 }
 
 impl Default for ControlDeck {
@@ -343,26 +343,26 @@ impl ControlDeck {
     /// assert_eq!(deck.region(), NesRegion::Ntsc);
     /// ```
     pub fn with_config(cfg: Config) -> Self {
-        let mut cpu = Cpu::new(Bus::new(cfg.region, cfg.ram_state));
-        cpu.bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
-        cpu.bus.ppu.emulate_warmup = cfg.emulate_ppu_warmup;
-        cpu.bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
+        let mut bus = Bus::new(cfg.region, cfg.ram_state);
+        bus.ppu.skip_rendering = cfg.headless_mode.contains(HeadlessMode::NO_VIDEO);
+        bus.ppu.emulate_warmup = cfg.emulate_ppu_warmup;
+        bus.apu.skip_mixing = cfg.headless_mode.contains(HeadlessMode::NO_AUDIO);
         if cfg.region.is_auto() {
-            cpu.set_region(NesRegion::default());
+            bus.set_region(NesRegion::default());
         } else {
-            cpu.set_region(cfg.region);
+            bus.set_region(cfg.region);
         }
-        cpu.bus.input.set_concurrent_dpad(cfg.concurrent_dpad);
-        cpu.bus.input.set_four_player(cfg.four_player);
-        cpu.bus.input.connect_zapper(cfg.zapper);
+        bus.input.set_concurrent_dpad(cfg.concurrent_dpad);
+        bus.input.set_four_player(cfg.four_player);
+        bus.input.connect_zapper(cfg.zapper);
         for (i, enabled) in cfg.channels_enabled.iter().enumerate() {
             match Channel::try_from(i) {
-                Ok(channel) => cpu.bus.apu.set_channel_enabled(channel, *enabled),
+                Ok(channel) => bus.apu.set_channel_enabled(channel, *enabled),
                 Err(apu::ParseChannelError) => tracing::error!("invalid APU channel: {i}"),
             }
         }
         for genie_code in cfg.genie_codes.iter().cloned() {
-            cpu.bus.add_genie_code(genie_code);
+            bus.add_genie_code(genie_code);
         }
         let video = Video::with_filter(cfg.filter);
         Self {
@@ -379,7 +379,7 @@ impl ControlDeck {
             cycles_remaining: 0.0,
             frame_speed_step: 4,
             frame_accumulator: 0,
-            cpu,
+            bus,
         }
     }
 
@@ -421,7 +421,7 @@ impl ControlDeck {
         // `Cart::from_rom` now rejects an unimplemented mapper itself rather than handing back a
         // `Mapper::none()` that reads as open bus; unwrap it back to this crate's own variant so
         // callers keep getting `unimplemented mapper \`69\`` rather than a nested cart error.
-        let cart = Cart::from_rom(&name, rom, self.cpu.bus.ram_state).map_err(|err| match err {
+        let cart = Cart::from_rom(&name, rom, self.bus.ram_state).map_err(|err| match err {
             cart::Error::InvalidMapper(mapper::Error::Unimplemented(num)) => {
                 Error::UnimplementedMapper(num)
             }
@@ -433,9 +433,9 @@ impl ControlDeck {
             region: cart.region(),
         };
         if self.auto_detect_region {
-            self.cpu.set_region(loaded_rom.region);
+            self.bus.set_region(loaded_rom.region);
         }
-        self.cpu.bus.load_cart(cart);
+        self.bus.load_cart(cart);
         self.loaded_rom = Some(loaded_rom.clone());
         self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
@@ -475,7 +475,7 @@ impl ControlDeck {
             }
         }
         self.loaded_rom = None;
-        self.cpu.bus.unload_cart();
+        self.bus.unload_cart();
         self.running = false;
         Ok(())
     }
@@ -487,11 +487,11 @@ impl ControlDeck {
     /// If the state was not produced by the currently loaded cart, in which case the running
     /// console is left untouched.
     #[inline]
-    pub fn load_cpu(&mut self, cpu: Cpu) -> Result<()> {
-        self.cpu.load(cpu)?;
+    pub fn load_bus(&mut self, bus: Bus) -> Result<()> {
+        self.bus.load_state(bus)?;
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
-        self.cpu.bus.ppu.rebuild_mapper_state();
+        self.bus.rebuild_mapper_state();
         Ok(())
     }
 
@@ -513,7 +513,7 @@ impl ControlDeck {
     /// Internal method to update the loaded ROM mapper revision when `mapper_revisions` is
     /// updated.
     const fn update_mapper_revisions(&mut self) {
-        match &mut self.cpu.bus.ppu.mapper {
+        match &mut self.bus.mapper {
             Mapper::Txrom(mapper) => {
                 mapper.set_revision(self.mapper_revisions.mmc3);
             }
@@ -548,21 +548,21 @@ impl ControlDeck {
     /// Set whether concurrent D-Pad input is enabled which wasn't possible on the original NES.
     #[inline]
     pub fn set_concurrent_dpad(&mut self, enabled: bool) {
-        self.cpu.bus.input.set_concurrent_dpad(enabled);
+        self.bus.input.set_concurrent_dpad(enabled);
     }
 
     /// Set emulation RAM initialization state.
     #[inline]
     pub const fn set_ram_state(&mut self, ram_state: RamState) {
-        self.cpu.bus.ram_state = ram_state;
+        self.bus.ram_state = ram_state;
     }
 
     /// Set the headless mode which can increase performance when the frame and audio outputs are
     /// not needed.
     #[inline]
     pub const fn set_headless_mode(&mut self, mode: HeadlessMode) {
-        self.cpu.bus.ppu.skip_rendering = mode.contains(HeadlessMode::NO_VIDEO);
-        self.cpu.bus.apu.skip_mixing = mode.contains(HeadlessMode::NO_AUDIO);
+        self.bus.ppu.skip_rendering = mode.contains(HeadlessMode::NO_VIDEO);
+        self.bus.apu.skip_mixing = mode.contains(HeadlessMode::NO_AUDIO);
     }
 
     /// Set whether to emulate PPU warmup where writes to certain registers are ignored. Can result
@@ -571,22 +571,20 @@ impl ControlDeck {
     /// See: <https://www.nesdev.org/wiki/PPU_power_up_state>
     #[inline]
     pub const fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
-        self.cpu.bus.ppu.emulate_warmup = enabled;
+        self.bus.ppu.emulate_warmup = enabled;
     }
 
-    /// Adds a debugger callback to be executed any time the debugger conditions
-    /// match.
+    /// Adds a debugger callback to be executed any time the debugger conditions match.
+    ///
+    /// The callback is handed the whole [`Bus`], so one hook serves a CPU, PPU or APU debugger
+    /// alike; see [`Debugger`].
     pub fn add_debugger(&mut self, debugger: Debugger) {
-        match debugger {
-            Debugger::Ppu(debugger) => self.cpu.bus.ppu.set_debugger(debugger),
-        }
+        self.bus.set_debugger(debugger);
     }
 
-    /// Removes a debugger callback.
-    pub fn remove_debugger(&mut self, debugger: Debugger) {
-        match debugger {
-            Debugger::Ppu(_) => self.cpu.bus.ppu.set_debugger(Default::default()),
-        }
+    /// Removes the debugger callback.
+    pub fn remove_debugger(&mut self, _debugger: Debugger) {
+        self.bus.set_debugger(Debugger::default());
     }
 
     /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.
@@ -615,7 +613,7 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub fn wram(&self) -> &[u8; bus::size::WRAM] {
-        self.cpu.bus.wram()
+        self.bus.wram()
     }
 
     /// Save battery-backed Save RAM to a file (if cartridge supports it)
@@ -631,9 +629,8 @@ impl ControlDeck {
             }
 
             info!("saving SRAM...");
-            self.cpu
-                .bus
-                .save(path.with_extension(Config::SRAM_EXTENSION))
+            self.bus
+                .save_sram(path.with_extension(Config::SRAM_EXTENSION))
                 .map_err(Error::Sram)?;
         }
         Ok(())
@@ -652,9 +649,8 @@ impl ControlDeck {
             }
             if path.is_file() {
                 info!("loading SRAM...");
-                self.cpu
-                    .bus
-                    .load(path.with_extension(Config::SRAM_EXTENSION))
+                self.bus
+                    .load_sram(path.with_extension(Config::SRAM_EXTENSION))
                     .map_err(Error::Sram)?;
             }
         }
@@ -671,7 +667,7 @@ impl ControlDeck {
             return Err(Error::RomNotLoaded);
         };
         let path = path.as_ref();
-        fs::save(path, &self.cpu).map_err(Error::SaveState)
+        fs::save(path, &self.bus).map_err(Error::SaveState)
     }
 
     /// Load the console with data saved from a save state, if it exists.
@@ -685,11 +681,11 @@ impl ControlDeck {
         };
         let path = path.as_ref();
         if fs::exists(path) {
-            fs::load::<Cpu>(path)
+            fs::load::<Bus>(path)
                 .map_err(Error::SaveState)
-                .and_then(|mut cpu| {
-                    cpu.bus.input.clear(); // Discard inputs from save states
-                    self.load_cpu(cpu)
+                .and_then(|mut bus| {
+                    bus.input.clear(); // Discard inputs from save states
+                    self.load_bus(bus)
                 })
         } else {
             Err(Error::NoSaveStateFound)
@@ -706,7 +702,7 @@ impl ControlDeck {
     pub fn frame_buffer_raw(&self) -> &[u16; ppu::size::FRAME] {
         match &self.run_ahead_frames {
             Some(frames) if frames.pending_valid => &frames.pending,
-            _ => self.cpu.bus.ppu.frame_buffer(),
+            _ => self.bus.ppu.frame_buffer(),
         }
     }
 
@@ -740,8 +736,8 @@ impl ControlDeck {
                 .video
                 .apply_filter(&frames.pending, frames.pending_frame_number),
             _ => self.video.apply_filter(
-                self.cpu.bus.ppu.frame_buffer(),
-                self.cpu.bus.ppu.frame_number(),
+                self.bus.ppu.frame_buffer(),
+                self.bus.ppu.frame_number(),
             ),
         }
     }
@@ -759,8 +755,8 @@ impl ControlDeck {
                     .apply_filter_into(&frames.pending, frames.pending_frame_number, buffer)
             }
             _ => self.video.apply_filter_into(
-                self.cpu.bus.ppu.frame_buffer(),
-                self.cpu.bus.ppu.frame_number(),
+                self.bus.ppu.frame_buffer(),
+                self.bus.ppu.frame_number(),
                 buffer,
             ),
         }
@@ -773,7 +769,7 @@ impl ControlDeck {
     #[inline(always)]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
-        self.cpu.bus.ppu.frame_number()
+        self.bus.ppu.frame_number()
     }
 
     /// Returns the audio samples produced by the most recent clock, at the configured sample rate.
@@ -800,7 +796,7 @@ impl ControlDeck {
     #[inline(always)]
     #[must_use]
     pub fn audio_samples(&self) -> &[f32] {
-        self.cpu.bus.audio_samples()
+        self.bus.audio_samples()
     }
 
     /// Discards the audio samples produced so far.
@@ -809,7 +805,7 @@ impl ControlDeck {
     /// when it is `true` each clock does this for you.
     #[inline]
     pub fn clear_audio_samples(&mut self) {
-        self.cpu.bus.clear_audio_samples();
+        self.bus.clear_audio_samples();
     }
 
     /// Returns whether clocking discards the previous call's audio samples first.
@@ -855,7 +851,7 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub const fn clock_rate(&self) -> f32 {
-        self.cpu.clock_rate()
+        self.bus.clock_rate()
     }
 
     /// Steps the control deck a single CPU instruction.
@@ -886,9 +882,9 @@ impl ControlDeck {
         self.cycles_remaining += self.clock_rate() * seconds;
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
-            let start_cycles = self.cpu.cycle;
+            let start_cycles = self.bus.cpu.cycle;
             self.clock_instr()?;
-            let cycles = self.cpu.cycle - start_cycles;
+            let cycles = self.bus.cpu.cycle - start_cycles;
             total_cycles += cycles;
             self.cycles_remaining -= cycles as f32;
         }
@@ -907,7 +903,7 @@ impl ControlDeck {
             frames.pending_valid = false;
         }
         if self.clear_audio_on_clock {
-            self.cpu.bus.clear_audio_samples();
+            self.bus.clear_audio_samples();
         }
     }
 
@@ -930,7 +926,7 @@ impl ControlDeck {
             while frame == self.frame_number() {
                 self.clock_instr()?;
             }
-            self.cpu.clock_sync();
+            self.bus.clock_sync();
         }
 
         Ok(())
@@ -990,7 +986,7 @@ impl ControlDeck {
         let mut frames = self.run_ahead_frames.take().unwrap_or_default();
 
         // Park the frame just rendered and hand the PPU a recycled buffer to scribble over.
-        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.spare);
+        std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
         // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
         // the same session one frame later, so a compact encoding buys nothing and measures
@@ -999,32 +995,32 @@ impl ControlDeck {
         //
         // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
         // RAM at once, where a clone each would be hundreds of megabytes.
-        let saved = self.cpu.clone();
+        let saved = self.bus.clone();
 
         // Clock the intermediate frames, whose video is never seen. Restored rather than set back
         // to `false`, so this does not quietly turn rendering on for a headless deck.
-        let skip_rendering = self.cpu.bus.ppu.skip_rendering;
-        self.cpu.bus.ppu.skip_rendering = true;
+        let skip_rendering = self.bus.ppu.skip_rendering;
+        self.bus.ppu.skip_rendering = true;
         let result = (1..self.run_ahead).try_for_each(|_| self.clock_frames());
-        self.cpu.bus.ppu.skip_rendering = skip_rendering;
+        self.bus.ppu.skip_rendering = skip_rendering;
         result?;
 
         // Their audio belongs to a timeline that is about to be rewound, so it is always dropped,
         // whatever `clear_audio_on_clock` says.
-        self.cpu.bus.clear_audio_samples();
+        self.bus.clear_audio_samples();
 
         // Clock the frame to actually display.
         self.clock_frames()?;
 
         // Park its pixels where `frame_buffer` can still reach them once the console has been
         // rewound past them.
-        frames.pending_frame_number = self.cpu.bus.ppu.frame_number();
-        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.pending);
+        frames.pending_frame_number = self.bus.ppu.frame_number();
+        std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.pending);
         frames.pending_valid = true;
 
         // Rewind, and give the console back the frame it had rendered.
-        self.cpu = saved;
-        std::mem::swap(&mut self.cpu.bus.ppu.frame.buffer, &mut frames.spare);
+        self.bus = saved;
+        std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
         self.run_ahead_frames = Some(frames);
         Ok(())
@@ -1041,8 +1037,8 @@ impl ControlDeck {
         }
         self.begin_clock();
 
-        let current_scanline = self.cpu.bus.ppu.scanline;
-        while current_scanline == self.cpu.bus.ppu.scanline {
+        let current_scanline = self.bus.ppu.scanline;
+        while current_scanline == self.bus.ppu.scanline {
             self.clock_instr()?;
         }
         Ok(())
@@ -1053,123 +1049,126 @@ impl ControlDeck {
     #[inline]
     #[must_use]
     pub const fn cpu_corrupted(&self) -> bool {
-        self.cpu.corrupted
+        self.bus.cpu.corrupted
     }
 
-    /// Returns the current [`Cpu`] state.
+    /// Returns the current [`Cpu`] registers.
+    ///
+    /// Only the register file; what the CPU *does* is an `impl Bus`, so driving it goes through
+    /// [`ControlDeck::bus_mut`].
     #[inline]
     pub const fn cpu(&self) -> &Cpu {
-        &self.cpu
+        &self.bus.cpu
     }
 
-    /// Returns a mutable reference to the current [`Cpu`] state.
+    /// Returns a mutable reference to the current [`Cpu`] registers.
     #[inline]
     pub const fn cpu_mut(&mut self) -> &mut Cpu {
-        &mut self.cpu
+        &mut self.bus.cpu
     }
 
     /// Returns the current [`Ppu`] state.
     #[inline]
     pub const fn ppu(&self) -> &Ppu {
-        &self.cpu.bus.ppu
+        &self.bus.ppu
     }
 
     /// Returns a mutable reference to the current [`Ppu`] state.
     #[inline]
     pub const fn ppu_mut(&mut self) -> &mut Ppu {
-        &mut self.cpu.bus.ppu
+        &mut self.bus.ppu
     }
 
-    /// Returns the current [`Bus`] state.
+    /// Returns the console - every component, and the whole of the emulated state.
     #[inline]
     pub const fn bus(&self) -> &Bus {
-        &self.cpu.bus
+        &self.bus
     }
 
-    /// Returns a mutable reference to the current [`Bus`] state.
+    /// Returns a mutable reference to the console.
     #[inline]
     pub const fn bus_mut(&mut self) -> &mut Bus {
-        &mut self.cpu.bus
+        &mut self.bus
     }
 
     /// Returns the current [`Apu`] state.
     #[inline]
     pub const fn apu(&self) -> &Apu {
-        &self.cpu.bus.apu
+        &self.bus.apu
     }
 
     /// Returns a mutable reference to the current [`Apu`] state.
     #[inline]
     pub const fn apu_mut(&mut self) -> &mut Apu {
-        &mut self.cpu.bus.apu
+        &mut self.bus.apu
     }
 
     /// Returns the current [`Mapper`] state.
     #[inline]
     pub const fn mapper(&self) -> &Mapper {
-        &self.cpu.bus.ppu.mapper
+        &self.bus.mapper
     }
 
     /// Returns a mutable reference to the current [`Mapper`] state.
     #[inline]
     pub const fn mapper_mut(&mut self) -> &mut Mapper {
-        &mut self.cpu.bus.ppu.mapper
+        &mut self.bus.mapper
     }
 
     /// Returns the current four player mode.
     #[inline]
     pub const fn four_player(&self) -> FourPlayer {
-        self.cpu.bus.input.four_player
+        self.bus.input.four_player
     }
 
     /// Enable/Disable Four Score for 4-player controllers.
     #[inline]
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        self.cpu.bus.input.set_four_player(four_player);
+        self.bus.input.set_four_player(four_player);
     }
 
     /// Returns the current [`Joypad`] state for a given controller slot.
     #[inline]
     pub const fn joypad(&self, slot: Player) -> &Joypad {
-        self.cpu.bus.input.joypad(slot)
+        self.bus.input.joypad(slot)
     }
 
     /// Returns a mutable reference to the current [`Joypad`] state for a given controller slot.
     #[inline]
     pub const fn joypad_mut(&mut self, slot: Player) -> &mut Joypad {
-        self.cpu.bus.input.joypad_mut(slot)
+        self.bus.input.joypad_mut(slot)
     }
 
     /// Returns whether the [`Zapper`](crate::input::Zapper) gun is connected.
     #[inline]
     pub const fn zapper_connected(&self) -> bool {
-        self.cpu.bus.input.zapper.connected
+        self.bus.input.zapper.connected
     }
 
     /// Enable [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub const fn connect_zapper(&mut self, enabled: bool) {
-        self.cpu.bus.input.connect_zapper(enabled);
+        self.bus.input.connect_zapper(enabled);
     }
 
     /// Returns the current [`Zapper`](crate::input::Zapper) aim position.
     #[inline]
     #[must_use]
     pub const fn zapper_pos(&self) -> (u16, u16) {
-        let zapper = self.cpu.bus.input.zapper;
+        let zapper = self.bus.input.zapper;
         (zapper.x(), zapper.y())
     }
 
     /// Trigger [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub fn trigger_zapper(&mut self) {
-        self.cpu.bus.input.zapper.trigger();
+        self.bus.input.zapper.trigger();
     }
 
     /// Aim [`Zapper`](crate::input::Zapper) gun.
     #[inline]
     pub const fn aim_zapper(&mut self, x: u16, y: u16) {
-        self.cpu.bus.input.zapper.aim(x, y);
+        self.bus.input.zapper.aim(x, y);
     }
 
     /// Set the video filter for frame buffer output when calling [`ControlDeck::frame_buffer`].
@@ -1183,14 +1182,14 @@ impl ControlDeck {
     /// Set the [`Apu`] sample rate.
     #[inline]
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
-        self.cpu.bus.apu.set_sample_rate(sample_rate);
+        self.bus.apu.set_sample_rate(sample_rate);
     }
 
     /// Set the emulation speed.
     #[inline]
     pub fn set_frame_speed(&mut self, speed: f32) {
         self.frame_speed_step = (speed * 4.0) as u16;
-        self.cpu.bus.apu.set_frame_speed(speed);
+        self.bus.apu.set_frame_speed(speed);
     }
 
     /// Add a NES Game Genie code.
@@ -1200,27 +1199,27 @@ impl ControlDeck {
     /// If the genie code is invalid, an error is returned.
     #[inline]
     pub fn add_genie_code(&mut self, genie_code: String) -> Result<()> {
-        self.cpu.bus.add_genie_code(GenieCode::new(genie_code)?);
+        self.bus.add_genie_code(GenieCode::new(genie_code)?);
         Ok(())
     }
 
     /// Remove a NES Game Genie code.
     #[inline]
     pub fn remove_genie_code(&mut self, genie_code: &str) {
-        self.cpu.bus.remove_genie_code(genie_code);
+        self.bus.remove_genie_code(genie_code);
     }
 
     /// Remove all NES Game Genie codes.
     #[inline]
     pub fn clear_genie_codes(&mut self) {
-        self.cpu.bus.clear_genie_codes();
+        self.bus.clear_genie_codes();
     }
 
     /// Returns whether a given [`Apu`] [`Channel`] is enabled.
     #[inline]
     #[must_use]
     pub const fn apu_channel_enabled(&self, channel: Channel) -> bool {
-        self.cpu.bus.apu.channel_enabled(channel)
+        self.bus.apu.channel_enabled(channel)
     }
 
     /// Returns whether a given [`Apu`] [`Channel`] is enabled.
@@ -1234,13 +1233,13 @@ impl ControlDeck {
     /// Enable or disable a given [`Apu`] [`Channel`].
     #[inline]
     pub const fn set_apu_channel_enabled(&mut self, channel: Channel, enabled: bool) {
-        self.cpu.bus.apu.set_channel_enabled(channel, enabled);
+        self.bus.apu.set_channel_enabled(channel, enabled);
     }
 
     /// Toggle a given [`Apu`] [`Channel`].
     #[inline]
     pub const fn toggle_apu_channel(&mut self, channel: Channel) {
-        self.cpu.bus.apu.toggle_channel(channel);
+        self.bus.apu.toggle_channel(channel);
     }
 
     /// Returns whether the control deck is currently running.
@@ -1256,27 +1255,27 @@ impl ControlDeck {
     /// console wedged.
     #[inline(always)]
     pub fn clock(&mut self) {
-        self.cpu.clock()
+        self.bus.clock_instr()
     }
 
     /// Get the NES format for the emulation.
     pub const fn region(&self) -> NesRegion {
-        self.cpu.region()
+        self.bus.region()
     }
 
     /// Set the NES format for the emulation.
     pub fn set_region(&mut self, region: NesRegion) {
         self.auto_detect_region = region.is_auto();
         if self.auto_detect_region {
-            self.cpu.set_region(self.cart_region().unwrap_or_default());
+            self.bus.set_region(self.cart_region().unwrap_or_default());
         } else {
-            self.cpu.set_region(region);
+            self.bus.set_region(region);
         }
     }
 
     /// Resets the console.
     pub fn reset(&mut self, kind: ResetKind) {
-        self.cpu.reset(kind);
+        self.bus.reset(kind);
         self.video_frame_stale = true;
         if let Some(frames) = &mut self.run_ahead_frames {
             frames.pending_valid = false;
@@ -1315,7 +1314,7 @@ impl ControlDeck {
         let _ = self.frame_buffer();
         Ok(handle_output(
             &self.video.frame[..],
-            self.cpu.bus.audio_samples(),
+            self.bus.audio_samples(),
         ))
     }
 
@@ -1342,7 +1341,7 @@ impl ControlDeck {
         let frame = self.frame_buffer();
         let len = frame.len().min(frame_buffer.len());
         frame_buffer[..len].copy_from_slice(&frame[..len]);
-        let audio = self.cpu.bus.audio_samples();
+        let audio = self.bus.audio_samples();
         // The original truncated to `audio_samples.len()`, which panicked whenever the caller's
         // buffer was longer than the frame - and a caller cannot know how many samples a frame
         // produces.
@@ -1411,7 +1410,7 @@ impl ControlDeck {
     ) -> Result<()> {
         let frame = self.frame_number();
         self.clock_seconds(seconds)?;
-        handle_audio(self.cpu.bus.audio_samples());
+        handle_audio(self.bus.audio_samples());
         if frame != self.frame_number() {
             handle_frame(self.frame_buffer());
         }
@@ -1616,13 +1615,13 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let mut deck = spritecans();
-        deck.cpu_mut().bus.ppu.memory.region_mut(Src::PrgRam)[..4].copy_from_slice(&[1, 2, 3, 4]);
-        deck.cpu().bus.save(&path).expect("saves");
+        deck.bus_mut().memory.region_mut(Src::PrgRam)[..4].copy_from_slice(&[1, 2, 3, 4]);
+        deck.bus().save_sram(&path).expect("saves");
 
         let mut restored = spritecans();
-        restored.cpu_mut().bus.load(&path).expect("loads");
+        restored.bus_mut().load_sram(&path).expect("loads");
         assert_eq!(
-            &restored.cpu().bus.ppu.memory.region_ref(Src::PrgRam)[..4],
+            &restored.bus().memory.region_ref(Src::PrgRam)[..4],
             &[1, 2, 3, 4]
         );
 

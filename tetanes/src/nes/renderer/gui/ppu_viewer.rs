@@ -16,9 +16,51 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
-    debug::PpuDebugger,
-    ppu::{self, Ppu, addr, cycle, scanline, scroll::Scroll, sprite::Sprite},
+    bus::Bus,
+    debug::Debugger,
+    ppu::{self, Mirroring, Ppu, addr, cycle, scanline, scroll::Scroll, sprite::Sprite},
 };
+
+/// Bytes of the PPU address space a snapshot carries: `$0000-$2FFF`, pattern tables plus
+/// nametables.
+const CHR_WINDOW: usize = 0x3000;
+
+/// What this viewer takes from the console when the debugger fires.
+///
+/// The callback is handed the whole [`Bus`], so this is the viewer's own choice of what to copy
+/// across to the render thread - the PPU's registers, and its address space resolved through the
+/// board so no mapper knowledge is needed here. A few KiB per frame; rendering the views produces
+/// ~1 MiB of pixels and stays on this side.
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct PpuSnapshot {
+    pub ppu: Ppu,
+    pub chr: Box<[u8; CHR_WINDOW]>,
+    pub mirroring: Mirroring,
+}
+
+impl Default for PpuSnapshot {
+    fn default() -> Self {
+        Self {
+            ppu: Ppu::default(),
+            chr: Box::new([0; CHR_WINDOW]),
+            mirroring: Mirroring::default(),
+        }
+    }
+}
+
+impl PpuSnapshot {
+    /// Copy what the viewer needs out of the console at a break point.
+    pub fn capture(bus: &Bus) -> Self {
+        let mut chr = Box::new([0; CHR_WINDOW]);
+        bus.copy_ppu_bus(chr.as_mut_slice());
+        Self {
+            ppu: bus.ppu.snapshot(),
+            chr,
+            mirroring: bus.mirroring(),
+        }
+    }
+}
 
 #[derive(Debug)]
 #[must_use]
@@ -38,7 +80,7 @@ struct State {
     pattern_tables: PatternTablesState,
     oam: OamState,
     palette: PalettesState,
-    ppu: Ppu,
+    snapshot: PpuSnapshot,
 }
 
 #[derive(Debug)]
@@ -246,7 +288,7 @@ impl PpuViewer {
                     zoom: 3.0,
                     selected: None,
                 },
-                ppu: Ppu::default(),
+                snapshot: PpuSnapshot::default(),
             })),
         }
     }
@@ -280,11 +322,12 @@ impl PpuViewer {
         }
     }
 
-    pub fn update_ppu(&mut self, queue: &wgpu::Queue, ppu: Ppu) {
+    pub fn update_ppu(&mut self, queue: &wgpu::Queue, snapshot: PpuSnapshot) {
         let mut state = self.state.lock();
+        let PpuSnapshot { ppu, chr, .. } = &snapshot;
         match state.tab {
             Tab::Nametables => {
-                ppu.load_nametables(&mut state.nametables.pixels);
+                ppu.load_nametables(chr.as_slice(), &mut state.nametables.pixels);
                 let mut pixels = std::mem::take(&mut state.palette.pixels);
                 let mut colors = std::mem::take(&mut state.palette.colors);
                 ppu.load_palettes(&mut pixels, &mut colors);
@@ -296,7 +339,7 @@ impl PpuViewer {
                     .update(queue, &state.nametables.pixels);
             }
             Tab::PatternTables => {
-                ppu.load_pattern_tables(&mut state.pattern_tables.pixels);
+                ppu.load_pattern_tables(chr.as_slice(), &mut state.pattern_tables.pixels);
                 state
                     .pattern_tables
                     .texture
@@ -314,7 +357,7 @@ impl PpuViewer {
                     chunk[2] = 0;
                     chunk[3] = 255;
                 });
-                ppu.load_oam(&mut oam_pixels, &mut sprite_pixels, &mut sprites);
+                ppu.load_oam(chr.as_slice(), &mut oam_pixels, &mut sprite_pixels, &mut sprites);
 
                 state.oam.oam_pixels = oam_pixels;
                 state.oam.sprite_pixels = sprite_pixels;
@@ -334,7 +377,7 @@ impl PpuViewer {
                 state.palette.colors = colors;
             }
         }
-        state.ppu = ppu;
+        state.snapshot = snapshot;
     }
 
     pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions) {
@@ -372,15 +415,17 @@ impl PpuViewer {
 impl State {
     fn update_debugger(&self, open: bool) {
         let tx = self.tx.clone();
-        let debugger = PpuDebugger {
+        let debugger = Debugger {
             cycle: self.refresh_cycle,
             scanline: self.refresh_scanline,
-            callback: Arc::new(move |ppu| tx.event(DebugEvent::Ppu(Box::new(ppu)))),
+            callback: Arc::new(move |bus| {
+                tx.event(DebugEvent::Ppu(Box::new(PpuSnapshot::capture(bus))))
+            }),
         };
         self.tx.event(if open {
-            EmulationEvent::AddDebugger(debugger.into())
+            EmulationEvent::AddDebugger(debugger)
         } else {
-            EmulationEvent::RemoveDebugger(debugger.into())
+            EmulationEvent::RemoveDebugger(debugger)
         });
     }
 
@@ -438,7 +483,7 @@ impl State {
 
             ui.horizontal(|ui| {
                 let drag = DragValue::new(&mut self.refresh_scanline)
-                    .range(0..=self.ppu.prerender_scanline)
+                    .range(0..=self.snapshot.ppu.prerender_scanline)
                     .suffix(" scanline");
                 let res = ui.add(drag);
                 if res.changed() {
@@ -460,7 +505,7 @@ impl State {
                     .spacing([40.0, 6.0]);
                 grid.show(ui, |ui| {
                     ui.strong("Mirroring:");
-                    ui.label(format!("{:?}", self.ppu.mirroring()));
+                    ui.label(format!("{:?}", self.snapshot.mirroring));
                     ui.end_row();
                 });
 
@@ -550,7 +595,7 @@ impl State {
                         self.refresh_cycle as f32 * image_rect.size().x / 2.0 / cycle::END as f32;
                     let scanline_offset = self.refresh_scanline as f32 * image_rect.size().y
                         / 2.0
-                        / self.ppu.prerender_scanline as f32;
+                        / self.snapshot.ppu.prerender_scanline as f32;
                     ui.painter().vline(
                         image_rect.left() + cycle_offset,
                         image_rect.y_range(),
@@ -654,12 +699,12 @@ impl State {
         let base_attr_addr = base_nametable_addr + addr::ATTR_OFFSET;
 
         let nametable_addr = base_nametable_addr + nametable_index;
-        let tile_index = u16::from(self.ppu.chr_peek(nametable_addr));
-        let tile_addr = self.ppu.ctrl.bg_select + (tile_index << 4);
+        let tile_index = u16::from(self.snapshot.chr[usize::from(nametable_addr)]);
+        let tile_addr = self.snapshot.ppu.ctrl.bg_select + (tile_index << 4);
 
         let supertile = ((row & 0xFC) << 1) + (col >> 2);
         let attr_addr = base_attr_addr + supertile;
-        let attr_val = self.ppu.chr_peek(attr_addr);
+        let attr_val = self.snapshot.chr[usize::from(attr_addr)];
 
         let attr_shift = (col & 0x02) | ((row & 0x02) << 1);
         // TODO: handle mmc5 extended attributes
@@ -797,7 +842,7 @@ impl State {
             prerender_scanline,
             scroll,
             ..
-        } = self.ppu;
+        } = self.snapshot.ppu;
         let use_scroll_t = scanline >= vblank_scanline
             || (scanline == scanline::VISIBLE_END && cycle >= cycle::SPR_EVAL_END)
             || (scanline == prerender_scanline && cycle < cycle::BG_PREFETCH_START + 7);

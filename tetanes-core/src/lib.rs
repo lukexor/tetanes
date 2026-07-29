@@ -56,7 +56,7 @@ mod tests {
         },
         bus::{self, Bus},
         cpu::{IrqFlags, Status, instr::AddrMode},
-        debug::PpuDebugger,
+        debug::Debugger,
         mapper::{BOARD_LAYOUTS, MapperOps},
         memory::ConstArray,
         memory::Memory,
@@ -107,17 +107,22 @@ mod tests {
             y: u8,
             status: Status,
             irq_flags: IrqFlags,
-            bus: Bus,
             corrupted: bool,
-            disasm: String,
         );
 
         print_struct_layout!(
             Bus,
+            cpu: Cpu,
+            mapper_ops: MapperOps,
+            mapper: Mapper,
+            memory: Memory,
             wram: Box<ConstArray<u8, { bus::size::WRAM }>>,
             open_bus: u8,
             ram_state: RamState,
             region: NesRegion,
+            debugger_active: bool,
+            debugger: Debugger,
+            disasm: String,
             ppu: Ppu,
             apu: Apu,
             input: Input,
@@ -145,7 +150,6 @@ mod tests {
             prev_palette: u8,
             next_palette: u8,
             skip_rendering: bool,
-            debugger_active: bool,
 
             spr_count: u8,
             spr_in_range: bool,
@@ -176,9 +180,6 @@ mod tests {
             oamdata: ConstArray<u8, 256>,
 
             palette: PaletteRam,
-            mapper: Mapper,
-            memory: Memory,
-            mapper_ops: MapperOps,
             nmi_pending: bool,
 
             vram_buffer: u8,
@@ -186,7 +187,6 @@ mod tests {
             region: NesRegion,
             emulate_warmup: bool,
 
-            debugger: PpuDebugger,
 
         );
 

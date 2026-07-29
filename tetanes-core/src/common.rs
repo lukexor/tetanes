@@ -226,7 +226,7 @@ pub(crate) mod tests {
         control_deck::{Config, ControlDeck},
         input::Player,
         // Aliased: `std::io::Read` is imported below for reading ROMs off disk.
-        memory::{RamState, Read as _},
+        memory::RamState,
         ppu::size,
         video::VideoFilter,
     };
@@ -343,14 +343,14 @@ pub(crate) mod tests {
     /// it honours whatever the board actually has mapped at `$6000`, and note that
     /// [`ControlDeck::wram`] is `$0000..=$07FF` and does not reach it.
     fn blargg_status(deck: &ControlDeck) -> Option<u8> {
-        let bus = &deck.cpu().bus;
+        let bus = deck.bus();
         let marker = [bus.peek(0x6001), bus.peek(0x6002), bus.peek(0x6003)];
         (marker == BLARGG_MARKER).then(|| bus.peek(0x6000))
     }
 
     /// Reads the NUL-terminated human-readable result a blargg test writes at `$6004`.
     fn blargg_text(deck: &ControlDeck) -> String {
-        let bus = &deck.cpu().bus;
+        let bus = deck.bus();
         (0x6004..0x8000)
             .map(|addr| bus.peek(addr))
             .take_while(|&byte| byte != 0)
@@ -439,7 +439,7 @@ pub(crate) mod tests {
         /// Samples pulse 1 once per frame. A report tone runs its length counter down from 253,
         /// i.e. roughly two seconds, so per-frame resolution is far finer than it needs to be.
         fn observe(&mut self, deck: &ControlDeck) {
-            let playing = deck.cpu().bus.apu.pulse1.length.counter > 0;
+            let playing = deck.bus().apu.pulse1.length.counter > 0;
             self.count += u32::from(playing && !self.playing);
             self.playing = playing;
         }
@@ -658,7 +658,7 @@ pub(crate) mod tests {
                 .iter()
                 .any(|frame| frame.audio_profile.is_some());
         let mut deck = load_control_deck(&rom);
-        deck.cpu_mut().bus.apu.skip_mixing = !wants_audio;
+        deck.bus_mut().apu.skip_mixing = !wants_audio;
         deck.set_clear_audio_on_clock(!wants_audio);
 
         let mut results = Vec::new();
@@ -687,7 +687,7 @@ pub(crate) mod tests {
             on_frame_action(test_frame, &mut deck);
             on_report(&test.name, test_frame, &deck, &tones);
             if let Some(expected) = &test_frame.audio_profile {
-                let sample_rate = deck.cpu().bus.apu.sample_rate;
+                let sample_rate = deck.bus().apu.sample_rate;
                 let actual = audio_profile(deck.audio_samples(), sample_rate);
                 profiles.push((test_frame.number, expected.clone(), actual));
             }

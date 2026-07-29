@@ -82,18 +82,18 @@ fn main() -> anyhow::Result<()> {
         deck.clock_frame().context("failed to clock frame")?;
     }
 
-    let ppu = &deck.cpu().bus.ppu;
+    let bus = deck.bus();
     if opt.tables {
         for (table, base) in [(0u16, 0x0000u16), (1, 0x1000)] {
-            // Through `Ppu::chr_peek`, so this goes through the same page tables and read hooks
+            // Through `Bus::chr_peek`, so this goes through the same page tables and read hooks
             // the emulation does rather than reaching into the board.
-            let data: Vec<u8> = (0..0x1000).map(|i| ppu.chr_peek(base + i)).collect();
+            let data: Vec<u8> = (0..0x1000).map(|i| bus.chr_peek(base + i)).collect();
             let path = format!("{}-table{table}.png", opt.out);
             sheet(&data).save(&path)?;
             println!("wrote {path}");
         }
     } else {
-        let chr = ppu.memory.region_ref(Src::Chr);
+        let chr = bus.memory.region_ref(Src::Chr);
         println!("chr: {} bytes ({} 4K banks)", chr.len(), chr.len() / 0x1000);
         for (bank, data) in chr.chunks(0x1000).enumerate() {
             let path = format!("{}-4k{bank:02X}.png", opt.out);

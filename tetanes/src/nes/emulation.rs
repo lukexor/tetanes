@@ -23,6 +23,7 @@ use std::{
 };
 use tetanes_core::{
     apu::Apu,
+    bus::Bus,
     common::{NesRegion, ResetKind},
     control_deck::{self, ControlDeck, LoadedRom},
     cpu::Cpu,
@@ -364,13 +365,11 @@ impl State {
     }
 
     fn on_error(&mut self, err: impl Into<anyhow::Error>) {
-        use tetanes_core::memory::Read;
-
         let err = err.into();
         error!("Emulation error: {err:?}");
         if self.control_deck.cpu_corrupted() {
-            let cpu = self.control_deck.cpu();
-            let opcode = cpu.peek(cpu.pc.wrapping_sub(1));
+            let bus = self.control_deck.bus();
+            let opcode = bus.peek(bus.cpu.pc.wrapping_sub(1));
             self.tx.event(EmulationEvent::CpuCorrupted {
                 instr: Cpu::INSTR_REF[usize::from(opcode)],
             });
@@ -577,8 +576,7 @@ impl State {
             }
             ConfigEvent::GenieCodeAdded(genie_code) => {
                 self.control_deck
-                    .cpu_mut()
-                    .bus
+                    .bus_mut()
                     .add_genie_code(genie_code.clone());
             }
             ConfigEvent::GenieCodeRemoved(code) => {
@@ -765,12 +763,12 @@ impl State {
         }
     }
 
-    fn on_load_replay(&mut self, start: Cpu, name: impl AsRef<str>) {
+    fn on_load_replay(&mut self, start: Bus, name: impl AsRef<str>) {
         self.add_message(
             MessageType::Info,
             format!("Loaded Replay Recording {:?}", name.as_ref()),
         );
-        if let Err(err) = self.control_deck.load_cpu(start) {
+        if let Err(err) = self.control_deck.load_bus(start) {
             self.on_error(anyhow::Error::from(err));
             return;
         }
@@ -825,7 +823,7 @@ impl State {
     fn replay_record(&mut self, recording: bool) {
         if self.control_deck.is_running() {
             if recording {
-                self.record.start(self.control_deck.cpu().clone());
+                self.record.start(self.control_deck.bus().clone());
             } else if let Some(rom) = self.control_deck.loaded_rom() {
                 match self.record.stop(&rom.name) {
                     Ok(Some(filename)) => {
@@ -920,10 +918,10 @@ impl State {
 
         if self.rewinding {
             match self.rewind.pop() {
-                Some(cpu) => {
+                Some(bus) => {
                     // A mismatched state cannot happen while rewinding the running game, but
                     // stopping beats replaying a broken console.
-                    if let Err(err) = self.control_deck.load_cpu(cpu) {
+                    if let Err(err) = self.control_deck.load_bus(bus) {
                         error!("failed to rewind: {err:?}");
                         self.rewinding = false;
                         return;
@@ -947,7 +945,7 @@ impl State {
                         Err(_) => shutdown(&self.tx, "failed to get frame"),
                     }
                     self.update_frame_stats();
-                    if let Err(err) = self.rewind.push(self.control_deck.cpu()) {
+                    if let Err(err) = self.rewind.push(self.control_deck.bus()) {
                         self.rewind.set_enabled(false);
                         self.on_error(err);
                     }

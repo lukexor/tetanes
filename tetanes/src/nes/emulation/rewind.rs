@@ -1,6 +1,6 @@
 use crate::nes::{emulation::State, renderer::gui::MessageType};
 use tetanes_core::{
-    cpu::Cpu,
+    bus::Bus,
     fs::{Error, Result},
     ppu::frame::Buffer,
 };
@@ -65,7 +65,7 @@ impl Rewind {
             .resize(Self::frame_size(self.seconds, self.interval), None);
     }
 
-    pub fn push(&mut self, cpu: &Cpu) -> Result<()> {
+    pub fn push(&mut self, bus: &Bus) -> Result<()> {
         if !self.enabled {
             return Ok(());
         }
@@ -74,10 +74,10 @@ impl Rewind {
             self.interval_counter = 0;
 
             let config = bincode::config::legacy();
-            let state = bincode::serde::encode_to_vec(cpu, config)
+            let state = bincode::serde::encode_to_vec(bus, config)
                 .map_err(|err| Error::SerializationFailed(err.to_string()))?;
             self.frames[self.index] = Some(Frame {
-                buffer: cpu.bus.ppu.frame.buffer.clone(),
+                buffer: bus.ppu.frame.buffer.clone(),
                 state,
             });
 
@@ -90,7 +90,7 @@ impl Rewind {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Option<Cpu> {
+    pub fn pop(&mut self) -> Option<Bus> {
         if !self.enabled {
             return None;
         }
@@ -103,13 +103,13 @@ impl Rewind {
 
             let frame = self.frames[self.index].take()?;
             let config = bincode::config::legacy();
-            bincode::serde::decode_from_slice::<Cpu, _>(&frame.state, config)
-                .map(|(mut cpu, _)| {
-                    cpu.bus.input.clear(); // Discard inputs while rewinding
-                    cpu.bus.ppu.frame.buffer = frame.buffer;
-                    cpu
+            bincode::serde::decode_from_slice::<Bus, _>(&frame.state, config)
+                .map(|(mut bus, _)| {
+                    bus.input.clear(); // Discard inputs while rewinding
+                    bus.ppu.frame.buffer = frame.buffer;
+                    bus
                 })
-                .map_err(|err| error!("Failed to deserialize CPU state: {err:?}"))
+                .map_err(|err| error!("Failed to deserialize console state: {err:?}"))
                 .ok()
         } else {
             None
@@ -138,9 +138,9 @@ impl State {
         }
         // ~2 seconds worth of frames @ 60 FPS
         let mut rewind_frames = 120 / self.rewind.interval;
-        while let Some(mut cpu) = self.rewind.pop() {
-            cpu.bus.input.clear(); // Discard inputs while rewinding
-            if let Err(err) = self.control_deck.load_cpu(cpu) {
+        while let Some(mut bus) = self.rewind.pop() {
+            bus.input.clear(); // Discard inputs while rewinding
+            if let Err(err) = self.control_deck.load_bus(bus) {
                 error!("failed to rewind: {err:?}");
                 return;
             }

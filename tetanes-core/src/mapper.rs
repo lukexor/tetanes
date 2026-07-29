@@ -49,7 +49,7 @@
 //!
 //! Keeping all banking in `update_banks` is what lets save states restore correctly: page tables
 //! are derived state and are not serialized, so
-//! [`Ppu::rebuild_mapper_state`](crate::ppu::Ppu::rebuild_mapper_state) rebuilds them by replaying
+//! [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) rebuilds them by replaying
 //! `update_banks` against the restored registers. A board that banks anywhere *else* will load a
 //! broken state.
 //!
@@ -859,20 +859,20 @@ mod tests {
     /// constructed with.
     #[test]
     fn setting_the_region_reaches_the_mapper() {
-        use crate::{cart::Cart, ppu::Ppu};
+        use crate::{bus::Bus, cart::Cart};
 
         let mut cart = Cart::empty_sized(0x8000, 0x2000);
         cart.header.mapper_num = 5;
-        let mapper = Mapper::from_cart(&mut cart).expect("MMC5 loads");
+        cart.mapper = Mapper::from_cart(&mut cart).expect("MMC5 loads");
 
-        let mut ppu = Ppu::default();
-        ppu.set_region(NesRegion::Ntsc);
-        ppu.load_cart(mapper, cart.memory);
-        assert_eq!(ppu.mapper.region(), NesRegion::Ntsc, "region at load");
+        let mut bus = Bus::default();
+        bus.set_region(NesRegion::Ntsc);
+        bus.load_cart(cart);
+        assert_eq!(bus.mapper.region(), NesRegion::Ntsc, "region at load");
 
-        ppu.set_region(NesRegion::Pal);
+        bus.set_region(NesRegion::Pal);
         assert_eq!(
-            ppu.mapper.region(),
+            bus.mapper.region(),
             NesRegion::Pal,
             "a later region change must reach the mapper too"
         );

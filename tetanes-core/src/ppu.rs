@@ -11,10 +11,11 @@
 //! changing what it does.
 
 use crate::{
+    bus::Bus,
     common::{NesRegion, ResetKind},
-    debug::PpuDebugger,
+    debug::Debugger,
     mapper::{Mapper, MapperOps},
-    memory::{ConstArray, Memory, Read, Write},
+    memory::ConstArray,
     ppu::frame::Frame,
 };
 use ctrl::Ctrl;
@@ -70,14 +71,17 @@ impl PaletteRam {
     }
 }
 
-impl Read for PaletteRam {
+impl PaletteRam {
+    /// Read a colour, with the $3F10/$3F14/$3F18/$3F1C backdrop mirrors applied.
+    ///
+    /// Named `peek` for the crate's convention that a read with no side effects is a peek - and
+    /// palette RAM has none.
     #[inline(always)]
     fn peek(&self, addr: u16) -> u8 {
         self.0[Self::mirror(addr)]
     }
-}
 
-impl Write for PaletteRam {
+    /// Write a colour, with the backdrop mirrors applied.
     #[inline(always)]
     fn write(&mut self, addr: u16, val: u8) {
         self.0[Self::mirror(addr)] = val;
@@ -154,9 +158,6 @@ pub struct Ppu {
     /// Whether PPU is skipping rendering (used for
     /// [`HeadlessMode`](crate::control_deck::HeadlessMode)).
     pub skip_rendering: bool,
-    /// Whether a [`PpuDebugger`] is attached, cached so `Clock::clock` can skip touching the
-    /// (cold) `debugger` field on every dot when nothing is attached.
-    pub debugger_active: bool,
 
     /// Scanline is visible. *Derived* from `scanline`; recomputed once per scanline so the
     /// per-dot paths test a bool instead of a range. Writing it does not move the PPU.
@@ -218,20 +219,6 @@ pub struct Ppu {
     pub oamdata: ConstArray<u8, 256>,
 
     // === 640 : end of cache line
-    /// Mapper.
-    pub mapper: Mapper,
-    /// Page-table backed cartridge memory, for boards that have been ported onto it.
-    pub memory: Memory,
-    /// Which of a loaded board's optional hooks apply - whether it needs a per-cycle clock, can
-    /// raise an IRQ or DMA, produces audio, observes every PPU bus address (A12 scanline counters,
-    /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
-    /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
-    /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
-    /// test. *Derived* from [`Map::mapper_ops`](crate::mapper::Map::mapper_ops) and not
-    /// serialized: recomputed in `load_mapper` and `rebuild_mapper_state`. Writing it from outside
-    /// desynchronizes dispatch from the board that is actually loaded.
-    #[serde(skip)]
-    pub mapper_ops: MapperOps,
     /// NMI pending.
     pub nmi_pending: bool,
 
@@ -243,11 +230,6 @@ pub struct Ppu {
     pub region: NesRegion,
     /// Whether to emulate PPU warmup on power up.
     pub emulate_warmup: bool,
-
-    /// Attached Ppu Debugger.
-    // Don't save debug state
-    #[serde(skip)]
-    pub debugger: PpuDebugger,
 }
 
 impl Default for Ppu {
@@ -446,9 +428,6 @@ impl Ppu {
             // properly initialize both nametables, which can result in garbage sprites when
             // randomizing CIRAM.
             palette: PaletteRam(ConstArray::new()),
-            mapper: Mapper::none(),
-            memory: Memory::default(),
-            mapper_ops: MapperOps::empty(),
 
             prev_palette: 0x00,
             curr_palette: 0x00,
@@ -487,91 +466,11 @@ impl Ppu {
             skip_rendering: false,
             reset_signal: false,
             emulate_warmup: false,
-
-            debugger: Default::default(),
-            debugger_active: false,
         };
 
         ppu.set_region(ppu.region);
 
         ppu
-    }
-
-    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let served = if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS) {
-            let Self { mapper, memory, .. } = self;
-            mapper.chr_read(memory, addr)
-        } else {
-            None
-        };
-        let val = served.unwrap_or_else(|| self.memory.chr_peek(addr));
-        // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte being
-        // read must come from the pre-flip bank. MMC3's A12 counter does not affect the data, so
-        // it is unaffected by the ordering.
-        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
-            let Self { mapper, memory, .. } = self;
-            mapper.ppu_bus_addr(memory, addr);
-        }
-        val
-    }
-
-    /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
-    ///
-    /// Public so debuggers read through the same routing the emulation uses; reaching into
-    /// `mapper` directly bypasses page-table boards and yields garbage.
-    #[inline(always)]
-    pub fn chr_peek(&self, addr: u16) -> u8 {
-        if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS)
-            && let Some(val) = self.mapper.chr_peek(&self.memory, addr)
-        {
-            return val;
-        }
-        self.memory.chr_peek(addr)
-    }
-
-    /// Write a byte to CHR-RAM/CIRAM at a given address.
-    #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8) {
-        self.memory.chr_write(addr, val);
-    }
-
-    /// Read from `addr` on Ppu bus.
-    #[inline]
-    fn bus_read(&mut self, addr: u16) -> u8 {
-        self.open_bus = match addr {
-            0x0000..=0x3EFF => self.chr_read(addr),
-            0x3F00..=0x3FFF => self.palette.read(addr),
-            _ => {
-                error!("unexpected PPU memory access at ${:04X}", addr);
-                0x00
-            }
-        };
-        self.open_bus
-    }
-
-    #[inline]
-    fn bus_peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x3EFF => self.chr_peek(addr),
-            0x3F00..=0x3FFF => self.palette.peek(addr),
-            _ => {
-                error!("unexpected PPU memory access at ${:04X}", addr);
-                0x00
-            }
-        }
-    }
-
-    /// Write `val` to `addr` on Ppu bus.
-    #[inline]
-    fn bus_write(&mut self, addr: u16, val: u8) {
-        self.open_bus = val;
-        match addr {
-            0x0000..=0x3EFF => self.chr_write(addr, val),
-            0x3F00..=0x3FFF => self.palette.write(addr, val),
-            _ => error!("unexpected PPU memory access at ${:04X}", addr),
-        }
     }
 
     /// Return the current frame buffer.
@@ -595,65 +494,6 @@ impl Ppu {
         self.frame.pixel_brightness(x, y)
     }
 
-    /// Load a Mapper into the PPU.
-    #[inline]
-    pub fn load_mapper(&mut self, mapper: Mapper) {
-        self.mapper_ops = mapper.mapper_ops();
-        self.mapper = mapper;
-        // `ControlDeck::load_rom` sets the region *before* installing the cart, so a mapper whose
-        // timing depends on it (MMC5's expansion audio) would otherwise never be told.
-        self.mapper.set_region(self.region);
-    }
-
-    /// Load a cart's mapper and its page-table memory.
-    pub fn load_cart(&mut self, mapper: Mapper, memory: Memory) {
-        self.memory = memory;
-        self.load_mapper(mapper);
-    }
-
-    /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
-    ///
-    /// Reads made through `chr_read` notify the board themselves; this exists for the sites that
-    /// move the PPU address without fetching through it, such as `$2006` writes.
-    #[inline(always)]
-    pub fn notify_ppu_bus(&mut self, addr: u16) {
-        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
-            let Self { mapper, memory, .. } = self;
-            mapper.ppu_bus_addr(memory, addr);
-        }
-    }
-
-    /// Attach (or clear, via `PpuDebugger::default()`) a debugger callback.
-    ///
-    /// Recomputes the cached `debugger_active` flag so `Clock::clock` can skip the `debugger`
-    /// field entirely - a single always-false bool check instead of two compares against a
-    /// struct that otherwise sits cold relative to the per-dot hot fields - when nothing is
-    /// attached.
-    #[inline]
-    pub fn set_debugger(&mut self, debugger: PpuDebugger) {
-        self.debugger_active = debugger != PpuDebugger::default();
-        self.debugger = debugger;
-    }
-
-    /// Rebuild the page tables from the mapper's register state.
-    ///
-    /// Required after loading a save state: page tables are derived state and are not serialized,
-    /// so without this a restored state would have every page unmapped.
-    pub fn rebuild_mapper_state(&mut self) {
-        let Self { mapper, memory, .. } = self;
-        mapper.update_banks(memory);
-        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole Cpu, so this is
-        // the state-load path's chance to recompute it from the (serialized, and thus correct)
-        // mapper.
-        self.mapper_ops = self.mapper.mapper_ops();
-    }
-
-    /// Return the current Nametable mirroring mode.
-    #[inline]
-    pub fn mirroring(&self) -> Mirroring {
-        self.mapper.mirroring()
-    }
-
     /// Snapshot the PPU state, excluding internal transient state, the current frame buffer.
     pub fn snapshot(&self) -> Self {
         Self {
@@ -674,7 +514,6 @@ impl Ppu {
             ctrl: self.ctrl,
 
             palette: self.palette,
-            mapper: self.mapper.clone(),
 
             curr_palette: self.curr_palette,
 
@@ -692,7 +531,12 @@ impl Ppu {
     }
 
     /// Load the passed given buffer with RGBA pixels from the current nametables.
-    pub fn load_nametables(&self, nametables: &mut [u8]) {
+    ///
+    /// `chr` is `$0000-$2FFF` as the PPU currently sees it - pattern tables and nametables, banked
+    /// and mirrored - which [`Bus::copy_ppu_bus`](crate::bus::Bus::copy_ppu_bus) fills. Passed in
+    /// rather than read through the board so that a debugger holding a snapshot on another thread
+    /// renders the same thing the emulation would.
+    pub fn load_nametables(&self, chr: &[u8], nametables: &mut [u8]) {
         for i in 0..4 {
             let base_addr = addr::NAMETABLE_START + i * size::NAMETABLE;
             let x_offset = (i % 2) * size::WIDTH;
@@ -706,11 +550,11 @@ impl Ppu {
                     addr::NAMETABLE_START | (addr & (Scroll::NT_X_MASK | Scroll::NT_Y_MASK));
                 let base_attr_addr = base_nametable_addr + addr::ATTR_OFFSET;
 
-                let tile_index = u16::from(self.chr_peek(addr));
+                let tile_index = u16::from(chr[usize::from(addr)]);
                 let tile_addr = self.ctrl.bg_select | (tile_index << 4);
 
                 let supertile = ((y_scroll & 0xFC) << 1) + (x_scroll >> 2);
-                let attr = u16::from(self.chr_peek(base_attr_addr + supertile));
+                let attr = u16::from(chr[usize::from(base_attr_addr + supertile)]);
                 let attr_shift = (x_scroll & 0x02) | ((y_scroll & 0x02) << 1);
                 let palette_addr = ((attr >> attr_shift) & 0x03) << 2;
 
@@ -720,8 +564,8 @@ impl Ppu {
 
                 for y in 0..8 {
                     let tile_addr = tile_addr + y;
-                    let tile_lo = self.chr_peek(tile_addr);
-                    let tile_hi = self.chr_peek(tile_addr + 8);
+                    let tile_lo = chr[usize::from(tile_addr)];
+                    let tile_hi = chr[usize::from(tile_addr + 8)];
                     for x in 0..8 {
                         let tile_palette = (((tile_hi >> x) & 1) << 1) | (tile_lo >> x) & 1;
                         let palette = palette_addr | u16::from(tile_palette);
@@ -744,7 +588,9 @@ impl Ppu {
     }
 
     /// Load the given buffer with RGBA pixels from the current pattern tables.
-    pub fn load_pattern_tables(&self, pattern_tables: &mut [u8]) {
+    ///
+    /// See [`Ppu::load_nametables`] for what `chr` is.
+    pub fn load_pattern_tables(&self, chr: &[u8], pattern_tables: &mut [u8]) {
         for i in 0..2 {
             let start = i * 0x1000;
             let end = start + 0x1000;
@@ -753,8 +599,8 @@ impl Ppu {
                 let tile_x = ((tile_addr % 0x1000) % 256) / 2;
                 let tile_y = ((tile_addr % 0x1000) / 256) * 8;
                 for y in 0..8 {
-                    let tile_lo = u16::from(self.chr_peek(tile_addr + y));
-                    let tile_hi = u16::from(self.chr_peek(tile_addr + y + 8));
+                    let tile_lo = u16::from(chr[usize::from(tile_addr + y)]);
+                    let tile_hi = u16::from(chr[usize::from(tile_addr + y + 8)]);
                     for x in 0..8 {
                         let palette = (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01);
                         let color = u16::from(self.palette.peek(addr::PALETTE_START | palette));
@@ -770,6 +616,7 @@ impl Ppu {
     /// Load the given buffer with RGBA pixels from the current pattern tables.
     pub fn load_oam(
         &self,
+        chr: &[u8],
         oam_table: &mut [u8],
         sprite_nametable: &mut [u8],
         sprites: &mut [Sprite],
@@ -810,8 +657,8 @@ impl Ppu {
                     if height == 16 && line_offset >= 8 {
                         line_offset += 8;
                     }
-                    let tile_lo = self.chr_peek(tile_addr + line_offset);
-                    let tile_hi = self.chr_peek(tile_addr + line_offset + 8);
+                    let tile_lo = chr[usize::from(tile_addr + line_offset)];
+                    let tile_hi = chr[usize::from(tile_addr + line_offset + 8)];
                     for x in 0..8 {
                         let spr_color = if flip_horizontal {
                             (((tile_hi >> x) & 0x01) << 1) | ((tile_lo >> x) & 0x01)
@@ -919,59 +766,6 @@ impl Ppu {
         self.nmi_pending = false;
         self.reset_signal = false;
         self.open_bus = 0; // Clear open bus every frame
-    }
-
-    /// Fetch BG nametable byte.
-    ///
-    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
-    #[inline]
-    fn fetch_bg_nt_byte(&mut self) {
-        self.prev_palette = self.curr_palette;
-        self.curr_palette = self.next_palette;
-
-        self.tile_shift_lo |= u16::from(self.tile_lo);
-        self.tile_shift_hi |= u16::from(self.tile_hi);
-
-        let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
-        let addr = addr::NAMETABLE_START | (self.scroll.addr() & nametable_addr_mask);
-        let tile_index = u16::from(self.chr_read(addr));
-        self.tile_addr = self.ctrl.bg_select | (tile_index << 4) | self.scroll.fine_y;
-    }
-
-    /// Fetch BG attribute byte.
-    ///
-    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
-    #[inline(always)]
-    fn fetch_bg_attr_byte(&mut self) {
-        let addr = self.scroll.attr_addr();
-        let shift = self.scroll.attr_shift();
-        self.next_palette = ((self.chr_read(addr) >> shift) & 0x03) << 2;
-    }
-
-    /// Fetch 4 tiles and write out shift registers every 8th cycle.
-    /// Each tile fetch takes 2 cycles.
-    ///
-    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
-    #[inline]
-    fn bg_fetch_cycle(&mut self) {
-        let phase = self.cycle & 0x07;
-        if self.mask.prev_rendering_enabled && phase == 0 {
-            // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-            self.scroll.increment_x();
-            // 256, Increment Fine Y when we reach the end of the screen
-            if self.cycle == cycle::INC_Y {
-                self.scroll.increment_y();
-            }
-            return;
-        }
-
-        match phase {
-            1 => self.fetch_bg_nt_byte(),
-            3 => self.fetch_bg_attr_byte(),
-            5 => self.tile_lo = self.chr_read(self.tile_addr),
-            7 => self.tile_hi = self.chr_read(self.tile_addr + 8),
-            _ => (),
-        }
     }
 
     fn oam_eval_cycle(&mut self) {
@@ -1103,88 +897,6 @@ impl Ppu {
         }
     }
 
-    fn load_sprites(&mut self) {
-        // Local variables improve cache locality
-        let cycle = self.cycle;
-        let scanline = self.scanline;
-        let spr_count = usize::from(self.spr_count);
-
-        let idx = (cycle - cycle::SPR_FETCH_START) as usize / 8;
-        let oam_idx = idx << 2;
-
-        if let [y, tile_index, attr, x] = self.secondary_oamdata[oam_idx..=oam_idx + 3] {
-            let x = u16::from(x);
-            let y = u16::from(y);
-            let mut tile_index = u16::from(tile_index);
-            let flip_vertical = (attr & 0x80) == 0x80;
-
-            let height = self.ctrl.spr_height;
-            // Should be in the range 0..=7 or 0..=15 depending on sprite height
-            let mut line_offset = if (y..y + height).contains(&scanline) {
-                scanline - y
-            } else {
-                0
-            };
-            if flip_vertical {
-                line_offset = height - 1 - line_offset;
-            }
-
-            if idx >= spr_count {
-                line_offset = 0;
-                tile_index = 0xFF;
-            }
-
-            let tile_addr = if height == 16 {
-                // Use bit 0 of tile index to determine pattern table
-                let sprite_select = (tile_index & 0x01) * 0x1000;
-                if line_offset >= 8 {
-                    line_offset += 8;
-                }
-                sprite_select | ((tile_index & 0xFE) << 4) | line_offset
-            } else {
-                self.ctrl.spr_select | (tile_index << 4) | line_offset
-            };
-
-            if idx < spr_count {
-                self.sprites[idx] = Sprite {
-                    x,
-                    y,
-                    tile_addr,
-                    tile_lo: self.chr_read(tile_addr),
-                    tile_hi: self.chr_read(tile_addr + 8),
-                    palette: ((attr & 0x03) << 2) | 0x10,
-                    bg_priority: (attr & 0x20) == 0x20,
-                    flip_horizontal: (attr & 0x40) == 0x40,
-                };
-                let cycle = usize::from(x + 1);
-                self.spr_present[cycle..(cycle + 8).min(256)].fill(true);
-            } else {
-                // Fetches for remaining sprites/hidden fetch tile $FF
-                // Required for accurate MMC3 IRQ
-                let _ = self.chr_read(tile_addr);
-                let _ = self.chr_read(tile_addr + 8);
-            }
-        }
-    }
-
-    // https://wiki.nesdev.org/w/index.php/PPU_OAM
-    #[inline]
-    fn spr_fetch_cycle(&mut self) {
-        // OAMADDR set to $00 on prerender and visible scanlines
-        self.write_oamaddr(0x00);
-
-        match self.cycle & 0x07 {
-            // Garbage NT sprite fetch (257, 265, 273, etc.)
-            // Required for proper MC-ACC IRQs (MMC3 clone)
-            1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
-            3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
-            // Cycle 260, 268, etc. This is an approximation (each tile is actually loaded in 8
-            // steps (e.g from 257 to 264))
-            4 => self.load_sprites(),
-            _ => (),
-        }
-    }
-
     #[inline]
     fn pixel_palette(&mut self) -> u8 {
         let cycle = self.cycle;
@@ -1295,9 +1007,9 @@ impl Ppu {
         let color = if self.mask.rendering_enabled || !is_palette(addr) {
             let palette = u16::from(self.pixel_palette());
             self.palette
-                .read(addr::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
+                .peek(addr::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
         } else {
-            self.palette.read(addr)
+            self.palette.peek(addr)
         };
 
         self.frame.set_pixel(
@@ -1305,89 +1017,6 @@ impl Ppu {
             self.scanline,
             u16::from(color & self.mask.grayscale) | self.mask.emphasis,
         );
-    }
-
-    /// Clocks the PPU forward until it catches up to `clock` master cycles.
-    #[inline(always)]
-    pub fn clock_to(&mut self, clock: u32) {
-        let divider = u32::from(self.clock_divider);
-        while self.master_clock + divider <= clock {
-            self.clock();
-            self.master_clock += divider;
-        }
-    }
-
-    // $2000 | RW  | PPUCTRL
-    //       | 0-1 | Name Table to show:
-    //       |     |
-    //       |     |           +-----------+-----------+
-    //       |     |           | 2 ($2800) | 3 ($2C00) |
-    //       |     |           +-----------+-----------+
-    //       |     |           | 0 ($2000) | 1 ($2400) |
-    //       |     |           +-----------+-----------+
-    //       |     |
-    //       |     | Remember, though, that because of the mirroring, there are
-    //       |     | only 2 real Name Tables, not 4.
-    //       |   2 | Vertical Write, 1 = PPU memory address increments by 32:
-    //       |     |
-    //       |     |    Name Table, VW=0          Name Table, VW=1
-    //       |     |   +----------------+        +----------------+
-    //       |     |   |----> write     |        | | write        |
-    //       |     |   |                |        | V              |
-    //       |     |
-    //       |   3 | Sprite Pattern Table address, 1 = $1000, 0 = $0000
-    //       |   4 | Screen Pattern Table address, 1 = $1000, 0 = $0000
-    //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
-    //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
-    //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
-    /// Writes $2000 PPUCTRL: nametable select, VRAM increment, pattern table selects, sprite size
-    /// and NMI enable.
-    pub fn write_ctrl(&mut self, val: u8) {
-        self.open_bus = val;
-        if self.reset_signal {
-            return;
-        }
-        self.ctrl.write(val);
-        self.scroll.write_nametable_select(val);
-        // MMC5 tracks changes to PPUCTRL
-        self.mapper.ppu_write(0x2000, val);
-
-        trace!(
-            "$2000 NMI Enabled: {} - PPU:{:3},{:3}",
-            self.ctrl.nmi_enabled, self.cycle, self.scanline,
-        );
-
-        // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
-        // multiple times, causing multiple NMIs to be generated.
-        if !self.ctrl.nmi_enabled {
-            self.nmi_pending = false;
-        } else if self.status.in_vblank {
-            trace!(
-                "$2000 NMI During VBL - PPU:{:3},{:3}",
-                self.cycle, self.scanline
-            );
-            self.nmi_pending = true;
-        }
-    }
-
-    // $2001 | RW  | PPUMASK
-    //       |   0 | Unknown (???)
-    //       |   1 | BG Mask, 0 = don't show background in left 8 columns
-    //       |   2 | Sprite Mask, 0 = don't show sprites in left 8 columns
-    //       |   3 | BG Switch, 1 = show background, 0 = hide background
-    //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
-    //       | 5-7 | Unknown (???)
-    /// Writes $2001 PPUMASK: greyscale, the two left-column clips, the two render enables and
-    /// colour emphasis.
-    #[inline(always)]
-    pub fn write_mask(&mut self, val: u8) {
-        self.open_bus = val;
-        if self.reset_signal {
-            return;
-        }
-        self.mask.write(val);
-        // MMC5 tracks changes to PPUMASK
-        self.mapper.ppu_write(0x2001, val);
     }
 
     // $2002 | R   | PPUSTATUS
@@ -1550,101 +1179,6 @@ impl Ppu {
         self.scroll.write_addr(val);
     }
 
-    // $2007 | RW  | PPUDATA
-    /// Reads $2007 PPUDATA. Everything below the palettes returns the *previous* read's buffered
-    /// value, and the address is incremented either way.
-    pub fn read_data(&mut self) -> u8 {
-        let addr = self.scroll.addr();
-        self.increment_vram_addr();
-
-        // Buffering quirk resulting in a dummy read for the CPU
-        // for reading pre-palette data in $0000 - $3EFF
-        let prev_open_bus = self.open_bus;
-        let val = self.bus_read(addr);
-        // MMC3 clocks using A12
-        self.notify_ppu_bus(self.scroll.addr());
-        self.open_bus = if addr < addr::PALETTE_START {
-            let buffer = self.vram_buffer;
-            self.vram_buffer = val;
-            buffer
-        } else {
-            // Set internal buffer with mirrors of nametable when reading palettes
-            // Since we're reading from > $3EFF subtract $1000 to fill
-            // buffer with nametable mirror data
-            self.vram_buffer = self.bus_read(addr - 0x1000);
-            // Hi 2 bits of palette should be open bus
-            val | (prev_open_bus & 0xC0)
-        };
-
-        trace!(
-            "PPU $2007 read: {:02X} - PPU:{:3},{:3}",
-            self.open_bus, self.cycle, self.scanline
-        );
-
-        self.open_bus
-    }
-
-    // $2007 | RW  | PPUDATA
-    //
-    // Non-mutating version of `read_data`.
-    /// Reads $2007 PPUDATA without side effects.
-    pub fn peek_data(&self) -> u8 {
-        let addr = self.scroll.addr();
-        if addr < addr::PALETTE_START {
-            self.vram_buffer
-        } else {
-            // Since we're reading from > $3EFF subtract $1000
-            // Hi 2 bits of palette should be open bus
-            self.bus_peek(addr - 0x1000) | (self.open_bus & 0xC0)
-        }
-    }
-
-    // $2007 | RW  | PPUDATA
-    /// Writes $2007 PPUDATA at the current VRAM address, incrementing it.
-    pub fn write_data(&mut self, val: u8) {
-        let addr = self.scroll.addr();
-        trace!(
-            "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
-            self.cycle, self.scanline
-        );
-        self.increment_vram_addr();
-        self.bus_write(addr, val);
-        // MMC3 clocks using A12
-        self.notify_ppu_bus(self.scroll.addr());
-    }
-
-    /// Advance to the next scanline. Taken once every 341 dots, so kept out of line to keep it
-    /// out of the hot path's instruction footprint.
-    #[cold]
-    #[inline(never)]
-    fn end_scanline(&mut self) {
-        self.cycle = 0;
-        self.scanline += 1;
-        // === POST-RENDER (240/261) ===
-        match self.scanline {
-            s if s == self.vblank_scanline - 1 => {
-                self.frame.increment();
-            }
-            s if s > self.prerender_scanline => {
-                // Wrap scanline back to 0
-                self.scanline = 0;
-                // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
-                // shaking in Ninja Gaiden 3 stage 1 after beating boss)
-                self.spr_count = 0;
-            }
-            _ => (),
-        }
-
-        self.is_visible_scanline = self.scanline <= scanline::VISIBLE_END;
-        self.is_prerender_scanline = self.scanline == self.prerender_scanline;
-        self.is_render_scanline = self.is_visible_scanline | self.is_prerender_scanline;
-        // PAL refreshes OAM later due to extended vblank to avoid OAM decay
-        self.is_pal_spr_eval_scanline =
-            self.region.is_pal() && self.scanline >= self.vblank_scanline + 24;
-
-        self.check_debugger();
-    }
-
     /// Sprite evaluation on PAL's extra vblank scanlines. Never taken on NTSC, so kept out of
     /// line rather than interleaved with the render-scanline path.
     #[cold]
@@ -1655,130 +1189,6 @@ impl Ppu {
         if cycle::SPR_FETCH_RANGE.contains(&self.cycle) {
             self.write_oamaddr(0x00);
         }
-    }
-
-    /// The visible and pre-render scanlines: background/sprite fetches for every dot. This is
-    /// the hot path - ~92% of scanlines land here.
-    #[inline]
-    fn clock_render_scanline(&mut self) {
-        if self.cycle <= cycle::VISIBLE_END {
-            if self.is_visible_scanline {
-                self.spr_eval_cycle();
-            }
-
-            self.bg_fetch_cycle();
-
-            if self.is_prerender_scanline && self.cycle <= 8 && self.oamaddr >= 0x08 {
-                // If OAMADDR is not less than eight when rendering starts, the eight bytes
-                // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
-                let addr = (self.cycle as usize) - 1;
-                let oamindex = (self.oamaddr as usize & 0xF8) + addr;
-                self.oamdata[addr] = self.oamdata[oamindex];
-            }
-        } else if self.cycle <= cycle::SPR_FETCH_END {
-            if self.mask.prev_rendering_enabled && self.cycle == cycle::SPR_FETCH_START {
-                // Copy X bits at the start of a new line since we're going to start writing
-                // new x values to t
-                self.scroll.copy_x();
-                self.spr_present = ConstArray::new();
-            }
-            // 280..=304
-            if self.is_prerender_scanline && cycle::COPY_Y_RANGE.contains(&self.cycle) {
-                // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
-                // if rendering is enabled
-                // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
-                self.scroll.copy_y();
-            }
-            self.spr_fetch_cycle();
-        } else {
-            // 336
-            if self.cycle <= cycle::BG_PREFETCH_END {
-                self.bg_fetch_cycle();
-            } else {
-                // 337..=340
-                self.fetch_bg_nt_byte();
-            }
-
-            self.oam_fetch = self.secondary_oamdata[0];
-
-            if self.region.is_ntsc()
-                && self.is_prerender_scanline
-                && self.cycle == cycle::ODD_SKIP
-                && self.frame.is_odd()
-            {
-                // NTSC behavior while rendering - each odd PPU frame is one clock shorter
-                // (skipping from 339 over 340 to 0)
-                trace!(
-                    "Skipped odd frame cycle: {} - PPU:{:3},{:3}",
-                    self.frame_number(),
-                    self.cycle,
-                    self.scanline
-                );
-                self.cycle = cycle::END;
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn check_debugger(&mut self) {
-        if self.debugger_active
-            && self.scanline == self.debugger.scanline
-            && self.cycle == self.debugger.cycle
-        {
-            (*self.debugger.callback)(self.snapshot());
-        }
-    }
-
-    /// Clocks the PPU a single dot.
-    pub fn clock(&mut self) {
-        // === SCANLINE TRANSITION (cycle 340) ===
-        if self.cycle >= cycle::END {
-            self.end_scanline();
-            return;
-        }
-
-        self.cycle += 1;
-
-        // === RENDER LINE (scanlins 0-239, 261) ===
-        if self.mask.rendering_enabled {
-            if self.is_render_scanline {
-                self.clock_render_scanline();
-            } else if self.is_pal_spr_eval_scanline {
-                self.clock_pal_spr_eval();
-            }
-        }
-
-        self.mask.clock();
-        if self.scroll.delayed_update()
-            && (!self.mask.rendering_enabled || self.scanline > scanline::VISIBLE_END)
-        {
-            // MMC3 clocks using A12
-            self.notify_ppu_bus(self.scroll.addr());
-        }
-
-        // Pixels should be put even if rendering is disabled, as this is what blanks out the
-        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        if self.is_visible_scanline && self.cycle <= cycle::VISIBLE_END {
-            if self.skip_rendering {
-                self.headless_sprite_zero_hit();
-            } else {
-                self.render_pixel();
-            }
-        }
-
-        if self.cycle <= cycle::VISIBLE_END || cycle::BG_PREFETCH_RANGE.contains(&self.cycle) {
-            self.tile_shift_lo <<= 1;
-            self.tile_shift_hi <<= 1;
-        }
-
-        // === VBLANK / IDLE ===
-        if self.scanline == self.vblank_scanline && self.cycle == cycle::VBLANK {
-            self.start_vblank();
-        } else if self.is_prerender_scanline && self.cycle == cycle::VBLANK {
-            self.stop_vblank();
-        }
-
-        self.check_debugger();
     }
 
     /// Returns the region the PPU is timed for.
@@ -1811,10 +1221,6 @@ impl Ppu {
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
         self.mask.set_region(region);
-        // The mapper owns the tree's only other region-dependent timing: MMC5's expansion audio
-        // clocks its half-frame counter off the CPU clock rate, and its DMC channel off the region
-        // rate table, exactly as the APU's does.
-        self.mapper.set_region(region);
     }
 
     /// Resets the PPU. A soft reset leaves VRAM and palette RAM alone, as the console does.
@@ -1831,10 +1237,6 @@ impl Ppu {
         self.mask.reset(kind);
         self.scroll.reset(kind);
         self.ctrl.reset(kind);
-
-        self.mapper.reset(kind);
-        // Reset can change banking, and `Reset` has no access to `Memory`.
-        self.rebuild_mapper_state();
 
         self.status.reset(kind);
         self.nmi_pending = false;
@@ -1862,6 +1264,586 @@ impl Ppu {
     }
 }
 
+
+/// The PPU's view of the console.
+///
+/// Everything here reaches the cartridge - a CHR or nametable fetch goes through the board's
+/// page tables, and some boards synthesise the byte outright - so it takes the [`Bus`] rather
+/// than the [`Ppu`]. What needs only the PPU's own registers stayed on [`Ppu`].
+impl Bus {
+    /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let served = if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS) {
+            let Self { mapper, memory, .. } = self;
+            mapper.chr_read(memory, addr)
+        } else {
+            None
+        };
+        let val = served.unwrap_or_else(|| self.memory.chr_peek(addr));
+        // After the fetch: MMC2/MMC4 flip their CHR latch on certain addresses and the byte being
+        // read must come from the pre-flip bank. MMC3's A12 counter does not affect the data, so
+        // it is unaffected by the ordering.
+        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
+            let Self { mapper, memory, .. } = self;
+            mapper.ppu_bus_addr(memory, addr);
+        }
+        val
+    }
+
+    /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
+    ///
+    /// Public so debuggers read through the same routing the emulation uses; reaching into
+    /// `mapper` directly bypasses page-table boards and yields garbage.
+    #[inline(always)]
+    pub fn chr_peek(&self, addr: u16) -> u8 {
+        if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS)
+            && let Some(val) = self.mapper.chr_peek(&self.memory, addr)
+        {
+            return val;
+        }
+        self.memory.chr_peek(addr)
+    }
+
+    /// Write a byte to CHR-RAM/CIRAM at a given address.
+    #[inline(always)]
+    fn chr_write(&mut self, addr: u16, val: u8) {
+        self.memory.chr_write(addr, val);
+    }
+
+    /// Read from `addr` on Ppu bus.
+    #[inline]
+    fn ppu_bus_read(&mut self, addr: u16) -> u8 {
+        self.ppu.open_bus = match addr {
+            0x0000..=0x3EFF => self.chr_read(addr),
+            0x3F00..=0x3FFF => self.ppu.palette.peek(addr),
+            _ => {
+                error!("unexpected PPU memory access at ${:04X}", addr);
+                0x00
+            }
+        };
+        self.ppu.open_bus
+    }
+
+    #[inline]
+    fn ppu_bus_peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x3EFF => self.chr_peek(addr),
+            0x3F00..=0x3FFF => self.ppu.palette.peek(addr),
+            _ => {
+                error!("unexpected PPU memory access at ${:04X}", addr);
+                0x00
+            }
+        }
+    }
+
+    /// Write `val` to `addr` on Ppu bus.
+    #[inline]
+    fn ppu_bus_write(&mut self, addr: u16, val: u8) {
+        self.ppu.open_bus = val;
+        match addr {
+            0x0000..=0x3EFF => self.chr_write(addr, val),
+            0x3F00..=0x3FFF => self.ppu.palette.write(addr, val),
+            _ => error!("unexpected PPU memory access at ${:04X}", addr),
+        }
+    }
+
+    /// Load a Mapper into the PPU.
+    #[inline]
+    pub fn load_mapper(&mut self, mapper: Mapper) {
+        self.mapper_ops = mapper.mapper_ops();
+        self.mapper = mapper;
+        // `ControlDeck::load_rom` sets the region *before* installing the cart, so a mapper whose
+        // timing depends on it (MMC5's expansion audio) would otherwise never be told.
+        self.mapper.set_region(self.region);
+    }
+
+
+    /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
+    ///
+    /// Reads made through `chr_read` notify the board themselves; this exists for the sites that
+    /// move the PPU address without fetching through it, such as `$2006` writes.
+    #[inline(always)]
+    pub fn notify_ppu_bus(&mut self, addr: u16) {
+        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
+            let Self { mapper, memory, .. } = self;
+            mapper.ppu_bus_addr(memory, addr);
+        }
+    }
+
+    /// Rebuild the page tables from the mapper's register state.
+    ///
+    /// Required after loading a save state: page tables are derived state and are not serialized,
+    /// so without this a restored state would have every page unmapped.
+    pub fn rebuild_mapper_state(&mut self) {
+        let Self { mapper, memory, .. } = self;
+        mapper.update_banks(memory);
+        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole Cpu, so this is
+        // the state-load path's chance to recompute it from the (serialized, and thus correct)
+        // mapper.
+        self.mapper_ops = self.mapper.mapper_ops();
+    }
+
+    /// Return the current Nametable mirroring mode.
+    #[inline]
+    pub fn mirroring(&self) -> Mirroring {
+        self.mapper.mirroring()
+    }
+
+    /// Attach (or clear, via `Debugger::default()`) a debugger callback.
+    ///
+    /// Recomputes the cached `debugger_active` flag so the per-dot path can skip the `debugger`
+    /// field entirely - a single always-false bool check instead of two compares against a struct
+    /// that otherwise sits cold relative to the hot fields - when nothing is attached.
+    #[inline]
+    pub fn set_debugger(&mut self, debugger: Debugger) {
+        self.debugger_active = debugger != Debugger::default();
+        self.debugger = debugger;
+    }
+
+    /// Fetch BG nametable byte.
+    ///
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline]
+    fn fetch_bg_nt_byte(&mut self) {
+        self.ppu.prev_palette = self.ppu.curr_palette;
+        self.ppu.curr_palette = self.ppu.next_palette;
+
+        self.ppu.tile_shift_lo |= u16::from(self.ppu.tile_lo);
+        self.ppu.tile_shift_hi |= u16::from(self.ppu.tile_hi);
+
+        let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
+        let addr = addr::NAMETABLE_START | (self.ppu.scroll.addr() & nametable_addr_mask);
+        let tile_index = u16::from(self.chr_read(addr));
+        self.ppu.tile_addr = self.ppu.ctrl.bg_select | (tile_index << 4) | self.ppu.scroll.fine_y;
+    }
+
+    /// Fetch BG attribute byte.
+    ///
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline(always)]
+    fn fetch_bg_attr_byte(&mut self) {
+        let addr = self.ppu.scroll.attr_addr();
+        let shift = self.ppu.scroll.attr_shift();
+        self.ppu.next_palette = ((self.chr_read(addr) >> shift) & 0x03) << 2;
+    }
+
+    /// Fetch 4 tiles and write out shift registers every 8th cycle.
+    /// Each tile fetch takes 2 cycles.
+    ///
+    /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
+    #[inline]
+    fn bg_fetch_cycle(&mut self) {
+        let phase = self.ppu.cycle & 0x07;
+        if self.ppu.mask.prev_rendering_enabled && phase == 0 {
+            // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
+            self.ppu.scroll.increment_x();
+            // 256, Increment Fine Y when we reach the end of the screen
+            if self.ppu.cycle == cycle::INC_Y {
+                self.ppu.scroll.increment_y();
+            }
+            return;
+        }
+
+        match phase {
+            1 => self.fetch_bg_nt_byte(),
+            3 => self.fetch_bg_attr_byte(),
+            5 => self.ppu.tile_lo = self.chr_read(self.ppu.tile_addr),
+            7 => self.ppu.tile_hi = self.chr_read(self.ppu.tile_addr + 8),
+            _ => (),
+        }
+    }
+
+    fn load_sprites(&mut self) {
+        // Local variables improve cache locality
+        let cycle = self.ppu.cycle;
+        let scanline = self.ppu.scanline;
+        let spr_count = usize::from(self.ppu.spr_count);
+
+        let idx = (cycle - cycle::SPR_FETCH_START) as usize / 8;
+        let oam_idx = idx << 2;
+
+        if let [y, tile_index, attr, x] = self.ppu.secondary_oamdata[oam_idx..=oam_idx + 3] {
+            let x = u16::from(x);
+            let y = u16::from(y);
+            let mut tile_index = u16::from(tile_index);
+            let flip_vertical = (attr & 0x80) == 0x80;
+
+            let height = self.ppu.ctrl.spr_height;
+            // Should be in the range 0..=7 or 0..=15 depending on sprite height
+            let mut line_offset = if (y..y + height).contains(&scanline) {
+                scanline - y
+            } else {
+                0
+            };
+            if flip_vertical {
+                line_offset = height - 1 - line_offset;
+            }
+
+            if idx >= spr_count {
+                line_offset = 0;
+                tile_index = 0xFF;
+            }
+
+            let tile_addr = if height == 16 {
+                // Use bit 0 of tile index to determine pattern table
+                let sprite_select = (tile_index & 0x01) * 0x1000;
+                if line_offset >= 8 {
+                    line_offset += 8;
+                }
+                sprite_select | ((tile_index & 0xFE) << 4) | line_offset
+            } else {
+                self.ppu.ctrl.spr_select | (tile_index << 4) | line_offset
+            };
+
+            if idx < spr_count {
+                self.ppu.sprites[idx] = Sprite {
+                    x,
+                    y,
+                    tile_addr,
+                    tile_lo: self.chr_read(tile_addr),
+                    tile_hi: self.chr_read(tile_addr + 8),
+                    palette: ((attr & 0x03) << 2) | 0x10,
+                    bg_priority: (attr & 0x20) == 0x20,
+                    flip_horizontal: (attr & 0x40) == 0x40,
+                };
+                let cycle = usize::from(x + 1);
+                self.ppu.spr_present[cycle..(cycle + 8).min(256)].fill(true);
+            } else {
+                // Fetches for remaining sprites/hidden fetch tile $FF
+                // Required for accurate MMC3 IRQ
+                let _ = self.chr_read(tile_addr);
+                let _ = self.chr_read(tile_addr + 8);
+            }
+        }
+    }
+
+    // https://wiki.nesdev.org/w/index.php/PPU_OAM
+    #[inline]
+    fn spr_fetch_cycle(&mut self) {
+        // OAMADDR set to $00 on prerender and visible scanlines
+        self.ppu.write_oamaddr(0x00);
+
+        match self.ppu.cycle & 0x07 {
+            // Garbage NT sprite fetch (257, 265, 273, etc.)
+            // Required for proper MC-ACC IRQs (MMC3 clone)
+            1 => self.fetch_bg_nt_byte(),   // Garbage NT fetch
+            3 => self.fetch_bg_attr_byte(), // Garbage attr fetch
+            // Cycle 260, 268, etc. This is an approximation (each tile is actually loaded in 8
+            // steps (e.g from 257 to 264))
+            4 => self.load_sprites(),
+            _ => (),
+        }
+    }
+
+    /// The visible and pre-render scanlines: background/sprite fetches for every dot. This is
+    /// the hot path - ~92% of scanlines land here.
+    #[inline]
+    fn clock_render_scanline(&mut self) {
+        if self.ppu.cycle <= cycle::VISIBLE_END {
+            if self.ppu.is_visible_scanline {
+                self.ppu.spr_eval_cycle();
+            }
+
+            self.bg_fetch_cycle();
+
+            if self.ppu.is_prerender_scanline && self.ppu.cycle <= 8 && self.ppu.oamaddr >= 0x08 {
+                // If OAMADDR is not less than eight when rendering starts, the eight bytes
+                // starting at OAMADDR & 0xF8 are copied to the first eight bytes of OAM
+                let addr = (self.ppu.cycle as usize) - 1;
+                let oamindex = (self.ppu.oamaddr as usize & 0xF8) + addr;
+                self.ppu.oamdata[addr] = self.ppu.oamdata[oamindex];
+            }
+        } else if self.ppu.cycle <= cycle::SPR_FETCH_END {
+            if self.ppu.mask.prev_rendering_enabled && self.ppu.cycle == cycle::SPR_FETCH_START {
+                // Copy X bits at the start of a new line since we're going to start writing
+                // new x values to t
+                self.ppu.scroll.copy_x();
+                self.ppu.spr_present = ConstArray::new();
+            }
+            // 280..=304
+            if self.ppu.is_prerender_scanline && cycle::COPY_Y_RANGE.contains(&self.ppu.cycle) {
+                // Y scroll bits are supposed to be reloaded during this pixel range of PRERENDER
+                // if rendering is enabled
+                // https://wiki.nesdev.org/w/index.php/PPU_rendering#Pre-render_scanline_.28-1.2C_261.29
+                self.ppu.scroll.copy_y();
+            }
+            self.spr_fetch_cycle();
+        } else {
+            // 336
+            if self.ppu.cycle <= cycle::BG_PREFETCH_END {
+                self.bg_fetch_cycle();
+            } else {
+                // 337..=340
+                self.fetch_bg_nt_byte();
+            }
+
+            self.ppu.oam_fetch = self.ppu.secondary_oamdata[0];
+
+            if self.ppu.region.is_ntsc()
+                && self.ppu.is_prerender_scanline
+                && self.ppu.cycle == cycle::ODD_SKIP
+                && self.ppu.frame.is_odd()
+            {
+                // NTSC behavior while rendering - each odd PPU frame is one clock shorter
+                // (skipping from 339 over 340 to 0)
+                trace!(
+                    "Skipped odd frame cycle: {} - PPU:{:3},{:3}",
+                    self.ppu.frame_number(),
+                    self.ppu.cycle,
+                    self.ppu.scanline
+                );
+                self.ppu.cycle = cycle::END;
+            }
+        }
+    }
+
+    /// Advance to the next scanline. Taken once every 341 dots, so kept out of line to keep it
+    /// out of the hot path's instruction footprint.
+    #[cold]
+    #[inline(never)]
+    fn end_scanline(&mut self) {
+        self.ppu.cycle = 0;
+        self.ppu.scanline += 1;
+        // === POST-RENDER (240/261) ===
+        match self.ppu.scanline {
+            s if s == self.ppu.vblank_scanline - 1 => {
+                self.ppu.frame.increment();
+            }
+            s if s > self.ppu.prerender_scanline => {
+                // Wrap scanline back to 0
+                self.ppu.scanline = 0;
+                // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
+                // shaking in Ninja Gaiden 3 stage 1 after beating boss)
+                self.ppu.spr_count = 0;
+            }
+            _ => (),
+        }
+
+        self.ppu.is_visible_scanline = self.ppu.scanline <= scanline::VISIBLE_END;
+        self.ppu.is_prerender_scanline = self.ppu.scanline == self.ppu.prerender_scanline;
+        self.ppu.is_render_scanline = self.ppu.is_visible_scanline | self.ppu.is_prerender_scanline;
+        // PAL refreshes OAM later due to extended vblank to avoid OAM decay
+        self.ppu.is_pal_spr_eval_scanline =
+            self.ppu.region.is_pal() && self.ppu.scanline >= self.ppu.vblank_scanline + 24;
+
+        self.check_debugger();
+    }
+
+    /// Fire the attached debugger if the PPU has reached its dot.
+    #[inline(always)]
+    fn check_debugger(&mut self) {
+        if self.debugger_active
+            && self.ppu.scanline == self.debugger.scanline
+            && self.ppu.cycle == self.debugger.cycle
+        {
+            // Cloned so the callback can borrow the console it is being handed. Once per hit,
+            // i.e. at most once a frame, and only while a debugger is attached at all.
+            let callback = std::sync::Arc::clone(&self.debugger.callback);
+            callback(self);
+        }
+    }
+
+    /// Clocks the PPU a single dot.
+    pub fn ppu_clock(&mut self) {
+        // === SCANLINE TRANSITION (cycle 340) ===
+        if self.ppu.cycle >= cycle::END {
+            self.end_scanline();
+            return;
+        }
+
+        self.ppu.cycle += 1;
+
+        // === RENDER LINE (scanlins 0-239, 261) ===
+        if self.ppu.mask.rendering_enabled {
+            if self.ppu.is_render_scanline {
+                self.clock_render_scanline();
+            } else if self.ppu.is_pal_spr_eval_scanline {
+                self.ppu.clock_pal_spr_eval();
+            }
+        }
+
+        self.ppu.mask.clock();
+        if self.ppu.scroll.delayed_update()
+            && (!self.ppu.mask.rendering_enabled || self.ppu.scanline > scanline::VISIBLE_END)
+        {
+            // MMC3 clocks using A12
+            self.notify_ppu_bus(self.ppu.scroll.addr());
+        }
+
+        // Pixels should be put even if rendering is disabled, as this is what blanks out the
+        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
+        if self.ppu.is_visible_scanline && self.ppu.cycle <= cycle::VISIBLE_END {
+            if self.ppu.skip_rendering {
+                self.ppu.headless_sprite_zero_hit();
+            } else {
+                self.ppu.render_pixel();
+            }
+        }
+
+        if self.ppu.cycle <= cycle::VISIBLE_END || cycle::BG_PREFETCH_RANGE.contains(&self.ppu.cycle) {
+            self.ppu.tile_shift_lo <<= 1;
+            self.ppu.tile_shift_hi <<= 1;
+        }
+
+        // === VBLANK / IDLE ===
+        if self.ppu.scanline == self.ppu.vblank_scanline && self.ppu.cycle == cycle::VBLANK {
+            self.ppu.start_vblank();
+        } else if self.ppu.is_prerender_scanline && self.ppu.cycle == cycle::VBLANK {
+            self.ppu.stop_vblank();
+        }
+
+        self.check_debugger();
+    }
+
+    /// Clocks the PPU forward until it catches up to `clock` master cycles.
+    #[inline(always)]
+    pub fn ppu_clock_to(&mut self, clock: u32) {
+        let divider = u32::from(self.ppu.clock_divider);
+        while self.ppu.master_clock + divider <= clock {
+            self.ppu_clock();
+            self.ppu.master_clock += divider;
+        }
+    }
+
+    // $2007 | RW  | PPUDATA
+    /// Reads $2007 PPUDATA. Everything below the palettes returns the *previous* read's buffered
+    /// value, and the address is incremented either way.
+    pub fn read_data(&mut self) -> u8 {
+        let addr = self.ppu.scroll.addr();
+        self.ppu.increment_vram_addr();
+
+        // Buffering quirk resulting in a dummy read for the CPU
+        // for reading pre-palette data in $0000 - $3EFF
+        let prev_open_bus = self.ppu.open_bus;
+        let val = self.ppu_bus_read(addr);
+        // MMC3 clocks using A12
+        self.notify_ppu_bus(self.ppu.scroll.addr());
+        self.ppu.open_bus = if addr < addr::PALETTE_START {
+            let buffer = self.ppu.vram_buffer;
+            self.ppu.vram_buffer = val;
+            buffer
+        } else {
+            // Set internal buffer with mirrors of nametable when reading palettes
+            // Since we're reading from > $3EFF subtract $1000 to fill
+            // buffer with nametable mirror data
+            self.ppu.vram_buffer = self.ppu_bus_read(addr - 0x1000);
+            // Hi 2 bits of palette should be open bus
+            val | (prev_open_bus & 0xC0)
+        };
+
+        trace!(
+            "PPU $2007 read: {:02X} - PPU:{:3},{:3}",
+            self.ppu.open_bus, self.ppu.cycle, self.ppu.scanline
+        );
+
+        self.ppu.open_bus
+    }
+
+    // $2007 | RW  | PPUDATA
+    //
+    // Non-mutating version of `read_data`.
+    /// Reads $2007 PPUDATA without side effects.
+    pub fn peek_data(&self) -> u8 {
+        let addr = self.ppu.scroll.addr();
+        if addr < addr::PALETTE_START {
+            self.ppu.vram_buffer
+        } else {
+            // Since we're reading from > $3EFF subtract $1000
+            // Hi 2 bits of palette should be open bus
+            self.ppu_bus_peek(addr - 0x1000) | (self.ppu.open_bus & 0xC0)
+        }
+    }
+
+    // $2007 | RW  | PPUDATA
+    /// Writes $2007 PPUDATA at the current VRAM address, incrementing it.
+    pub fn write_data(&mut self, val: u8) {
+        let addr = self.ppu.scroll.addr();
+        trace!(
+            "PPU $2007 write: ${addr:04X} -> {val:02X} - PPU:{:3},{:3}",
+            self.ppu.cycle, self.ppu.scanline
+        );
+        self.ppu.increment_vram_addr();
+        self.ppu_bus_write(addr, val);
+        // MMC3 clocks using A12
+        self.notify_ppu_bus(self.ppu.scroll.addr());
+    }
+
+    // $2000 | RW  | PPUCTRL
+    //       | 0-1 | Name Table to show:
+    //       |     |
+    //       |     |           +-----------+-----------+
+    //       |     |           | 2 ($2800) | 3 ($2C00) |
+    //       |     |           +-----------+-----------+
+    //       |     |           | 0 ($2000) | 1 ($2400) |
+    //       |     |           +-----------+-----------+
+    //       |     |
+    //       |     | Remember, though, that because of the mirroring, there are
+    //       |     | only 2 real Name Tables, not 4.
+    //       |   2 | Vertical Write, 1 = PPU memory address increments by 32:
+    //       |     |
+    //       |     |    Name Table, VW=0          Name Table, VW=1
+    //       |     |   +----------------+        +----------------+
+    //       |     |   |----> write     |        | | write        |
+    //       |     |   |                |        | V              |
+    //       |     |
+    //       |   3 | Sprite Pattern Table address, 1 = $1000, 0 = $0000
+    //       |   4 | Screen Pattern Table address, 1 = $1000, 0 = $0000
+    //       |   5 | Sprite Size, 1 = 8x16, 0 = 8x8
+    //       |   6 | Hit Switch, 1 = generate interrupts on Hit (incorrect ???)
+    //       |   7 | VBlank Switch, 1 = generate interrupts on VBlank
+    /// Writes $2000 PPUCTRL: nametable select, VRAM increment, pattern table selects, sprite size
+    /// and NMI enable.
+    pub fn write_ctrl(&mut self, val: u8) {
+        self.ppu.open_bus = val;
+        if self.ppu.reset_signal {
+            return;
+        }
+        self.ppu.ctrl.write(val);
+        self.ppu.scroll.write_nametable_select(val);
+        // MMC5 tracks changes to PPUCTRL
+        self.mapper.ppu_write(0x2000, val);
+
+        trace!(
+            "$2000 NMI Enabled: {} - PPU:{:3},{:3}",
+            self.ppu.ctrl.nmi_enabled, self.ppu.cycle, self.ppu.scanline,
+        );
+
+        // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
+        // multiple times, causing multiple NMIs to be generated.
+        if !self.ppu.ctrl.nmi_enabled {
+            self.ppu.nmi_pending = false;
+        } else if self.ppu.status.in_vblank {
+            trace!(
+                "$2000 NMI During VBL - PPU:{:3},{:3}",
+                self.ppu.cycle, self.ppu.scanline
+            );
+            self.ppu.nmi_pending = true;
+        }
+    }
+
+    // $2001 | RW  | PPUMASK
+    //       |   0 | Unknown (???)
+    //       |   1 | BG Mask, 0 = don't show background in left 8 columns
+    //       |   2 | Sprite Mask, 0 = don't show sprites in left 8 columns
+    //       |   3 | BG Switch, 1 = show background, 0 = hide background
+    //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
+    //       | 5-7 | Unknown (???)
+    /// Writes $2001 PPUMASK: greyscale, the two left-column clips, the two render enables and
+    /// colour emphasis.
+    #[inline(always)]
+    pub fn write_mask(&mut self, val: u8) {
+        self.ppu.open_bus = val;
+        if self.ppu.reset_signal {
+            return;
+        }
+        self.ppu.mask.write(val);
+        // MMC5 tracks changes to PPUMASK
+        self.mapper.ppu_write(0x2001, val);
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1872,68 +1854,68 @@ mod tests {
 
     #[test]
     fn vram_writes() {
-        let mut ppu = Ppu::default();
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        let mut bus = Bus::default();
+        bus.ppu.write_addr(0x23);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to $2305
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.write_data(0x66); // write to $2305
 
-        assert_eq!(ppu.chr_read(0x2305), 0x66);
+        assert_eq!(bus.chr_read(0x2305), 0x66);
     }
 
     #[test]
     fn vram_reads() {
-        let mut ppu = Ppu::default();
-        ppu.write_ctrl(0x00);
-        ppu.bus_write(0x2305, 0x66);
+        let mut bus = Bus::default();
+        bus.write_ctrl(0x00);
+        bus.ppu_bus_write(0x2305, 0x66);
 
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x23);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.scroll.addr(), 0x2306);
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.scroll.addr(), 0x2307);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.ppu.scroll.addr(), 0x2306);
+        assert_eq!(bus.read_data(), 0x66);
+        assert_eq!(bus.ppu.scroll.addr(), 0x2307);
     }
 
     #[test]
     fn vram_read_pagecross() {
-        let mut ppu = Ppu::default();
-        ppu.write_ctrl(0x00);
-        ppu.bus_write(0x21FF, 0x66);
-        ppu.bus_write(0x2200, 0x77);
+        let mut bus = Bus::default();
+        bus.write_ctrl(0x00);
+        bus.ppu_bus_write(0x21FF, 0x66);
+        bus.ppu_bus_write(0x2200, 0x77);
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0xFF);
+        bus.ppu.write_addr(0x21);
+        bus.ppu.write_addr(0xFF);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.read_data(), 0x77);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x66);
+        assert_eq!(bus.read_data(), 0x77);
     }
 
     #[test]
     fn vram_read_vertical_increment() {
-        let mut ppu = Ppu::default();
-        ppu.write_ctrl(0b100);
-        ppu.bus_write(0x21FF, 0x66);
-        ppu.bus_write(0x21FF + 32, 0x77);
-        ppu.bus_write(0x21FF + 64, 0x88);
+        let mut bus = Bus::default();
+        bus.write_ctrl(0b100);
+        bus.ppu_bus_write(0x21FF, 0x66);
+        bus.ppu_bus_write(0x21FF + 32, 0x77);
+        bus.ppu_bus_write(0x21FF + 64, 0x88);
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0xFF);
+        bus.ppu.write_addr(0x21);
+        bus.ppu.write_addr(0xFF);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.read_data(), 0x77);
-        assert_eq!(ppu.read_data(), 0x88);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x66);
+        assert_eq!(bus.read_data(), 0x77);
+        assert_eq!(bus.read_data(), 0x88);
     }
 
     // Horizontal: https://wiki.nesdev.org/w/index.php/Mirroring
@@ -1941,36 +1923,36 @@ mod tests {
     //   [0x2800 B ] [0x2C00 b ]
     #[test]
     fn vram_horizontal_mirror() {
-        let mut ppu = Ppu::default();
-        ppu.write_addr(0x24);
-        ppu.write_addr(0x05);
+        let mut bus = Bus::default();
+        bus.ppu.write_addr(0x24);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to a at $2405
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.write_data(0x66); // write to a at $2405
 
-        ppu.write_addr(0x28);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x28);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x77); // write to B at $2805
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.write_data(0x77); // write to B at $2805
 
-        ppu.write_addr(0x20);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x20);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66); // read A from $2005
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x66); // read A from $2005
 
-        ppu.write_addr(0x2C);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x2C);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x77); // read b from $2C05
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x77); // read b from $2C05
     }
 
     // Vertical: https://wiki.nesdev.org/w/index.php/Mirroring
@@ -1978,7 +1960,7 @@ mod tests {
     //   [0x2800 a ] [0x2C00 b ]
     #[test]
     fn vram_vertical_mirror() {
-        let mut ppu = Ppu::default();
+        let mut bus = Bus::default();
         let mut cart = Cart::default();
         cart.mapper = Sxrom::load(&mut cart, Mmc1Revision::BC).unwrap();
         // Set vertical mirroring mode via 5 writes
@@ -1990,128 +1972,128 @@ mod tests {
             cart.mapper.clock();
             val >>= 2;
         }
-        ppu.load_cart(cart.mapper, cart.memory);
+        bus.load_cart(cart);
 
-        ppu.write_addr(0x20);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x20);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x66); // write to A at $2005
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.write_data(0x66); // write to A at $2005
 
-        ppu.write_addr(0x2C);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x2C);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_data(0x77); // write to b at $2C05
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.write_data(0x77); // write to b at $2C05
 
-        ppu.write_addr(0x28);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x28);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66); // read a from $2805
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x66); // read a from $2805
 
-        ppu.write_addr(0x24);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x24);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x77); // read B from $2405
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x77); // read B from $2405
     }
 
     #[test]
     fn read_status_resets_latch() {
-        let mut ppu = Ppu::default();
-        ppu.bus_write(0x2305, 0x66);
+        let mut bus = Bus::default();
+        bus.ppu_bus_write(0x2305, 0x66);
 
-        ppu.write_addr(0x21);
-        ppu.write_addr(0x23);
+        bus.ppu.write_addr(0x21);
+        bus.ppu.write_addr(0x23);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.write_addr(0x05);
-        ppu.read_data(); // buffer read
-        assert_ne!(ppu.read_data(), 0x66);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.ppu.write_addr(0x05);
+        bus.read_data(); // buffer read
+        assert_ne!(bus.read_data(), 0x66);
 
-        ppu.read_status();
+        bus.ppu.read_status();
 
-        ppu.write_addr(0x23);
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x23);
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.read_data(), 0x66);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.read_data(), 0x66);
     }
 
     #[test]
     fn vram_mirroring() {
-        let mut ppu = Ppu::default();
-        ppu.write_ctrl(0);
-        ppu.bus_write(0x2305, 0x66);
+        let mut bus = Bus::default();
+        bus.write_ctrl(0);
+        bus.ppu_bus_write(0x2305, 0x66);
 
-        ppu.write_addr(0x63); // 0x6305 mirrors to 0x2305
-        ppu.write_addr(0x05);
+        bus.ppu.write_addr(0x63); // 0x6305 mirrors to 0x2305
+        bus.ppu.write_addr(0x05);
         // PPU writes to $2006 are delayed by 2 PPU clocks
-        ppu.clock();
-        ppu.clock();
-        ppu.read_data(); // buffer read
-        assert_eq!(ppu.scroll.addr(), 0x2306);
-        assert_eq!(ppu.read_data(), 0x66);
-        assert_eq!(ppu.scroll.addr(), 0x2307);
+        bus.ppu_clock();
+        bus.ppu_clock();
+        bus.read_data(); // buffer read
+        assert_eq!(bus.ppu.scroll.addr(), 0x2306);
+        assert_eq!(bus.read_data(), 0x66);
+        assert_eq!(bus.ppu.scroll.addr(), 0x2307);
     }
 
     #[test]
     fn read_status_resets_vblank() {
-        let mut ppu = Ppu::default();
-        ppu.status.set_in_vblank(true);
+        let mut bus = Bus::default();
+        bus.ppu.status.set_in_vblank(true);
 
-        let status = ppu.read_status();
+        let status = bus.ppu.read_status();
         assert_eq!(status >> 7, 1);
-        assert_eq!(ppu.status.read() >> 7, 0);
+        assert_eq!(bus.ppu.status.read() >> 7, 0);
     }
 
     #[test]
     fn sprite_zero_hit_headless_visible_cycle() {
-        let mut ppu = Ppu::default();
-        ppu.write_mask(0x18);
-        ppu.skip_rendering = true;
-        ppu.scanline = 0;
-        ppu.cycle = 10;
-        ppu.scroll.fine_x = 0;
+        let mut bus = Bus::default();
+        bus.write_mask(0x18);
+        bus.ppu.skip_rendering = true;
+        bus.ppu.scanline = 0;
+        bus.ppu.cycle = 10;
+        bus.ppu.scroll.fine_x = 0;
 
-        ppu.tile_shift_lo = 0x8000;
-        ppu.tile_shift_hi = 0x0000;
+        bus.ppu.tile_shift_lo = 0x8000;
+        bus.ppu.tile_shift_hi = 0x0000;
 
-        ppu.spr_zero_visible = true;
-        ppu.spr_present[9..17].fill(true);
+        bus.ppu.spr_zero_visible = true;
+        bus.ppu.spr_present[9..17].fill(true);
 
-        ppu.sprites[0].x = 8;
-        ppu.sprites[0].tile_lo = 0b0100;
-        ppu.sprites[0].tile_hi = 0b0000;
-        ppu.sprites[0].flip_horizontal = true;
-        ppu.sprites[0].bg_priority = false;
+        bus.ppu.sprites[0].x = 8;
+        bus.ppu.sprites[0].tile_lo = 0b0100;
+        bus.ppu.sprites[0].tile_hi = 0b0000;
+        bus.ppu.sprites[0].flip_horizontal = true;
+        bus.ppu.sprites[0].bg_priority = false;
 
-        ppu.clock();
+        bus.ppu_clock();
 
-        assert!(ppu.status.spr_zero_hit);
+        assert!(bus.ppu.status.spr_zero_hit);
     }
 
     #[test]
     fn oam_read_write() {
-        let mut ppu = Ppu::default();
-        ppu.write_oamaddr(0x10);
-        ppu.write_oamdata(0x66);
-        ppu.write_oamdata(0x77);
+        let mut bus = Bus::default();
+        bus.ppu.write_oamaddr(0x10);
+        bus.ppu.write_oamdata(0x66);
+        bus.ppu.write_oamdata(0x77);
 
-        ppu.write_oamaddr(0x10);
-        assert_eq!(ppu.read_oamdata(), 0x66);
+        bus.ppu.write_oamaddr(0x10);
+        assert_eq!(bus.ppu.read_oamdata(), 0x66);
 
-        ppu.write_oamaddr(0x11);
-        assert_eq!(ppu.read_oamdata(), 0x77);
+        bus.ppu.write_oamaddr(0x11);
+        assert_eq!(bus.ppu.read_oamdata(), 0x77);
     }
 }
