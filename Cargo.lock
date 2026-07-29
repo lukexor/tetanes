@@ -4006,6 +4006,7 @@ name = "tetanes-core"
 version = "0.14.2"
 dependencies = [
  "anyhow",
+ "base64",
  "bincode",
  "bitflags 2.13.0",
  "cfg-if",

@@ -1,12 +1,41 @@
 //! Web-specific filesystem operations.
 
 use crate::fs::{Error, Result};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use std::{
     io::{self, Read, Write},
     mem,
     path::{Path, PathBuf},
 };
 use web_sys::js_sys;
+
+/// Encode bytes for local storage, which holds strings rather than bytes.
+///
+/// Base64 costs 4 characters per 3 bytes. The obvious alternative - one character per byte - is
+/// smaller on paper but relies on how the browser stores code points above 0x7F, where base64's
+/// alphabet is plain ASCII whatever the engine does internally.
+fn encode(data: &[u8]) -> String {
+    BASE64.encode(data)
+}
+
+/// Decode a local-storage value written by [`encode`].
+///
+/// Entries written before the switch to base64 are JSON arrays of decimal byte values, which cost
+/// 3-4 characters per byte. They are still read, so an existing save state or SRAM survives the
+/// change; `[` cannot begin a base64 string, so the two are told apart by their first byte rather
+/// than by a version marker. Rewritten in the new form the next time they are saved.
+fn decode(value: &str) -> Result<Vec<u8>> {
+    if value.starts_with('[') {
+        return serde_json::from_str(value).map_err(|err| {
+            tracing::error!("failed to deserialize legacy json data: {err:?}");
+            Error::custom("failed to deserialize data")
+        });
+    }
+    BASE64.decode(value).map_err(|err| {
+        tracing::error!("failed to decode data: {err:?}");
+        Error::custom("failed to deserialize data")
+    })
+}
 
 /// A [`Write`] that buffers everything and commits it to local storage on drop, since local
 /// storage takes a whole value per key rather than a stream.
@@ -49,14 +78,7 @@ impl Write for StoreWriter {
 
         let key = self.path.to_string_lossy();
         let data = mem::take(&mut self.data);
-        let value = match serde_json::to_string(&data) {
-            Ok(value) => value,
-            Err(err) => {
-                self.data = data;
-                tracing::error!("failed to serialize data: {err:?}");
-                return Err(io::Error::other("failed to serialize data"));
-            }
-        };
+        let value = encode(&data);
 
         if let Err(err) = local_storage.set_item(&key, &value) {
             self.data = data;
@@ -91,7 +113,8 @@ pub fn writer_impl(path: impl AsRef<Path>) -> Result<impl Write> {
 ///
 /// # Errors
 ///
-/// If storage is unavailable or the entry is not valid JSON.
+/// If storage is unavailable, or the entry is neither base64 nor the JSON array older entries were
+/// written as.
 pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let path = path.as_ref();
     let local_storage = local_storage()?;
@@ -100,12 +123,7 @@ pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let data = local_storage
         .get_item(&key)
         .map_err(|_| Error::custom("failed to find data for {key}"))?
-        .map(|value| {
-            serde_json::from_str(&value).map_err(|err| {
-                tracing::error!("failed to deserialize data: {err:?}");
-                Error::custom("failed to deserialize data")
-            })
-        })
+        .map(|value| decode(&value))
         .unwrap_or_else(|| Ok(Vec::new()))?;
 
     Ok(StoreReader {
