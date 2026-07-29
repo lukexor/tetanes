@@ -216,37 +216,50 @@ impl Dmc {
     // Reader ---> Buffer ---> Shifter ---> Output level ---> (to the mixer)
     pub fn clock(&mut self) {
         if self.timer.tick() {
-            if !self.silence {
-                // Update output level but clamp to 0..=127 range
-                if self.shift & 0x01 == 0x01 {
-                    if self.output_level <= 125 {
-                        self.output_level += 2;
-                    }
-                } else if self.output_level >= 2 {
-                    self.output_level -= 2;
+            self.step_output();
+        }
+    }
+
+    /// Clock forward to `cycle`, which for the DMC is a shift of the sample buffer per expiry, and
+    /// is where a sample fetch or its IRQ becomes pending.
+    pub fn clock_to(&mut self, cycle: u32) {
+        while self.timer.run_to(cycle) {
+            self.step_output();
+        }
+    }
+
+    fn step_output(&mut self) {
+        if !self.silence {
+            // Update output level but clamp to 0..=127 range
+            if self.shift & 0x01 == 0x01 {
+                if self.output_level <= 125 {
+                    self.output_level += 2;
                 }
-                self.shift >>= 1;
+            } else if self.output_level >= 2 {
+                self.output_level -= 2;
             }
+            self.shift >>= 1;
+        }
 
-            if self.bits_remaining > 0 {
-                self.bits_remaining -= 1;
-            }
-            trace!("APU DMC bits remaining: {}", self.bits_remaining);
+        if self.bits_remaining > 0 {
+            self.bits_remaining -= 1;
+        }
+        trace!("APU DMC bits remaining: {}", self.bits_remaining);
 
-            if self.bits_remaining == 0 {
-                self.bits_remaining = 8;
-                self.silence = self.buffer_empty;
-                if !self.buffer_empty {
-                    self.shift = self.sample_buffer;
-                    self.buffer_empty = true;
-                    if self.bytes_remaining > 0 {
-                        trace!("APU DMC DMA pending");
-                        self.dma_pending = true;
-                    }
+        if self.bits_remaining == 0 {
+            self.bits_remaining = 8;
+            self.silence = self.buffer_empty;
+            if !self.buffer_empty {
+                self.shift = self.sample_buffer;
+                self.buffer_empty = true;
+                if self.bytes_remaining > 0 {
+                    trace!("APU DMC DMA pending");
+                    self.dma_pending = true;
                 }
             }
         }
     }
+
     pub const fn region(&self) -> NesRegion {
         self.region
     }

@@ -145,15 +145,27 @@ impl Noise {
     // Envelope -------> Gate ----------> Gate --> (to mixer)
     pub fn clock(&mut self) {
         if self.timer.tick() {
-            let shift_by = if self.shift_mode == ShiftMode::One {
-                6
-            } else {
-                1
-            };
-            let feedback = (self.shift & 0x01) ^ ((self.shift >> shift_by) & 0x01);
-            self.shift >>= 1;
-            self.shift |= feedback << 14;
+            self.step_shift();
         }
+    }
+
+    /// Clock forward to `cycle`, which for the noise channel is a step of the shift register per
+    /// expiry.
+    pub fn clock_to(&mut self, cycle: u32) {
+        while self.timer.run_to(cycle) {
+            self.step_shift();
+        }
+    }
+
+    fn step_shift(&mut self) {
+        let shift_by = if self.shift_mode == ShiftMode::One {
+            6
+        } else {
+            1
+        };
+        let feedback = (self.shift & 0x01) ^ ((self.shift >> shift_by) & 0x01);
+        self.shift >>= 1;
+        self.shift |= feedback << 14;
     }
     pub const fn region(&self) -> NesRegion {
         self.region

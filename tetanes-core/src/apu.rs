@@ -23,7 +23,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{trace, warn};
+use tracing::trace;
 
 pub mod dmc;
 pub mod noise;
@@ -84,7 +84,7 @@ impl TryFrom<usize> for Channel {
 pub struct Apu {
     /// The frame sequencer that clocks envelopes, sweeps and length counters.
     pub frame_counter: FrameCounter,
-    /// Cycles into the current [`Apu::CYCLE_SIZE`] block of buffered channel output.
+    /// Cycles into the current [`Apu::CYCLE_SIZE`] block.
     pub master_clock: u32,
     /// Total CPU cycles clocked.
     pub cpu_cycle: u32,
@@ -106,13 +106,15 @@ pub struct Apu {
     pub dmc: Dmc,
     /// The high-pass/low-pass chain the mixed output is run through.
     pub filter_chain: FilterChain,
-    /// Per-cycle output of each channel, sampled in one pass when the block fills.
+    /// Per-cycle expansion audio from the cartridge, for the boards that have any.
     ///
-    /// Only the ~1 cycle in 20 that [`FilterChain`] samples is read, so the great majority of this
-    /// is written and never looked at. Removing it means the mixer asking a channel for its level
-    /// at an arbitrary cycle instead - see the delta-synthesis item in `tetanes-followups.md`.
-    #[serde(skip, default = "Apu::default_channel_outputs")]
-    pub channel_outputs: Box<[f32]>,
+    /// The channels are read straight off their own state at the cycle the mixer wants, but the
+    /// board is clocked by the CPU rather than by the APU, so its output has to be recorded as it
+    /// happens. Left all zeroes, and never written, for a board with no audio.
+    #[serde(skip, default = "Apu::default_mapper_outputs")]
+    pub mapper_outputs: Box<[f32]>,
+    /// Cycles of this block the mixer has consumed, which trails `master_clock`.
+    pub mix_clock: u32,
     /// Mixed samples produced since the last drain.
     #[serde(skip)]
     pub audio_samples: Vec<f32>,
@@ -143,7 +145,7 @@ impl Apu {
     pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
     /// The 5 APU channels plus one for cartridge expansion audio.
     pub const MAX_CHANNEL_COUNT: usize = 6;
-    /// How many cycles of per-channel output are buffered before being mixed in one pass.
+    /// How many CPU cycles a mixing block spans before every cycle counter rolls back to zero.
     pub const CYCLE_SIZE: u32 = 10_000;
 
     /// Create a new APU instance.
@@ -164,7 +166,8 @@ impl Apu {
             noise: Noise::new(region),
             dmc: Dmc::new(region),
             filter_chain: FilterChain::new(region, sample_rate),
-            channel_outputs: Self::default_channel_outputs(),
+            mapper_outputs: Self::default_mapper_outputs(),
+            mix_clock: 0,
             audio_samples: Vec::with_capacity((sample_rate / 60.0) as usize),
             sample_rate,
             sample_period,
@@ -176,59 +179,50 @@ impl Apu {
         }
     }
 
-    /// An empty channel-output buffer, which is also how a loaded save state gets one.
-    pub fn default_channel_outputs() -> Box<[f32]> {
-        vec![0.0; Self::MAX_CHANNEL_COUNT * Self::CYCLE_SIZE as usize].into()
+    /// An empty expansion-audio buffer, which is also how a loaded save state gets one.
+    pub fn default_mapper_outputs() -> Box<[f32]> {
+        vec![0.0; Self::CYCLE_SIZE as usize].into()
     }
 
     /// Records this cycle's expansion-audio sample from the cartridge.
+    ///
+    /// Only called for a board that has audio; see `Bus::cpu_clock`.
     #[inline(always)]
     pub fn add_mapper_output(&mut self, output: f32) {
-        self.channel_outputs
-            [(self.master_clock as usize * Self::MAX_CHANNEL_COUNT) + Channel::Mapper as usize] =
-            output;
+        self.mapper_outputs[self.master_clock as usize] = output;
     }
 
-    /// Filter and mix audio sample based on region sampling rate.
+    /// Mix the channels into the filter chain for every cycle up to `target`, running them
+    /// forward as it goes.
     ///
-    /// The filter chain samples at a little over twice the output rate - roughly one CPU cycle in
-    /// 20 - and nothing between two of its samples can reach its output, so only those cycles are
-    /// mixed. The rest are walked in one step, over which the chain's output is by definition
-    /// constant, so an output sample landing in the middle of one just repeats it.
-    #[inline]
-    pub fn process_outputs(&mut self) {
+    /// The chain samples at a little over twice the output rate - roughly one CPU cycle in 20 -
+    /// and nothing between two of its samples can reach its output, so the channels are only run
+    /// up to the cycles it asks for. Over a skipped span the chain's output is by definition
+    /// constant, so an output sample landing inside one just repeats it.
+    ///
+    /// The channels used to be clocked once per CPU cycle each and their output recorded into a
+    /// 240 KiB per-cycle array for this to read back. Reading their level directly at the cycle it
+    /// is wanted removes the array, and lets [`Timer::run_to`](crate::apu::timer::Timer::run_to)
+    /// collapse the cycles between one waveform step and the next.
+    fn channels_clock_to(&mut self, target: u32) {
         if self.skip_mixing {
+            self.mix_clock = target;
+            self.clock_channels(target);
             return;
         }
 
-        let total = self.master_clock as usize;
-        let mut cycle = 0;
-        while cycle < total {
+        while self.mix_clock < target {
             let step = match self.filter_chain.cycles_until_due() {
                 0 => {
-                    let base = cycle * Self::MAX_CHANNEL_COUNT;
-                    let mixed = match self
-                        .channel_outputs
-                        .get(base..base + Self::MAX_CHANNEL_COUNT)
-                    {
-                        Some(&[pulse1, pulse2, triangle, noise, dmc, mapper]) => {
-                            let pulse_idx = (pulse1 + pulse2) as usize;
-                            // Not `mul_add`: it guarantees a single rounding, so without hardware
-                            // FMA it lowers to a libm `fmaf` call. See `apu::filter::dot`.
-                            let tnd_idx = ((3.0 * triangle) + (2.0 * noise) + dmc) as usize;
-                            let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
-                            apu_output + self.mapper_enabled as u8 as f32 * mapper
-                        }
-                        _ => {
-                            warn!("invalid channel outputs");
-                            return;
-                        }
-                    };
+                    // A cycle's sample is the channel state *after* that many clocks, so run them
+                    // one past `mix_clock` before reading.
+                    self.clock_channels(self.mix_clock + 1);
+                    let mixed = self.mix();
                     self.filter_chain.consume(mixed);
                     1
                 }
                 due => {
-                    let step = due.min(total - cycle);
+                    let step = due.min((target - self.mix_clock) as usize);
                     self.filter_chain.skip(step);
                     step
                 }
@@ -239,8 +233,34 @@ impl Apu {
                 self.audio_samples.push(self.filter_chain.output());
                 self.sample_counter += self.sample_period;
             }
-            cycle += step;
+            self.mix_clock += step as u32;
         }
+
+        // The last steps may have been skipped rather than mixed, which leaves the channels behind.
+        self.clock_channels(target);
+    }
+
+    /// One cycle's mixed output, through the NES' two non-linear mixer tables.
+    fn mix(&self) -> f32 {
+        let pulse_idx = (self.pulse1.output() + self.pulse2.output()) as usize;
+        // Not `mul_add`: it guarantees a single rounding, so without hardware FMA it lowers to a
+        // libm `fmaf` call. See `apu::filter::dot`.
+        let tnd_idx = ((3.0 * self.triangle.output())
+            + (2.0 * self.noise.output())
+            + self.dmc.output()) as usize;
+        let apu_output = PULSE_TABLE[pulse_idx] + TND_TABLE[tnd_idx];
+
+        let mapper = self.mapper_outputs[self.mix_clock as usize];
+        apu_output + self.mapper_enabled as u8 as f32 * mapper
+    }
+
+    /// Run every channel forward to `cycle`.
+    fn clock_channels(&mut self, cycle: u32) {
+        self.pulse1.clock_to(cycle);
+        self.pulse2.clock_to(cycle);
+        self.triangle.clock_to(cycle);
+        self.noise.clock_to(cycle);
+        self.dmc.clock_to(cycle);
     }
 
     /// Set the audio sample rate.
@@ -317,11 +337,21 @@ impl Apu {
     pub fn clock_sync(&mut self) {
         self.clock_to(self.master_clock);
 
-        self.process_outputs();
-
         debug_assert_eq!(self.master_clock, self.clock);
+        debug_assert_eq!(self.master_clock, self.mix_clock);
+        self.rewind_block();
+    }
+
+    /// Start the next [`Apu::CYCLE_SIZE`] block, putting every cycle counter back to zero.
+    ///
+    /// Only at a block boundary, where the channels really are all level with `master_clock`.
+    /// `Apu::reset` deliberately does not come through here: `Dmc::reset` parks its timer a cycle
+    /// ahead and `Triangle::reset` leaves its timer where it was, and both of those are load
+    /// bearing.
+    const fn rewind_block(&mut self) {
         self.master_clock = 0;
         self.clock = 0;
+        self.mix_clock = 0;
         self.pulse1.timer.cycle = 0;
         self.pulse2.timer.cycle = 0;
         self.triangle.timer.cycle = 0;
@@ -339,47 +369,6 @@ impl Apu {
         }
         let cycles = self.master_clock - self.clock;
         self.frame_counter.should_clock(cycles) || self.dmc.irq_pending_in(cycles)
-    }
-
-    fn channel_clock_to(&mut self, channel: Channel, cycle: u32) {
-        // A macro rather than a generic function: this was the only polymorphic use of
-        // `Clock`/`Sample`/`TimerCycle` anywhere in the crate, and it monomorphized over five
-        // concrete channel types that a `match` already names one by one.
-        // One monomorphic function per channel type, which is exactly what the generic
-        // `clock_to<T: Clock + TimerCycle + Sample>` produced before those traits were removed.
-        //
-        // The obvious formulation - a macro expanding the loop body straight into each of the five
-        // match arms - measured **2.2% slower on the whole corpus**: it turns one small function
-        // into five copies of a loop, and `channel_clock_to` stops being a sensible inlining
-        // candidate. Keep the call boundary.
-        macro_rules! clock_to_fns {
-            ($($name:ident: $ty:ty),+ $(,)?) => {$(
-                fn $name(instance: &mut $ty, cycle: u32, offset: usize, outputs: &mut [f32]) {
-                    while instance.cycle() < cycle {
-                        instance.clock();
-                        outputs[((instance.cycle() - 1) as usize * Apu::MAX_CHANNEL_COUNT)
-                            + offset] = instance.output();
-                    }
-                }
-            )+};
-        }
-        clock_to_fns! {
-            pulse_to: Pulse,
-            triangle_to: Triangle,
-            noise_to: Noise,
-            dmc_to: Dmc,
-        }
-
-        let offset = channel as usize;
-        let outputs = &mut self.channel_outputs;
-        match channel {
-            Channel::Pulse1 => pulse_to(&mut self.pulse1, cycle, offset, outputs),
-            Channel::Pulse2 => pulse_to(&mut self.pulse2, cycle, offset, outputs),
-            Channel::Triangle => triangle_to(&mut self.triangle, cycle, offset, outputs),
-            Channel::Noise => noise_to(&mut self.noise, cycle, offset, outputs),
-            Channel::Dmc => dmc_to(&mut self.dmc, cycle, offset, outputs),
-            _ => (),
-        }
     }
 
     fn clock_to(&mut self, cycle: u32) {
@@ -416,11 +405,7 @@ impl Apu {
             self.triangle.length.reload();
             self.noise.length.reload();
 
-            self.channel_clock_to(Channel::Pulse1, self.clock);
-            self.channel_clock_to(Channel::Pulse2, self.clock);
-            self.channel_clock_to(Channel::Triangle, self.clock);
-            self.channel_clock_to(Channel::Noise, self.clock);
-            self.channel_clock_to(Channel::Dmc, self.clock);
+            self.channels_clock_to(self.clock);
         }
     }
 
@@ -540,10 +525,9 @@ impl Apu {
         trace!("APU $4011 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         // Only 7-bits are used
         self.dmc.write_output(val & 0x7F);
-        // $4011 applies new output right away, not on timer reload.
-        let offset = Channel::Dmc as usize;
-        self.channel_outputs[(self.dmc.timer.cycle as usize * Apu::MAX_CHANNEL_COUNT) + offset] =
-            self.dmc.output();
+        // $4011 applies its new output right away rather than on the next timer reload, which is
+        // what reading `Dmc::output` at the cycle the mixer wants already gives. This used to
+        // patch the per-cycle output array, into a slot the mixer never read.
     }
 
     /// $4012 DMC Sample Addr.
@@ -661,6 +645,7 @@ impl Apu {
         self.cpu_cycle = 0;
         self.master_clock = 0;
         self.clock = 0;
+        self.mix_clock = 0;
         self.should_clock = false;
         self.frame_counter.reset(kind);
         self.pulse1.reset(kind);

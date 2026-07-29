@@ -137,6 +137,41 @@ The lesson for the next round of this: on this workload `perf stat` counters are
 flat profile. A profile said `FilterChain::consume` was 7.7% and `Fir::output` 1.3%; the truth was
 that the FIR was ~10x its apparent cost and the cost was microarchitectural.
 
+### APU: skip-ahead timers
+
+Recorded 2026-07-29, same protocol, interleaved over three rounds against the commit above.
+
+| build | geomean | delta |
+|---|---|---|
+| after the mixing work | 2.432 | |
+| + skip-ahead timers | 2.261 | **-7.0%** |
+
+Per ROM: spritecans 2.029, Super Mario Bros. 1.990, Zelda 2.074, SMB3 2.217, Punch-Out!! 1.934,
+Castlevania III 3.230, Akumajou Densetsu 2.613. With the NTSC filter on, 2.338.
+
+`Timer::run_to` collapses the cycles between one waveform step and the next into a single
+subtraction, so a pulse at period 200 costs ~25 iterations per 10,000-cycle block rather than
+10,000. That in turn removes the reason the 240 KiB per-cycle `channel_outputs` array existed: the
+mixer reads each channel's level directly at the cycle it wants, which is only the ~1,470 cycles a
+frame the filter chain samples.
+
+Cumulatively over the three APU changes, **2.762 -> 2.261, -18.1%**, and the APU's share of core
+frame time on SMB3 went ~23% -> ~9.5%. What is left is `clock_channels` 3.2%, `clock_lazy` 2.9%,
+`clock_to` 2.5%. The PPU is now 68%.
+
+Two things nearly went wrong, both worth knowing before touching this again:
+
+- **A channel can legitimately sit ahead of the cycle being asked for.** `Dmc::reset` parks its
+  timer one cycle forward on purpose (there is a FIXME saying so, and the DMA tests depend on it)
+  and `Triangle::reset` does not reset its timer at all. The `while cycle() < target` loop being
+  replaced quietly did nothing in that case; `run_to`'s subtraction wrapped and fired a spurious
+  expiry instead. In a debug build it panicked; in the optimized build the tests run under, it
+  silently changed DMC DMA timing and six ROM tests failed on a frame hash.
+- **The bisect that found it had to be structural, not by inspection.** Reverting only the
+  skip-ahead while keeping the mixing restructure still failed, which is what ruled the restructure
+  in and the timers out - and the actual culprit turned out to be neither, but the block-counter
+  reset that had been added along the way to fix an unrelated underflow.
+
 ### Page table vs `Banks` (historical)
 
 Measured with a `page_table` benchmark that has since been deleted along with `Banks` itself.

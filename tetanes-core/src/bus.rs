@@ -254,13 +254,12 @@ impl Bus {
         if ops.intersects(MapperOps::CLOCKED) {
             self.mapper.clock();
         }
-        let output = if ops.intersects(MapperOps::AUDIO) {
-            self.mapper.output()
-        } else {
-            0.0
-        };
+        // Only a board with audio records anything: the buffer it writes into stays all zeroes
+        // otherwise, which is what the mixer wants to add.
+        if ops.intersects(MapperOps::AUDIO) {
+            self.apu.add_mapper_output(self.mapper.output());
+        }
         self.input.clock();
-        self.apu.add_mapper_output(output);
         self.apu.clock_lazy();
     }
 }

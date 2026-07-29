@@ -211,8 +211,19 @@ impl Pulse {
     // Envelope -------> Gate -----> Gate -------> Gate --->(to mixer)
     pub const fn clock(&mut self) {
         if self.timer.tick() {
-            self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
+            self.step_sequencer();
         }
+    }
+
+    /// Clock forward to `cycle`, which for a pulse is a step of the duty sequencer per expiry.
+    pub const fn clock_to(&mut self, cycle: u32) {
+        while self.timer.run_to(cycle) {
+            self.step_sequencer();
+        }
+    }
+
+    const fn step_sequencer(&mut self) {
+        self.duty_cycle = self.duty_cycle.wrapping_sub(1) & 0x07;
     }
     pub fn reset(&mut self, kind: ResetKind) {
         self.timer.reset(kind);

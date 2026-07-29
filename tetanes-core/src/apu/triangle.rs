@@ -107,7 +107,21 @@ impl Triangle {
     //             v                v
     // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
     pub const fn clock(&mut self) {
-        if self.timer.tick() && self.length.counter > 0 && self.linear.counter > 0 {
+        if self.timer.tick() {
+            self.step_sequencer();
+        }
+    }
+
+    /// Clock forward to `cycle`, which for the triangle is a step of the 32-entry sequence per
+    /// expiry, gated by both counters.
+    pub const fn clock_to(&mut self, cycle: u32) {
+        while self.timer.run_to(cycle) {
+            self.step_sequencer();
+        }
+    }
+
+    const fn step_sequencer(&mut self) {
+        if self.length.counter > 0 && self.linear.counter > 0 {
             self.sequence = (self.sequence + 1) & 0x1F;
         }
     }
