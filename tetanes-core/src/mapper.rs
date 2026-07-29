@@ -148,8 +148,7 @@ pub use m071_bf909x::Revision as Bf909Revision;
 
 /// Errors that mappers can return while loading.
 ///
-/// Loading a *supported* board is infallible: banking used to validate window sizes against a
-/// `Banks` table and could fail, but a board on page tables only writes page entries, and every
+/// Loading a *supported* board is infallible: a board only writes page entries, and every
 /// out-of-range bank wraps within its region by construction. The `Result` stays so that a board
 /// needing to reject a cart - a bad NES 2.0 submapper, say - can do so without a breaking change.
 #[derive(thiserror::Error, Debug)]
@@ -392,10 +391,9 @@ macro_rules! impl_from_board {
 
 /// Forward every [`Map`] method from `Mapper` to the selected board.
 ///
-/// The methods are inherent rather than an `impl Map for Mapper`, because `Map` carries the
-/// `clock`/`reset`/`region`/`output` methods a board used to get from `Clock`/`Reset`/`Regional`/
-/// `Sample` supertraits, and `Mapper` still implements those traits to forward them down the
-/// ownership tree - implementing both would make every one of those call sites ambiguous.
+// Inherent rather than an `impl Map for Mapper`: `Map` carries `clock`/`reset`/`region`/`output`
+// and `Mapper` has inherent methods of the same names to forward down the ownership tree, so
+// implementing the trait too would make every one of those call sites ambiguous.
 macro_rules! impl_dispatch {
     ($($variant:ident),+ $(,)?) => {
         impl Mapper {
@@ -637,15 +635,12 @@ impl Default for Mapper {
 /// boards without any pay a bit test rather than a dispatch.
 ///
 /// Every method has a default, so a board writes exactly the ones its hardware has and nothing
-/// else. That includes [`Map::clock`], [`Map::reset`] and [`Map::region`]/[`Map::set_region`],
-/// which used to come from `Clock`/`Reset`/`Regional` supertrait bounds and cost every board an
-/// empty `impl` for each one it did not need - four boilerplate impls per board, of which only
-/// [`Exrom`] ever filled in `Regional` and none at all filled in `Sram`. [`Mapper`] still
-/// implements those traits to forward them down the ownership tree; the boards no longer do.
+/// else - including [`Map::clock`], [`Map::reset`] and [`Map::region`]/[`Map::set_region`], which
+/// most boards do not need at all.
 pub trait Map {
-    /// Which of the optional per-cycle hooks this board needs: a per-cycle `Clock::clock()`, an
-    /// IRQ, expansion audio, or DMA. Resolved once at cart load into `Ppu::mapper_ops`, so a board
-    /// that needs none of them costs a bit test rather than a dispatch on every CPU cycle.
+    /// Which of the optional per-cycle hooks this board needs: a per-cycle [`Map::clock`], an IRQ,
+    /// expansion audio, or DMA. Resolved once at cart load into `Bus::mapper_ops`, so a board that
+    /// needs none of them costs a bit test rather than a dispatch on every CPU cycle.
     fn mapper_ops(&self) -> MapperOps {
         MapperOps::empty()
     }

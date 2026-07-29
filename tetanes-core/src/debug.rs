@@ -1,20 +1,14 @@
 //! Debugger hooks.
 //!
 //! A debugger is a callback plus the condition that fires it. The callback is handed the whole
-//! [`Bus`](crate::bus::Bus) - every register, both address spaces, the board - rather than one component's state,
-//! because what a debugger needs differs per debugger: a CPU debugger wants registers and the
-//! disassembly around PC, an APU viewer wants the channels, a hex viewer wants an arbitrary range,
-//! and the PPU viewer wants CHR resolved through the board. Handing over the console lets each one
-//! take exactly what it needs at the point where the state is coherent, and is also what a future
-//! breakpoint *condition* needs in order to decide.
+//! [`Bus`](crate::bus::Bus) - every register, both address spaces, the board - so it can take
+//! whatever it needs at the point where the state is coherent: registers and the disassembly
+//! around PC, the APU's channels, a range of memory, or CHR resolved through the board.
 
 use crate::bus::Bus;
 use std::sync::Arc;
 
 /// Runs a callback once the PPU reaches a given dot, handing it the console.
-///
-/// The dot is the only trigger for now; the shape to extend is this struct - a `Trigger` enum
-/// (`Dot`, `Pc`, `Read`) - not the callback, which already sees everything.
 #[derive(Clone)]
 #[must_use]
 pub struct Debugger {

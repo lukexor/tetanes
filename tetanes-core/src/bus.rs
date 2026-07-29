@@ -8,7 +8,19 @@
 //!
 //! Behavior that needs more than one component lives in an `impl Bus` block in the file that owns
 //! the state it reads: the CPU's in [`cpu`](crate::cpu), the instruction set's in
-//! [`instr`](crate::cpu::instr). Routing - what address reaches which component - is here.
+//! [`instr`](crate::cpu::instr), the PPU's in [`ppu`](crate::ppu), the input ports' in
+//! [`input`](crate::input). What is here is the CPU-side routing - which address reaches which
+//! component.
+//!
+//! `Bus` carries both address spaces, so its accessors name the one they mean:
+//!
+//! | | reads | writes |
+//! |---|---|---|
+//! | CPU, spending a cycle | [`Bus::read`], [`Bus::peek`] | [`Bus::write`] |
+//! | PPU address space | [`Bus::ppu_bus_peek`] | |
+//! | cartridge, through the page tables | [`Bus::chr_peek`] | |
+//!
+//! [`Bus::copy_ppu_bus`] copies `$0000-$2FFF` as currently banked, for reading CHR off-thread.
 //!
 //! # Stability
 //!
@@ -33,6 +45,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
+use tracing::trace;
 
 /// NES Bus
 ///
@@ -72,22 +85,20 @@ pub struct Bus {
     pub cpu: Cpu,
     /// Picture Processing Unit.
     pub ppu: Ppu,
-    /// Which of a loaded board's optional hooks apply - whether it needs a per-cycle clock, can
-    /// raise an IRQ or DMA, produces audio, observes every PPU bus address (A12 scanline counters,
-    /// CHR latches), or serves some CPU/PPU reads itself rather than from page tables (expansion
-    /// hardware, MMC5's synthesised attributes). Cached from `Map::mapper_ops` so the hot paths
-    /// that would otherwise dispatch into every board unconditionally can gate each one on a bit
-    /// test. *Derived* from [`Map::mapper_ops`](crate::mapper::Map::mapper_ops) and not
-    /// serialized: recomputed in `load_mapper` and `rebuild_mapper_state`. Writing it from outside
-    /// desynchronizes dispatch from the board that is actually loaded.
+    /// Which of the loaded board's optional hooks apply: a per-cycle clock, IRQ or DMA, audio,
+    /// watching every PPU bus address, or serving reads itself rather than from page tables.
+    ///
+    /// *Derived* from [`Map::mapper_ops`](crate::mapper::Map::mapper_ops) and not serialized;
+    /// writing it from outside desynchronizes dispatch from the board that is loaded.
+    //
+    // Cached so the hot paths gate each hook on a bit test instead of dispatching into every
+    // board unconditionally. Recomputed in `load_mapper` and `rebuild_mapper_state`.
     #[serde(skip)]
     pub mapper_ops: MapperOps,
     /// The cartridge's board.
-    ///
-    /// Placed after `ppu` deliberately: the PPU is the heaviest user (CHR and CIRAM fetches are
-    /// the hot path) but the CPU reaches PRG through it too, so it belongs to neither and sits
-    /// beside both. Keeping it after `ppu` also leaves `ppu` at the offset the pre-flattening
-    /// layout gave it.
+    //
+    // Ordered after `ppu`: the PPU is the heaviest user (CHR and CIRAM fetches are the hot path),
+    // but the CPU reaches PRG through it too.
     pub mapper: Mapper,
     /// Page-table addressed cartridge memory - every region a cart has.
     pub memory: Memory,
@@ -119,12 +130,9 @@ pub struct Bus {
     #[serde(skip)]
     pub debugger: Debugger,
     /// Scratch buffer for [`Bus::disassemble`], filled only while a debugger is attached.
-    ///
-    /// On `Bus` rather than `Cpu` because the disassembler is - it reads through the bus - which
-    /// also keeps `Cpu` a register file and nothing else. It was moved here on a layout argument
-    /// as well (a cold 24-byte `String` in the middle of the hot registers), but an interleaved
-    /// A/B could not measure a difference either way, so treat only the first reason as load
-    /// bearing.
+    //
+    // Here rather than on `Cpu` because the disassembler is: it reads through the bus, and `Cpu`
+    // stays a register file.
     #[serde(skip)]
     pub disasm: String,
 }
@@ -178,10 +186,9 @@ impl Bus {
     /// Copies the PPU's address space - `$0000-$2FFF`, banked and mirrored as it is right now -
     /// into `dst`.
     ///
-    /// The primitive a debugger needs to render CHR on another thread: page tables and the
-    /// board's synthesised reads are resolved here, so the copy is what the PPU would fetch and
-    /// the reader needs no knowledge of the board. Side-effect free, so it will not move an
-    /// MMC2 CHR latch or an MMC3 A12 counter.
+    /// Page tables and any reads the board synthesises are resolved here, so the copy is what the
+    /// PPU would fetch and the caller needs no knowledge of the board. Side-effect free: it will
+    /// not move an MMC2 CHR latch or an MMC3 A12 counter.
     pub fn copy_ppu_bus(&self, dst: &mut [u8]) {
         for (addr, byte) in dst.iter_mut().enumerate().take(0x3000) {
             *byte = self.chr_peek(addr as u16);
@@ -261,9 +268,8 @@ impl Bus {
 impl Bus {
     /// Route a read to whichever component owns `addr`, without moving the console.
     ///
-    /// This is the address decode alone. [`Bus::read`] is what an instruction calls: it spends a
-    /// CPU cycle - clocking the PPU, APU and board - and then comes through here.
-    pub fn cpu_bus_read(&mut self, addr: u16) -> u8 {
+    /// The address decode alone; [`Bus::read`] spends a CPU cycle and then comes through here.
+    pub(crate) fn cpu_bus_read(&mut self, addr: u16) -> u8 {
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
             0x2008..=0x3FFF => addr & 0x2007,
@@ -284,8 +290,8 @@ impl Bus {
             0x2004 => self.ppu.read_oamdata(),
             0x2007 => self.read_data(),
             0x4015 => self.apu.read_status(),
-            0x4016 => self.input.read(Player::One, &self.ppu),
-            0x4017 => self.input.read(Player::Two, &self.ppu),
+            0x4016 => self.input_read(Player::One),
+            0x4017 => self.input_read(Player::Two),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
             _ => self.open_bus,
         };
@@ -294,7 +300,7 @@ impl Bus {
 
     /// Route a read to whichever component owns `addr`, with no side effects at all.
     #[must_use]
-    pub fn cpu_bus_peek(&self, addr: u16) -> u8 {
+    pub(crate) fn cpu_bus_peek(&self, addr: u16) -> u8 {
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
             0x2008..=0x3FFF => addr & 0x2007,
@@ -315,8 +321,8 @@ impl Bus {
             0x2004 => self.ppu.peek_oamdata(),
             0x2007 => self.peek_data(),
             0x4015 => self.apu.peek_status(),
-            0x4016 => self.input.peek(Player::One, &self.ppu),
-            0x4017 => self.input.peek(Player::Two, &self.ppu),
+            0x4016 => self.input_peek(Player::One),
+            0x4017 => self.input_peek(Player::Two),
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.ppu.open_bus,
             _ => self.open_bus,
         }
@@ -324,8 +330,8 @@ impl Bus {
 
     /// Route a write to whichever component owns `addr`, without moving the console.
     ///
-    /// See [`Bus::cpu_bus_read`]; [`Bus::write`] is the cycle-spending form.
-    pub fn cpu_bus_write(&mut self, addr: u16, val: u8) {
+    /// [`Bus::write`] is the cycle-spending form.
+    pub(crate) fn cpu_bus_write(&mut self, addr: u16, val: u8) {
         self.open_bus = val;
         let addr = match addr {
             0x0800..=0x1FFF => addr & 0x07FF,
@@ -396,10 +402,14 @@ impl Bus {
         self.clock_sync();
     }
 
-    /// Resets everything the CPU does not reset itself. A hard reset also re-initialises work RAM.
+    /// Resets the console, forwarding it to every component.
     ///
-    /// [`Bus::reset`] is the entry point; this is the half of it that is not the CPU.
-    pub(crate) fn reset_components(&mut self, kind: ResetKind) {
+    /// A hard reset also re-initialises work RAM. The CPU takes seven cycles to reset, and running
+    /// them clocks the rest of the console.
+    pub fn reset(&mut self, kind: ResetKind) {
+        trace!("{kind:?} RESET");
+
+        self.cpu.reset(kind);
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
         }
@@ -408,6 +418,20 @@ impl Bus {
         // Reset can change banking, and the board cannot reach `Memory` from `reset`.
         self.rebuild_mapper_state();
         self.apu.reset(kind);
+
+        // Read straight off the bus so the components are not clocked during the reset itself.
+        let lo = self.cpu_bus_read(Cpu::RESET_VECTOR);
+        let hi = self.cpu_bus_read(Cpu::RESET_VECTOR + 1);
+        self.cpu.pc = u16::from_le_bytes([lo, hi]);
+
+        // The CPU takes 7 cycles to reset/power on
+        // See:
+        // * <https://www.nesdev.org/wiki/CPU_interrupts>
+        // * <http://archive.6502.org/datasheets/synertek_programming_manual.pdf>
+        for _ in 0..7 {
+            self.start_cycle(self.cpu.start_cycles - 1);
+            self.end_cycle(self.cpu.start_cycles + 1);
+        }
     }
 
     /// Writes battery-backed cart RAM to `path`.
@@ -653,7 +677,11 @@ mod test {
         bus.input.joypads[1].set_button(JoypadBtn::A, true);
         bus.cpu_bus_write(0x4016, 0x01);
         bus.cpu_bus_write(0x4016, 0x00);
-        assert_eq!(bus.cpu_bus_read(0x4017) & 0x01, 0x01, "$4017 reads controller two");
+        assert_eq!(
+            bus.cpu_bus_read(0x4017) & 0x01,
+            0x01,
+            "$4017 reads controller two"
+        );
     }
 
     /// $4000-$4003 is pulse 1 and $4004-$4007 is pulse 2. The two blocks must stay independent.
@@ -769,10 +797,18 @@ mod test {
         // Re-strobing rewinds it.
         bus.cpu_bus_write(0x4016, 0x01);
         bus.cpu_bus_write(0x4016, 0x00);
-        assert_eq!(bus.cpu_bus_read(0x4016) & 0x01, 0x01, "back to the A button");
+        assert_eq!(
+            bus.cpu_bus_read(0x4016) & 0x01,
+            0x01,
+            "back to the A button"
+        );
 
         // Controller two is a separate shift register on $4017.
-        assert_eq!(bus.cpu_bus_read(0x4017) & 0x01, 0x00, "controller two is idle");
+        assert_eq!(
+            bus.cpu_bus_read(0x4017) & 0x01,
+            0x00,
+            "controller two is idle"
+        );
     }
 
     /// Everything from $4100 up is the cartridge: the write goes to memory first and then to the
@@ -816,7 +852,11 @@ mod test {
         bus.cpu_bus_write(0x2000, 0x80);
 
         bus.reset(ResetKind::Soft);
-        assert_eq!(bus.cpu_bus_peek(0x0001), 0x66, "a soft reset preserves WRAM");
+        assert_eq!(
+            bus.cpu_bus_peek(0x0001),
+            0x66,
+            "a soft reset preserves WRAM"
+        );
 
         bus.reset(ResetKind::Hard);
         assert_eq!(bus.cpu_bus_peek(0x0001), 0x00, "a hard reset clears WRAM");

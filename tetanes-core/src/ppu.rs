@@ -1,5 +1,11 @@
 //! NES PPU (Picture Processing Unit) implementation.
 //!
+//! [`Ppu`] is the state a 2C02 keeps - registers, OAM, palette RAM and the frame it is drawing.
+//! Anything that reaches the cartridge is an `impl Bus` block further down this file, since a CHR
+//! or nametable fetch resolves through the board: [`Bus::ppu_clock`](crate::bus::Bus::ppu_clock)
+//! drives a dot and [`Bus::chr_peek`](crate::bus::Bus::chr_peek) resolves an address, while the
+//! register reads and the pixel pipeline are here.
+//!
 //! # Stability
 //!
 //! [`Ppu`]'s fields are the emulation's internal wiring. They are public so that embedders and
@@ -73,9 +79,6 @@ impl PaletteRam {
 
 impl PaletteRam {
     /// Read a colour, with the $3F10/$3F14/$3F18/$3F1C backdrop mirrors applied.
-    ///
-    /// Named `peek` for the crate's convention that a read with no side effects is a peek - and
-    /// palette RAM has none.
     #[inline(always)]
     fn peek(&self, addr: u16) -> u8 {
         self.0[Self::mirror(addr)]
@@ -533,9 +536,8 @@ impl Ppu {
     /// Load the passed given buffer with RGBA pixels from the current nametables.
     ///
     /// `chr` is `$0000-$2FFF` as the PPU currently sees it - pattern tables and nametables, banked
-    /// and mirrored - which [`Bus::copy_ppu_bus`](crate::bus::Bus::copy_ppu_bus) fills. Passed in
-    /// rather than read through the board so that a debugger holding a snapshot on another thread
-    /// renders the same thing the emulation would.
+    /// and mirrored - which [`Bus::copy_ppu_bus`](crate::bus::Bus::copy_ppu_bus) fills. Taking it
+    /// as an argument is what lets a debugger render from a snapshot on another thread.
     pub fn load_nametables(&self, chr: &[u8], nametables: &mut [u8]) {
         for i in 0..4 {
             let base_addr = addr::NAMETABLE_START + i * size::NAMETABLE;
@@ -1264,16 +1266,12 @@ impl Ppu {
     }
 }
 
-
-/// The PPU's view of the console.
-///
-/// Everything here reaches the cartridge - a CHR or nametable fetch goes through the board's
-/// page tables, and some boards synthesise the byte outright - so it takes the [`Bus`] rather
-/// than the [`Ppu`]. What needs only the PPU's own registers stayed on [`Ppu`].
+/// The PPU's view of the console: everything here reaches the cartridge, so it takes the [`Bus`]
+/// rather than the [`Ppu`].
 impl Bus {
     /// Read a byte from CHR-ROM/RAM/CIRAM at a given address.
     #[inline(always)]
-    fn chr_read(&mut self, addr: u16) -> u8 {
+    pub(crate) fn chr_read(&mut self, addr: u16) -> u8 {
         let served = if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS) {
             let Self { mapper, memory, .. } = self;
             mapper.chr_read(memory, addr)
@@ -1293,8 +1291,8 @@ impl Bus {
 
     /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
     ///
-    /// Public so debuggers read through the same routing the emulation uses; reaching into
-    /// `mapper` directly bypasses page-table boards and yields garbage.
+    /// Reads through the same routing the emulation uses; reaching into `mapper` directly bypasses
+    /// page-table boards and yields garbage.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
         if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS)
@@ -1307,13 +1305,17 @@ impl Bus {
 
     /// Write a byte to CHR-RAM/CIRAM at a given address.
     #[inline(always)]
-    fn chr_write(&mut self, addr: u16, val: u8) {
+    pub(crate) fn chr_write(&mut self, addr: u16, val: u8) {
         self.memory.chr_write(addr, val);
     }
 
-    /// Read from `addr` on Ppu bus.
+    /// Route a read on the PPU bus: pattern tables and nametables through the board, palette RAM
+    /// on the PPU itself.
+    ///
+    /// Has side effects - it latches the PPU's open bus, and can move an MMC2 CHR latch or an MMC3
+    /// A12 counter. [`Bus::ppu_bus_peek`] observes without them.
     #[inline]
-    fn ppu_bus_read(&mut self, addr: u16) -> u8 {
+    pub(crate) fn ppu_bus_read(&mut self, addr: u16) -> u8 {
         self.ppu.open_bus = match addr {
             0x0000..=0x3EFF => self.chr_read(addr),
             0x3F00..=0x3FFF => self.ppu.palette.peek(addr),
@@ -1325,8 +1327,10 @@ impl Bus {
         self.ppu.open_bus
     }
 
+    /// Route a read on the PPU bus with no side effects at all.
     #[inline]
-    fn ppu_bus_peek(&self, addr: u16) -> u8 {
+    #[must_use]
+    pub fn ppu_bus_peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x3EFF => self.chr_peek(addr),
             0x3F00..=0x3FFF => self.ppu.palette.peek(addr),
@@ -1337,9 +1341,9 @@ impl Bus {
         }
     }
 
-    /// Write `val` to `addr` on Ppu bus.
+    /// Route a write on the PPU bus.
     #[inline]
-    fn ppu_bus_write(&mut self, addr: u16, val: u8) {
+    pub(crate) fn ppu_bus_write(&mut self, addr: u16, val: u8) {
         self.ppu.open_bus = val;
         match addr {
             0x0000..=0x3EFF => self.chr_write(addr, val),
@@ -1357,7 +1361,6 @@ impl Bus {
         // timing depends on it (MMC5's expansion audio) would otherwise never be told.
         self.mapper.set_region(self.region);
     }
-
 
     /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
     ///
@@ -1391,10 +1394,9 @@ impl Bus {
     }
 
     /// Attach (or clear, via `Debugger::default()`) a debugger callback.
-    ///
-    /// Recomputes the cached `debugger_active` flag so the per-dot path can skip the `debugger`
-    /// field entirely - a single always-false bool check instead of two compares against a struct
-    /// that otherwise sits cold relative to the hot fields - when nothing is attached.
+    //
+    // Recomputes the cached `debugger_active` flag so the per-dot path tests one bool instead of
+    // touching the cold `debugger` field when nothing is attached.
     #[inline]
     pub fn set_debugger(&mut self, debugger: Debugger) {
         self.debugger_active = debugger != Debugger::default();
@@ -1637,8 +1639,8 @@ impl Bus {
             && self.ppu.scanline == self.debugger.scanline
             && self.ppu.cycle == self.debugger.cycle
         {
-            // Cloned so the callback can borrow the console it is being handed. Once per hit,
-            // i.e. at most once a frame, and only while a debugger is attached at all.
+            // Cloned so the callback can borrow the console it is handed. At most once a frame,
+            // and only while a debugger is attached.
             let callback = std::sync::Arc::clone(&self.debugger.callback);
             callback(self);
         }
@@ -1681,7 +1683,9 @@ impl Bus {
             }
         }
 
-        if self.ppu.cycle <= cycle::VISIBLE_END || cycle::BG_PREFETCH_RANGE.contains(&self.ppu.cycle) {
+        if self.ppu.cycle <= cycle::VISIBLE_END
+            || cycle::BG_PREFETCH_RANGE.contains(&self.ppu.cycle)
+        {
             self.ppu.tile_shift_lo <<= 1;
             self.ppu.tile_shift_hi <<= 1;
         }
@@ -1841,7 +1845,6 @@ impl Bus {
         // MMC5 tracks changes to PPUMASK
         self.mapper.ppu_write(0x2001, val);
     }
-
 }
 
 #[cfg(test)]

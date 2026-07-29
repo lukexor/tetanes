@@ -137,11 +137,10 @@ pub struct Memory {
 
 /// What a save state actually stores of a [`Memory`]: the layout, and the *mutable tail only*.
 ///
-/// Everything below `ram_start` is ROM. It comes from the cart, cannot change, and was previously
-/// copied verbatim into every save state and every rewind snapshot - 394 KiB of Super Mario Bros.
-/// 3's 408 KiB state, and rewind keeps ~900 of those uncompressed by default. The ROM half is put
-/// back from the running console in [`Bus::load_state`](crate::bus::Bus::load_state), which every
-/// restore path funnels through.
+/// Everything below `ram_start` is ROM: it comes from the cart and cannot change, so it is left
+/// out and put back from the running console in
+/// [`Bus::load_state`](crate::bus::Bus::load_state), which every restore path goes through. For
+/// Super Mario Bros. 3 that is 394 KiB of a 408 KiB state, and rewind keeps ~900 of them.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
 /// mapper's registers by `Map::update_banks`.

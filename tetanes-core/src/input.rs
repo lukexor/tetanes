@@ -8,6 +8,7 @@
 //! version.
 
 use crate::{
+    bus::Bus,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
     ppu::{Ppu, size},
@@ -211,20 +212,17 @@ impl Input {
         self.zapper.clear();
     }
 
-    /// Reads $4016/$4017 for one port, shifting the controller's register on.
-    pub fn read(&mut self, player: Player, ppu: &Ppu) -> u8 {
+    /// Reads one controller port, shifting its register on.
+    ///
+    /// The joypads and four-score signatures only. The zapper shares $4017 with port two;
+    /// `Bus::input_read` composes the two.
+    pub fn read_port(&mut self, player: Player) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
         // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let zapper = if player == Player::Two {
-            self.zapper.read(ppu)
-        } else {
-            0x00
-        };
-
         let player = player as usize;
         assert!(player < 4);
-        let val = match self.four_player {
+        match self.four_player {
             FourPlayer::Disabled => self.joypads[player].read(),
             FourPlayer::FourScore => {
                 if self.joypads[player].index() < 8 {
@@ -240,25 +238,17 @@ impl Input {
             FourPlayer::Satellite => {
                 self.joypads[player].read() | (self.joypads[player + 2].read() << 1)
             }
-        };
-
-        zapper | val | 0x40
+        }
     }
 
-    /// Reads $4016/$4017 without shifting.
-    pub fn peek(&self, player: Player, ppu: &Ppu) -> u8 {
+    /// Reads one controller port without shifting. See [`Input::read_port`].
+    pub fn peek_port(&self, player: Player) -> u8 {
         // Read $4016/$4017 D0 8x for controller #1/#2.
         // Read $4016/$4017 D0 8x for controller #3/#4.
         // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let zapper = if player == Player::Two {
-            self.zapper.read(ppu)
-        } else {
-            0x00
-        };
-
         let player = player as usize;
         assert!(player < 4);
-        let val = match self.four_player {
+        match self.four_player {
             FourPlayer::Disabled => self.joypads[player].peek(),
             FourPlayer::FourScore => {
                 if self.joypads[player].index() < 8 {
@@ -274,9 +264,7 @@ impl Input {
             FourPlayer::Satellite => {
                 self.joypads[player].peek() | (self.joypads[player + 2].peek() << 1)
             }
-        };
-
-        zapper | val | 0x40
+        }
     }
 
     /// Writes $4016, whose bit 0 is the strobe that reloads every controller register.
@@ -319,6 +307,30 @@ impl Input {
         self.signatures[0] = Joypad::from_bytes(0b0000_1000);
         self.signatures[1] = Joypad::from_bytes(0b0000_0100);
         self.zapper.reset(kind);
+    }
+}
+
+/// The console's view of the input ports: $4017 is a controller port *and* the zapper, which
+/// senses light from the PPU's output, so reading one takes the [`Bus`].
+impl Bus {
+    /// Reads $4016/$4017 for one port, shifting the controller's register on.
+    pub(crate) fn input_read(&mut self, player: Player) -> u8 {
+        self.zapper_sense(player) | self.input.read_port(player) | 0x40
+    }
+
+    /// Reads $4016/$4017 without shifting.
+    #[must_use]
+    pub(crate) fn input_peek(&self, player: Player) -> u8 {
+        self.zapper_sense(player) | self.input.peek_port(player) | 0x40
+    }
+
+    /// The zapper's trigger and light-sense bits, which only share $4017 with port two.
+    fn zapper_sense(&self, player: Player) -> u8 {
+        if player == Player::Two {
+            self.input.zapper.read(&self.ppu)
+        } else {
+            0x00
+        }
     }
 }
 

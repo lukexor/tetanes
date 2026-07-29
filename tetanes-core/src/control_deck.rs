@@ -39,9 +39,9 @@ use crate::{
     debug::Debugger,
     fs,
     genie::{self, GenieCode},
-    input::{FourPlayer, Joypad, Player},
+    input::{FourPlayer, Input, Joypad, Player},
     mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
-    memory::RamState,
+    memory::{Memory, RamState},
     ppu::{self, Ppu},
     video::{Frame, Video, VideoFilter},
 };
@@ -480,7 +480,7 @@ impl ControlDeck {
         Ok(())
     }
 
-    /// Replaces the running console with a previously saved [`Cpu`] state.
+    /// Replaces the running console with a previously saved [`Bus`] state.
     ///
     /// # Errors
     ///
@@ -576,8 +576,7 @@ impl ControlDeck {
 
     /// Adds a debugger callback to be executed any time the debugger conditions match.
     ///
-    /// The callback is handed the whole [`Bus`], so one hook serves a CPU, PPU or APU debugger
-    /// alike; see [`Debugger`].
+    /// The callback is handed the whole [`Bus`]; see [`Debugger`].
     pub fn add_debugger(&mut self, debugger: Debugger) {
         self.bus.set_debugger(debugger);
     }
@@ -735,10 +734,9 @@ impl ControlDeck {
             Some(frames) if frames.pending_valid => self
                 .video
                 .apply_filter(&frames.pending, frames.pending_frame_number),
-            _ => self.video.apply_filter(
-                self.bus.ppu.frame_buffer(),
-                self.bus.ppu.frame_number(),
-            ),
+            _ => self
+                .video
+                .apply_filter(self.bus.ppu.frame_buffer(), self.bus.ppu.frame_number()),
         }
     }
 
@@ -1054,8 +1052,7 @@ impl ControlDeck {
 
     /// Returns the current [`Cpu`] registers.
     ///
-    /// Only the register file; what the CPU *does* is an `impl Bus`, so driving it goes through
-    /// [`ControlDeck::bus_mut`].
+    /// The register file only; driving the CPU goes through [`ControlDeck::bus_mut`].
     #[inline]
     pub const fn cpu(&self) -> &Cpu {
         &self.bus.cpu
@@ -1113,6 +1110,31 @@ impl ControlDeck {
     #[inline]
     pub const fn mapper_mut(&mut self) -> &mut Mapper {
         &mut self.bus.mapper
+    }
+
+    /// Returns the cartridge's memory - PRG, CHR, CIRAM and any expansion RAM, addressed through
+    /// the board's page tables.
+    #[inline]
+    pub const fn memory(&self) -> &Memory {
+        &self.bus.memory
+    }
+
+    /// Returns a mutable reference to the cartridge's memory.
+    #[inline]
+    pub const fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.bus.memory
+    }
+
+    /// Returns the current [`Input`] state - joypads and the zapper.
+    #[inline]
+    pub const fn input(&self) -> &Input {
+        &self.bus.input
+    }
+
+    /// Returns a mutable reference to the current [`Input`] state.
+    #[inline]
+    pub const fn input_mut(&mut self) -> &mut Input {
+        &mut self.bus.input
     }
 
     /// Returns the current four player mode.

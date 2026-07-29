@@ -3,9 +3,9 @@
 //! <https://wiki.nesdev.org/w/index.php/CPU>
 //!
 //! [`Cpu`] is the register file and cycle counters - the state a 6502 keeps. Everything it *does*
-//! is an inherent method on [`Bus`], because a memory access moves the whole console: reading a
-//! byte clocks the PPU, the APU and the board on the way past. Those `impl Bus` blocks live here
-//! and in [`instr`], next to the state they read, rather than in `bus.rs`.
+//! is an inherent method on [`Bus`], since a memory access moves the whole console: reading a byte
+//! clocks the PPU, the APU and the board on the way past. Those `impl Bus` blocks are here and in
+//! [`instr`].
 //!
 //! # Stability
 //!
@@ -98,8 +98,8 @@ bitflags! {
 }
 /// Returned by [`Bus::load_state`] when a save state was not produced by the loaded cart.
 ///
-/// Reachable because save states no longer carry the cart's ROM: the ROM is reattached from the
-/// running console, so a state whose memory layout does not match cannot be applied at all.
+/// A save state carries no ROM - it is reattached from the running console - so a state whose
+/// memory layout does not match cannot be applied at all.
 #[derive(thiserror::Error, Debug, Copy, Clone, PartialEq, Eq)]
 #[error("save state does not match the loaded ROM")]
 #[must_use]
@@ -212,8 +212,9 @@ impl Cpu {
 
     /// Resets the registers.
     ///
-    /// Updates the PC, SP, and Status values to defined constants. [`Bus::reset`] is what resets
-    /// the rest of the console and runs the seven cycles the reset itself takes.
+    /// Updates the SP and Status values to defined constants. [`Bus::reset`] is what resets the
+    /// rest of the console, fetches the reset vector into PC, and runs the seven cycles the reset
+    /// itself takes.
     pub fn reset(&mut self, kind: ResetKind) {
         match kind {
             ResetKind::Soft => {
@@ -328,13 +329,9 @@ impl Cpu {
 impl Bus {
     /// Load a console state, leaving `self` untouched if it does not belong to this cart.
     ///
-    /// Every restore path - `load_state`, rewind, run-ahead - funnels through here, which is why
-    /// the two things a save state deliberately omits are put back here:
-    ///
-    /// - **ROM.** Save states carry only the mutable tail of [`Memory`](crate::memory::Memory), so
-    ///   the cart's ROM is copied in from the console already running. A state from a different game is rejected
-    ///   rather than left running one game's RAM against another's ROM.
-    /// - **The debugger**, which belongs to the session rather than the emulated state.
+    /// Every restore path - save states, rewind, run-ahead - goes through here, and it is what
+    /// puts back the two things a state omits: the cart's ROM, copied in from the running console,
+    /// and the attached debugger, which belongs to the session rather than the emulated state.
     ///
     /// # Errors
     ///
@@ -418,10 +415,8 @@ impl Bus {
     #[inline(always)]
     fn handle_interrupts(&mut self) {
         let mapper_ops = self.mapper_ops;
-        let irq_pending_mapper =
-            mapper_ops.intersects(MapperOps::IRQ) && self.mapper.irq_pending();
-        let dma_pending_mapper =
-            mapper_ops.intersects(MapperOps::DMA) && self.mapper.dma_pending();
+        let irq_pending_mapper = mapper_ops.intersects(MapperOps::IRQ) && self.mapper.irq_pending();
+        let dma_pending_mapper = mapper_ops.intersects(MapperOps::DMA) && self.mapper.dma_pending();
         let nmi_pending = self.ppu.nmi_pending;
         let irq_pending_apu = self.apu.irq_pending();
         let dma_pending_apu = self.apu.dma_pending();
@@ -476,7 +471,7 @@ impl Bus {
 
     /// Start a CPU cycle.
     #[inline(always)]
-    fn start_cycle(&mut self, increment: u8) {
+    pub(crate) fn start_cycle(&mut self, increment: u8) {
         self.cpu.master_clock = self.cpu.master_clock.wrapping_add(u32::from(increment));
         self.cpu.cycle = self.cpu.cycle.wrapping_add(1);
         self.ppu_clock_to(self.cpu.master_clock - Cpu::PPU_OFFSET);
@@ -485,7 +480,7 @@ impl Bus {
 
     /// End a CPU cycle.
     #[inline(always)]
-    fn end_cycle(&mut self, increment: u8) {
+    pub(crate) fn end_cycle(&mut self, increment: u8) {
         self.cpu.master_clock = self.cpu.master_clock.wrapping_add(u32::from(increment));
         self.ppu_clock_to(self.cpu.master_clock - Cpu::PPU_OFFSET);
 
@@ -635,8 +630,7 @@ impl Bus {
 
     // Memory accesses
 
-    /// Read a byte, taking a full CPU cycle to do it - which clocks the PPU, the APU and the
-    /// board.
+    /// Read a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
     #[inline(always)]
     pub fn read(&mut self, addr: u16) -> u8 {
         if self.cpu.irq_flags(IrqFlags::DMA_HALT) {
@@ -656,8 +650,7 @@ impl Bus {
         self.cpu_bus_peek(addr)
     }
 
-    /// Write a byte, taking a full CPU cycle to do it - which clocks the PPU, the APU and the
-    /// board.
+    /// Write a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
     #[inline(always)]
     pub fn write(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.cpu.start_cycles + 1);
@@ -952,32 +945,6 @@ impl Bus {
             .intersects(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI)
         {
             self.irq();
-        }
-    }
-
-    /// Resets the CPU and the rest of the console.
-    ///
-    /// Updates the PC, SP, and Status values to defined constants.
-    ///
-    /// These operations take the CPU 7 cycles.
-    pub fn reset(&mut self, kind: ResetKind) {
-        trace!("{:?} RESET", kind);
-
-        self.cpu.reset(kind);
-        self.reset_components(kind);
-
-        // Read directly from the bus so as to not clock other components during reset
-        let lo = self.cpu_bus_read(Cpu::RESET_VECTOR);
-        let hi = self.cpu_bus_read(Cpu::RESET_VECTOR + 1);
-        self.cpu.pc = u16::from_le_bytes([lo, hi]);
-
-        // The CPU takes 7 cycles to reset/power on
-        // See:
-        // * <https://www.nesdev.org/wiki/CPU_interrupts>
-        // * <http://archive.6502.org/datasheets/synertek_programming_manual.pdf>
-        for _ in 0..7 {
-            self.start_cycle(self.cpu.start_cycles - 1);
-            self.end_cycle(self.cpu.start_cycles + 1);
         }
     }
 }

@@ -107,6 +107,11 @@ arena holding every cart region — plus `ConstArray` and `Buffer`.
 **Adding a component method does not mean adding a trait.** Prefer an inherent method plus an
 explicit forwarding call from the owner.
 
+**Doc comments are for consumers; rationale is for maintainers.** `///` and `//!` say what a thing
+is and how to use it. What it used to be, why it changed, and the measurement that justified it go
+in a plain `//` comment next to the code — `Bus::wram`'s "measured un-boxed: ~1.2% slower, keep it
+boxed" is the pattern.
+
 Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save
 states.

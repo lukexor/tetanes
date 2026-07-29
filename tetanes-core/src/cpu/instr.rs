@@ -183,7 +183,6 @@ impl Cpu {
 /// On [`Bus`] rather than [`Cpu`]: every one of them reaches memory, and on this hardware that
 /// moves the whole console.
 impl Bus {
-
     /// Accumulator Addressing.
     ///
     /// No additional data is required, but the default target will be the accumulator.
@@ -908,7 +907,8 @@ impl Bus {
         let carry = u16::from(self.cpu.status_bit(Status::C));
         let res = a + val + carry;
         self.cpu.set_zn_status(res as u8);
-        self.cpu.status
+        self.cpu
+            .status
             .set(Status::V, (a ^ val) & 0x80 == 0 && (a ^ res) & 0x80 != 0);
         self.cpu.status.set(Status::C, res > 0xFF);
         self.cpu.set_acc(res as u8);
@@ -1461,7 +1461,8 @@ impl Bus {
     #[inline(always)]
     pub fn hlt(&mut self) {
         self.cpu.pc = self.cpu.pc.wrapping_sub(1);
-        self.cpu.clear_irq_flags(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI);
+        self.cpu
+            .clear_irq_flags(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI);
     }
 
     /// ISC/ISB: Shortcut for INC then SBC
@@ -1504,7 +1505,9 @@ impl Bus {
         let val = self.read_operand();
         // CMP & DEX
         let res = (self.cpu.acc & self.cpu.x).wrapping_sub(val);
-        self.cpu.status.set(Status::C, (self.cpu.acc & self.cpu.x) >= val);
+        self.cpu
+            .status
+            .set(Status::C, (self.cpu.acc & self.cpu.x) >= val);
         self.cpu.set_x(res);
     }
 
@@ -1673,7 +1676,9 @@ impl Bus {
     pub fn anc(&mut self) {
         let val = self.read_operand();
         self.cpu.set_acc(self.cpu.acc & val);
-        self.cpu.status.set(Status::C, self.cpu.status.contains(Status::N));
+        self.cpu
+            .status
+            .set(Status::C, self.cpu.status.contains(Status::N));
     }
 
     /// SLO: Shortcut for ASL then ORA
