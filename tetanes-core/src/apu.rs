@@ -30,6 +30,7 @@ pub mod noise;
 pub mod pulse;
 pub mod triangle;
 
+pub mod band_limited;
 pub mod envelope;
 pub mod filter;
 pub mod frame_counter;
