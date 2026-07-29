@@ -80,7 +80,9 @@ fn main() -> anyhow::Result<()> {
     control_deck.load_rom_path("some_awesome_game.nes")?;
 
     while control_deck.is_running() {
-        control_deck.clock_frame()?;
+        // A display frame is however many NES frames the emulation speed asks for, so clock
+        // until it reports the display frame is done. At the default 1x that is one pass.
+        while control_deck.clock_frame()? == Clocked::Continue {}
 
         // The audio this frame produced. Queue it to an audio device. Each clock
         // discards the previous call's samples, so nothing accumulates - see

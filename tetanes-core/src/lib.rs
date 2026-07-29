@@ -35,7 +35,7 @@ pub mod prelude {
         apu::{Apu, Channel},
         cart::Cart,
         common::{NesRegion, ResetKind},
-        control_deck::{Config, ControlDeck, HeadlessMode},
+        control_deck::{Clocked, Config, ControlDeck, HeadlessMode},
         cpu::Cpu,
         genie::GenieCode,
         input::{FourPlayer, Input, Player},

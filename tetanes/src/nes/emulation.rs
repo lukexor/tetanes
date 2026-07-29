@@ -25,7 +25,7 @@ use tetanes_core::{
     apu::Apu,
     bus::Bus,
     common::{NesRegion, ResetKind},
-    control_deck::{self, ControlDeck, LoadedRom},
+    control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
     ppu,
     time::{Duration, Instant},
@@ -348,16 +348,14 @@ impl State {
         self.tx.event(UiEvent::Message((ty, msg.to_string())));
     }
 
-    /// Pushes the configured run-ahead down to the deck, disabling it above 1x speed where the
-    /// extra frames cost more than the latency they hide, and while rewinding, which replays
-    /// recorded states and so has no input latency to hide.
+    /// Pushes the configured run-ahead down to the deck, disabling it while rewinding, which
+    /// replays recorded states and so has no input latency to hide.
+    ///
+    /// The speed rule is not here: `ControlDeck` applies run-ahead only at 1x on its own, since
+    /// speculating past the current frame only means anything when a display frame is one frame.
     fn update_run_ahead(&mut self) {
         self.control_deck
-            .set_run_ahead(if self.speed > 1.0 || self.rewinding {
-                0
-            } else {
-                self.run_ahead
-            });
+            .set_run_ahead(if self.rewinding { 0 } else { self.run_ahead });
     }
 
     /// Start or stop rewinding, keeping run-ahead in step with it.
@@ -441,7 +439,12 @@ impl State {
                             }
                         }
                         DebugStep::Frame => {
-                            if self.write_deck(|deck| deck.clock_frame()).is_some() {
+                            // One NES frame, which is what stepping means regardless of the speed
+                            // a display frame would clock.
+                            if self
+                                .write_deck(|deck| deck.clock_frame().map(|_| ()))
+                                .is_some()
+                            {
                                 self.send_frame();
                             }
                         }
@@ -906,6 +909,27 @@ impl State {
         })
     }
 
+    /// Clocks the NES frames this display frame owes, snapshotting each one for rewind.
+    ///
+    /// The emulation speed decides how many that is - two at 2x, none every other display frame at
+    /// 0.5x - and taking them one at a time is what keeps the rewind buffer evenly spaced in game
+    /// time. Recording per display frame instead made a fast-forwarded stretch rewind at the speed
+    /// it was recorded at.
+    fn clock_display_frame(&mut self) -> control_deck::Result<()> {
+        loop {
+            let clocked = self.control_deck.clock_frame()?;
+            if clocked != Clocked::Idle
+                && let Err(err) = self.rewind.push(self.control_deck.bus())
+            {
+                self.rewind.set_enabled(false);
+                self.on_error(err);
+            }
+            if clocked != Clocked::Continue {
+                return Ok(());
+            }
+        }
+    }
+
     fn try_clock_frame(&mut self) {
         let last_clock_duration = self.last_clock_time.elapsed();
         self.last_clock_time = Instant::now();
@@ -947,6 +971,8 @@ impl State {
                         self.set_rewinding(false);
                         return;
                     }
+                    // One frame, not a display frame's worth: a rewind steps back one snapshot per
+                    // display frame however fast the game was running when it was recorded.
                     self.send_frame();
                     self.update_frame_stats();
                 }
@@ -957,7 +983,7 @@ impl State {
                 self.on_emulation_event(&event);
             }
 
-            match self.control_deck.clock_frame() {
+            match self.clock_display_frame() {
                 Ok(()) => {
                     self.audio.process(self.control_deck.audio_samples());
                     match self.frame_tx.try_send_ref() {
@@ -966,10 +992,6 @@ impl State {
                         Err(_) => shutdown(&self.tx, "failed to get frame"),
                     }
                     self.update_frame_stats();
-                    if let Err(err) = self.rewind.push(self.control_deck.bus()) {
-                        self.rewind.set_enabled(false);
-                        self.on_error(err);
-                    }
                     if self.auto_save && self.last_auto_save.elapsed() > self.auto_save_interval {
                         self.last_auto_save = Instant::now();
                         self.save_state(self.save_slot, true);

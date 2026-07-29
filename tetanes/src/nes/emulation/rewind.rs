@@ -5,7 +5,14 @@ use tetanes_core::{
 };
 use tracing::error;
 
-/// A ring of serialized console states, one every [`Rewind::interval`] frames.
+/// A ring of serialized console states, one every [`Rewind::interval`] *NES* frames.
+///
+/// The distinction matters because rewinding replays one snapshot per display frame, so the
+/// spacing between snapshots is the speed the game rewinds at. Emulation speed changes how many
+/// NES frames a single `clock_frame` runs - four at 4x, sometimes none at 0.5x - so counting
+/// calls would leave the buffer unevenly spaced in game time, and a stretch that was
+/// fast-forwarded would rewind four times as fast as the rest. It also makes the buffer hold
+/// [`Rewind::seconds`] of *gameplay*, whatever speed it was played at.
 ///
 /// Only state is kept. Pixels are not: `Frame::buffer` is `#[serde(skip)]`, so a snapshot used to
 /// carry a 120 KiB clone of the frame alongside its ~23 KiB of state - at the default 30 s and an
@@ -17,6 +24,7 @@ use tracing::error;
 #[must_use]
 pub struct Rewind {
     pub enabled: bool,
+    /// Frames since the last snapshot, counted up to `interval`.
     pub interval_counter: usize,
     pub index: usize,
     pub count: usize,
@@ -70,19 +78,20 @@ impl Rewind {
             return Ok(());
         }
         self.interval_counter += 1;
-        if self.interval_counter >= self.interval {
-            self.interval_counter = 0;
+        if self.interval_counter < self.interval {
+            return Ok(());
+        }
+        self.interval_counter = 0;
 
-            let config = bincode::config::legacy();
-            let state = bincode::serde::encode_to_vec(bus, config)
-                .map_err(|err| Error::SerializationFailed(err.to_string()))?;
-            self.frames[self.index] = Some(state);
+        let config = bincode::config::legacy();
+        let state = bincode::serde::encode_to_vec(bus, config)
+            .map_err(|err| Error::SerializationFailed(err.to_string()))?;
+        self.frames[self.index] = Some(state);
 
-            self.count += 1;
-            self.index += 1;
-            if self.index >= self.frames.len() {
-                self.index = 0;
-            }
+        self.count += 1;
+        self.index += 1;
+        if self.index >= self.frames.len() {
+            self.index = 0;
         }
         Ok(())
     }
@@ -158,6 +167,61 @@ mod tests {
         assert!(rewind.pop().is_none());
     }
 
+    /// Snapshots have to be evenly spaced in *NES* frames, because rewinding replays them one per
+    /// display frame - so uneven spacing is uneven rewind speed.
+    ///
+    /// A display frame is not a frame: at 2x it is two and at 0.5x every other one is none. When
+    /// `ControlDeck::clock_frame` clocked the lot and the caller counted calls, a stretch that had
+    /// been fast-forwarded rewound at the speed it was recorded at, and below 1x consecutive
+    /// snapshots were identical because no frame had been clocked between them.
+    #[test]
+    fn snapshots_are_evenly_spaced_whatever_the_speed() {
+        use tetanes_core::control_deck::{Clocked, Config, ControlDeck};
+        use tetanes_core::memory::RamState;
+
+        let mut deck = ControlDeck::with_config(Config {
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        });
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("failed to load rom");
+
+        let interval = 2;
+        for speed in [1.0, 2.0, 4.0, 0.5] {
+            let mut rewind = Rewind::new(true, 5, interval);
+            deck.set_frame_speed(speed);
+
+            // What `State::clock_display_frame` does: drain the display frame, snapshotting each
+            // NES frame it actually clocked.
+            for _ in 0..12 {
+                loop {
+                    let clocked = deck.clock_frame().expect("failed to clock frame");
+                    if clocked != Clocked::Idle {
+                        rewind.push(deck.bus()).expect("failed to push a snapshot");
+                    }
+                    if clocked != Clocked::Continue {
+                        break;
+                    }
+                }
+            }
+
+            let mut snapshots = vec![];
+            while let Some(bus) = rewind.pop() {
+                snapshots.push(bus.ppu.frame_number());
+            }
+            // `pop` walks backwards, so each gap is the previous snapshot minus this one.
+            let gaps = snapshots
+                .windows(2)
+                .map(|pair| pair[0] - pair[1])
+                .collect::<Vec<_>>();
+            assert!(
+                gaps.iter().all(|&gap| gap == u32::from(interval)),
+                "at {speed}x every gap should be {interval} nes frames, got {gaps:?} from \
+                 {snapshots:?}"
+            );
+        }
+    }
+
     /// What the rewind path in `State::try_clock_frame` does, without a window: a snapshot carries
     /// no pixels, so restoring one leaves the screen blank until a frame is clocked off it. If
     /// that clock ever stops happening, rewinding goes black.
@@ -175,7 +239,8 @@ mod tests {
 
         let mut rewind = Rewind::new(true, 1, 1);
         for _ in 0..120 {
-            deck.clock_frame().expect("failed to clock frame");
+            // At 1x a call is a frame, so this needs no drain loop.
+            let _ = deck.clock_frame().expect("failed to clock frame");
             rewind.push(deck.bus()).expect("failed to push a snapshot");
         }
         assert!(
@@ -192,7 +257,7 @@ mod tests {
             "a snapshot carries no pixels"
         );
 
-        deck.clock_frame().expect("failed to re-render");
+        let _ = deck.clock_frame().expect("failed to re-render");
         assert!(
             deck.bus().ppu.frame_buffer().iter().any(|&px| px != 0),
             "clocking the restored state renders it again"

@@ -42,7 +42,9 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| format!("failed to load {:?}", opt.path))?;
 
     for _ in 0..opt.frames {
-        deck.clock_frame().context("failed to clock frame")?;
+        // Default speed, so a call is a frame and the display-frame drain a frontend
+        // needs is not.
+        let _ = deck.clock_frame().context("failed to clock frame")?;
     }
 
     image::RgbaImage::from_raw(

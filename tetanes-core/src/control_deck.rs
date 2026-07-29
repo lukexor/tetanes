@@ -11,7 +11,9 @@
 //! deck.load_rom_path("some_awesome_game.nes")?;
 //!
 //! while deck.is_running() {
-//!     deck.clock_frame()?;
+//!     // A *display* frame is however many NES frames the emulation speed asks for, so clock
+//!     // until it says the display frame is done. At 1x that is one pass.
+//!     while deck.clock_frame()? == Clocked::Continue {}
 //!     let samples = deck.audio_samples(); // queue to an audio device
 //!     let frame = deck.frame_buffer();    // blit to the screen
 //! }
@@ -236,6 +238,21 @@ impl Default for Config {
     }
 }
 
+/// What one call to [`ControlDeck::clock_frame`] did.
+///
+/// A *display* frame is however many NES frames the emulation speed asks for, so the two are not
+/// the same thing and this says which one just finished.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[must_use]
+pub enum Clocked {
+    /// Clocked a frame; this display frame owes at least one more. Call again.
+    Continue,
+    /// Clocked a frame, and it was the last one this display frame owed.
+    Complete,
+    /// Clocked nothing: this display frame owed none. Only reachable below 1x speed.
+    Idle,
+}
+
 /// Represents a loaded ROM [`Cart`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedRom {
@@ -298,9 +315,12 @@ pub struct ControlDeck {
     /// Remaining CPU cycles to execute used to clock a given number of seconds.
     cycles_remaining: f32,
     /// Emulated frame speed step ranging from 1 (0.25 speed) to 8 (2.0).
-    frame_speed_step: u16,
+    frame_speed_step: u8,
     /// Accumulated frame speed to account for slower 1x speeds.
-    frame_accumulator: u16,
+    frame_accumulator: u8,
+    /// NES frames the display frame in progress still owes; 0 means the next
+    /// [`ControlDeck::clock_frame`] begins a new one.
+    frames_to_clock: u8,
     /// The console: CPU, PPU, APU, input and the cart's board.
     bus: Bus,
 }
@@ -379,6 +399,7 @@ impl ControlDeck {
             cycles_remaining: 0.0,
             frame_speed_step: 4,
             frame_accumulator: 0,
+            frames_to_clock: 0,
             bus,
         }
     }
@@ -838,11 +859,29 @@ impl ControlDeck {
     /// `frames` in the future and a button press appears to take effect that much sooner. The cost
     /// is clocking every frame `frames + 1` times, so it trades CPU for latency.
     ///
-    /// Values above about 4 are rarely useful, and it should be turned off above 1x emulation
-    /// speed, where the extra frames cost more than the latency they hide.
+    /// Values above about 4 are rarely useful.
+    ///
+    /// Run-ahead only applies at 1x speed, whatever is set here: above it the extra frames cost
+    /// more than the latency they hide, and below it a display frame does not always clock a frame
+    /// to run ahead of. [`ControlDeck::run_ahead`] reports what was asked for;
+    /// [`ControlDeck::clock_frame`] uses what applies.
     #[inline]
     pub const fn set_run_ahead(&mut self, frames: usize) {
         self.run_ahead = frames;
+    }
+
+    /// The run-ahead actually in force, which is none unless the speed is 1x.
+    ///
+    /// The rule lives here rather than in a frontend because it is a property of what run-ahead
+    /// *is* - speculating past the current frame only makes sense when one display frame is one
+    /// NES frame - and every frontend would otherwise have to know it.
+    #[inline]
+    const fn effective_run_ahead(&self) -> usize {
+        if self.frame_speed_step == 4 {
+            self.run_ahead
+        } else {
+            0
+        }
     }
 
     /// CPU clock rate based on currently configured NES region.
@@ -905,35 +944,29 @@ impl ControlDeck {
         }
     }
 
-    /// Clocks whole NES frames, without any of the per-call bookkeeping `begin_clock` does - so
-    /// run-ahead can drive it repeatedly within one [`ControlDeck::clock_frame`].
-    fn clock_frames(&mut self) -> Result<()> {
-        // Frames that aren't multiples of the default render 1 more/less frames
-        // every other frame
-        // e.g. a speed of 1.5 will clock # of frames: 1, 2, 1, 2, 1, 2, 1, 2, ...
-        // A speed of 0.5 will clock 0, 1, 0, 1, 0, 1, 0, 1, 0, ...
-        self.frame_accumulator += self.frame_speed_step;
-        let mut frames_to_clock = 0;
-        while self.frame_accumulator >= 4 {
-            self.frame_accumulator -= 4;
-            frames_to_clock += 1;
-        }
-
-        for _ in 0..frames_to_clock {
-            let frame = self.frame_number();
-            while frame == self.frame_number() {
-                self.clock_instr()?;
-            }
-            self.bus.clock_sync();
-        }
-
+    /// Clocks a whole display frame, for the callers that cannot take the frames one at a time -
+    /// the deprecated shims, which report one frame's output per call.
+    fn clock_display_frame(&mut self) -> Result<()> {
+        while self.clock_frame()? == Clocked::Continue {}
         Ok(())
     }
 
-    /// Steps the control deck an entire frame.
+    /// Clocks exactly one NES frame, whatever the speed.
+    fn clock_one_frame(&mut self) -> Result<()> {
+        let frame = self.frame_number();
+        while frame == self.frame_number() {
+            self.clock_instr()?;
+        }
+        self.bus.clock_sync();
+        Ok(())
+    }
+
+    /// Clocks at most one NES frame, reporting what it did.
     ///
-    /// This is the default way to drive the emulator. Afterwards, [`ControlDeck::frame_buffer`]
-    /// holds the frame to display and [`ControlDeck::audio_samples`] the audio to play:
+    /// This is the default way to drive the emulator. One *display* frame is however many NES
+    /// frames [`ControlDeck::set_frame_speed`] asks for - two at 2x, one at 1x, and at 0.5x every
+    /// other one is skipped - so this hands them out one at a time and says when the display frame
+    /// is finished:
     ///
     /// ```no_run
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -943,7 +976,14 @@ impl ControlDeck {
     /// deck.load_rom_path("some_awesome_game.nes")?;
     ///
     /// while deck.is_running() {
-    ///     deck.clock_frame()?;
+    ///     loop {
+    ///         let clocked = deck.clock_frame()?;
+    ///         // every NES frame the console runs, whatever the speed - where to snapshot for
+    ///         // rewind, or to record video
+    ///         if clocked != Clocked::Continue {
+    ///             break;
+    ///         }
+    ///     }
     ///     let samples = deck.audio_samples(); // queue to an audio device
     ///     let frame = deck.frame_buffer();    // blit to the screen
     /// }
@@ -951,35 +991,63 @@ impl ControlDeck {
     /// # }
     /// ```
     ///
-    /// How many NES frames this clocks depends on [`ControlDeck::set_frame_speed`]: at 2x speed it
-    /// clocks two, at 0.5x it alternates between none and one. Either way the outputs above cover
-    /// everything it clocked.
+    /// At 1x - and at any speed, if you only ever call it once per display frame - a call is a
+    /// frame, so `for _ in 0..300 { deck.clock_frame()?; }` clocks 300 of them.
+    ///
+    /// The outputs are per display frame rather than per call: [`ControlDeck::audio_samples`]
+    /// covers every frame the loop clocked, and [`ControlDeck::frame_buffer`] holds the last one
+    /// it rendered. Both are invalidated by the call that begins a display frame, not by each one.
     ///
     /// If run-ahead is enabled with [`ControlDeck::set_run_ahead`], the frame reported is from that
-    /// many frames in the future and the console is rewound back afterwards.
+    /// many frames in the future and the console is rewound back afterwards. That happens on the
+    /// call that finishes the display frame, and run-ahead is only ever active at 1x speed.
     ///
     /// # Errors
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame(&mut self) -> Result<()> {
+    pub fn clock_frame(&mut self) -> Result<Clocked> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
-        self.begin_clock();
-        if self.run_ahead == 0 {
-            return self.clock_frames();
+
+        if self.frames_to_clock == 0 {
+            self.begin_clock();
+            // Speeds that aren't whole multiples owe a different number of frames each display
+            // frame - 1.5x owes 1, 2, 1, 2, ... and 0.5x owes 0, 1, 0, 1, ... - so the leftover
+            // quarters carry over rather than being rounded away.
+            self.frame_accumulator += self.frame_speed_step;
+            while self.frame_accumulator >= 4 {
+                self.frame_accumulator -= 4;
+                self.frames_to_clock += 1;
+            }
+            if self.frames_to_clock == 0 {
+                self.clock_frame_run_ahead()?;
+                return Ok(Clocked::Idle);
+            }
         }
-        self.clock_frame_run_ahead()
+
+        self.clock_one_frame()?;
+        self.frames_to_clock -= 1;
+        if self.frames_to_clock > 0 {
+            return Ok(Clocked::Continue);
+        }
+        self.clock_frame_run_ahead()?;
+        Ok(Clocked::Complete)
     }
 
-    /// Clocks a frame, then `run_ahead` more, reports the last of them, and rewinds the console
-    /// back to the first.
+    /// Clocks `run_ahead` frames past the display frame just finished, reports the last of them,
+    /// and rewinds the console back.
     ///
-    /// Split out of [`ControlDeck::clock_frame`] so the common `run_ahead == 0` path stays a
-    /// straight call to `clock_frames`.
+    /// Called at the end of a display frame rather than in place of one, because it is inherently
+    /// a whole display frame's worth of work: [`ControlDeck::clock_frame`] hands out one NES frame
+    /// at a time and this cannot be split that way.
+    ///
+    /// Run-ahead is only ever active at 1x, so "a display frame" and "a frame" are the same thing
+    /// here and the frames below are clocked directly rather than through the speed accumulator.
     fn clock_frame_run_ahead(&mut self) -> Result<()> {
-        // Clock the frame the console is really on.
-        self.clock_frames()?;
+        if self.effective_run_ahead() == 0 {
+            return Ok(());
+        }
 
         let mut frames = self.run_ahead_frames.take().unwrap_or_default();
 
@@ -999,7 +1067,7 @@ impl ControlDeck {
         // to `false`, so this does not quietly turn rendering on for a headless deck.
         let skip_rendering = self.bus.ppu.skip_rendering;
         self.bus.ppu.skip_rendering = true;
-        let result = (1..self.run_ahead).try_for_each(|_| self.clock_frames());
+        let result = (1..self.effective_run_ahead()).try_for_each(|_| self.clock_one_frame());
         self.bus.ppu.skip_rendering = skip_rendering;
         result?;
 
@@ -1008,7 +1076,7 @@ impl ControlDeck {
         self.bus.clear_audio_samples();
 
         // Clock the frame to actually display.
-        self.clock_frames()?;
+        self.clock_one_frame()?;
 
         // Park its pixels where `frame_buffer` can still reach them once the console has been
         // rewound past them.
@@ -1210,7 +1278,7 @@ impl ControlDeck {
     /// Set the emulation speed.
     #[inline]
     pub fn set_frame_speed(&mut self, speed: f32) {
-        self.frame_speed_step = (speed * 4.0) as u16;
+        self.frame_speed_step = (speed * 4.0) as u8;
         self.bus.apu.set_frame_speed(speed);
     }
 
@@ -1331,7 +1399,7 @@ impl ControlDeck {
         &mut self,
         handle_output: impl FnOnce(&[u8], &[f32]) -> T,
     ) -> Result<T> {
-        self.clock_frame()?;
+        self.clock_display_frame()?;
         // Fills `self.video.frame`, so the two outputs can then be borrowed as disjoint fields.
         let _ = self.frame_buffer();
         Ok(handle_output(
@@ -1357,7 +1425,7 @@ impl ControlDeck {
         frame_buffer: &mut [u8],
         audio_samples: &mut [f32],
     ) -> Result<()> {
-        self.clock_frame()?;
+        self.clock_display_frame()?;
         // This shim keeps taking unsized slices, so it filters into `self.video.frame` and copies
         // out. `frame_buffer_into` now requires a `&mut [u8; Frame::SIZE]`.
         let frame = self.frame_buffer();
@@ -1461,10 +1529,23 @@ mod tests {
         deck
     }
 
+    /// Drains one display frame, returning how many NES frames it clocked.
+    fn clock_display_frame(deck: &mut ControlDeck) -> usize {
+        let mut clocked = 0;
+        loop {
+            match deck.clock_frame().expect("clocks") {
+                Clocked::Continue => clocked += 1,
+                Clocked::Complete => return clocked + 1,
+                Clocked::Idle => return clocked,
+            }
+        }
+    }
+
     /// Clock `frames` and return a hash of what ends up on screen.
     fn run(deck: &mut ControlDeck, frames: u32) -> u64 {
         for _ in 0..frames {
-            deck.clock_frame().expect("clocks");
+            // These all run at the default speed, where a call is a frame.
+            let _ = deck.clock_frame().expect("clocks");
         }
         let mut hasher = DefaultHasher::new();
         deck.frame_buffer().hash(&mut hasher);
@@ -1692,22 +1773,45 @@ mod tests {
         assert_eq!(deck.audio_samples().len(), 0);
     }
 
-    /// The clear happens once per `clock_frame`, not per NES frame - above 1x speed one call clocks
-    /// several and every one of their samples has to reach the caller.
+    /// The clear happens once per *display* frame, not per NES frame - above 1x a display frame is
+    /// several of them and every one's samples has to reach the caller.
     #[test]
     fn faster_than_realtime_reports_every_clocked_frames_audio() {
         let mut deck = spritecans();
-        deck.clock_frame().expect("clocks");
+        assert_eq!(clock_display_frame(&mut deck), 1);
         let one_frame = deck.audio_samples().len();
 
         deck.set_frame_speed(2.0);
-        deck.clock_frame().expect("clocks");
+        assert_eq!(clock_display_frame(&mut deck), 2);
         // `set_frame_speed` also halves the APU's sample period, so two frames at 2x speed produce
         // about as many samples as one at 1x - the point is that neither frame is dropped.
         assert!(
             deck.audio_samples().len() >= one_frame,
             "2x speed dropped one of the two frames it clocked"
         );
+    }
+
+    /// A display frame is however many NES frames the speed asks for, and `clock_frame` hands them
+    /// out one at a time - so what it reports has to add up to the speed.
+    ///
+    /// Speeds that are not whole multiples owe a different number each display frame, which is why
+    /// the leftover quarters carry rather than being rounded away.
+    #[test]
+    fn a_display_frame_clocks_what_the_speed_asks_for() {
+        for (speed, expected) in [
+            (1.0, [1, 1, 1, 1]),
+            (2.0, [2, 2, 2, 2]),
+            (4.0, [4, 4, 4, 4]),
+            (1.5, [1, 2, 1, 2]),
+            (0.5, [0, 1, 0, 1]),
+        ] {
+            // A fresh deck each time: the accumulator carries leftovers between display frames, so
+            // a shared one would depend on the speed before it.
+            let mut deck = spritecans();
+            deck.set_frame_speed(speed);
+            let clocked = [(); 4].map(|()| clock_display_frame(&mut deck));
+            assert_eq!(clocked, expected, "at {speed}x");
+        }
     }
 
     /// Battery-backed state is written and restored through the board, since what is backed
