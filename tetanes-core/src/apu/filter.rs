@@ -16,12 +16,11 @@ use std::f32::consts::{PI, TAU};
 /// The high-pass stages decay exponentially toward silence at ~0.1% a sample, so after every note
 /// they spend thousands of samples in the denormal range, and everything downstream inherits it -
 /// including the whole of [`Fir`]'s tap ring, every entry of which is multiplied on every output
-/// sample. On x86 each denormal operand costs a microcode assist of ~100 cycles, so this is not a
-/// rounding nicety: **measured at 49M assists over a 1440-frame run, around 4 billion cycles**,
-/// which was larger than the entire cost of mixing.
+/// sample. On x86 each denormal operand costs a microcode assist of ~100 cycles: measured at 49M
+/// assists and ~4 billion cycles over a 1440-frame run, more than the entire cost of mixing.
 ///
-/// `1e-20` is ~400 dB below full scale, so nothing audible is being discarded; the threshold is
-/// far above the denormal boundary (`1.2e-38`) so no denormal is ever produced.
+/// `1e-20` is ~400 dB below full scale, so nothing audible is discarded, and it is far above the
+/// denormal boundary (`1.2e-38`) so no denormal is ever produced.
 #[inline(always)]
 fn flush(value: f32) -> f32 {
     if value.abs() < 1e-20 { 0.0 } else { value }
@@ -190,11 +189,10 @@ pub struct FilterChain {
 impl FilterChain {
     /// Fractional bits in `cycles_per_sample` and `period_counter`.
     ///
-    /// The counter is fixed point rather than the seconds-and-`dt` floats it used to be so that
-    /// skipping `n` cycles in one step is *bit-identical* to stepping one cycle `n` times. As
-    /// floats the two drifted apart - each accumulated rounding differently - and after a few
-    /// thousand cycles a sample landed on a different cycle in the skipped path than in the walked
-    /// one, permanently offsetting everything downstream.
+    /// Fixed point rather than seconds in floats so that skipping `n` cycles in one step is
+    /// *bit-identical* to stepping one cycle `n` times. In floats the two accumulate rounding
+    /// differently, and within a few thousand cycles a sample lands on a different cycle in the
+    /// skipped path than the walked one, permanently offsetting everything downstream.
     pub const FRAC_BITS: u32 = 32;
     /// One CPU cycle, in fixed point.
     const ONE_CYCLE: i64 = 1 << Self::FRAC_BITS;
@@ -204,22 +202,17 @@ impl FilterChain {
         let intermediate_sample_rate = output_rate * 2.0 + (PI / 32.0);
         let intermediate_cutoff = output_rate * 0.4;
 
-        // `input_gain` was two `Iir` stages, a clock-rate anti-aliasing low-pass at
-        // `intermediate_cutoff` and a 14 kHz low-pass at the intermediate rate. Both were
-        // degenerate. That `Iir`'s low-pass mode computed `y[n] = y[n-1] + alpha*(x[n] - x[n-1])`,
-        // which telescopes to `y[n] = alpha*x[n]` exactly - not approximately, and verified
-        // bit-identical over 200k samples - so each was a constant gain and neither filtered
-        // anything. High-passes are linear, so the two gains fold into one multiply at the input
-        // and the output is unchanged.
+        // `input_gain` stands in for the two low-pass stages the hardware model calls for here,
+        // a clock-rate anti-aliasing filter at `intermediate_cutoff` and a 14 kHz one at the
+        // intermediate rate, because a one-pole low-pass of the form
+        // `y[n] = y[n-1] + alpha*(x[n] - x[n-1])` telescopes to `y[n] = alpha*x[n]` exactly - so
+        // both are constant gains and neither filters anything. High-passes are linear, so the
+        // two fold into a single multiply at the input.
         //
-        // The clock-rate one is why `consume` used to be called every CPU cycle: ~29,800 calls a
-        // frame to multiply by a constant that was then read about 1,470 times. Deleting it is
-        // what lets the chain be driven by `cycles_until_due` instead.
-        //
-        // The consequence to keep in mind is that **there is now no anti-aliasing ahead of the
-        // clock-rate -> intermediate-rate decimation**, and there never was; `fir` only guards the
-        // second decimation. Doing it properly means band-limited synthesis from channel deltas
-        // rather than a filter on a per-cycle stream, which is a design change, not a stage.
+        // What follows from that, and matters: **there is no anti-aliasing ahead of the
+        // clock-rate -> intermediate-rate decimation**; `fir` only guards the second one. Doing
+        // it properly means band-limited synthesis from channel deltas rather than a filter over
+        // a per-cycle stream, which is a design change rather than a stage.
         let alpha = |sample_rate: f32, cutoff: f32| {
             let cutoff_period = 1.0 / (TAU * cutoff);
             cutoff_period / (cutoff_period + 1.0 / sample_rate)
@@ -425,8 +418,8 @@ mod tests {
 
     /// Denormals in this chain are a performance cliff, not a rounding detail: the FIR multiplies
     /// all 161 of its taps on every output sample, so once the ring holds denormals *every*
-    /// multiply takes an x86 microcode assist. Measured at 49M assists and ~4 billion cycles in a
-    /// 1440-frame run - more than the entire cost of mixing - which is why [`flush`] exists.
+    /// multiply takes an x86 microcode assist. That is what [`flush`] is for, and this is what
+    /// notices if it stops working.
     ///
     /// Silence is what gets there: the 90 Hz high-pass decays about 0.1% a sample, so it takes
     /// thousands of samples to fall from full scale to zero, and passes through the denormal range

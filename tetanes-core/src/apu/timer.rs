@@ -53,16 +53,16 @@ impl Timer {
     /// as `while timer.run_to(target) { ..what an expiry does.. }`; the `false` that ends the loop
     /// leaves the timer at `target`.
     ///
-    /// This is [`Timer::tick`] with the cycles in between collapsed into one subtraction, and it is
-    /// why the channels are not clocked once per CPU cycle: a pulse at period 200 expires every
+    /// This is [`Timer::tick`] with the cycles in between collapsed into one subtraction, and it
+    /// is why the channels are not clocked once per CPU cycle: a pulse at period 200 expires every
     /// ~400 cycles, so a 10,000-cycle block is ~25 iterations rather than 10,000. [`Timer::tick`]
-    /// remains for the boards that clock a channel from their own per-cycle hook (MMC5, VRC6).
+    /// is for the boards that clock a channel from their own per-cycle hook (MMC5, VRC6).
     pub const fn run_to(&mut self, target: u32) -> bool {
         // A channel can sit *ahead* of the cycle being asked for: `Dmc::reset` parks its timer one
         // cycle forward on purpose (see the FIXME there) and `Triangle::reset` leaves its timer
-        // alone entirely, both while the APU's own counters go back to zero. The per-cycle
-        // `while cycle() < target` loop this replaces did nothing in that case, so neither does
-        // this - without the guard the subtraction wraps and fires a spurious expiry.
+        // alone entirely, both while the APU's own counters go back to zero. Advancing to a target
+        // already passed must do nothing; without the guard the subtraction wraps and fires a
+        // spurious expiry.
         if target <= self.cycle {
             return false;
         }
@@ -127,8 +127,8 @@ mod tests {
     }
 
     /// `run_to` exists only to collapse the cycles between expiries, so what it must never do is
-    /// land on a different set of them. Both walk the same timer over the same span here, at every
-    /// period a channel actually uses and from every starting phase.
+    /// land on a different set of them than `tick`. Both walk the same timer over the same span
+    /// here, at every period a channel actually uses and from every starting phase.
     #[test]
     fn run_to_expires_on_the_same_cycles_as_tick() {
         for period in [0, 1, 2, 7, 21, 200, 2033, 4067] {
@@ -175,8 +175,7 @@ mod tests {
     }
 
     /// `Dmc::reset` parks its timer a cycle ahead of the APU's counters on purpose, so a target
-    /// behind the timer is a real state, not a bug. It has to be a no-op, the way the per-cycle
-    /// loop that preceded `run_to` was.
+    /// behind the timer is a real state rather than a bug, and has to be a no-op.
     #[test]
     fn run_to_a_target_already_passed_does_nothing() {
         let mut timer = Timer::preload(20);

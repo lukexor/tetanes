@@ -375,6 +375,7 @@ impl Bus {
         // Emulation speed and the output sample rate, plus the sample period derived from them.
         self.apu.speed = session.apu.speed;
         self.apu.sample_rate = session.apu.sample_rate;
+        self.apu.sample_ratio = session.apu.sample_ratio;
         self.apu.sample_period = session.apu.sample_period;
         // Swapped rather than rebuilt: the chain's contents are signal history, so carrying the
         // running one over keeps audio continuous across a restore instead of restarting the

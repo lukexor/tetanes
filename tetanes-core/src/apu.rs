@@ -126,6 +126,10 @@ pub struct Apu {
     pub sample_counter: f32,
     /// Emulation speed multiplier, which stretches the sample period.
     pub speed: f32,
+    /// Dynamic rate control: a small multiplier on how many samples a frame produces.
+    ///
+    /// See [`Apu::set_sample_ratio`].
+    pub sample_ratio: f32,
     /// Whether cartridge expansion audio is mixed in.
     pub mapper_enabled: bool,
     /// Whether mixing is skipped entirely, as in headless runs.
@@ -173,6 +177,7 @@ impl Apu {
             sample_period,
             sample_counter: sample_period,
             speed: 1.0,
+            sample_ratio: 1.0,
             mapper_enabled: true,
             skip_mixing: false,
             should_clock: false,
@@ -200,10 +205,10 @@ impl Apu {
     /// up to the cycles it asks for. Over a skipped span the chain's output is by definition
     /// constant, so an output sample landing inside one just repeats it.
     ///
-    /// The channels used to be clocked once per CPU cycle each and their output recorded into a
-    /// 240 KiB per-cycle array for this to read back. Reading their level directly at the cycle it
-    /// is wanted removes the array, and lets [`Timer::run_to`](crate::apu::timer::Timer::run_to)
-    /// collapse the cycles between one waveform step and the next.
+    /// Reading each channel's level directly at the cycle it is wanted, rather than recording
+    /// every cycle's output for a later pass, is what lets
+    /// [`Timer::run_to`](crate::apu::timer::Timer::run_to) collapse the cycles between one
+    /// waveform step and the next.
     fn channels_clock_to(&mut self, target: u32) {
         if self.skip_mixing {
             self.mix_clock = target;
@@ -267,19 +272,42 @@ impl Apu {
     #[inline]
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
-        let sample_rate = self.sample_rate / self.speed;
-        self.filter_chain = FilterChain::new(self.region, sample_rate);
-        let clock_rate = Cpu::region_clock_rate(self.region);
-        self.sample_period = clock_rate / sample_rate;
+        self.filter_chain = FilterChain::new(self.region, self.sample_rate / self.speed);
+        self.update_sample_period();
     }
 
     /// Set the frame speed of the APU, which affects the sampling rate.
     pub fn set_frame_speed(&mut self, speed: f32) {
         self.speed = speed;
-        let sample_rate = self.sample_rate / self.speed;
-        self.filter_chain = FilterChain::new(self.region, sample_rate);
-        let clock_rate = Cpu::region_clock_rate(self.region);
-        self.sample_period = clock_rate / sample_rate;
+        self.filter_chain = FilterChain::new(self.region, self.sample_rate / self.speed);
+        self.update_sample_period();
+    }
+
+    /// Stretch or squeeze the output rate by a small ratio, for dynamic rate control.
+    ///
+    /// A frontend syncs video to its own clock and audio to the sound card's, and the two do not
+    /// agree - not even on nominally identical rates, because oscillators have tolerances. The
+    /// difference has to be absorbed somewhere. Absorbing it in *frame timing*, by waiting on the
+    /// audio queue, is what makes an emulator judder; absorbing it here, by handing the frontend
+    /// slightly more or fewer samples per frame, costs a pitch shift far below what anyone can
+    /// hear. See Arntzen, "Dynamic Rate Control for Retro Game Emulators" (2012).
+    ///
+    /// A ratio above 1 produces more samples per frame, which fills a draining buffer. Ratios are
+    /// clamped to +/-5%, well beyond the +/-0.5% the method calls for, purely so a mistake in a
+    /// frontend cannot make the emulator inaudible.
+    ///
+    /// Deliberately does **not** rebuild [`Apu::filter_chain`]: a fraction of a percent moves its
+    /// cutoffs by nothing worth having, and rebuilding recomputes a 161-tap windowed-sinc kernel,
+    /// which is not something to do every frame.
+    pub fn set_sample_ratio(&mut self, ratio: f32) {
+        self.sample_ratio = ratio.clamp(0.95, 1.05);
+        self.update_sample_period();
+    }
+
+    /// Recompute the CPU cycles between output samples from the rate, the speed and the ratio.
+    fn update_sample_period(&mut self) {
+        let sample_rate = self.sample_rate / self.speed * self.sample_ratio;
+        self.sample_period = Cpu::region_clock_rate(self.region) / sample_rate;
     }
 
     /// Whether a given channel is enabled.
@@ -344,10 +372,9 @@ impl Apu {
 
     /// Start the next [`Apu::CYCLE_SIZE`] block, putting every cycle counter back to zero.
     ///
-    /// Only at a block boundary, where the channels really are all level with `master_clock`.
+    /// Only safe at a block boundary, where the channels really are all level with `master_clock`.
     /// `Apu::reset` deliberately does not come through here: `Dmc::reset` parks its timer a cycle
-    /// ahead and `Triangle::reset` leaves its timer where it was, and both of those are load
-    /// bearing.
+    /// ahead and `Triangle::reset` leaves its timer where it was, and both are load bearing.
     const fn rewind_block(&mut self) {
         self.master_clock = 0;
         self.clock = 0;
@@ -525,9 +552,8 @@ impl Apu {
         trace!("APU $4011 write: ${val:02X} - CYC:{}", self.cpu_cycle);
         // Only 7-bits are used
         self.dmc.write_output(val & 0x7F);
-        // $4011 applies its new output right away rather than on the next timer reload, which is
-        // what reading `Dmc::output` at the cycle the mixer wants already gives. This used to
-        // patch the per-cycle output array, into a slot the mixer never read.
+        // $4011 applies its new output right away rather than on the next timer reload, which
+        // needs nothing here: the mixer reads `Dmc::output` at the cycle it wants it.
     }
 
     /// $4012 DMC Sample Addr.
@@ -633,8 +659,8 @@ impl Apu {
         if self.region != region {
             self.region = region;
             self.clock_rate = Cpu::region_clock_rate(region);
-            self.filter_chain = FilterChain::new(region, self.sample_rate);
-            self.sample_period = self.clock_rate / self.sample_rate;
+            self.filter_chain = FilterChain::new(region, self.sample_rate / self.speed);
+            self.update_sample_period();
             self.frame_counter.set_region(region);
             self.noise.set_region(region);
             self.dmc.set_region(region);

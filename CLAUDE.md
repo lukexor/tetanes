@@ -110,9 +110,14 @@ arena holding every cart region — plus `ConstArray` and `Buffer`.
 explicit forwarding call from the owner.
 
 **Doc comments are for consumers; rationale is for maintainers.** `///` and `//!` say what a thing
-is and how to use it. What it used to be, why it changed, and the measurement that justified it go
-in a plain `//` comment next to the code — `Bus::wram`'s "measured un-boxed: ~1.2% slower, keep it
-boxed" is the pattern.
+is and how to use it. A plain `//` comment next to the code explains why it is the way it is, and
+what it is for, when that is not clear from reading it — `Bus::wram`'s "measured un-boxed: ~1.2%
+slower, keep it boxed" is the pattern.
+
+**Comments describe the code as it stands, not its history.** Git has the history. "This used to
+be X", "before the rewrite", and "the old loop did Y" all age into noise and mislead the next
+reader about what the code does now. A measurement that justifies a choice is worth keeping,
+because it is the reason the code is that way; the shape the code had before it is not.
 
 Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save

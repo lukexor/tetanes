@@ -1282,6 +1282,16 @@ impl ControlDeck {
         self.bus.apu.set_frame_speed(speed);
     }
 
+    /// Stretch or squeeze the audio output rate by a small ratio, for dynamic rate control.
+    ///
+    /// A frontend that syncs video to its own clock and audio to the sound card's needs somewhere
+    /// to put the difference between the two. This is that somewhere: see
+    /// [`Apu::set_sample_ratio`] for what it costs and why frame timing is the wrong place.
+    #[inline]
+    pub fn set_audio_sample_ratio(&mut self, ratio: f32) {
+        self.bus.apu.set_sample_ratio(ratio);
+    }
+
     /// Add a NES Game Genie code.
     ///
     /// # Errors

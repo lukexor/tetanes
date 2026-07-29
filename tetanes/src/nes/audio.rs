@@ -6,11 +6,23 @@ use ringbuf::{
     producer::Producer,
     traits::{Consumer, Observer, Split},
 };
-use std::{fs::File, io::BufWriter, path::PathBuf, sync::Arc};
+use std::{
+    fs::File,
+    io::BufWriter,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tetanes_core::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
 type SampleRb = Arc<HeapRb<f32>>;
+/// Set while paused, so the stream callback outputs silence at once rather than playing out
+/// whatever is still queued. cpal has no way to drop what the device has already taken, so the
+/// stream is left running and silenced here instead.
+type Silenced = Arc<AtomicBool>;
 type SampleProducer = CachingProd<SampleRb>;
 type SampleConsumer = CachingCons<SampleRb>;
 
@@ -130,6 +142,23 @@ impl Audio {
         self.output
             .as_ref()
             .map_or(0, |output| output.config.channels)
+    }
+
+    /// How full the output buffer is, from 0.0 empty to 1.0 full, or `None` when there is no
+    /// stream to measure.
+    ///
+    /// The buffer is sized at twice the configured latency, so **0.5 is the target level** and is
+    /// what dynamic rate control steers toward. Returns `None` while paused as well as while
+    /// stopped: nothing is being queued then, so the level says nothing about the rate.
+    #[must_use]
+    pub fn buffer_level(&self) -> Option<f32> {
+        self.output
+            .as_ref()
+            .and_then(|output| output.mixer.as_ref())
+            .filter(|mixer| !mixer.paused)
+            .map(|mixer| {
+                mixer.producer.occupied_len() as f32 / mixer.producer.capacity().get() as f32
+            })
     }
 
     /// Returns the `Duration` of audio queued for playback.
@@ -416,6 +445,7 @@ pub(crate) struct Mixer {
     sample_rate: u32,
     sample_latency: usize,
     producer: SampleProducer,
+    silenced: Silenced,
     processed_samples: Vec<f32>,
     recording: Option<(PathBuf, hound::WavWriter<BufWriter<File>>)>,
 }
@@ -450,18 +480,30 @@ impl Mixer {
         let processed_samples = Vec::with_capacity(2 * sample_latency);
         let buffer = HeapRb::<f32>::new(2 * sample_latency);
         let (producer, consumer) = buffer.split();
+        let silenced = Silenced::default();
 
+        macro_rules! stream {
+            ($ty:ty) => {
+                Self::make_stream::<$ty>(
+                    device,
+                    config,
+                    consumer,
+                    sample_latency,
+                    Arc::clone(&silenced),
+                )
+            };
+        }
         let stream = match sample_format {
-            SampleFormat::I8 => Self::make_stream::<i8>(device, config, consumer, sample_latency),
-            SampleFormat::I16 => Self::make_stream::<i16>(device, config, consumer, sample_latency),
-            SampleFormat::I32 => Self::make_stream::<i32>(device, config, consumer, sample_latency),
-            SampleFormat::I64 => Self::make_stream::<i64>(device, config, consumer, sample_latency),
-            SampleFormat::U8 => Self::make_stream::<u8>(device, config, consumer, sample_latency),
-            SampleFormat::U16 => Self::make_stream::<u16>(device, config, consumer, sample_latency),
-            SampleFormat::U32 => Self::make_stream::<u32>(device, config, consumer, sample_latency),
-            SampleFormat::U64 => Self::make_stream::<u64>(device, config, consumer, sample_latency),
-            SampleFormat::F32 => Self::make_stream::<f32>(device, config, consumer, sample_latency),
-            SampleFormat::F64 => Self::make_stream::<f64>(device, config, consumer, sample_latency),
+            SampleFormat::I8 => stream!(i8),
+            SampleFormat::I16 => stream!(i16),
+            SampleFormat::I32 => stream!(i32),
+            SampleFormat::I64 => stream!(i64),
+            SampleFormat::U8 => stream!(u8),
+            SampleFormat::U16 => stream!(u16),
+            SampleFormat::U32 => stream!(u32),
+            SampleFormat::U64 => stream!(u64),
+            SampleFormat::F32 => stream!(f32),
+            SampleFormat::F64 => stream!(f64),
             sample_format => Err(anyhow!("Unsupported sample format {sample_format}")),
         }?;
         stream.play()?;
@@ -469,6 +511,7 @@ impl Mixer {
         Ok(Self {
             stream,
             paused: false,
+            silenced,
             channels,
             sample_rate,
             sample_latency,
@@ -487,14 +530,10 @@ impl Mixer {
             // FIXME: Currently cpal doesn't let the underlying audio device empty samples before
             // pausing which leads to the remaining audio playing again upon resume. The only work
             // around is to leave the stream playing
-            // if let Err(err) = self.stream.pause() {
-            //     error!("failed to pause audio stream: {err:?}");
-            // }
-        } else if !paused && self.paused {
-            // if let Err(err) = self.stream.play() {
-            //     error!("failed to resume audio stream: {err:?}");
-            // }
         }
+        // Silence is immediate in both directions: the callback drops what is queued rather than
+        // playing it out, and on resume it waits for a full buffer before consuming again.
+        self.silenced.store(paused, Ordering::Relaxed);
         self.paused = paused;
     }
 
@@ -550,15 +589,16 @@ impl Mixer {
         config: &cpal::StreamConfig,
         mut consumer: SampleConsumer,
         sample_latency: usize,
+        silenced: Silenced,
     ) -> anyhow::Result<cpal::Stream>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
     {
         // The device starts pulling as soon as the stream plays, which is before the emulation
         // thread has produced a single sample, so hold it at silence until the ring first holds a
-        // full latency's worth. Without this the first seconds of a run are a garbled stutter:
-        // each callback finds a nearly-empty ring, hands the device a few real samples and then
-        // pads the rest, and it is the padding - once per callback - that is heard.
+        // full latency's worth. Consuming before then means every callback finds a nearly-empty
+        // ring, hands the device a few real samples and pads the rest, and it is the padding -
+        // once per callback, for as long as the queue takes to fill - that is heard as a garble.
         let mut primed = false;
         // What the ring last produced, for when it comes up short after that.
         let mut held = 0.0;
@@ -566,6 +606,16 @@ impl Mixer {
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
+                // Pausing must be heard immediately, so this drops what is queued rather than
+                // fading it out or playing it to the end.
+                if silenced.load(Ordering::Relaxed) {
+                    consumer.clear();
+                    held = 0.0;
+                    primed = false;
+                    out.fill(T::from_sample(0.0));
+                    return;
+                }
+
                 if !primed {
                     if consumer.occupied_len() < sample_latency {
                         out.fill(T::from_sample(0.0));
@@ -576,10 +626,8 @@ impl Mixer {
 
                 let mut starved = true;
                 for sample in out.iter_mut() {
-                    // An underrun decays the last value to silence rather than stepping to it.
-                    // A step is a click; a 5 ms ramp is not, and it also means a pause - which
-                    // stops feeding the ring while deliberately leaving the stream playing, see
-                    // `Mixer::pause` - fades out instead of holding a DC level.
+                    // An underrun decays the last value toward silence rather than stepping to
+                    // it: a step is a click, a few milliseconds of ramp is not.
                     held = match consumer.try_pop() {
                         Some(value) => {
                             starved = false;
@@ -590,11 +638,10 @@ impl Mixer {
                     *sample = T::from_sample(held);
                 }
 
-                // A callback that got nothing at all is a stall, not a marginal miss: paused,
+                // A callback that got nothing at all is a stall rather than a marginal miss:
                 // occluded, or between ROMs. Prime again so playback resumes from a full ring
-                // rather than clawing its way back out of an empty one, which is the startup
-                // problem over again. It costs nothing audible, since a starved callback has
-                // already faded to silence.
+                // instead of clawing its way out of an empty one. It costs nothing audible, since
+                // a starved callback has already run down to silence.
                 if starved {
                     primed = false;
                 }

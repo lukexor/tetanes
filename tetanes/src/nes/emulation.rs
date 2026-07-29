@@ -1,14 +1,11 @@
-use crate::{
-    nes::{
-        RunState,
-        action::DebugStep,
-        audio::{Audio, State as AudioState},
-        config::{Config, FrameRate},
-        emulation::{replay::Record, rewind::Rewind},
-        event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
-        renderer::{FrameRecycle, gui::MessageType},
-    },
-    thread,
+use crate::nes::{
+    RunState,
+    action::DebugStep,
+    audio::{Audio, State as AudioState},
+    config::{Config, FrameRate},
+    emulation::{replay::Record, rewind::Rewind},
+    event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
+    renderer::{FrameRecycle, gui::MessageType},
 };
 use anyhow::{Context, anyhow};
 use chrono::Local;
@@ -19,7 +16,6 @@ use std::{
     collections::VecDeque,
     io::{self, Read},
     path::{Path, PathBuf},
-    thread::JoinHandle,
 };
 use tetanes_core::{
     apu::Apu,
@@ -153,7 +149,6 @@ struct Single {
 #[must_use]
 struct Multi {
     tx: channel::Sender<NesEvent>,
-    handle: JoinHandle<()>,
 }
 
 impl Multi {
@@ -163,15 +158,15 @@ impl Multi {
         cfg: &Config,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = channel::bounded(128);
-        Ok(Self {
-            tx,
-            handle: std::thread::Builder::new()
-                .name("emulation".into())
-                .spawn({
-                    let cfg = cfg.clone();
-                    move || Self::main(proxy_tx, rx, frame_tx, &cfg)
-                })?,
-        })
+        // The handle is dropped rather than kept: nothing joins this thread, and it now ends
+        // itself when the channel disconnects - which is when `Multi`, and so `tx`, is dropped.
+        std::thread::Builder::new()
+            .name("emulation".into())
+            .spawn({
+                let cfg = cfg.clone();
+                move || Self::main(proxy_tx, rx, frame_tx, &cfg)
+            })?;
+        Ok(Self { tx })
     }
 
     fn main(
@@ -187,7 +182,25 @@ impl Multi {
                 state.on_event(&event);
             }
 
-            state.try_clock_frame();
+            // Wait on the channel rather than parking the thread.
+            //
+            // `unpark` leaves a *sticky* token: unparking a thread that is not currently parked
+            // makes its next `park_timeout` return immediately, however long it was asked for. The
+            // UI thread unparked on every event and on every redraw, so a compositor delivering a
+            // burst - focus-follows-mouse over the window will do it - left this loop unable to
+            // sleep at all, spinning through wake-ups while the frame it owed went unclocked.
+            // Blocking on the channel wakes exactly once per event and honours the timeout
+            // otherwise.
+            if let Some(timeout) = state.try_clock_frame() {
+                match rx.recv_timeout(timeout) {
+                    Ok(event) => state.on_event(&event),
+                    Err(channel::RecvTimeoutError::Timeout) => (),
+                    Err(channel::RecvTimeoutError::Disconnected) => {
+                        debug!("emulation channel disconnected");
+                        break;
+                    }
+                }
+            }
         }
     }
 }
@@ -222,8 +235,8 @@ impl Emulation {
     pub fn on_event(&mut self, event: &NesEvent) {
         match &mut self.threads {
             Threads::Single(single) => single.state.on_event(event),
-            Threads::Multi(Multi { tx, handle }) => {
-                handle.thread().unpark();
+            // Sending is the wake-up: the thread is blocked on this channel, not parked.
+            Threads::Multi(Multi { tx, .. }) => {
                 if let Err(err) = tx.try_send(event.clone()) {
                     error!("failed to send emulation event: {event:?}. {err:?}");
                 }
@@ -233,17 +246,20 @@ impl Emulation {
 
     pub fn try_clock_frame(&mut self) {
         match &mut self.threads {
-            Threads::Single(single) => single.state.try_clock_frame(),
-            // Multi-threaded emulation handles it's own clock timing and redraw requests
-            Threads::Multi(Multi { handle, .. }) => handle.thread().unpark(),
+            Threads::Single(single) => {
+                // The event loop is the clock here, so whatever it reports is not ours to wait on.
+                let _ = single.state.try_clock_frame();
+            }
+            // Multi-threaded emulation paces itself on the wall clock and asks for its own
+            // redraws, so a redraw on the UI thread is not a reason to disturb it.
+            Threads::Multi(_) => (),
         }
     }
 
     pub fn terminate(&mut self) {
         match &mut self.threads {
             Threads::Single(_) => (),
-            Threads::Multi(Multi { tx, handle }) => {
-                handle.thread().unpark();
+            Threads::Multi(Multi { tx, .. }) => {
                 if let Err(err) = tx.try_send(NesEvent::Ui(UiEvent::Terminate)) {
                     error!("failed to send termination event. {err:?}");
                 }
@@ -261,9 +277,20 @@ pub struct State {
     frame_tx: BufSender<Frame, FrameRecycle>,
     frame_latency: usize,
     target_frame_duration: Duration,
-    last_clock_time: Instant,
-    clock_time_accumulator: f32,
+    /// When the next frame is due.
+    ///
+    /// An absolute deadline rather than an accumulated remainder: oversleeping one frame is then
+    /// corrected on the next rather than accumulating, and nothing has to spin out the last
+    /// fraction of a millisecond to stay in step.
+    next_frame_time: Instant,
     last_frame_time: Instant,
+    /// When the renderer was last asked to draw, so the retry for an unclaimed frame can be
+    /// throttled to once a frame.
+    last_redraw_request: Instant,
+    /// Running estimate of how far the nominal output rate is from what the sound card consumes.
+    ///
+    /// See [`State::update_audio_rate`].
+    audio_rate_bias: f32,
     frame_time_diag: FrameTimeDiag,
     run_state: RunState,
     threaded: bool,
@@ -288,6 +315,23 @@ impl Drop for State {
 }
 
 impl State {
+    /// How many frames of a stall may be repaid before the debt is written off.
+    const MAX_CATCHUP_FRAMES: u32 = 3;
+    /// Largest fraction the audio output rate may be bent by, `d` in Arntzen (2012).
+    ///
+    /// The paper finds 0.002..=0.005 satisfactory and this is the top of that range: pacing on
+    /// the wall clock is a less precise estimate of the true frame rate than a vsync-driven one,
+    /// so it needs the headroom.
+    const AUDIO_MAX_DEVIATION: f32 = 0.005;
+    /// How fast the base-rate estimate tracks a persistent error, and how far it may go.
+    ///
+    /// Slow on purpose. The proportional term settles over a few hundred frames, so this has to
+    /// be slower still or the two fight; more importantly, it must not mistake a *transient* for
+    /// a rate error. At this gain a 60-frame dropout moves the estimate by well under a tenth of
+    /// its range and it decays back, while a genuine mismatch is tracked out in ~20 seconds.
+    const AUDIO_BIAS_GAIN: f32 = 3e-5;
+    const AUDIO_MAX_BIAS: f32 = 0.005;
+
     fn new(tx: NesEventProxy, frame_tx: BufSender<Frame, FrameRecycle>, cfg: &Config) -> Self {
         let mut control_deck = ControlDeck::with_config(cfg.deck.clone());
         let audio = Audio::new(
@@ -319,9 +363,10 @@ impl State {
             frame_tx,
             frame_latency: 1,
             target_frame_duration,
-            last_clock_time: Instant::now(),
-            clock_time_accumulator: 0.0,
+            next_frame_time: Instant::now(),
             last_frame_time: Instant::now(),
+            last_redraw_request: Instant::now(),
+            audio_rate_bias: 1.0,
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::AutoPaused,
             threaded: cfg.emulation.threaded
@@ -881,23 +926,76 @@ impl State {
             .with_context(|| format!("failed to save screenshot: {filename:?}"))
     }
 
+    /// Dynamic rate control: hold the audio buffer at half full by nudging the output rate.
+    ///
+    /// The emulator clocks frames on the wall clock and the sound card consumes on its own, and
+    /// the two never agree exactly - a 60.0988 Hz console, a 60 Hz-ish display and a 48 kHz-ish
+    /// card all have their own tolerances. Left alone the audio buffer drifts to one end and
+    /// either underruns or forces the emulator to wait, and waiting only trades the audio glitch
+    /// for a video one.
+    ///
+    /// Instead, ask the APU for slightly more or fewer samples per frame:
+    ///
+    /// ```text
+    /// ratio = 1 + d * (1 - 2 * level)
+    /// ```
+    ///
+    /// where `level` is how full the buffer is, 0.0 to 1.0. Below half full the ratio rises and
+    /// the buffer fills; above half it falls and the buffer drains, so the buffer converges on
+    /// half full - the point with the most room either side for jitter. The buffer is sized at
+    /// twice the configured latency, so half full *is* the latency the user asked for.
+    ///
+    /// From Arntzen, "Dynamic Rate Control for Retro Game Emulators" (2012), which is what
+    /// RetroArch implements. The pitch shift this costs is bounded by `d` and in practice runs an
+    /// order of magnitude under it - the paper measures 0.062% deviation for `d = 0.005` - which
+    /// is comfortably below both the audible threshold and the tolerance of the card's own
+    /// oscillator.
+    fn update_audio_rate(&mut self) {
+        // `None` while paused or stopped, when nothing is being queued and the level means
+        // nothing. Leave the ratio where it is rather than winding it to an extreme.
+        let Some(level) = self.audio.buffer_level() else {
+            return;
+        };
+
+        // Track out whatever the nominal rate is persistently wrong by - the paper's section 2.5,
+        // "updating ratio estimate". The proportional term alone can only hold a standing error by
+        // sitting away from its setpoint, and a buffer parked away from half full has less cushion
+        // than the user asked for on the side it has drifted toward.
+        //
+        // There is always a standing error to absorb: the frame rate paced on here is a rounded
+        // integer, 60 rather than the NTSC console's 60.0988, which is 0.2% before the display's
+        // real refresh and the card's real sample rate are counted.
+        self.audio_rate_bias = (self.audio_rate_bias + Self::AUDIO_BIAS_GAIN * (0.5 - level))
+            .clamp(1.0 - Self::AUDIO_MAX_BIAS, 1.0 + Self::AUDIO_MAX_BIAS);
+
+        let ratio = self.audio_rate_bias * Self::audio_rate_ratio(level);
+        trace!(
+            "audio buffer {level:.3} full, bias {:.5}, rate ratio {ratio:.5}",
+            self.audio_rate_bias
+        );
+        self.control_deck.set_audio_sample_ratio(ratio);
+    }
+
+    /// The output-rate multiplier that steers a buffer at `level` back toward half full.
+    ///
+    /// Split out from [`State::update_audio_rate`] so the control law can be tested without an
+    /// audio device.
+    fn audio_rate_ratio(level: f32) -> f32 {
+        1.0 + Self::AUDIO_MAX_DEVIATION * (1.0 - 2.0 * level)
+    }
+
     fn park_duration(&self) -> Option<Duration> {
         let park_epsilon = Duration::from_millis(1);
         // Park if we're paused, occluded, or not running
         let duration = if self.run_state.paused() || !self.control_deck.is_running() {
             Some(self.target_frame_duration - park_epsilon)
-        } else if self.rewinding || !self.audio.enabled() {
-            (self.clock_time_accumulator < self.target_frame_duration.as_secs_f32()).then(|| {
-                Duration::from_secs_f32(
-                    self.target_frame_duration.as_secs_f32() - self.clock_time_accumulator,
-                )
-                .saturating_sub(park_epsilon)
-            })
         } else {
-            (self.audio.queued_time() > self.audio.latency)
-                // Even though we just did a comparison, audio is still being consumed so this
-                // could underflow
-                .then(|| self.audio.queued_time().saturating_sub(self.audio.latency))
+            // A steady wall clock, whatever audio is doing. `update_audio_rate` holds the audio
+            // queue at its target by bending pitch imperceptibly; gating frame timing on that
+            // queue instead lets the sound card's buffer quantum decide when frames appear, and
+            // leaves an empty queue meaning no rate limit at all.
+            let now = Instant::now();
+            (now < self.next_frame_time).then(|| self.next_frame_time - now)
         };
         duration.map(|duration| {
             // Parking thread is only required for Multi-threaded emulation to save CPU cycles.
@@ -930,25 +1028,25 @@ impl State {
         }
     }
 
-    fn try_clock_frame(&mut self) {
-        let last_clock_duration = self.last_clock_time.elapsed();
-        self.last_clock_time = Instant::now();
-        self.clock_time_accumulator += last_clock_duration.as_secs_f32();
-        if self.clock_time_accumulator > 0.02 {
-            self.clock_time_accumulator = 0.02;
+    /// Clock a display frame if one is due, or report how long until the next one is.
+    ///
+    /// `Some(duration)` means nothing was clocked and there is that long to wait; the caller
+    /// decides how, since only it knows what else it might be woken for.
+    fn try_clock_frame(&mut self) -> Option<Duration> {
+        // If any frames are still pending, ask the renderer again - but at most once a frame.
+        //
+        // This is a retry, not the request: the request itself goes out when a frame is produced,
+        // at the bottom of this function. Each retry is a cross-thread event-loop wakeup and this
+        // loop can iterate far faster than a frame, so unthrottled the two threads wake each other
+        // in a loop and neither gets on with its work.
+        if !self.frame_tx.is_empty()
+            && self.last_redraw_request.elapsed() >= self.target_frame_duration
+        {
+            self.request_redraw();
         }
 
-        // If any frames are still pending, request a redraw
-        if !self.frame_tx.is_empty() {
-            self.tx.event(RendererEvent::RequestRedraw {
-                viewport_id: ViewportId::ROOT,
-                when: Instant::now(),
-            });
-        }
-
-        if let Some(park_timeout) = self.park_duration() {
-            thread::park_timeout(park_timeout);
-            return;
+        if let Some(wait) = self.park_duration() {
+            return Some(wait);
         }
 
         if self.rewinding {
@@ -959,7 +1057,7 @@ impl State {
                     if let Err(err) = self.control_deck.load_bus(bus) {
                         error!("failed to rewind: {err:?}");
                         self.set_rewinding(false);
-                        return;
+                        return None;
                     }
                     // A snapshot carries no pixels, so render them: clocking the restored state
                     // produces the frame after the one it was taken on, which is a uniform
@@ -969,7 +1067,7 @@ impl State {
                     if let Err(err) = self.control_deck.clock_frame() {
                         error!("failed to render a rewound frame: {err:?}");
                         self.set_rewinding(false);
-                        return;
+                        return None;
                     }
                     // One frame, not a display frame's worth: a rewind steps back one snapshot per
                     // display frame however fast the game was running when it was recorded.
@@ -986,6 +1084,7 @@ impl State {
             match self.clock_display_frame() {
                 Ok(()) => {
                     self.audio.process(self.control_deck.audio_samples());
+                    self.update_audio_rate();
                     match self.frame_tx.try_send_ref() {
                         Ok(mut frame) => self.control_deck.frame_buffer_into(frame.as_array_mut()),
                         Err(TrySendError::Full(_)) => debug!("dropped frame"),
@@ -1001,11 +1100,162 @@ impl State {
             }
         }
 
-        self.clock_time_accumulator -= self.target_frame_duration.as_secs_f32();
+        self.advance_deadline();
         // Request to draw this frame
+        self.request_redraw();
+        None
+    }
+
+    /// Move the frame deadline on by one, resynchronising if it is already far in the past.
+    ///
+    /// Frames owed after a stall are worth repaying up to a point: they are audio the buffer is
+    /// short of, and rate control can only refill it by half a percent a frame. Past that point
+    /// repaying becomes a sprint through everything missed, so the debt is written off and the
+    /// clock restarts from now.
+    fn advance_deadline(&mut self) {
+        self.next_frame_time += self.target_frame_duration;
+        let now = Instant::now();
+        if now.saturating_duration_since(self.next_frame_time)
+            > Self::MAX_CATCHUP_FRAMES * self.target_frame_duration
+        {
+            self.next_frame_time = now + self.target_frame_duration;
+        }
+    }
+
+    fn request_redraw(&mut self) {
+        self.last_redraw_request = Instant::now();
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Simulate the closed loop: each frame the emulator pushes `produced * ratio` samples and the
+    /// sound card takes `consumed`, both as a fraction of buffer capacity.
+    ///
+    /// Returns the buffer level over time, starting from `start`.
+    fn simulate(start: f32, produced: f32, consumed: f32, frames: usize) -> Vec<f32> {
+        let mut level = start;
+        let mut bias = 1.0f32;
+        let mut levels = Vec::with_capacity(frames);
+        for _ in 0..frames {
+            level += produced * bias * State::audio_rate_ratio(level) - consumed;
+            level = level.clamp(0.0, 1.0);
+            bias = (bias + State::AUDIO_BIAS_GAIN * (0.5 - level))
+                .clamp(1.0 - State::AUDIO_MAX_BIAS, 1.0 + State::AUDIO_MAX_BIAS);
+            levels.push(level);
+        }
+        levels
+    }
+
+    /// The control law's setpoint is a half-full buffer, which is where the configured latency
+    /// sits and where there is the most room either side for jitter.
+    #[test]
+    fn the_audio_rate_ratio_steers_toward_a_half_full_buffer() {
+        assert_eq!(
+            State::audio_rate_ratio(0.5),
+            1.0,
+            "a half-full buffer needs no correction"
+        );
+        assert!(
+            State::audio_rate_ratio(0.0) > 1.0,
+            "an empty buffer must ask for more samples"
+        );
+        assert!(
+            State::audio_rate_ratio(1.0) < 1.0,
+            "a full buffer must ask for fewer"
+        );
+
+        // Monotonic, so there is exactly one setpoint and no oscillation between two.
+        let mut previous = f32::INFINITY;
+        for step in 0..=100 {
+            let ratio = State::audio_rate_ratio(step as f32 / 100.0);
+            assert!(ratio < previous, "must fall with level, at {step}");
+            previous = ratio;
+        }
+    }
+
+    /// The pitch shift is what this method costs, and the whole argument for it is that the cost
+    /// is inaudible. Bound it explicitly rather than trusting the constant not to be edited.
+    #[test]
+    fn the_audio_rate_ratio_never_bends_pitch_audibly() {
+        for step in 0..=100 {
+            let deviation = (State::audio_rate_ratio(step as f32 / 100.0) - 1.0).abs();
+            assert!(
+                deviation <= State::AUDIO_MAX_DEVIATION,
+                "level {step} bends pitch by {deviation}"
+            );
+        }
+        // A semitone is ~5.9%, and the smallest interval anyone reliably hears is far above 0.5%.
+        assert!(State::AUDIO_MAX_DEVIATION <= 0.005);
+    }
+
+    /// A buffer starting far from the setpoint has to come back to it and stay, or the method
+    /// buys nothing: the point is that the buffer neither underruns nor fills.
+    #[test]
+    fn a_drained_or_flooded_buffer_converges() {
+        // One frame of a 60 Hz console against a 100 ms buffer is ~1/6th of capacity.
+        let rate = 1.0 / 6.0;
+        for start in [0.0, 0.1, 0.5, 0.9, 1.0] {
+            let levels = simulate(start, rate, rate, 20_000);
+            let settled = levels[levels.len() - 1];
+            assert!(
+                (settled - 0.5).abs() < 0.01,
+                "started at {start}, settled at {settled}"
+            );
+            // And without ever hitting an end on the way, which is what an underrun sounds like.
+            let lowest = levels.iter().copied().fold(f32::INFINITY, f32::min);
+            assert!(lowest > 0.0, "started at {start}, drained to {lowest}");
+        }
+    }
+
+    /// A nominal rate that is persistently wrong - a rounded frame rate, a sound card that is not
+    /// quite at its stated rate - is what the base-rate estimate exists for. The buffer has to end
+    /// up back at half full, not merely somewhere safe: sitting off-centre is sitting with less
+    /// cushion than the user asked for, and that is what a hitch then falls through.
+    #[test]
+    fn a_persistent_rate_error_is_tracked_out_rather_than_absorbed_by_the_buffer() {
+        let rate = 1.0 / 6.0;
+        // Spanning the real one measured on this machine (~0.27%, from pacing a 60.0988 Hz
+        // console at a rounded 60 fps) in both directions.
+        for drift in [1.004, 1.002, 1.0, 0.998, 0.996] {
+            for start in [0.0, 0.5, 1.0] {
+                let levels = simulate(start, rate, rate * drift, 40_000);
+                let settled = levels[levels.len() - 1];
+                assert!(
+                    (settled - 0.5).abs() < 0.02,
+                    "drift {drift} from {start} settled at {settled}"
+                );
+                let highest = levels.iter().copied().fold(0.0f32, f32::max);
+                assert!(
+                    highest < 1.0,
+                    "drift {drift} from {start} filled the buffer"
+                );
+            }
+        }
+    }
+
+    /// The estimate must not mistake a dropout for a rate error. A hitch is transient and the
+    /// buffer refills on its own; winding the base rate out to its limit every time one happened
+    /// would leave the pitch bent long after the cause had gone.
+    #[test]
+    fn a_transient_dropout_barely_moves_the_base_rate_estimate() {
+        // Sixty frames - a full second - of the buffer sitting far below its setpoint.
+        let mut bias = 1.0f32;
+        for _ in 0..60 {
+            bias = (bias + State::AUDIO_BIAS_GAIN * (0.5 - 0.05))
+                .clamp(1.0 - State::AUDIO_MAX_BIAS, 1.0 + State::AUDIO_MAX_BIAS);
+        }
+        let moved = (bias - 1.0).abs();
+        assert!(
+            moved < State::AUDIO_MAX_BIAS / 4.0,
+            "a one-second dropout moved the estimate by {moved}, most of its {} range",
+            State::AUDIO_MAX_BIAS
+        );
     }
 }
