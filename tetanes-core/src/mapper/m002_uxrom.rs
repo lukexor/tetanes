@@ -44,6 +44,10 @@ impl Map for Uxrom {
         self.mirroring
     }
 
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        out.push(("PRG $8000", u32::from(self.prg_bank)));
+    }
+
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         if addr >= 0x8000 {
             self.prg_bank = val;

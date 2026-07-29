@@ -138,6 +138,19 @@ impl Txrom {
 }
 
 impl Map for Txrom {
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        out.push(("Bank select", u32::from(self.mmc3.bank_select)));
+        for (slot, bank) in self.mmc3.bank_values.iter().enumerate() {
+            out.push((
+                ["R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7"][slot],
+                u32::from(*bank),
+            ));
+        }
+        out.push(("IRQ latch", u32::from(self.mmc3.irq_latch)));
+        out.push(("IRQ counter", u32::from(self.mmc3.irq_counter)));
+        out.push(("IRQ enabled", u32::from(self.mmc3.irq_enabled)));
+        out.push(("IRQ pending", u32::from(self.mmc3.irq_pending)));
+    }
     fn mapper_ops(&self) -> MapperOps {
         MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::WATCHES_PPU_BUS
     }

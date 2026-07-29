@@ -96,6 +96,23 @@ impl JalecoSs88006 {
 }
 
 impl Map for JalecoSs88006 {
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        for (slot, bank) in self.prg_banks.iter().enumerate() {
+            out.push((["PRG $8000", "PRG $A000", "PRG $C000"][slot], u32::from(*bank)));
+        }
+        for (slot, bank) in self.chr_banks.iter().enumerate() {
+            out.push((
+                ["CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7"][slot],
+                u32::from(*bank),
+            ));
+        }
+        out.push(("IRQ counter", u32::from(self.irq_counter)));
+        out.push(("IRQ enabled", u32::from(self.regs.irq_enabled)));
+        out.push(("IRQ pending", u32::from(self.regs.irq_pending)));
+        out.push(("IRQ width", u32::from(self.regs.irq_counter_size)));
+        out.push(("PRG-RAM readable", u32::from(self.prg_ram_readable)));
+        out.push(("PRG-RAM writable", u32::from(self.prg_ram_writable)));
+    }
     fn mapper_ops(&self) -> MapperOps {
         MapperOps::CLOCKED | MapperOps::IRQ
     }

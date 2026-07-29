@@ -49,6 +49,11 @@ impl Map for ColorDreams {
         self.mirroring
     }
 
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        out.push(("PRG $8000 (32K)", u32::from(self.prg_bank)));
+        out.push(("CHR (8K)", u32::from(self.chr_bank)));
+    }
+
     fn write_register(&mut self, memory: &mut Memory, addr: u16, mut val: u8) {
         if addr >= 0x8000 {
             if self.mapper_num == 144 {

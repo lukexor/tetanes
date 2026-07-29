@@ -438,6 +438,11 @@ macro_rules! impl_dispatch {
                 dispatch!(self, [$($variant),+], m => m.mirroring())
             }
 
+            /// Append this board's register state to `out`, for a debugger to display.
+            pub fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+                dispatch!(self, [$($variant),+], m => m.registers(out))
+            }
+
             /// Handle a CPU-space write, re-banking as needed.
             #[inline(always)]
             pub fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
@@ -667,6 +672,18 @@ pub trait Map {
     /// entries, applied through [`Memory::set_mirroring`] from a board's `update_banks`.
     // All mappers have mirroring, even if it's hard-wired.
     fn mirroring(&self) -> Mirroring;
+
+    /// Append this board's register state to `out`, for a debugger to display.
+    ///
+    /// Names and values, so a mapper pane needs no per-board code: whatever a board reports is
+    /// what gets shown. Writing into a caller-owned buffer rather than returning one keeps a view
+    /// that refreshes every frame from allocating, and lets a board report values it computes
+    /// rather than only ones it stores.
+    ///
+    /// What is worth reporting is what a person debugging a game would ask for - the bank
+    /// registers, the IRQ state, whatever latch the board keeps - not every field. The default
+    /// reports nothing, which is right for a board that has no registers.
+    fn registers(&self, _out: &mut Vec<(&'static str, u32)>) {}
 
     /// Handle a CPU-space write, re-banking as needed.
     ///
@@ -949,6 +966,39 @@ mod tests {
                 id, NONE_ID,
                 "{board} collides with Mapper::none()'s reserved id"
             );
+        }
+    }
+
+    /// A debugger's mapper pane shows whatever a board reports, so the names have to be usable and
+    /// the buffer has to be appended to rather than replaced - a caller collecting several boards,
+    /// or reusing one buffer across frames, gets nonsense otherwise.
+    #[test]
+    fn reported_registers_are_named_and_appended() {
+        let mut out = vec![("sentinel", 0)];
+        for &(board, id) in BOARD_IDS {
+            // The stable id is the board's primary mapper number, except for the handful above
+            // every real one that exist only to disambiguate a shared number.
+            let Ok(num) = u16::try_from(id) else { continue };
+            let mut cart = test_utils::page_indexed_cart(128 * 1024, 8 * 1024, 128 * 1024);
+            cart.header.mapper_num = num;
+            // A board that will not load from a generic cart - one guarding on a CHR size, say -
+            // is not what this test is about.
+            let Ok(mapper) = Mapper::from_cart(&mut cart) else {
+                continue;
+            };
+            let before = out.len();
+            mapper.registers(&mut out);
+            assert_eq!(out[0], ("sentinel", 0), "{board} replaced the buffer");
+            for &(name, _) in &out[before..] {
+                assert!(!name.is_empty(), "{board} reported an unnamed register");
+            }
+            let names = &out[before..];
+            for (i, &(name, _)) in names.iter().enumerate() {
+                assert!(
+                    !names[..i].iter().any(|&(other, _)| other == name),
+                    "{board} reported {name:?} twice, so a pane cannot tell them apart"
+                );
+            }
         }
     }
 

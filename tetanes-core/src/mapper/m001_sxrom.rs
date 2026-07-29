@@ -49,6 +49,19 @@ impl Sxrom {
 }
 
 impl Map for Sxrom {
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        out.push(("PRG", u32::from(self.mmc1.prg)));
+        out.push(("CHR 0", u32::from(self.mmc1.chr0)));
+        out.push(("CHR 1", u32::from(self.mmc1.chr1)));
+        out.push(("PRG mode 16K", u32::from(self.mmc1.prg_mode)));
+        out.push(("PRG bank select", u32::from(self.mmc1.prg_bank_select)));
+        out.push(("CHR mode 4K", u32::from(self.mmc1.chr_mode)));
+        out.push(("PRG-RAM disabled", u32::from(self.mmc1.prg_ram_disabled)));
+        // The 5-bit serial register a game is part-way through filling, which is what to look at
+        // when a bank write appears not to have taken effect.
+        out.push(("Shift register", u32::from(self.mmc1.write_buffer)));
+        out.push(("Shift count", u32::from(self.mmc1.shift_count)));
+    }
     fn mapper_ops(&self) -> MapperOps {
         // The busy-cycle counter that ignores rapid consecutive writes needs a per-cycle clock;
         // MMC1 has no IRQ.

@@ -197,6 +197,23 @@ impl Vrc6 {
 }
 
 impl Map for Vrc6 {
+    fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
+        out.push(("Banking mode", u32::from(self.regs.banking_mode)));
+        for (slot, bank) in self.prg_banks.iter().enumerate() {
+            out.push((["PRG $8000 (16K)", "PRG $C000"][slot], *bank as u32));
+        }
+        for (slot, bank) in self.regs.chr.iter().enumerate() {
+            out.push((
+                ["CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7"][slot],
+                *bank as u32,
+            ));
+        }
+        out.push(("IRQ reload", u32::from(self.irq.reload)));
+        out.push(("IRQ counter", u32::from(self.irq.counter)));
+        out.push(("IRQ enabled", u32::from(self.irq.enabled)));
+        out.push(("IRQ pending", u32::from(self.irq.irq_pending)));
+        out.push(("IRQ cycle mode", u32::from(self.irq.cycle_mode)));
+    }
     fn mapper_ops(&self) -> MapperOps {
         MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::AUDIO
     }
