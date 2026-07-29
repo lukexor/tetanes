@@ -357,7 +357,12 @@ impl PpuViewer {
                     chunk[2] = 0;
                     chunk[3] = 255;
                 });
-                ppu.load_oam(chr.as_slice(), &mut oam_pixels, &mut sprite_pixels, &mut sprites);
+                ppu.load_oam(
+                    chr.as_slice(),
+                    &mut oam_pixels,
+                    &mut sprite_pixels,
+                    &mut sprites,
+                );
 
                 state.oam.oam_pixels = oam_pixels;
                 state.oam.sprite_pixels = sprite_pixels;
@@ -1079,15 +1084,25 @@ impl State {
             });
         });
 
+        let oam_texture_size = self.oam.oam_texture.size;
+        let sprites_texture_size = self.oam.sprites_texture.size;
+        // The two textures have different dimensions - OAM is a square 8x8 grid of tiles while
+        // sprites is a whole 256x240 screen - so zoom sets a shared display height and each keeps
+        // its own aspect ratio. Scaling both to a common box instead would either squash the
+        // screen or, since `fit_to_exact_size` maintains aspect ratio, silently shrink it to
+        // whichever axis fit.
+        let display_height = 2.0 * self.oam.zoom * oam_texture_size.y;
+        let oam_size = oam_texture_size * (display_height / oam_texture_size.y);
+        let sprites_size = sprites_texture_size * (display_height / sprites_texture_size.y);
         CentralPanel::default().show_inside(ui, |ui| {
             let scroll = ScrollArea::both()
-                .min_scrolled_width(self.oam.oam_texture.size.x)
-                .min_scrolled_height(self.oam.oam_texture.size.y);
+                .min_scrolled_width(oam_texture_size.x + sprites_texture_size.x)
+                .min_scrolled_height(oam_texture_size.y.max(sprites_texture_size.y));
             scroll.show(ui, |ui| {
                 ui.horizontal(|ui| {
                     // Draw OAM tiles
                     let image = Image::from_texture(self.oam.oam_texture.sized())
-                        .fit_to_exact_size(2.0 * self.oam.zoom * self.oam.oam_texture.size)
+                        .fit_to_exact_size(oam_size)
                         .sense(Sense::click());
 
                     let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
@@ -1103,9 +1118,9 @@ impl State {
                         paint_grid(ui, oam_image_rect, 8.0, 8.0, Color32::LIGHT_BLUE);
                     }
 
+                    // Draw sprites as laid out on screen, at the same height as the OAM tiles
                     let image = Image::from_texture(self.oam.sprites_texture.sized())
-                        // match OAM size
-                        .shrink_to_fit()
+                        .fit_to_exact_size(sprites_size)
                         .sense(Sense::click());
 
                     let res = ui.add(image).on_hover_cursor(CursorIcon::Cell);
