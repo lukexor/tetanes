@@ -330,8 +330,8 @@ impl Bus {
     /// Load a console state, leaving `self` untouched if it does not belong to this cart.
     ///
     /// Every restore path - save states, rewind, run-ahead - goes through here, and it is what
-    /// puts back the two things a state omits: the cart's ROM, copied in from the running console,
-    /// and the attached debugger, which belongs to the session rather than the emulated state.
+    /// puts back what a state must not carry: the cart's ROM, copied in from the running console,
+    /// the attached debugger, and the player's settings (see [`Bus::keep_session_settings`]).
     ///
     /// # Errors
     ///
@@ -342,8 +342,75 @@ impl Bus {
         }
         state.debugger = std::mem::take(&mut self.debugger);
         state.debugger_active = self.debugger_active;
+        state.keep_session_settings(self);
         *self = state;
         Ok(())
+    }
+
+    /// Move the settings the *player* owns out of the running console and into a state about to
+    /// replace it.
+    ///
+    /// A save state or a rewind snapshot is the emulated machine, but `Bus` also holds a handful
+    /// of knobs that belong to the session rather than to the NES: emulation speed, the audio
+    /// device's sample rate, muted channels, cheats, the headless flags. Restoring those along
+    /// with the machine rewinds the player's settings too.
+    ///
+    /// That was not cosmetic. Emulation speed is split across two fields - `ControlDeck` counts
+    /// how many NES frames to clock, while [`Apu::speed`] stretches the sample period - and only
+    /// the second is inside `Bus`. Rewinding past a stretch of fast-forward therefore left the APU
+    /// at 2x while the deck clocked at 1x, so half the expected samples were produced per frame,
+    /// the audio queue never filled, and a frontend pacing itself against that queue never waited.
+    /// Fast-forward appeared to switch itself back on and stick.
+    ///
+    /// Deliberately *not* included is [`NesRegion`](crate::common::NesRegion): unlike these, it
+    /// changes what the machine is, and every counter in the state was produced under the region
+    /// the state carries. A state is restored with the region it was recorded at, and
+    /// [`ControlDeck::set_region`](crate::control_deck::ControlDeck::set_region) is what changes
+    /// it afterwards.
+    ///
+    /// Note that `#[serde(skip)]` does *not* protect a setting from this. The restore is
+    /// `*self = state`, so a skipped field arrives as `Default` rather than keeping the value the
+    /// running console had - which is how `ram_state` below silently reverted on every load.
+    fn keep_session_settings(&mut self, session: &mut Self) {
+        // Emulation speed and the output sample rate, plus the sample period derived from them.
+        self.apu.speed = session.apu.speed;
+        self.apu.sample_rate = session.apu.sample_rate;
+        self.apu.sample_period = session.apu.sample_period;
+        // Swapped rather than rebuilt: the chain's contents are signal history, so carrying the
+        // running one over keeps audio continuous across a restore instead of restarting the
+        // filters mid-waveform. It is configured for the session's rate, which is what the three
+        // fields above just restored. (If the region changed since the state was recorded, the
+        // chain is one region behind until `Apu::set_region` next rebuilds it - the same tradeoff
+        // the region note above describes.)
+        std::mem::swap(&mut self.apu.filter_chain, &mut session.apu.filter_chain);
+
+        // Channels the player muted, which live beside the hardware's own enable bits.
+        self.apu.pulse1.set_silent(session.apu.pulse1.silent());
+        self.apu.pulse2.set_silent(session.apu.pulse2.silent());
+        self.apu.triangle.set_silent(session.apu.triangle.silent());
+        self.apu.noise.set_silent(session.apu.noise.silent());
+        self.apu.dmc.set_silent(session.apu.dmc.silent());
+        self.apu.mapper_enabled = session.apu.mapper_enabled;
+
+        // Headless flags, and PPU warmup emulation.
+        self.apu.skip_mixing = session.apu.skip_mixing;
+        self.ppu.skip_rendering = session.ppu.skip_rendering;
+        self.ppu.emulate_warmup = session.ppu.emulate_warmup;
+
+        // Cheats: a code entered after the state was recorded stays entered.
+        std::mem::swap(&mut self.genie_codes, &mut session.genie_codes);
+
+        // How RAM is filled at power-on, which only shows on the next hard reset.
+        self.ram_state = session.ram_state;
+
+        // What is plugged in, and how it behaves - not what is currently pressed, which is
+        // emulated state the game reads.
+        self.input.set_four_player(session.input.four_player);
+        self.input
+            .set_concurrent_dpad(session.input.joypads[0].concurrent_dpad);
+        self.input.zapper.connected = session.input.zapper.connected;
+        self.input.zapper.trigger_release_delay = session.input.zapper.trigger_release_delay;
+        self.input.zapper.radius = session.input.zapper.radius;
     }
 
     /// Clock rate based on currently configured NES region.

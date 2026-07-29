@@ -1492,6 +1492,89 @@ mod tests {
         std::fs::remove_file(&path).expect("cleans up");
     }
 
+    /// Restoring a state must not restore the *player's* settings with it.
+    ///
+    /// The one that bites is emulation speed, because it is split in two: `frame_speed_step` here
+    /// decides how many NES frames a `clock_frame` runs, while `Apu::speed` stretches the sample
+    /// period, and only the second is inside `Bus`. Loading a state recorded during fast-forward
+    /// used to leave the APU at 2x under a deck clocking at 1x, which halves the samples produced
+    /// per frame - and a frontend that paces itself by waiting on a full audio queue then never
+    /// waits at all. Rewinding past a fast-forward switched fast-forward back on, and it stuck.
+    #[test]
+    fn a_restored_state_keeps_the_current_settings() {
+        let path = std::env::temp_dir().join("tetanes-restored-state-keeps-settings.sav");
+        let _ = std::fs::remove_file(&path);
+
+        // Record a state with settings a player might have had at the time.
+        let mut deck = spritecans();
+        deck.set_frame_speed(2.0);
+        deck.set_sample_rate(44_100.0);
+        deck.set_apu_channel_enabled(Channel::Triangle, false);
+        deck.add_genie_code("AAAAAA".to_string())
+            .expect("valid code");
+        run(&mut deck, 10);
+        deck.save_state(&path).expect("saves");
+
+        // Now they are somewhere else entirely.
+        let mut restored = spritecans();
+        restored.set_frame_speed(1.0);
+        restored.set_sample_rate(48_000.0);
+        restored.set_apu_channel_enabled(Channel::Triangle, true);
+        restored.set_apu_channel_enabled(Channel::Noise, false);
+        restored.set_emulate_ppu_warmup(true);
+        // Anything but `RamState::default()`, or the assertion below passes either way.
+        restored.set_ram_state(RamState::AllOnes);
+        restored
+            .add_genie_code("ZEXPYGLA".to_string())
+            .expect("valid code");
+        let session_codes = restored
+            .bus()
+            .genie_codes
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        run(&mut restored, 5);
+        restored.load_state(&path).expect("loads");
+
+        assert_eq!(restored.apu().speed, 1.0, "speed is the session's");
+        assert_eq!(restored.apu().sample_rate, 48_000.0, "so is sample rate");
+        assert_eq!(
+            restored.apu().sample_period,
+            restored.bus().clock_rate() / 48_000.0,
+            "and the period derived from both, or the apu produces samples at the wrong rate"
+        );
+        assert!(
+            restored.apu_channel_enabled(Channel::Triangle),
+            "a channel the player unmuted stays unmuted"
+        );
+        assert!(
+            !restored.apu_channel_enabled(Channel::Noise),
+            "and one they muted stays muted"
+        );
+        assert!(
+            restored.bus().ppu.emulate_warmup,
+            "warmup emulation is a setting, not machine state"
+        );
+        assert_eq!(
+            restored.bus().ram_state,
+            RamState::AllOnes,
+            "`#[serde(skip)]` is not enough on its own: the restore is `*self = state`, so a \
+             skipped field arrives as `Default` rather than keeping the running value"
+        );
+        assert_eq!(
+            restored
+                .bus()
+                .genie_codes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            session_codes,
+            "the session's cheats survive, and the recorded state's do not come back with it"
+        );
+
+        std::fs::remove_file(&path).expect("cleans up");
+    }
+
     /// Run-ahead clocks the current frame, snapshots, runs ahead to produce the *displayed* frame,
     /// then rewinds to the snapshot - so afterwards the console must sit exactly where a single
     /// `clock_frame` would have left it, and carry on identically.
