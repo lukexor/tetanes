@@ -6,7 +6,7 @@ use ringbuf::{
     producer::Producer,
     traits::{Consumer, Observer, Split},
 };
-use std::{fs::File, io::BufWriter, iter, path::PathBuf, sync::Arc};
+use std::{fs::File, io::BufWriter, path::PathBuf, sync::Arc};
 use tetanes_core::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
@@ -452,16 +452,16 @@ impl Mixer {
         let (producer, consumer) = buffer.split();
 
         let stream = match sample_format {
-            SampleFormat::I8 => Self::make_stream::<i8>(device, config, consumer),
-            SampleFormat::I16 => Self::make_stream::<i16>(device, config, consumer),
-            SampleFormat::I32 => Self::make_stream::<i32>(device, config, consumer),
-            SampleFormat::I64 => Self::make_stream::<i64>(device, config, consumer),
-            SampleFormat::U8 => Self::make_stream::<u8>(device, config, consumer),
-            SampleFormat::U16 => Self::make_stream::<u16>(device, config, consumer),
-            SampleFormat::U32 => Self::make_stream::<u32>(device, config, consumer),
-            SampleFormat::U64 => Self::make_stream::<u64>(device, config, consumer),
-            SampleFormat::F32 => Self::make_stream::<f32>(device, config, consumer),
-            SampleFormat::F64 => Self::make_stream::<f64>(device, config, consumer),
+            SampleFormat::I8 => Self::make_stream::<i8>(device, config, consumer, sample_latency),
+            SampleFormat::I16 => Self::make_stream::<i16>(device, config, consumer, sample_latency),
+            SampleFormat::I32 => Self::make_stream::<i32>(device, config, consumer, sample_latency),
+            SampleFormat::I64 => Self::make_stream::<i64>(device, config, consumer, sample_latency),
+            SampleFormat::U8 => Self::make_stream::<u8>(device, config, consumer, sample_latency),
+            SampleFormat::U16 => Self::make_stream::<u16>(device, config, consumer, sample_latency),
+            SampleFormat::U32 => Self::make_stream::<u32>(device, config, consumer, sample_latency),
+            SampleFormat::U64 => Self::make_stream::<u64>(device, config, consumer, sample_latency),
+            SampleFormat::F32 => Self::make_stream::<f32>(device, config, consumer, sample_latency),
+            SampleFormat::F64 => Self::make_stream::<f64>(device, config, consumer, sample_latency),
             sample_format => Err(anyhow!("Unsupported sample format {sample_format}")),
         }?;
         stream.play()?;
@@ -540,22 +540,63 @@ impl Mixer {
         }
     }
 
+    /// How much of an underrun's held sample is left after each one that follows it.
+    ///
+    /// About 5 ms to silence at any rate this runs at, which is the usual de-click ramp.
+    const UNDERRUN_DECAY: f32 = 0.99;
+
     fn make_stream<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut consumer: SampleConsumer,
+        sample_latency: usize,
     ) -> anyhow::Result<cpal::Stream>
     where
         T: cpal::SizedSample + cpal::FromSample<f32>,
     {
+        // The device starts pulling as soon as the stream plays, which is before the emulation
+        // thread has produced a single sample, so hold it at silence until the ring first holds a
+        // full latency's worth. Without this the first seconds of a run are a garbled stutter:
+        // each callback finds a nearly-empty ring, hands the device a few real samples and then
+        // pads the rest, and it is the padding - once per callback - that is heard.
+        let mut primed = false;
+        // What the ring last produced, for when it comes up short after that.
+        let mut held = 0.0;
+
         Ok(device.build_output_stream(
             config,
             move |out: &mut [T], _info| {
-                for (sample, value) in out
-                    .iter_mut()
-                    .zip(consumer.pop_iter().chain(iter::repeat(0.0)))
-                {
-                    *sample = T::from_sample(value);
+                if !primed {
+                    if consumer.occupied_len() < sample_latency {
+                        out.fill(T::from_sample(0.0));
+                        return;
+                    }
+                    primed = true;
+                }
+
+                let mut starved = true;
+                for sample in out.iter_mut() {
+                    // An underrun decays the last value to silence rather than stepping to it.
+                    // A step is a click; a 5 ms ramp is not, and it also means a pause - which
+                    // stops feeding the ring while deliberately leaving the stream playing, see
+                    // `Mixer::pause` - fades out instead of holding a DC level.
+                    held = match consumer.try_pop() {
+                        Some(value) => {
+                            starved = false;
+                            value
+                        }
+                        None => held * Self::UNDERRUN_DECAY,
+                    };
+                    *sample = T::from_sample(held);
+                }
+
+                // A callback that got nothing at all is a stall, not a marginal miss: paused,
+                // occluded, or between ROMs. Prime again so playback resumes from a full ring
+                // rather than clawing its way back out of an empty one, which is the startup
+                // problem over again. It costs nothing audible, since a starved callback has
+                // already faded to silence.
+                if starved {
+                    primed = false;
                 }
             },
             |err| error!("an error occurred on stream: {err}"),
