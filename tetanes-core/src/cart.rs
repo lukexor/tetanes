@@ -15,7 +15,7 @@ use std::{
     path::Path,
 };
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Default PRG-RAM provided when a header declares none. Family Basic used 2-4K; boards that want
 /// more declare it in [`min_prg_ram`].
@@ -294,7 +294,7 @@ impl Cart {
             }
         })?;
 
-        let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift)?;
+        let prg_ram_size = Self::calculate_ram_size(header.prg_ram_shift, 10)?;
 
         let chr_rom_size = (header.chr_rom_banks as usize) * CHR_ROM_BANK_SIZE;
         let mut chr_rom = vec![0u8; chr_rom_size];
@@ -318,7 +318,7 @@ impl Cart {
         let chr_ram_size = if chr_rom_size > 0 {
             0
         } else {
-            Self::calculate_ram_size(header.chr_ram_shift)?
+            Self::calculate_ram_size(header.chr_ram_shift, 11)?
         };
 
         // Deliberately does not overwrite `header.mapper_num`: the header records what the ROM
@@ -472,18 +472,39 @@ impl Cart {
         }
     }
 
-    fn calculate_ram_size(value: u8) -> Result<usize> {
-        if value > 0 {
+    /// Total RAM a NES 2.0 size byte asks for, volatile plus battery-backed.
+    ///
+    /// Bytes 10 and 11 are each **two** nibbles - the low one volatile RAM, the high one
+    /// battery-backed NVRAM - and each nibble is a shift, where the size is `64 << shift` and 0
+    /// means none. Reading the byte whole instead made a cart declaring 8 KiB of PRG-NVRAM ask for
+    /// `64 << 0x70`, which overflowed and was reported as a corrupt header, so **every NES 2.0
+    /// cart with a battery save was rejected outright**.
+    ///
+    /// The two are summed because `Memory` gives a board one region per kind rather than one per
+    /// volatility. No ROM in a 2722-cart library declares both halves - none is even NES 2.0 - so
+    /// this is the conservative reading rather than a tested one.
+    fn calculate_ram_size(byte: u8, header_byte: u8) -> Result<usize> {
+        let shift_size = |shift: u8| {
+            // `0xF` is reserved rather than a size, and is rejected while parsing the header.
             64usize
-                .checked_shl(value.into())
+                .checked_shl(shift.into())
                 .ok_or_else(|| Error::InvalidHeader {
-                    byte: 11,
-                    value,
-                    message: "header ram size larger than 64".to_string(),
+                    byte: header_byte,
+                    value: byte,
+                    message: format!("invalid ram size shift `{shift}` in header"),
                 })
-        } else {
-            Ok(0)
-        }
+        };
+
+        let volatile = match byte & 0x0F {
+            0 => 0,
+            shift => shift_size(shift)?,
+        };
+        let non_volatile = match byte >> 4 {
+            0 => 0,
+            shift => shift_size(shift)?,
+        };
+
+        Ok(volatile + non_volatile)
     }
 
     fn lookup_info(prg_rom: &[u8], chr: &[u8]) -> Option<GameInfo> {
@@ -706,12 +727,13 @@ impl NesHeader {
                     message: "invalid chr-ram size in header".to_string(),
                 });
             }
-            if chr_ram_shift & 0xF0 == 0xF0 {
-                return Err(Error::InvalidHeader {
-                    byte: 11,
-                    value: chr_ram_shift,
-                    message: "battery-backed chr-ram is currently not supported".to_string(),
-                });
+            if chr_ram_shift & 0xF0 != 0 {
+                // Unreachable before the nibble split above was fixed - the check tested for
+                // `0xF0`, which the reserved-value check just above already rejects. Only PRG-RAM
+                // reaches a `.sram` file, since `Map::save_sram` writes `Src::PrgRam`, so a
+                // battery on CHR-RAM is not persisted. Letting the cart run and saying so beats
+                // refusing to load it.
+                warn!("battery-backed chr-ram is not persisted between sessions");
             }
             NesVariant::Nes2
         } else if header[7] & 0x0C == 0x04 {
@@ -1088,4 +1110,59 @@ mod tests {
             },
         ),
     );
+
+    /// A minimal NES 2.0 ROM: `ram_byte` is header byte 10, the PRG-RAM/PRG-NVRAM pair.
+    fn nes2_rom(ram_byte: u8) -> Vec<u8> {
+        let mut rom = vec![
+            0x4E, 0x45, 0x53, 0x1A, // NES\x1a
+            0x01, // 1 x 16K PRG-ROM
+            0x01, // 1 x 8K CHR-ROM
+            0x02, // mapper 0, battery-backed
+            0x08, // NES 2.0
+            0x00, 0x00, ram_byte, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        rom.resize(rom.len() + PRG_ROM_BANK_SIZE + CHR_ROM_BANK_SIZE, 0);
+        rom
+    }
+
+    /// Header byte 10 is two nibbles - PRG-RAM low, battery-backed PRG-NVRAM high - and reading it
+    /// whole asked for `64 << 0x70` for a cart with an 8 KiB battery save, which overflowed and
+    /// was reported as a corrupt header. Every NES 2.0 cart with a save was rejected outright.
+    #[test]
+    fn nes2_prg_nvram_is_the_high_nibble_of_byte_10() {
+        let cases = [
+            (0x00, 0),           // neither
+            (0x07, 8 * 1024),    // 8K volatile PRG-RAM
+            (0x70, 8 * 1024),    // 8K battery-backed, the case that used to fail
+            (0x77, 16 * 1024),   // both, summed
+            (0x0E, 1024 * 1024), // the largest shift that is not the reserved value
+        ];
+
+        for (byte, expected) in cases {
+            let cart = Cart::from_rom(
+                "test.nes",
+                &mut nes2_rom(byte).as_slice(),
+                RamState::AllZeros,
+            )
+            .unwrap_or_else(|err| panic!("byte 10 = {byte:#04X} should load: {err}"));
+            assert_eq!(cart.prg_ram_size, expected, "byte 10 = {byte:#04X}",);
+        }
+    }
+
+    /// `0xF` is reserved in either nibble rather than a shift.
+    #[test]
+    fn nes2_rejects_the_reserved_ram_shift() {
+        for byte in [0x0F, 0xF0] {
+            let err = Cart::from_rom(
+                "test.nes",
+                &mut nes2_rom(byte).as_slice(),
+                RamState::AllZeros,
+            )
+            .expect_err("reserved shift should be rejected");
+            assert!(
+                matches!(err, Error::InvalidHeader { byte: 10, .. }),
+                "byte 10 = {byte:#04X} gave {err}"
+            );
+        }
+    }
 }
