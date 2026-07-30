@@ -299,8 +299,8 @@ mod tests {
 
     /// Writing `$4003`/`$4007` restarts the duty sequencer but leaves the timer divider running.
     ///
-    /// This is what `test_roms/apu/phase_reset.nes` demonstrates audibly; asserting it directly is
-    /// both stricter and checkable, since that ROM has no pass/fail output of its own.
+    /// Asserted directly rather than by ROM: the ROMs that demonstrate it play a tone you are
+    /// meant to judge by ear and report no pass or fail of their own.
     #[test]
     fn writing_timer_hi_resets_the_duty_phase_but_not_the_divider() {
         let mut pulse = Pulse::new(PulseChannel::One, OutputFreq::Default);

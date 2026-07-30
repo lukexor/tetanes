@@ -728,11 +728,10 @@ impl NesHeader {
                 });
             }
             if chr_ram_shift & 0xF0 != 0 {
-                // Unreachable before the nibble split above was fixed - the check tested for
-                // `0xF0`, which the reserved-value check just above already rejects. Only PRG-RAM
-                // reaches a `.sram` file, since `Map::save_sram` writes `Src::PrgRam`, so a
-                // battery on CHR-RAM is not persisted. Letting the cart run and saying so beats
-                // refusing to load it.
+                // The high nibble alone, not `0xF0`, which the reserved-value check just above
+                // already rejects. Only PRG-RAM reaches a `.sram` file, since `Map::save_sram`
+                // writes `Src::PrgRam`, so a battery on CHR-RAM is not persisted. Letting the
+                // cart run and saying so beats refusing to load it.
                 warn!("battery-backed chr-ram is not persisted between sessions");
             }
             NesVariant::Nes2
@@ -1125,15 +1124,16 @@ mod tests {
         rom
     }
 
-    /// Header byte 10 is two nibbles - PRG-RAM low, battery-backed PRG-NVRAM high - and reading it
-    /// whole asked for `64 << 0x70` for a cart with an 8 KiB battery save, which overflowed and
-    /// was reported as a corrupt header. Every NES 2.0 cart with a save was rejected outright.
+    /// Header byte 10 is two nibbles - PRG-RAM low, battery-backed PRG-NVRAM high - and each has
+    /// to be shifted on its own. Reading the byte whole asks for `64 << 0x70` on a cart with an
+    /// 8 KiB battery save, which overflows and reads as a corrupt header, rejecting every NES 2.0
+    /// cart that has a save.
     #[test]
     fn nes2_prg_nvram_is_the_high_nibble_of_byte_10() {
         let cases = [
             (0x00, 0),           // neither
             (0x07, 8 * 1024),    // 8K volatile PRG-RAM
-            (0x70, 8 * 1024),    // 8K battery-backed, the case that used to fail
+            (0x70, 8 * 1024),    // 8K battery-backed, the high nibble on its own
             (0x77, 16 * 1024),   // both, summed
             (0x0E, 1024 * 1024), // the largest shift that is not the reserved value
         ];

@@ -5,7 +5,8 @@
 //!
 //! [`Mapper`] is an enum with static dispatch rather than a boxed trait object; this is deliberate,
 //! since board dispatch sits on the hottest paths in the emulator. Each board implements [`Map`],
-//! and lives inside the [`Ppu`](crate::ppu::Ppu), because CHR and CIRAM access is the hot path.
+//! and the [`Mapper`] holding it hangs off the [`Bus`](crate::bus::Bus) alongside [`Memory`] - the
+//! PPU is the heaviest user, but the CPU reaches PRG through them too.
 //!
 //! # Adding a board
 //!
@@ -95,19 +96,19 @@ use std::path::Path;
 
 bitflags! {
     /// Which of a board's optional hooks apply, resolved once at cart load and cached beside the
-    /// mapper (see `Ppu::mapper_ops`) so the hot paths that would otherwise dispatch
-    /// unconditionally into every board - `Bus::cpu_clock`, `Cpu::handle_interrupts`,
-    /// `Ppu::chr_read`/`chr_peek`, `Ppu::notify_ppu_bus`, `Bus::read`/`peek` - can gate each one
+    /// mapper (see `Bus::mapper_ops`) so the hot paths that would otherwise dispatch
+    /// unconditionally into every board - `Bus::cpu_clock`, `Bus::handle_interrupts`,
+    /// `Bus::chr_read`/`chr_peek`, `Bus::ppu_bus_read`, `Bus::read`/`peek` - can gate each one
     /// on a bit test instead.
     #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[must_use]
     pub struct MapperOps: u8 {
-        /// Board needs `Clock::clock()` called every CPU cycle (an IRQ or serial-write timing
+        /// Board needs [`Map::clock`] called every CPU cycle (an IRQ or serial-write timing
         /// counter, expansion audio, etc).
         const CLOCKED = 1 << 0;
         /// Board can raise `Map::irq_pending()`.
         const IRQ = 1 << 1;
-        /// Board produces audio via `Sample::output()`.
+        /// Board produces audio via [`Map::output`].
         const AUDIO = 1 << 2;
         /// Board can raise `Map::dma_pending()`.
         const DMA = 1 << 3;
@@ -855,7 +856,7 @@ pub(crate) mod test_utils {
             .unwrap_or_else(|| cart.memory.prg_peek(addr))
     }
 
-    /// Mirrors `Ppu::chr_peek`'s routing for a page-table board.
+    /// Mirrors `Bus::chr_peek`'s routing for a page-table board.
     pub fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
         mapper
             .chr_peek(&cart.memory, addr)
@@ -869,10 +870,9 @@ mod tests {
 
     use crate::{cart::Cart, memory::Src};
 
-    /// MMC5's expansion audio has two region-dependent clocks, and nothing forwarded the region to
-    /// the mapper at all: `Ppu::set_region` updated its own timing and the mask but stopped there,
-    /// so `Exrom::set_region` was never called and the board ran at whatever region its cart was
-    /// constructed with.
+    /// MMC5's expansion audio has two region-dependent clocks, so `Bus::set_region` has to reach
+    /// the board and not stop at the components it owns directly - a board that never sees the
+    /// region runs at whatever its cart was constructed with.
     #[test]
     fn setting_the_region_reaches_the_mapper() {
         use crate::{bus::Bus, cart::Cart};

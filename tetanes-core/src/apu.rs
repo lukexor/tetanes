@@ -808,8 +808,8 @@ mod tests {
     /// non-linear: two channels at a given level are quieter than twice one channel at that level,
     /// and each additional step of volume buys less than the last.
     ///
-    /// This is what `test_roms/apu/volumes.nes` demonstrates by ear against reference recordings.
-    /// Asserting the property directly needs no recordings and no listener.
+    /// Asserted directly rather than by ROM: judging channel balance by ear needs reference
+    /// recordings, and no ROM that demonstrates it reports a pass or fail of its own.
     #[test]
     fn the_mixer_is_non_linear() {
         // Two pulses summing to 20 must be quieter than twice one pulse at 10.

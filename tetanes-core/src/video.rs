@@ -315,8 +315,7 @@ mod tests {
         }
     }
 
-    /// The overscan trim the renderer does, which is the one thing `Index` exists for now that
-    /// `Deref<Target = Vec<u8>>` is gone.
+    /// The overscan trim the renderer does, which is what `Index` exists for.
     #[test]
     fn a_frame_can_be_sliced_but_not_resized() {
         let mut frame = Frame::new();

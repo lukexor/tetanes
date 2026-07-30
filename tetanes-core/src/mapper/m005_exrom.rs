@@ -1219,8 +1219,8 @@ impl Map for Exrom {
 
     fn output(&self) -> f32 {
         // Runs once per CPU cycle, so index the mixer tables straight from the integer channel
-        // levels. Going through `Sample::output` would convert each level to a float only to
-        // convert it back with a saturating float-to-int cast.
+        // levels. Going through each channel's `output` would convert its level to a float only
+        // to convert it back with a saturating float-to-int cast.
         let pulse = PULSE_TABLE[usize::from(self.pulse1.level() + self.pulse2.level())];
         let dmc = TND_TABLE[usize::from(self.dmc.level())];
         -(pulse + dmc)
@@ -1310,7 +1310,7 @@ mod tests {
             .unwrap_or_else(|| cart.memory.prg_peek(addr))
     }
 
-    /// Mirrors `Ppu::chr_peek`'s routing for a page-table board.
+    /// Mirrors `Bus::chr_peek`'s routing for a page-table board.
     fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
         mapper
             .chr_peek(&cart.memory, addr)

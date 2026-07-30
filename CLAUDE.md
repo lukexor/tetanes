@@ -94,17 +94,16 @@ Naming, since one type now carries both address spaces:
 `Bus::clock_instr` runs one instruction, `Bus::cpu_clock` is the per-CPU-cycle component clock, and
 `Bus::ppu_clock`/`ppu_clock_to` drive the PPU.
 
-`Mapper` and `Memory` hang off `Bus`, not off the `Ppu` as they once did — the PPU is the heaviest
-user but the CPU reaches PRG through them too, so they belong to neither.
+`Mapper` and `Memory` hang off `Bus`, not off the `Ppu` — the PPU is the heaviest user but the CPU
+reaches PRG through them too, so they belong to neither.
 
 Components expose `clock`, `reset(ResetKind)`, `region`/`set_region`, `output` and
-`save`/`load` as **inherent methods**, each forwarding to the components it owns. These used to be
-the `Clock`/`Reset`/`Regional`/`Sample`/`Sram` traits in `common.rs`; they were deleted because
-nothing was ever generic over them — across the whole workspace there was exactly one bound,
-`clock_to<T: Clock + TimerCycle + Sample>` in `apu.rs` — so they bought no polymorphism and cost an
-import in every file plus a name clash whenever a type wanted both `Map` and `Clock`. `ResetKind`
-and `NesRegion` remain in `common.rs`. `memory.rs` provides `Memory` — the page-table-addressed
-arena holding every cart region — plus `ConstArray` and `Buffer`.
+`save`/`load` as **inherent methods**, each forwarding to the components it owns. There are no
+`Clock`/`Reset`/`Regional`/`Sample`/`Sram` traits: nothing in the workspace is generic over them —
+the one bound that ever existed was `clock_to<T: Clock + TimerCycle + Sample>` in `apu.rs` — so they
+buy no polymorphism and cost an import in every file plus a name clash whenever a type wants both
+`Map` and `Clock`. `ResetKind` and `NesRegion` remain in `common.rs`. `memory.rs` provides `Memory`
+— the page-table-addressed arena holding every cart region — plus `ConstArray` and `Buffer`.
 
 **Adding a component method does not mean adding a trait.** Prefer an inherent method plus an
 explicit forwarding call from the owner.

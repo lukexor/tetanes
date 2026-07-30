@@ -36,8 +36,8 @@
 //! **Baselines recorded in `README.md` before 2026-07 excluded the filter**, and so are comparable
 //! to `TETANES_BENCH_NO_OUTPUT=1` runs, not to the current default.
 //!
-//! `TETANES_BENCH_NO_AUDIO=1` sets `HeadlessMode::NO_AUDIO`, which makes `Apu::process_outputs`
-//! return early and so skips the mixing tables and the filter chain. It does **not** skip channel
+//! `TETANES_BENCH_NO_AUDIO=1` sets `HeadlessMode::NO_AUDIO`, and so `Apu::skip_mixing`, which
+//! skips the mixing tables and the filter chain. It does **not** skip channel
 //! clocking - the channels still tick, the DMC still steals CPU cycles, and emulation is
 //! unchanged - so this isolates the cost of turning channel state into samples, not the cost of
 //! the APU as a whole.
@@ -86,7 +86,7 @@ fn bench_output() -> bool {
     std::env::var_os("TETANES_BENCH_NO_OUTPUT").is_none()
 }
 
-/// Whether to skip audio mixing (`Apu::process_outputs`), leaving channel clocking intact.
+/// Whether to skip audio mixing (`Apu::skip_mixing`), leaving channel clocking intact.
 ///
 /// Off by default. Useful for splitting the APU's frame-time share into "producing channel state"
 /// versus "turning that state into samples", which are separate optimization targets.

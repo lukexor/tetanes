@@ -158,8 +158,8 @@ impl Multi {
         cfg: &Config,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = channel::bounded(128);
-        // The handle is dropped rather than kept: nothing joins this thread, and it now ends
-        // itself when the channel disconnects - which is when `Multi`, and so `tx`, is dropped.
+        // The handle is dropped rather than kept: nothing joins this thread, and it ends itself
+        // when the channel disconnects - which is when `Multi`, and so `tx`, is dropped.
         std::thread::Builder::new()
             .name("emulation".into())
             .spawn({

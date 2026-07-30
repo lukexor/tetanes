@@ -898,10 +898,9 @@ pub(crate) mod tests {
         vbl_nmi_control,         // Tests vblank NMI control
         vbl_nmi_disable,         // Tests vblank NMI disable
         vbl_nmi_even_odd_frames, // Tests vblank NMI on even/odd frames
-        // Was ignored as "clock is skipped too late relative to enabling BG Failed #3". It is
-        // not: the ROM reports code 0 and prints "10-even_odd_timing / Passed". Whatever that
-        // described was fixed and never re-checked, because the expectation was a placeholder
-        // `hash: 0` that could not pass. Now a $6000 status assertion, which says so out loud.
+        // Passes: the ROM reports code 0 and prints "10-even_odd_timing / Passed". Asserted on
+        // that $6000 status code rather than a frame hash, so a regression says which sub-test
+        // failed instead of only that some pixel moved.
         vbl_nmi_even_odd_timing, // Tests vblank NMI even/odd frame timing
         vbl_nmi_frame_basics,    // Tests vblank NMI frame basics
         vbl_nmi_off_timing,      // Tests vblank NMI off timing
@@ -1345,11 +1344,10 @@ pub(crate) mod tests {
         dmc_status_irq,
         lin_ctr,
         noise_pitch,
-        // phase_reset.nes and volumes.nes were removed rather than left ignored forever. Neither
-        // has any pass/fail output - one is a listening demo of the mixer's channel balance that
-        // needs reference recordings we do not ship, the other plays a tone you are meant to judge
-        // by ear - so no snapshot of either could mean anything. What they demonstrate is now
-        // asserted directly instead, with no ROM and no listener:
+        // Two APU behaviours are covered by unit tests rather than by a ROM here, because the
+        // ROMs that demonstrate them have no pass/fail output - one is a listening demo of the
+        // mixer's channel balance needing reference recordings we do not ship, the other plays a
+        // tone you judge by ear - so no snapshot of either could mean anything. See
         // `apu::pulse::tests::writing_timer_hi_resets_the_duty_phase_but_not_the_divider` and
         // `apu::tests::the_mixer_is_non_linear`.
         square_pitch,

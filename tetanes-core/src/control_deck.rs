@@ -439,9 +439,9 @@ impl ControlDeck {
     pub fn load_rom<S: ToString, F: Read>(&mut self, name: S, rom: &mut F) -> Result<LoadedRom> {
         let name = name.to_string();
         self.unload_rom()?;
-        // `Cart::from_rom` now rejects an unimplemented mapper itself rather than handing back a
-        // `Mapper::none()` that reads as open bus; unwrap it back to this crate's own variant so
-        // callers keep getting `unimplemented mapper \`69\`` rather than a nested cart error.
+        // `Cart::from_rom` reports an unimplemented mapper as a nested `cart::Error`; unwrap it
+        // back to this crate's own variant so callers see `unimplemented mapper \`69\`` rather
+        // than a cart error wrapping a mapper error.
         let cart = Cart::from_rom(&name, rom, self.bus.ram_state).map_err(|err| match err {
             cart::Error::InvalidMapper(mapper::Error::Unimplemented(num)) => {
                 Error::UnimplementedMapper(num)
@@ -1392,9 +1392,9 @@ impl ControlDeck {
 
 /// Clocking methods superseded by [`ControlDeck::clock_frame`] plus the output accessors.
 ///
-/// They bundled advancing the emulation with retrieving its output, in one variant per combination
+/// Each bundles advancing the emulation with retrieving its output, one variant per combination
 /// of allocating-vs-copying, closure-vs-accessor and run-ahead-vs-not. [`ControlDeck::clock_frame`]
-/// now covers all of it: it honours [`ControlDeck::set_run_ahead`], and
+/// covers all of it: it honours [`ControlDeck::set_run_ahead`], and
 /// [`ControlDeck::frame_buffer`] / [`ControlDeck::frame_buffer_into`] /
 /// [`ControlDeck::audio_samples`] report what it produced.
 #[allow(deprecated)]
@@ -1440,15 +1440,15 @@ impl ControlDeck {
         audio_samples: &mut [f32],
     ) -> Result<()> {
         self.clock_display_frame()?;
-        // This shim keeps taking unsized slices, so it filters into `self.video.frame` and copies
-        // out. `frame_buffer_into` now requires a `&mut [u8; Frame::SIZE]`.
+        // This shim takes unsized slices, so it filters into `self.video.frame` and copies out;
+        // `frame_buffer_into` requires a `&mut [u8; Frame::SIZE]`.
         let frame = self.frame_buffer();
         let len = frame.len().min(frame_buffer.len());
         frame_buffer[..len].copy_from_slice(&frame[..len]);
         let audio = self.bus.audio_samples();
-        // The original truncated to `audio_samples.len()`, which panicked whenever the caller's
-        // buffer was longer than the frame - and a caller cannot know how many samples a frame
-        // produces.
+        // Copy the shorter of the two rather than truncating to `audio_samples.len()`, which
+        // panics whenever the caller's buffer is longer than the frame - and a caller cannot know
+        // how many samples a frame produces.
         let len = audio.len().min(audio_samples.len());
         audio_samples[..len].copy_from_slice(&audio[..len]);
         Ok(())
@@ -1567,8 +1567,9 @@ mod tests {
     }
 
     /// A restored state has to resume bit-identically. Page tables are `#[serde(skip)]` derived
-    /// state, so this only holds if `load_cpu` replays the mapper's registers through `Map::update_banks` -
-    /// without it every page comes back unmapped and the machine reads zeroes.
+    /// state, so this only holds if `Bus::load_state` replays the mapper's registers through
+    /// `Map::update_banks` - without it every page comes back unmapped and the machine reads
+    /// zeroes.
     #[test]
     fn save_state_resumes_identically() {
         let path = std::env::temp_dir().join("tetanes-save-state-resumes-identically.sav");
@@ -1675,7 +1676,7 @@ mod tests {
     /// then rewinds to the snapshot - so afterwards the console must sit exactly where a single
     /// `clock_frame` would have left it, and carry on identically.
     ///
-    /// This has no coverage otherwise, and the snapshot is a plain `Cpu::clone` rather than a
+    /// This has no coverage otherwise, and the snapshot is a plain `Bus::clone` rather than a
     /// serialized state, so nothing else would notice if the restore stopped being faithful.
     #[test]
     fn run_ahead_leaves_the_console_where_a_plain_frame_would() {
@@ -1753,9 +1754,10 @@ mod tests {
         let one_frame = deck.audio_samples().len();
         assert!(one_frame > 0, "a frame should produce audio");
 
-        // Per-frame counts wobble by a sample or two, because `Apu::sample_counter` carries across
-        // frames - so this bounds the buffer at a frame's worth rather than pinning it. What it
-        // rules out is frame 60 holding 60 frames of audio.
+        // Per-frame counts wobble by a sample or two, because a frame is not a whole number of
+        // output samples and the synthesiser carries the remainder into the next one - so this
+        // bounds the buffer at a frame's worth rather than pinning it. What it rules out is frame
+        // 60 holding 60 frames of audio.
         let mut max = 0;
         for _ in 0..60 {
             let _ = deck.clock_frame().expect("clocks");

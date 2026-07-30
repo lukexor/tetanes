@@ -330,9 +330,8 @@ impl Map for Namco163 {
         }
         for bank in 8..12 {
             self.nt_bank_enable[bank] = true;
-            // Preserves the previous expression `((bank - 8) * 0x0400) & 0x03FF`, which is zero
-            // for every bank since 0x400 & 0x3FF == 0 - it looks like page indices and byte
-            // offsets were conflated, but games program these registers immediately anyway.
+            // The power-on value is arbitrary: games program these registers before they read a
+            // nametable, so zero is as good as anything.
             self.chr_banks[bank] = 0;
         }
         self.prg_ram_written_to = false;
@@ -669,7 +668,11 @@ mod tests {
 
         // Below $E0 the same slot serves CHR-ROM instead.
         write(&mut mapper, &mut cart, 0xC000, 16);
-        assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0x80 | 16, "CHR-ROM bank 16");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x2000),
+            0x80 | 16,
+            "CHR-ROM bank 16"
+        );
     }
 
     /// The eight CHR registers at $8000-$BFFF cover $0000-$1FFF in 1K slots.
@@ -677,7 +680,12 @@ mod tests {
     fn chr_registers_map_eight_1k_pattern_slots() {
         let (mut mapper, mut cart) = load();
         for slot in 0..8u16 {
-            write(&mut mapper, &mut cart, 0x8000 + slot * 0x800, 20 + slot as u8);
+            write(
+                &mut mapper,
+                &mut cart,
+                0x8000 + slot * 0x800,
+                20 + slot as u8,
+            );
         }
         for slot in 0..8u16 {
             assert_eq!(

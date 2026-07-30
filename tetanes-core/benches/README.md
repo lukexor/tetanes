@@ -22,10 +22,10 @@ cargo make perf-report -- path/to/rom.nes  # flat perf profile to stdout
 ## Methodology
 
 Each iteration constructs a **fresh** `ControlDeck` and reloads the ROM rather than calling
-`reset`. `Reset for Bus` clears WRAM but not mapper PRG-RAM/SRAM or mapper bank registers, so
+`reset`. `Bus::reset` clears WRAM but not mapper PRG-RAM/SRAM or mapper bank registers, so
 resetting between iterations lets battery-backed saves and bank state carry over and each
-iteration ends up measuring a different game state. Before this was fixed, Super Mario Bros.
-reported a 21.9% coefficient of variation; with a fresh load per iteration it reports 0.17%.
+iteration ends up measuring a different game state: Super Mario Bros. reports a 21.9% coefficient
+of variation that way, against 0.17% with a fresh load per iteration.
 
 `RamState::AllZeros` is used so RAM contents are deterministic.
 

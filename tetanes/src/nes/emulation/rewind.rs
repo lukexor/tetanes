@@ -170,10 +170,10 @@ mod tests {
     /// Snapshots have to be evenly spaced in *NES* frames, because rewinding replays them one per
     /// display frame - so uneven spacing is uneven rewind speed.
     ///
-    /// A display frame is not a frame: at 2x it is two and at 0.5x every other one is none. When
-    /// `ControlDeck::clock_frame` clocked the lot and the caller counted calls, a stretch that had
-    /// been fast-forwarded rewound at the speed it was recorded at, and below 1x consecutive
-    /// snapshots were identical because no frame had been clocked between them.
+    /// A display frame is not a frame: at 2x it is two and at 0.5x every other one is none. So the
+    /// spacing has to count what `ControlDeck::clock_frame` reports it clocked, not how many times
+    /// it was called - counting calls rewinds a fast-forwarded stretch at the speed it was
+    /// recorded at, and below 1x records consecutive snapshots with no frame clocked between them.
     #[test]
     fn snapshots_are_evenly_spaced_whatever_the_speed() {
         use tetanes_core::control_deck::{Clocked, Config, ControlDeck};

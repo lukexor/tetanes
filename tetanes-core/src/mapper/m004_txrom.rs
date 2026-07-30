@@ -225,7 +225,7 @@ impl Map for Txrom {
         self.update_prg_banks(memory);
         self.update_chr_banks(memory);
         // Four-screen carts get 4K of CIRAM from the cart, so the nametables simply map to four
-        // distinct pages - no separate ex_ram buffer as before.
+        // distinct pages, with no separate buffer to route them through.
         memory.set_mirroring(self.mirroring);
     }
 
