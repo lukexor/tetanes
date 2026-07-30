@@ -37,7 +37,8 @@ nightly/stable/1.88.
 
 ### Tests
 
-Only `tetanes-core` has tests; the `tetanes` crate has none (its CI job is commented out).
+Both crates have tests, each with its own CI job. `tetanes-core`'s are the bulk of them; `tetanes`'
+cover the audio-rate control loop and the rewind ring.
 
 ```sh
 cargo nextest run -p tetanes-core --all-features           # everything

@@ -107,26 +107,25 @@ jobs:
         run: |
           cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --keep-going -- -D warnings
 
-  # No tests currently
-  # test-tetanes:
-  #   name: Test TetaNES
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v7
-  #       with:
-  #         fetch-depth: 0
-  #     - uses: dtolnay/rust-toolchain@master
-  #       with:
-  #         toolchain: nightly
-  #     - uses: taiki-e/install-action@v2
-  #       with:
-  #         tool: cargo-nextest
-  #     - uses: Swatinem/rust-cache@v2
-  #     - run: |
-  #         sudo apt update
-  #         sudo apt install -y libudev-dev libasound2-dev
-  #     - run: |
-  #         cargo nextest run --locked -p tetanes --all-features --profile ci
+  test-tetanes:
+    name: Test TetaNES
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev
+      - run: |
+          cargo nextest run --locked -p tetanes --all-features --profile ci
 
   test-tetanes-core:
     name: Test TetaNES Core
