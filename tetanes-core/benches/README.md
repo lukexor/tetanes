@@ -5,7 +5,7 @@
 ```sh
 cargo make bench                      # spritecans.nes only (committed, always available)
 cargo make bench -- path/to/rom.nes   # one specific ROM
-TETANES_BENCH_ROMS=~/roms cargo make bench          # every .nes in a directory
+TETANES_BENCH_ROMS=path/to/roms cargo make bench    # every .nes in a directory
 TETANES_BENCH_ROMS="a.nes:b.nes" cargo make bench   # an explicit list
 ```
 

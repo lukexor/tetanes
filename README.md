@@ -258,7 +258,11 @@ Support for the following mappers is currently implemented or in development:
 | 016 | Bandai FCG            | Dragon Ball: Daimaou Fukkatsu              | 14                     | ~1%                    |
 | 018 | Jaleco SS 88006       | Magic John                                 | 15                     | ~1%                    |
 | 019 | Namco163              | Battle Fleet, Dragon Ninja                 | 20                     | ~1%                    |
+| 021 | VRC4a/VRC4c           | Wai Wai World 2, Ganbare Goemon Gaiden 2   | 2                      | &lt;0.01%              |
+| 022 | VRC2a                 | Ganbare Pennant Race!, TwinBee 3           | 2                      | &lt;0.01%              |
+| 023 | VRC2b/VRC4e           | Contra (Japan), Crisis Force, Parodius Da! | 10                     | &lt;0.01%              |
 | 024 | VRC6a                 | Akumajou Densetsu                          | 1                      | &lt;0.01%              |
+| 025 | VRC2c/VRC4b/VRC4d     | Gradius II, TMNT II: The Manhattan Project | 6                      | &lt;0.01%              |
 | 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;0.01%              |
 | 033 | Taito TC0190/TC0350   | Don Doko Don, Insector X, Operation Wolf   | 10                     | &lt;0.01%              |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;0.01%              |
@@ -270,6 +274,7 @@ Support for the following mappers is currently implemented or in development:
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | &lt;0.01%              |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;0.01%              |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;0.01%              |
+| 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;0.01%              |
 | 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;0.01%              |
 | 144 | Color Dreams          | Death Race                                 | 1                      | &lt;0.01%              |
 | 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;0.01%              |
@@ -278,13 +283,15 @@ Support for the following mappers is currently implemented or in development:
 | 157 | Bandai FCG/Datach     | SD Gundam Wars                             | 7                      | &lt;0.01%              |
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;0.01%              |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;0.01%              |
+| 176 | Waixing FK23C/FS303   | Zhi Li Xiao Zhuang Yuan                    | —                      | —                      |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;0.01%              |
-|     |                       |                                            | ~2256 / 2447           | ~92.2%                 |
+|     |                       |                                            | ~2277 / 2447           | ~93.1%                 |
 
 <!-- markdownlint-enable line-length -->
 
-1. [Source](http://bootgod.dyndns.org:7777/stats.php?page=6) [Mirror](https://nescartdb.com/)
+1. [Source](https://nescartdb.com/stats?page=6), counted as unique games rather than cart profiles.
+   Mapper 176 is marked `—` because NesCartDB does not catalog the unlicensed carts that use it.
 
 ### Controls
 

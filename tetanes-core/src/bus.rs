@@ -248,6 +248,9 @@ impl Bus {
     }
 
     /// Clocks everything the CPU's cycle drives: the board, the APU, input and the PPU.
+    // `inline(always)` rather than a hint: with only `#[inline]` the `MapperOps` bit tests below
+    // push this just over LLVM's automatic inlining threshold, so it stops being inlined into
+    // `Cpu::start_cycle` and each free bit test becomes a real out-of-line call every CPU cycle.
     #[inline(always)]
     pub fn cpu_clock(&mut self) {
         let ops = self.mapper_ops;

@@ -10,7 +10,8 @@ TetaNES is a cross-platform NES emulator. The workspace has three crates:
   API stability, and must compile on stable and MSRV `1.88` in addition to nightly.
 - **`tetanes`** — the UI binary: `winit` event loop + `egui` GUI + `wgpu` renderer. Targets desktop
   and `wasm32-unknown-unknown` (web via `trunk`).
-- **`tetanes-utils`** — unpublished dev binaries (`generate_db`, `list_boards`).
+- **`tetanes-utils`** — unpublished dev binaries (`chrdump`, `generate_db`, `list_boards`,
+  `screenshot`).
 
 ## Commands
 
@@ -57,8 +58,20 @@ hash change is intentional and the resulting PNG has been eyeballed. It is `UPDA
 `--test-threads=1`; the harness merges its own entry into the file under a lock either way, so the
 raw env var is safe too, but serialising keeps the diff readable.
 
-Commit messages follow Conventional Commits (`cliff.toml` / release-plz generate the changelog and
-releases from them).
+### Commit messages
+
+Conventional Commits (`cliff.toml` / release-plz generate the changelog and releases from them).
+
+A message is a **synopsis of the theme and the reason for it**, not a record of how the work went.
+Leave out what the diff already says: implementation walkthroughs, verification narration ("191
+tests pass"), plan phase numbers and scratch-doc references, enum-size and boxing bookkeeping,
+benchmark tables, and references to sibling commits by hash. Rationale tied to a specific line
+belongs in a `//` comment next to that line, where the next reader will actually find it. What
+survives is the theme, the reason, and anything that would cost time to re-learn.
+
+A `BREAKING CHANGE:` footer must be **one line**. `cliff.toml` renders
+`commit.breaking_description`, and git-conventional truncates that at the first continuation line,
+so a wrapped footer silently loses everything after the first line in the changelog.
 
 ## Architecture
 
@@ -146,16 +159,21 @@ breakpoints land.
 performance. Each board implements the `Map` trait, where only `mirroring` is required and
 everything else has a default, so a board writes exactly the hooks its hardware has: register
 writes, `update_banks`, the `prg_read`/`chr_read` escape hatches for things no page entry can describe,
-IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits — `Mapper` is what
-implements `Clock`/`Reset`/`Regional`/`Sample` and forwards them down the ownership tree.
+IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits; `Mapper` carries
+the inherent `clock`/`reset`/`region`/`output` methods and forwards them down the ownership tree.
 
-**Adding a mapper is two edits:**
+**Adding a mapper is four edits:**
 
 1. `tetanes-core/src/mapper/m0NN_<name>.rs` (files are named by primary mapper number; shared logic
    lives in un-numbered files like `mmc1.rs`, `mmc3.rs`, `vrc_irq.rs`).
 2. One row in the `boards!` table in `mapper.rs`, which generates the `pub mod`, the `pub use`, the
    `Mapper` variant, the `From` impls, every dispatch arm, the mapper-number match in
    `Mapper::from_cart` (which `Cart::from_rom` calls), and the `print_layouts` entry.
+3. An arm in `ControlDeck::update_mapper_revisions` (`control_deck.rs`), whose match over `Mapper`
+   is exhaustive: a board with a user-selectable revision calls `set_revision`, everything else
+   joins the no-op list. This one the compiler catches.
+4. A row in the supported-mapper table in `README.md`. Nothing catches this one, and it is the step
+   that gets skipped.
 
 A board module that publicly exports something *other* than the board type — so far only a revision
 enum — needs a `pub use` next to the table. Optionally add a `test_roms!` group in `common.rs`.
@@ -181,13 +199,19 @@ loading as open bus and showing a black screen. Tools that survey ROMs rather th
 `Cart::from_path_unmapped`/`from_rom_unmapped`, which skip board selection entirely.
 
 Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, `SunsoftFme7`) to keep
-`Mapper` small, currently 56 bytes — `print_layouts` prints every board's unboxed size so this stays
-watchable. Boxing is a **measured** trade, not a size rule: it costs an indirection on boards clocked
-every CPU cycle, and both directions have surprised us. See `benches/README.md`.
+`Mapper` small — `print_layouts` prints every board's unboxed size and the enum's own, so this stays
+watchable without a number here to go stale. Boxing is a **measured** trade, not a size rule: it
+costs an indirection on boards clocked every CPU cycle, and both directions have surprised us. See
+`tetanes-core/benches/README.md`.
 
 Boards that can't be identified from the header use `MapperRevision` (user/DB selectable, see
-`MapperRevisionsConfig`), and `game_db.dat` / `game_database.txt` (regenerate with
-`tetanes-utils`' `generate_db`) supplies per-ROM overrides by CRC.
+`MapperRevisionsConfig`), and `tetanes-core/game_db.dat` / `tetanes-core/game_database.txt` supply
+per-ROM overrides by CRC. `tetanes-utils`' `generate_db` regenerates them, but it takes a directory
+of `.nes` files that is not in the repo, so a correction to a handful of entries is easier made
+against `game_database.txt` and re-encoded than by rebuilding from a corpus.
+
+`docs/` is NES hardware reference, not project documentation. `docs/mapper/` holds Disch's mapper
+documents, one `NNN.txt` per mapper number — read those before reaching for nesdev.
 
 ### UI crate
 

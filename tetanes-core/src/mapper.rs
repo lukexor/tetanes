@@ -10,8 +10,10 @@
 //!
 //! # Adding a board
 //!
-//! Two edits. First, `src/mapper/m0NN_<name>.rs`, named for the board's primary (lowest) mapper
-//! number - logic shared by a family lives in an un-numbered file instead (`mmc1.rs`, `mmc3.rs`,
+//! Four edits, two of which the compiler will not remind you about.
+//!
+//! First, `src/mapper/m0NN_<name>.rs`, named for the board's primary (lowest) mapper number -
+//! logic shared by a family lives in an un-numbered file instead (`mmc1.rs`, `mmc3.rs`,
 //! `vrc_irq.rs`). A board is a plain serializable struct with a `load` constructor and a [`Map`]
 //! impl. UxROM, in `m002_uxrom.rs`, is about as small as they get:
 //!
@@ -80,8 +82,16 @@
 //!   `pub use` next to the table.
 //!
 //! A mapper number no row claims is [`Error::Unimplemented`], so an unsupported ROM says so rather
-//! than loading as open bus and showing a black screen. Optionally add a `test_roms!` group in
-//! `common.rs`.
+//! than loading as open bus and showing a black screen.
+//!
+//! Third, an arm in `ControlDeck::update_mapper_revisions`, whose match over [`Mapper`] is
+//! exhaustive: a board with a user-selectable revision calls its `set_revision`, everything else
+//! joins the no-op list. The compiler catches this one.
+//!
+//! Fourth, a row in the supported-mapper table in the workspace `README.md`. Nothing catches that
+//! one, which is why it is the step that gets skipped.
+//!
+//! Optionally add a `test_roms!` group in `common.rs`.
 
 use crate::{
     cart::Cart,
@@ -195,15 +205,14 @@ impl std::fmt::Display for MapperRevision {
 
 /// Everything the rest of the crate needs to know about a board, in one row each.
 ///
-/// A row is `Variant(StorageType) in module { <mapper numbers> => <loader> }`, and generating from
-/// it means **adding a board is two edits: its own file, and one row here.**
+/// A row is `Variant(StorageType) in module { <mapper numbers> => <loader> }`.
 ///
-/// The row is what keeps it at two. It generates the `pub mod`, the `pub use`, the enum variant, the
-/// `From` impl, every dispatch arm, the `match` in `Cart::new`, the audio arm in `Sample for Mapper`
-/// and the layout entry in `lib.rs`'s `print_layouts` - six lists that, kept by hand, each fail
-/// differently when one is forgotten, two of them only at runtime: a board missing from `Cart::new`
-/// loads as `Mapper::none()` and reads as open bus, and one missing from `Sample for Mapper` is
-/// silent.
+/// It generates the `pub mod`, the `pub use`, the enum variant, the [`From`] impl, every dispatch
+/// arm, the `match` in [`Mapper::from_cart`], the audio arm in [`Mapper::output`] and the layout
+/// entry in `lib.rs`'s `print_layouts` - six lists that, kept by hand, each fail differently when
+/// one is forgotten, two of them only at runtime: a board missing from [`Mapper::from_cart`] loads
+/// as [`Mapper::none()`](Mapper::none) and reads as open bus, and one missing from
+/// [`Mapper::output`] is silent.
 ///
 /// Notes on the row syntax:
 /// - The storage type is spelled out rather than inferred, because it is the one thing that
