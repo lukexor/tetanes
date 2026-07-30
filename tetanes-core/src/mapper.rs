@@ -146,6 +146,7 @@ pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 // so far only a revision enum - lists it here.
 pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
+pub use m033_m048_taito_tc0190::Revision as TaitoRevision;
 pub use m071_bf909x::Revision as Bf909Revision;
 
 /// Errors that mappers can return while loading.
@@ -598,6 +599,11 @@ boards! {
     Vrc6(Box<Vrc6>) = 24 in m024_m026_vrc6 {
         24 => Vrc6::load(cart, Vrc6Revision::A),
         26 => Vrc6::load(cart, Vrc6Revision::B),
+    },
+    /// `Taito TC0190`/`TC0350` (Mapper 033) and `TC0690` (Mapper 048)
+    TaitoTc0190(TaitoTc0190) = 33 in m033_m048_taito_tc0190 {
+        33 => TaitoTc0190::load(cart, TaitoRevision::Tc0190),
+        48 => TaitoTc0190::load(cart, TaitoRevision::Tc0690),
     },
     /// `BNROM` (Mapper 034)
     // Mapper 034 is two different boards; <= 8K of CHR-ROM implies BNROM.

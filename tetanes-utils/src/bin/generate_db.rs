@@ -107,6 +107,21 @@ fn apply_corrections(game: &mut Game) {
             game.mirroring = Mirroring::Horizontal;
             game.mapper = 154;
         }
+        0x1500E835 | 0x40C0AD47 | 0x6CDC0CD9 | 0x99C395F9 | 0xA7B0536C | 0xAEBD6549 => {
+            // Jetsons, The: Cogswell's Caper (Japan)
+            // Flintstones, The: The Rescue of Dino & Hoppy (Japan)
+            // Bubble Bobble 2 (Japan)
+            // Captain Saver (Japan)
+            // Don Doko Don 2 (Japan)
+            // Bakushou!! Jinsei Gekijou 3 (Japan)
+            //
+            // Taito TC0690 (mapper 048), not TC0190 (mapper 033): "most dumps of mapper 048 games
+            // floating around are erroneously labelled as mapper 033" (`docs/mapper/033.txt`), and
+            // these six are every mapper 048 game. The boards bank identically, so a mislabelled
+            // ROM runs and only loses its scanline IRQ - which is what each of these splits the
+            // screen with.
+            game.mapper = 48;
+        }
         0x44C20420 => {
             // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
             // Waixing translation). The iNES header says mapper 74; the NES 2.0
