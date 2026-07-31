@@ -118,7 +118,7 @@ jobs:
   #     - uses: dtolnay/rust-toolchain@master
   #       with:
   #         toolchain: nightly
-  #     - uses: taiki-e/install-action@v2
+  #     - uses: taiki-e/install-action@v2.85.3
   #       with:
   #         tool: cargo-nextest
   #     - uses: Swatinem/rust-cache@v2
@@ -138,7 +138,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2

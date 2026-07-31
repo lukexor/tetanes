@@ -59,7 +59,7 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-make,cargo-deb,cargo-pgo
       - run: |
@@ -96,7 +96,7 @@ jobs:
       - uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-make,cargo-pgo
       - run: |
@@ -133,7 +133,7 @@ jobs:
       - uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-make,cargo-wix,cargo-pgo
       - if: startsWith(matrix.target, 'x86_64')
@@ -161,7 +161,7 @@ jobs:
           toolchain: nightly
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-make,trunk
       - run: |
