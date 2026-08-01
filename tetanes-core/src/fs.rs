@@ -103,8 +103,12 @@ pub(crate) fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     f.read_exact(&mut magic)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
     if magic != SAVE_FILE_MAGIC {
+        // Both are printed as text: the reader of this message is comparing it against a file
+        // format, not a byte array.
+        let expected = String::from_utf8_lossy(&SAVE_FILE_MAGIC);
+        let found = String::from_utf8_lossy(&magic);
         return Err(Error::InvalidHeader(format!(
-            "invalid magic (expected {SAVE_FILE_MAGIC:?}, found: {magic:?}",
+            "invalid magic (expected {expected:?}, found {found:?})",
         )));
     }
 
@@ -114,8 +118,9 @@ pub(crate) fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     if version == expected.as_bytes() {
         Ok(())
     } else {
+        let found = String::from_utf8_lossy(&version);
         Err(Error::InvalidHeader(format!(
-            "invalid version (expected {expected:?}, found: {version:?}",
+            "invalid version (expected {expected:?}, found {found:?})",
         )))
     }
 }
@@ -381,6 +386,20 @@ mod tests {
         assert!(
             validate_header(&mut file.as_slice(), SAVE_VERSION).is_ok(),
             "validate header"
+        );
+    }
+
+    /// The version is one ASCII byte, and a mismatch is the one message a player sees when a save
+    /// stops loading - it has to name the version, not its byte value.
+    #[test]
+    fn a_version_mismatch_names_both_versions() {
+        let mut file = Vec::new();
+        write_header(&mut file, "2").expect("write header");
+
+        let err = validate_header(&mut file.as_slice(), "1").expect_err("mismatched");
+        assert_eq!(
+            err.to_string(),
+            "invalid tetanes header: invalid version (expected \"1\", found \"2\")"
         );
     }
 
