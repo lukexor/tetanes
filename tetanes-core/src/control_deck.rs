@@ -513,6 +513,9 @@ impl ControlDeck {
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
         self.bus.rebuild_mapper_state();
+        // The console this deck was showing is gone; anything cached from it describes a machine
+        // that is no longer here.
+        self.invalidate_frame();
         Ok(())
     }
 
@@ -900,12 +903,24 @@ impl ControlDeck {
     ///
     /// Unlike the other `clock_*` methods this does not discard the previous audio samples, since
     /// one instruction is far shorter than one sample - the methods built on it clear once, up
-    /// front, instead.
+    /// front, instead. It does invalidate the frame, because the PPU has moved and what
+    /// [`ControlDeck::frame_buffer`] holds is no longer what the console shows.
     ///
     /// # Errors
     ///
     /// If the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_instr(&mut self) -> Result<()> {
+        self.invalidate_frame();
+        self.step_instr()
+    }
+
+    /// One instruction, with no invalidation at all.
+    //
+    // What the `clock_*` methods loop on. They invalidate once up front, so doing it per
+    // instruction would be both redundant and - since `clock_one_frame` runs this tens of
+    // thousands of times a frame - on the hottest path in the emulator.
+    #[inline(always)]
+    fn step_instr(&mut self) -> Result<()> {
         self.clock();
         if self.cpu_corrupted() {
             self.running = false;
@@ -925,7 +940,7 @@ impl ControlDeck {
         let mut total_cycles = 0;
         while self.cycles_remaining > 0.0 {
             let start_cycles = self.bus.cpu.cycle;
-            self.clock_instr()?;
+            self.step_instr()?;
             let cycles = self.bus.cpu.cycle - start_cycles;
             total_cycles += cycles;
             self.cycles_remaining -= cycles as f32;
@@ -940,12 +955,23 @@ impl ControlDeck {
     /// to survive.
     #[inline]
     fn begin_clock(&mut self) {
+        self.invalidate_frame();
+        if self.clear_audio_on_clock {
+            self.bus.clear_audio_samples();
+        }
+    }
+
+    /// Invalidates the frame the previous clock produced, leaving its audio alone.
+    ///
+    /// Separate from [`ControlDeck::begin_clock`] for the paths that move the console without
+    /// being a clock of their own: stepping one instruction, and replacing the console wholesale
+    /// in [`ControlDeck::load_bus`]. Rewind restores a state every display frame and relies on the
+    /// audio it has already produced surviving, so those must not drain it.
+    #[inline]
+    fn invalidate_frame(&mut self) {
         self.video_frame_stale = true;
         if let Some(frames) = &mut self.run_ahead_frames {
             frames.pending_valid = false;
-        }
-        if self.clear_audio_on_clock {
-            self.bus.clear_audio_samples();
         }
     }
 
@@ -960,7 +986,7 @@ impl ControlDeck {
     fn clock_one_frame(&mut self) -> Result<()> {
         let frame = self.frame_number();
         while frame == self.frame_number() {
-            self.clock_instr()?;
+            self.step_instr()?;
         }
         self.bus.clock_sync();
         Ok(())
@@ -1110,7 +1136,7 @@ impl ControlDeck {
 
         let current_scanline = self.bus.ppu.scanline;
         while current_scanline == self.bus.ppu.scanline {
-            self.clock_instr()?;
+            self.step_instr()?;
         }
         Ok(())
     }
@@ -1830,6 +1856,53 @@ mod tests {
             let clocked = [(); 4].map(|()| clock_display_frame(&mut deck));
             assert_eq!(clocked, expected, "at {speed}x");
         }
+    }
+
+    /// `frame_buffer` caches the filtered frame, so every path that moves the console has to say
+    /// so. Stepping instructions is the one a debugger uses, and it can cross a frame boundary
+    /// like any other clock.
+    #[test]
+    fn stepping_instructions_refreshes_the_frame() {
+        let mut deck = spritecans();
+        // Past the ROM's first few frames, which are still identical to each other and so cannot
+        // tell a refreshed frame from a cached one.
+        for _ in 0..10 {
+            clock_display_frame(&mut deck);
+        }
+        let first = deck.frame_buffer().to_vec();
+
+        let frame = deck.frame_number();
+        while frame == deck.frame_number() {
+            deck.clock_instr().expect("steps");
+        }
+        assert_ne!(
+            first,
+            deck.frame_buffer().to_vec(),
+            "a whole frame was stepped, so the cached one is not the current one"
+        );
+    }
+
+    /// A restored state replaces the console outright. Anything cached from the old one describes
+    /// a machine that is no longer here, including the frame a caller is about to blit.
+    #[test]
+    fn loading_a_state_refreshes_the_frame() {
+        let mut deck = spritecans();
+        clock_display_frame(&mut deck);
+        let early = deck.bus().clone();
+        let early_frame = deck.frame_buffer().to_vec();
+
+        for _ in 0..30 {
+            clock_display_frame(&mut deck);
+        }
+        let late_frame = deck.frame_buffer().to_vec();
+        assert_ne!(early_frame, late_frame, "the game has moved on");
+
+        deck.load_bus(early).expect("restores");
+        assert_eq!(
+            deck.frame_buffer().to_vec(),
+            early_frame,
+            "reports the restored console, not the one it replaced"
+        );
     }
 
     /// Battery-backed state is written and restored through the board, since what is backed
