@@ -296,4 +296,55 @@ mod tests {
             "one frame past the snapshot, which is the offset a rewind shows throughout"
         );
     }
+
+    /// Below 1x a display frame does not always owe an NES frame, so one `clock_frame` is not
+    /// enough to re-render a restored snapshot - three calls in four at 0.25x clock nothing and
+    /// leave the blank buffer in place. Rewinding steps one snapshot per display frame at any
+    /// speed, so it has to keep asking until a frame is actually rendered.
+    #[test]
+    fn a_restored_snapshot_needs_more_than_one_clock_below_1x() {
+        use tetanes_core::control_deck::{Clocked, Config, ControlDeck};
+        use tetanes_core::memory::RamState;
+
+        let mut deck = ControlDeck::with_config(Config {
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        });
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("failed to load rom");
+
+        let mut rewind = Rewind::new(true, 1, 1);
+        for _ in 0..120 {
+            let _ = deck.clock_frame().expect("failed to clock frame");
+            rewind.push(deck.bus()).expect("failed to push a snapshot");
+        }
+
+        deck.set_frame_speed(0.25);
+        let bus = rewind.pop().expect("a snapshot to rewind to");
+        deck.load_bus(bus).expect("failed to restore");
+
+        assert_eq!(
+            deck.clock_frame().expect("clocks"),
+            Clocked::Idle,
+            "0.25x owes no frame on this call"
+        );
+        assert!(
+            deck.bus().ppu.frame_buffer().iter().all(|&px| px == 0),
+            "so the snapshot is still blank - shipping it here is the black-frame bug"
+        );
+
+        let mut clocks = 1;
+        while deck.clock_frame().expect("clocks") == Clocked::Idle {
+            clocks += 1;
+        }
+        assert!(
+            (2..=4).contains(&clocks),
+            "0.25x owes a frame on one display frame in four, whatever phase it starts in, \
+             but took {clocks}"
+        );
+        assert!(
+            deck.bus().ppu.frame_buffer().iter().any(|&px| px != 0),
+            "and now it has pixels"
+        );
+    }
 }

@@ -1064,10 +1064,20 @@ impl State {
                     // one-frame offset across a rewind and costs a frame of emulation on a path
                     // that has a whole frame to spend. Audio is deliberately left undrained -
                     // rewinding is silent, and the next clock clears what this one produced.
-                    if let Err(err) = self.control_deck.clock_frame() {
-                        error!("failed to render a rewound frame: {err:?}");
-                        self.set_rewinding(false);
-                        return None;
+                    //
+                    // Below 1x a display frame does not always owe an NES frame, and a call that
+                    // owes none clocks nothing - which would ship the blank buffer the snapshot
+                    // restored. Keep asking until one is actually rendered.
+                    loop {
+                        match self.control_deck.clock_frame() {
+                            Ok(Clocked::Idle) => continue,
+                            Ok(_) => break,
+                            Err(err) => {
+                                error!("failed to render a rewound frame: {err:?}");
+                                self.set_rewinding(false);
+                                return None;
+                            }
+                        }
                     }
                     // One frame, not a display frame's worth: a rewind steps back one snapshot per
                     // display frame however fast the game was running when it was recorded.
