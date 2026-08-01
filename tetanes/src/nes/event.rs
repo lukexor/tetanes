@@ -562,6 +562,25 @@ impl ApplicationHandler<NesEvent> for Running {
             self.repaint_times.insert(window_id, Instant::now());
         }
 
+        // egui starts consuming keyboard input the moment a text field takes focus, which
+        // strands whatever a press already started — a held joypad button never lifts. A key
+        // whose press we dispatched gets its release dispatched too; one we never saw pressed
+        // stays egui's, so typing in a text field can't fire shortcuts, which mostly trigger
+        // on release.
+        if res.consumed
+            && let WindowEvent::KeyboardInput { event, .. } = &event
+            && event.state == ElementState::Released
+            && let PhysicalKey::Code(key) = event.physical_key
+            && let Some(modifiers) = self.pressed_keys.remove(&key)
+        {
+            self.on_input(
+                window_id,
+                Input::Key(key, modifiers),
+                ElementState::Released,
+                false,
+            );
+        }
+
         if !res.consumed {
             match event {
                 WindowEvent::RedrawRequested => {
@@ -633,9 +652,32 @@ impl ApplicationHandler<NesEvent> for Running {
                     if (!is_synthetic || event.state != ElementState::Pressed)
                         && let PhysicalKey::Code(key) = event.physical_key
                     {
+                        // Bindings are keyed by (key, modifiers), so a release looked up with
+                        // the modifiers held *now* can resolve to a different binding than its
+                        // press did — or to none at all. Releasing Ctrl before S makes the
+                        // release of `Ctrl+S` look like the release of a bare `S`, so the
+                        // shortcut never fires; pressing Ctrl while a direction is held makes
+                        // that direction's release look like a `Ctrl+<dir>` nobody bound, so
+                        // the joypad button stays down and the character keeps walking.
+                        // Resolving a release against the modifiers its press saw keeps the
+                        // pair matched.
+                        let held = self.modifiers.state();
+                        let modifiers = match event.state {
+                            // A repeat is the same physical press, so it keeps those modifiers.
+                            ElementState::Pressed if event.repeat => {
+                                self.pressed_keys.get(&key).copied()
+                            }
+                            ElementState::Pressed => {
+                                self.pressed_keys.insert(key, held);
+                                Some(held)
+                            }
+                            ElementState::Released => self.pressed_keys.remove(&key),
+                        }
+                        .unwrap_or(held);
+
                         self.on_input(
                             window_id,
-                            Input::Key(key, self.modifiers.state()),
+                            Input::Key(key, modifiers),
                             event.state,
                             event.repeat,
                         );

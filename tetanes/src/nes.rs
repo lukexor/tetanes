@@ -23,6 +23,7 @@ use thingbuf::mpsc::blocking;
 use winit::{
     event::Modifiers,
     event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{KeyCode, ModifiersState},
     window::{Window, WindowId},
 };
 
@@ -114,6 +115,9 @@ pub(crate) struct Running {
     pub(crate) input_bindings: InputBindings,
     pub(crate) gamepads: Gamepads,
     pub(crate) modifiers: Modifiers,
+    /// The modifiers held when each currently-held key was pressed, so a release resolves to
+    /// the same binding its press did.
+    pub(crate) pressed_keys: HashMap<KeyCode, ModifiersState>,
     pub(crate) replay_recording: bool,
     pub(crate) audio_recording: bool,
     pub(crate) rewinding: bool,
@@ -243,6 +247,7 @@ impl Nes {
                     input_bindings,
                     gamepads,
                     modifiers: Modifiers::default(),
+                    pressed_keys: HashMap::default(),
                     replay_recording: false,
                     audio_recording: false,
                     rewinding: false,
