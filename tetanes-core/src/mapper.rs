@@ -425,6 +425,56 @@ macro_rules! impl_dispatch {
                 dispatch!(self, [$($variant),+], m => m.mapper_ops())
             }
 
+            /// Check what a board says it does against what it does, in debug builds.
+            ///
+            /// [`Map::mapper_ops`] is written by hand per board and nothing links it to the
+            /// methods that board overrode, so implementing a hook and forgetting its bit
+            /// compiles and runs with the hardware silently dead. The read hooks can be settled
+            /// outright: sweep every address [`Bus`](crate::bus::Bus) would route to the board and
+            /// require one that declared nothing to answer nothing. `CLOCKED` is the gap - a board
+            /// that is never clocked and a board whose clock does nothing look the same from here.
+            ///
+            /// Only the boards that declared *no* hook are swept, so this cannot be slow in a way
+            /// that depends on the game: the hooks it calls are the trait's own defaults.
+            #[cfg(debug_assertions)]
+            pub(crate) fn check_mapper_ops(&self, memory: &Memory) {
+                let name = match self {
+                    Mapper::None(_) => "None",
+                    $(Mapper::$variant(_) => stringify!($variant),)+
+                };
+                let ops = self.mapper_ops();
+                if !ops.intersects(MapperOps::SERVES_PRG_READS) {
+                    for addr in 0x4100..=0xFFFFu16 {
+                        assert!(
+                            self.prg_peek(addr).is_none(),
+                            "{name} answers CPU ${addr:04X}, but its mapper_ops() omits \
+                             SERVES_PRG_READS, so the bus never asks it",
+                        );
+                    }
+                }
+                if !ops.intersects(MapperOps::SERVES_CHR_READS) {
+                    for addr in 0x0000..=0x3EFFu16 {
+                        assert!(
+                            self.chr_peek(memory, addr).is_none(),
+                            "{name} answers PPU ${addr:04X}, but its mapper_ops() omits \
+                             SERVES_CHR_READS, so the bus never asks it",
+                        );
+                    }
+                }
+                assert!(
+                    ops.intersects(MapperOps::AUDIO) || self.output() == 0.0,
+                    "{name} outputs audio, but its mapper_ops() omits AUDIO",
+                );
+                assert!(
+                    ops.intersects(MapperOps::IRQ) || !self.irq_pending(),
+                    "{name} raises an IRQ, but its mapper_ops() omits IRQ",
+                );
+                assert!(
+                    ops.intersects(MapperOps::DMA) || !self.dma_pending(),
+                    "{name} raises a DMA, but its mapper_ops() omits DMA",
+                );
+            }
+
             /// Synchronize a write to a PPU address.
             pub fn ppu_write(&mut self, addr: u16, val: u8) {
                 dispatch!(self, [$($variant),+], m => m.ppu_write(addr, val))
@@ -861,24 +911,53 @@ pub(crate) mod test_utils {
         cart
     }
 
+    /// The CPU addresses [`Bus`](crate::bus::Bus) routes to the board. Below this the address
+    /// decodes to console hardware - the APU and the controller ports - and the board is never
+    /// consulted, so a test that uses one is asserting about an access no game can make.
+    const CPU_BUS_TO_BOARD: std::ops::RangeInclusive<u16> = 0x4100..=0xFFFF;
+    /// The PPU addresses that reach the board. `$3F00-$3FFF` is palette RAM inside the PPU.
+    const PPU_BUS_TO_BOARD: std::ops::RangeInclusive<u16> = 0x0000..=0x3EFF;
+
     /// Mirrors `Bus::write`: the data store happens first, then the board acts on the register.
     pub fn write(mapper: &mut Mapper, cart: &mut Cart, addr: u16, val: u8) {
+        assert!(
+            CPU_BUS_TO_BOARD.contains(&addr),
+            "${addr:04X} does not reach the board on the CPU bus"
+        );
         cart.memory.prg_write(addr, val);
         mapper.write_register(&mut cart.memory, addr, val);
     }
 
-    /// Mirrors `Bus::peek`'s routing for a page-table board: the mapper's escape hatch first, then
-    /// the page tables.
+    /// Mirrors `Bus::peek`'s routing for a page-table board: the board's escape hatch first - and
+    /// only if it declared one - then the page tables.
+    ///
+    /// The `mapper_ops()` gate is the point. `Bus` will not call a hook a board did not declare,
+    /// so a helper that calls it unconditionally lets a board pass its own tests while doing
+    /// nothing in the emulator.
     pub fn prg_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        assert!(
+            CPU_BUS_TO_BOARD.contains(&addr),
+            "${addr:04X} does not reach the board on the CPU bus"
+        );
         mapper
-            .prg_peek(addr)
+            .mapper_ops()
+            .intersects(MapperOps::SERVES_PRG_READS)
+            .then(|| mapper.prg_peek(addr))
+            .flatten()
             .unwrap_or_else(|| cart.memory.prg_peek(addr))
     }
 
-    /// Mirrors `Bus::chr_peek`'s routing for a page-table board.
+    /// Mirrors `Bus::chr_peek`'s routing for a page-table board, `mapper_ops()` gate included.
     pub fn chr_peek(mapper: &Mapper, cart: &Cart, addr: u16) -> u8 {
+        assert!(
+            PPU_BUS_TO_BOARD.contains(&addr),
+            "${addr:04X} does not reach the board on the PPU bus"
+        );
         mapper
-            .chr_peek(&cart.memory, addr)
+            .mapper_ops()
+            .intersects(MapperOps::SERVES_CHR_READS)
+            .then(|| mapper.chr_peek(&cart.memory, addr))
+            .flatten()
             .unwrap_or_else(|| cart.memory.chr_peek(addr))
     }
 }

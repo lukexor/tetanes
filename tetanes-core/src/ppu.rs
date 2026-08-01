@@ -1360,6 +1360,8 @@ impl Bus {
         // `ControlDeck::load_rom` sets the region *before* installing the cart, so a mapper whose
         // timing depends on it (MMC5's expansion audio) would otherwise never be told.
         self.mapper.set_region(self.region);
+        #[cfg(debug_assertions)]
+        self.mapper.check_mapper_ops(&self.memory);
     }
 
     /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
@@ -1381,10 +1383,12 @@ impl Bus {
     pub fn rebuild_mapper_state(&mut self) {
         let Self { mapper, memory, .. } = self;
         mapper.update_banks(memory);
-        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole Cpu, so this is
-        // the state-load path's chance to recompute it from the (serialized, and thus correct)
+        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole `Bus`, so this
+        // is the state-load path's chance to recompute it from the (serialized, and thus correct)
         // mapper.
         self.mapper_ops = self.mapper.mapper_ops();
+        #[cfg(debug_assertions)]
+        self.mapper.check_mapper_ops(&self.memory);
     }
 
     /// Return the current Nametable mirroring mode.

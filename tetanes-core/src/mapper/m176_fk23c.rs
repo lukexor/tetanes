@@ -500,11 +500,7 @@ mod tests {
 
         // Bit 6 swaps the $8000 and $C000 slots.
         write(&mut mapper, &mut cart, 0x8000, 0x40);
-        assert_eq!(
-            prg_peek(&mapper, &cart, 0xC000),
-            3 * 8,
-            "R6 moved to $C000"
-        );
+        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 3 * 8, "R6 moved to $C000");
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), (62 % 32) * 8);
 
         // Bit 7 swaps the two 4K CHR halves.
@@ -561,6 +557,9 @@ mod tests {
 
     /// $A001 controls WRAM. In the banked RAM-config mode it appears at $4000 as well as $6000,
     /// one bank apart - which is the only reason this board maps anything at $4000.
+    ///
+    /// Probed at $4100 rather than $4000: the window starts at $4000, but the CPU bus decodes
+    /// $4000-$40FF to the APU and the controller ports, so those 256 bytes never reach the board.
     #[test]
     fn a001_controls_wram_mapping_and_the_4000_window() {
         let (mut mapper, mut cart) = load();
@@ -569,16 +568,16 @@ mod tests {
         // Bit 7 alone: plain 8K WRAM at $6000, nothing at $4000.
         write(&mut mapper, &mut cart, 0xA001, 0x80);
         assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A);
-        assert_eq!(prg_peek(&mapper, &cart, 0x4000), 0, "no $4000 window");
+        assert_eq!(prg_peek(&mapper, &cart, 0x4100), 0, "no $4000 window");
 
         // Bit 5 turns on RAM-config banking, which also opens the $4000 window.
         write(&mut mapper, &mut cart, 0xA001, 0x20);
         cart.memory.prg_write(0x6000, 0x11);
-        cart.memory.prg_write(0x4000, 0x22);
+        cart.memory.prg_write(0x4100, 0x22);
         assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x11);
-        assert_eq!(prg_peek(&mapper, &cart, 0x4000), 0x22);
+        assert_eq!(prg_peek(&mapper, &cart, 0x4100), 0x22);
         assert_ne!(
-            prg_peek(&mapper, &cart, 0x4000),
+            prg_peek(&mapper, &cart, 0x4100),
             prg_peek(&mapper, &cart, 0x6000),
             "$4000 is the next WRAM bank, not a mirror"
         );
@@ -647,7 +646,7 @@ mod tests {
         mode(&mut mapper, &mut cart, 2, 1);
 
         let sample = |mapper: &Mapper, cart: &Cart| -> Vec<u8> {
-            [0x4000, 0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
+            [0x4100, 0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
                 .into_iter()
                 .map(|addr| prg_peek(mapper, cart, addr))
                 .chain((0..8).map(|slot| chr_peek(mapper, cart, slot * 1024)))

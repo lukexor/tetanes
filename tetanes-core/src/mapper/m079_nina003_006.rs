@@ -119,9 +119,13 @@ mod tests {
             assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(3), "${addr:04X} hits");
             write(&mut mapper, &mut cart, addr, 0x00);
         }
-        for addr in [0x4000, 0x4200, 0x6100, 0x8100] {
+        for addr in [0x4200, 0x4600, 0x6100, 0x8100] {
             write(&mut mapper, &mut cart, addr, 0x03);
-            assert_eq!(chr_peek(&mapper, &cart, 0x0000), chr(0), "${addr:04X} misses");
+            assert_eq!(
+                chr_peek(&mapper, &cart, 0x0000),
+                chr(0),
+                "${addr:04X} misses"
+            );
         }
     }
 
