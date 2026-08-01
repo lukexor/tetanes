@@ -19,6 +19,13 @@ const SAVE_VERSION: &str = "2";
 /// Deliberately independent of `SAVE_VERSION`: the database is not save-state data, so bumping
 /// the save format must not invalidate it.
 pub const GAME_DB_VERSION: &str = "1";
+/// Version for battery-backed cart RAM.
+///
+/// Deliberately independent of `SAVE_VERSION` for the same reason as [`GAME_DB_VERSION`]: a
+/// `.sram` file holds a board's battery contents, not a snapshot of console state, so a save-state
+/// layout change must not make a player's save games unreadable. Bump this only when a board
+/// changes what it writes.
+pub const SRAM_VERSION: &str = "1";
 
 /// A `Result` from a save-file operation.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -170,6 +177,30 @@ where
     Ok(())
 }
 
+/// Serializes, compresses and writes a board's battery-backed RAM to `path`.
+///
+/// # Errors
+///
+/// If the value cannot be serialized or the file cannot be written.
+pub fn save_sram<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
+where
+    T: ?Sized + Serialize,
+{
+    save_version(path, value, SRAM_VERSION)
+}
+
+/// Reads a board's battery-backed RAM from `path`.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
+pub fn load_sram<T>(path: impl AsRef<Path>) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    load_version(path, SRAM_VERSION)
+}
+
 /// Writes bytes to `path` with no header, compression or serialization.
 ///
 /// # Errors
@@ -195,8 +226,20 @@ pub fn load<T>(path: impl AsRef<Path>) -> Result<T>
 where
     T: DeserializeOwned,
 {
+    load_version(path, SAVE_VERSION)
+}
+
+/// Load data written with an explicit format version.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
+pub fn load_version<T>(path: impl AsRef<Path>, version: &str) -> Result<T>
+where
+    T: DeserializeOwned,
+{
     let mut reader = fs::reader_impl(path)?;
-    validate_header(&mut reader, SAVE_VERSION)?;
+    validate_header(&mut reader, version)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
     let config = bincode::config::legacy();
     let (res, _) = bincode::serde::decode_from_slice(&data, config)
@@ -339,6 +382,18 @@ mod tests {
             validate_header(&mut file.as_slice(), SAVE_VERSION).is_ok(),
             "validate header"
         );
+    }
+
+    /// `.sram` files written by every released build carry version "1". Bumping `SAVE_VERSION`
+    /// must not move this one, or every player's battery saves stop validating and the next
+    /// `unload_rom` overwrites them with blank RAM.
+    #[test]
+    fn sram_header_is_pinned_to_the_released_version() {
+        assert_eq!(SRAM_VERSION, "1");
+
+        let mut file = Vec::new();
+        write_header(&mut file, SRAM_VERSION).expect("write header");
+        assert_eq!(&file[SAVE_FILE_MAGIC_LEN..], b"1");
     }
 
     #[test]

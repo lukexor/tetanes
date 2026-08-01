@@ -717,13 +717,17 @@ pub trait Map {
     /// covers something else - Namco163 also keeps internal sound RAM, Bandai's Datach carts have
     /// EEPROMs and no PRG-RAM at all - override this and keep their own on-disk layout, so `Bus`
     /// needs no per-board knowledge.
+    ///
+    /// An override writes through [`fs::save_sram`], which stamps [`fs::SRAM_VERSION`] rather than
+    /// the save-state version: a player's battery saves outlive the save-state format, so the two
+    /// must be able to move independently.
     fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
-        fs::save(path, &memory.region_ref(Src::PrgRam).to_vec())
+        fs::save_sram(path, &memory.region_ref(Src::PrgRam).to_vec())
     }
 
     /// Restore state previously written by [`Map::save_sram`].
     fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
-        let data = fs::load::<Vec<u8>>(path)?;
+        let data = fs::load_sram::<Vec<u8>>(path)?;
         let ram = memory.region_mut(Src::PrgRam);
         let len = ram.len().min(data.len());
         ram[..len].copy_from_slice(&data[..len]);

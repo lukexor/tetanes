@@ -137,24 +137,23 @@ impl Map for Namco163 {
     }
 
     /// Internal sound RAM is battery-backed on this board and shares the PRG-RAM save file.
+    ///
+    /// The sound RAM goes out as the [`ConstArray`] itself, not as a `Vec`: bincode gives a `Vec` a
+    /// length prefix and a fixed-size array none, so serializing the copy would shift every byte
+    /// after it and orphan existing `.sram` files.
     fn save_sram(&self, memory: &Memory, path: &std::path::Path) -> crate::fs::Result<()> {
-        crate::fs::save(
+        crate::fs::save_sram(
             path,
-            &(
-                memory.region_ref(Src::PrgRam).to_vec(),
-                self.audio.ram.to_vec(),
-            ),
+            &(memory.region_ref(Src::PrgRam).to_vec(), &self.audio.ram),
         )
     }
 
     fn load_sram(&mut self, memory: &mut Memory, path: &std::path::Path) -> crate::fs::Result<()> {
-        let (prg_ram, audio_ram) = crate::fs::load::<(Vec<u8>, Vec<u8>)>(path)?;
+        let (prg_ram, audio_ram) = crate::fs::load_sram::<(Vec<u8>, ConstArray<u8, 0x80>)>(path)?;
         let ram = memory.region_mut(Src::PrgRam);
         let len = ram.len().min(prg_ram.len());
         ram[..len].copy_from_slice(&prg_ram[..len]);
-        for (dst, src) in self.audio.ram.iter_mut().zip(&audio_ram) {
-            *dst = *src;
-        }
+        self.audio.ram = audio_ram;
         Ok(())
     }
 
@@ -720,6 +719,24 @@ mod tests {
                 "auto-increment walks the four bytes written"
             );
         }
+    }
+
+    /// The `.sram` layout is a length-prefixed PRG-RAM `Vec` followed by the 128 sound-RAM bytes
+    /// bare. A round trip cannot see the difference between that and a second length prefix, so
+    /// this pins the size the bytes take on disk instead - existing save games depend on it.
+    #[test]
+    fn sound_ram_is_appended_to_the_sram_file_without_a_length_prefix() {
+        let (mapper, cart) = load();
+        let path = std::env::temp_dir().join("tetanes-namco163-sram-layout.sram");
+        let _ = std::fs::remove_file(&path);
+
+        mapper.save_sram(&cart.memory, &path).expect("saves");
+        let mut file = std::fs::File::open(&path).expect("opens");
+        crate::fs::validate_header(&mut file, crate::fs::SRAM_VERSION).expect("sram header");
+        let payload = crate::fs::decode(&mut file).expect("deflate");
+        assert_eq!(payload.len(), 8 + 8 * 1024 + 0x80);
+
+        std::fs::remove_file(&path).expect("cleans up");
     }
 
     /// PRG-RAM is mapped and writable on a Namco163.
