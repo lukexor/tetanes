@@ -9,11 +9,11 @@ use crate::{
     },
     platform::Initialize,
 };
+use ahash::HashMap;
 use anyhow::Context;
 use cfg_if::cfg_if;
 use config::Config;
 use crossbeam::channel::Receiver;
-use egui::ahash::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},

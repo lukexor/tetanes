@@ -1192,7 +1192,7 @@ mod tests {
             );
         }
         // A semitone is ~5.9%, and the smallest interval anyone reliably hears is far above 0.5%.
-        assert!(State::AUDIO_MAX_DEVIATION <= 0.005);
+        const { assert!(State::AUDIO_MAX_DEVIATION <= 0.005) };
     }
 
     /// A buffer starting far from the setpoint has to come back to it and stay, or the method

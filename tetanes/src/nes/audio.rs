@@ -423,7 +423,7 @@ impl Output {
         info!("starting audio stream with config: {:?}", self.config);
         self.mixer = Some(Mixer::start(
             &self.device,
-            &self.config,
+            self.config,
             self.latency,
             self.sample_format,
         )?);
@@ -510,7 +510,7 @@ impl Fade {
 impl Mixer {
     fn start(
         device: &cpal::Device,
-        config: &cpal::StreamConfig,
+        config: cpal::StreamConfig,
         latency: Duration,
         sample_format: cpal::SampleFormat,
     ) -> anyhow::Result<Self> {
@@ -629,7 +629,7 @@ impl Mixer {
 
     fn make_stream<T>(
         device: &cpal::Device,
-        config: &cpal::StreamConfig,
+        config: cpal::StreamConfig,
         mut consumer: SampleConsumer,
         sample_latency: usize,
         silenced: Silenced,

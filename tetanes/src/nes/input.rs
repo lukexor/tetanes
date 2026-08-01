@@ -3,7 +3,7 @@ use crate::nes::{
     config::{Config, InputConfig},
     renderer::{gui::Menu, shader::Shader},
 };
-use egui::ahash::HashMap;
+use ahash::HashMap;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},

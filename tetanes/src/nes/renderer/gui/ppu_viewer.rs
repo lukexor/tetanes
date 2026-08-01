@@ -408,7 +408,7 @@ impl PpuViewer {
                     .show(ui, |ui| state.lock().ui(ui, opts.enabled));
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show_inside(ui, |ui| state.lock().ui(ui, opts.enabled));
+                CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled));
                 if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
@@ -436,7 +436,7 @@ impl State {
 
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
         ui.add_enabled_ui(enabled, |ui| {
-            Panel::top("ppu_viewer_menubar").show_inside(ui, |ui| {
+            Panel::top("ppu_viewer_menubar").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.tab, Tab::Nametables, "Nametables");
                     ui.selectable_value(&mut self.tab, Tab::PatternTables, "Pattern Tables");
@@ -499,7 +499,7 @@ impl State {
     }
 
     fn nametables_tab(&mut self, ui: &mut Ui) {
-        Panel::right("nametable_panel").show_inside(ui, |ui| {
+        Panel::right("nametable_panel").show(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Nametable Info");
@@ -563,7 +563,7 @@ impl State {
         });
 
         let texture_size = self.nametables.texture.size;
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             let scroll = ScrollArea::both()
                 .min_scrolled_width(texture_size.x)
                 .min_scrolled_height(texture_size.y);
@@ -912,7 +912,7 @@ impl State {
     }
 
     fn pattern_tables_tab(&mut self, ui: &mut Ui) {
-        Panel::right("pattern_tables_panel").show_inside(ui, |ui| {
+        Panel::right("pattern_tables_panel").show(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Tile");
@@ -936,7 +936,7 @@ impl State {
         });
 
         let texture_size = self.pattern_tables.texture.size;
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             let scroll = ScrollArea::both()
                 .min_scrolled_width(texture_size.x)
                 .min_scrolled_height(texture_size.y);
@@ -1059,7 +1059,7 @@ impl State {
     }
 
     fn oam_tab(&mut self, ui: &mut Ui) {
-        Panel::right("oam_panel").show_inside(ui, |ui| {
+        Panel::right("oam_panel").show(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Tile");
@@ -1094,7 +1094,7 @@ impl State {
         let display_height = 2.0 * self.oam.zoom * oam_texture_size.y;
         let oam_size = oam_texture_size * (display_height / oam_texture_size.y);
         let sprites_size = sprites_texture_size * (display_height / sprites_texture_size.y);
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             let scroll = ScrollArea::both()
                 .min_scrolled_width(oam_texture_size.x + sprites_texture_size.x)
                 .min_scrolled_height(oam_texture_size.y.max(sprites_texture_size.y));
@@ -1293,7 +1293,7 @@ impl State {
     }
 
     fn palette_tab(&mut self, ui: &mut Ui) {
-        Panel::right("palette_panel").show_inside(ui, |ui| {
+        Panel::right("palette_panel").show(ui, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.heading("Selected Color");
@@ -1302,7 +1302,7 @@ impl State {
             });
         });
 
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ScrollArea::both().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let res = self

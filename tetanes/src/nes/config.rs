@@ -4,8 +4,8 @@ use crate::nes::{
     renderer::shader::Shader,
     rom::HOMEBREW_ROMS,
 };
+use ahash::HashSet;
 use anyhow::Context;
-use egui::ahash::HashSet;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},

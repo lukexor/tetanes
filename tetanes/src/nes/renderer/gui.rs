@@ -304,7 +304,7 @@ impl Gui {
         }
 
         if cfg.renderer.show_menubar {
-            Panel::top("menubar").show_inside(ui, |ui| self.menubar(ui, cfg));
+            Panel::top("menubar").show(ui, |ui| self.menubar(ui, cfg));
         }
 
         let viewport_opts = ViewportOptions {
@@ -314,7 +314,7 @@ impl Gui {
 
         CentralPanel::default()
             .frame(Frame::canvas(ui.style()))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.nes_frame(ui, viewport_opts.enabled, cfg, gamepads);
             });
 
@@ -530,7 +530,7 @@ impl Gui {
                     });
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show_inside(ui, |ui| {
+                CentralPanel::default().show(ui, |ui| {
                     ui.add_enabled_ui(opts.enabled, |ui| add_contents(&ctx, ui));
                 });
                 if ui.input(|i| i.viewport().close_requested()) {
@@ -1207,7 +1207,7 @@ impl Gui {
         ui.add_enabled_ui(enabled, |ui| {
             let tx = &self.tx;
 
-            CentralPanel::default().show_inside(ui, |ui| {
+            CentralPanel::default().show(ui, |ui| {
                 if self.loaded_rom.is_some() {
                     let layout = Layout {
                         main_dir: Direction::TopDown,

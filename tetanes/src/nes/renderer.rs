@@ -15,12 +15,13 @@ use crate::{
     platform::{self, BuilderExt, Initialize},
     thread,
 };
+use ahash::HashMap;
 use anyhow::Context;
 use crossbeam::channel::{self, Receiver};
 use egui::{
     DeferredViewportUiCallback, OutputCommand, Vec2, ViewportBuilder, ViewportClass,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportIdPair, ViewportIdSet, ViewportInfo,
-    ViewportOutput, WindowLevel, ahash::HashMap,
+    ViewportOutput, WindowLevel,
 };
 use parking_lot::Mutex;
 use std::{

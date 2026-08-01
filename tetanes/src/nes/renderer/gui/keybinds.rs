@@ -151,7 +151,7 @@ impl Keybinds {
                     });
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show_inside(ui, |ui| {
+                CentralPanel::default().show(ui, |ui| {
                     state.lock().ui(ui, opts.enabled, &cfg, &gamepad_state);
                 });
                 if ui.input(|i| i.viewport().close_requested()) {

@@ -33,6 +33,7 @@ profiling = ["tetanes-core/profiling"]
 webgpu = []
 
 [dependencies]
+ahash = "0.8.12"
 anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
@@ -43,14 +44,14 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 crossbeam = "0.8"
 dirs.workspace = true
-egui = { version = "0.34", default-features = false, features = [
+egui = { workspace = true, default-features = false, features = [
   "bytemuck",
   "color-hex",
   "default_fonts",
   "persistence",
   "serde",
 ] }
-egui_extras = { version = "0.34", default-features = false, features = [
+egui_extras = { workspace = true, default-features = false, features = [
   "image",
   "serde",
 ] }
@@ -81,10 +82,10 @@ arboard = { version = "3.4", default-features = false, features = [
   "windows-sys",
 ] }
 clap.workspace = true
-cpal = "0.17"
+cpal.workspace = true
 ctrlc = { version = "3.5", features = ["termination"] }
-egui = { version = "0.34", default-features = false }
-pollster = "0.4"
+egui = { workspace = true, default-features = false }
+pollster = "1.0"
 reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
   "blocking",
@@ -99,19 +100,19 @@ sysinfo = { version = "0.39", default-features = false, features = [
 tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-base64 = "0.22"
+base64.workspace = true
 chrono = { version = "0.4", default-features = false, features = [
   "std",
   "clock",
   "wasmbind",
 ] }
 console_error_panic_hook = "0.1"
-cpal = { version = "0.17", features = ["wasm-bindgen"] }
+cpal = { workspace = true, features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.4", features = ["wasm_js"] }
 tracing-web = "0.1"
 uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
-wgpu = { version = "29.0", features = [
+wgpu = { version = "30.0", features = [
   "webgl",
   "fragile-send-sync-non-atomic-wasm", # Safe because we're not enabling atomics
 ] }

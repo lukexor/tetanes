@@ -132,6 +132,34 @@ impl Rewind {
     }
 }
 
+impl State {
+    pub fn rewind_disabled(&mut self) {
+        self.add_message(
+            MessageType::Warn,
+            "Rewind disabled. You can enable it in the Preferences menu.",
+        );
+    }
+
+    pub fn instant_rewind(&mut self) {
+        if !self.rewind.enabled {
+            return self.rewind_disabled();
+        }
+        // ~2 seconds worth of frames @ 60 FPS
+        let mut rewind_frames = 120 / self.rewind.interval;
+        while let Some(mut bus) = self.rewind.pop() {
+            bus.input.clear(); // Discard inputs while rewinding
+            if let Err(err) = self.control_deck.load_bus(bus) {
+                error!("failed to rewind: {err:?}");
+                return;
+            }
+            rewind_frames -= 1;
+            if rewind_frames == 0 {
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,7 +243,7 @@ mod tests {
                 .map(|pair| pair[0] - pair[1])
                 .collect::<Vec<_>>();
             assert!(
-                gaps.iter().all(|&gap| gap == u32::from(interval)),
+                gaps.iter().all(|&gap| gap == interval),
                 "at {speed}x every gap should be {interval} nes frames, got {gaps:?} from \
                  {snapshots:?}"
             );
@@ -267,33 +295,5 @@ mod tests {
             snapshot_frame + 1,
             "one frame past the snapshot, which is the offset a rewind shows throughout"
         );
-    }
-}
-
-impl State {
-    pub fn rewind_disabled(&mut self) {
-        self.add_message(
-            MessageType::Warn,
-            "Rewind disabled. You can enable it in the Preferences menu.",
-        );
-    }
-
-    pub fn instant_rewind(&mut self) {
-        if !self.rewind.enabled {
-            return self.rewind_disabled();
-        }
-        // ~2 seconds worth of frames @ 60 FPS
-        let mut rewind_frames = 120 / self.rewind.interval;
-        while let Some(mut bus) = self.rewind.pop() {
-            bus.input.clear(); // Discard inputs while rewinding
-            if let Err(err) = self.control_deck.load_bus(bus) {
-                error!("failed to rewind: {err:?}");
-                return;
-            }
-            rewind_frames -= 1;
-            if rewind_frames == 0 {
-                break;
-            }
-        }
     }
 }
