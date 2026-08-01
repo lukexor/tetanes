@@ -30,9 +30,10 @@ use crate::{
 };
 use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, Pos2, Rect, RichText,
-    ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId, Visuals, hex_color,
-    include_image,
+    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, PopupCloseBehavior, Pos2, Rect,
+    RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId, Visuals,
+    containers::menu::{MenuConfig, SubMenuButton},
+    hex_color, include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
 use serde::{Deserialize, Serialize};
@@ -993,13 +994,18 @@ impl Gui {
         ui.menu_button("🎮 Four Player...", |ui| {
             Preferences::four_player_radio(tx, ui, cfg.deck.four_player);
         });
-        ui.menu_button("📓 Game Genie Codes...", |ui| {
-            self.preferences.show_genie_codes_entry(ui, cfg);
+        // Menus close on any click by default, which dismisses this one the moment the
+        // text field is clicked into, so it only closes on a click outside of it. Every
+        // other submenu is made of one-shot items where closing on click is what's wanted.
+        SubMenuButton::new("📓 Game Genie Codes...")
+            .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
+            .ui(ui, |ui| {
+                self.preferences.show_genie_codes_entry(ui, cfg);
 
-            ui.separator();
+                ui.separator();
 
-            Preferences::genie_codes_list(tx, ui, cfg, true);
-        });
+                Preferences::genie_codes_list(tx, ui, cfg, true);
+            });
 
         ui.separator();
 
