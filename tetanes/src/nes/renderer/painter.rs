@@ -303,8 +303,7 @@ impl Painter {
         }
 
         render_state.queue.submit(iter::once(encoder.finish()));
-
-        output_frame.present();
+        render_state.queue.present(output_frame);
     }
 
     pub const fn render_state(&self) -> Option<&RenderState> {
@@ -378,7 +377,7 @@ impl RenderState {
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(surface),
-                force_fallback_adapter: false,
+                ..Default::default()
             })
             .await
             .context("failed to find suitable wgpu adapter")?;
@@ -518,14 +517,14 @@ impl RenderState {
                 vertex: wgpu::VertexState {
                     entry_point: Some("vs_main"),
                     module: &shader_module,
-                    buffers: &[wgpu::VertexBufferLayout {
+                    buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: 5 * 4,
                         step_mode: wgpu::VertexStepMode::Vertex,
                         // 0: vec2 position
                         // 1: vec2 uv coordinates
                         // 2: uint color
                         attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
-                    }],
+                    })],
                     compilation_options: wgpu::PipelineCompilationOptions::default()
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -662,6 +661,7 @@ impl RenderState {
                 desired_maximum_frame_latency: 2,
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
                 view_formats: vec![self.format],
+                color_space: wgpu::SurfaceColorSpace::default(),
             },
         );
         surface.set_shader(
