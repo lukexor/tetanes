@@ -122,6 +122,13 @@ fn apply_corrections(game: &mut Game) {
             // screen with.
             game.mapper = 48;
         }
+        0x3F15D20D => {
+            // Famicom Jump II: Saikyou no 7 Nin. The only mapper 153 game, and its iNES dumps say
+            // mapper 016. The two are the same LZ93D50 ASIC, but 016 answers $6000-$7FFF with the
+            // EEPROM port - which 153 does not have - so as 016 the game's battery-backed WRAM
+            // reads back as zero and it never gets past its title screen.
+            game.mapper = 153;
+        }
         0x44C20420 => {
             // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
             // Waixing translation). The iNES header says mapper 74; the NES 2.0
@@ -169,7 +176,13 @@ impl Game {
             None => NesRegion::Ntsc,
         };
 
-        let chr_size = cart.chr_size();
+        // Not `Cart::chr_size`, which measures the mapped region and so reports zero for the
+        // unmapped carts this binary loads - it would write a `0` into every row.
+        let chr_size = if cart.chr_rom_size > 0 {
+            cart.chr_rom_size
+        } else {
+            cart.chr_ram_size
+        };
         let chr_banks = chr_size / (8 * 1024);
         let prg_rom_banks = cart.prg_rom_size / (16 * 1024);
         let prg_ram_banks = cart.prg_ram_size / (16 * 1024);

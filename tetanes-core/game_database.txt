@@ -659,7 +659,7 @@
   3EFF62E4, NTSC, 4, 0, 16, 16, 0, false, Horizontal, "Dark Lord (Japan).nes"
   3F0C8136, NTSC, 1, 0, 16, 8, 0, false, Horizontal, "Golf Grand Slam (Japan).nes"
   3F0FD764, NTSC, 1, 0, 16, 8, 0, false, Horizontal, "Blaster Master (USA).nes"
-  3F15D20D, NTSC, 16, 0, 1, 32, 0, true, Horizontal, "Famicom Jump II - Saikyou no 7 Nin (Japan).nes"
+  3F15D20D, NTSC, 153, 0, 1, 32, 0, true, Horizontal, "Famicom Jump II - Saikyou no 7 Nin (Japan).nes"
   3F2450EA, NTSC, 0, 0, 4, 2, 0, false, Horizontal, "Galactic Crusader (Asia) (Unl).nes"
   3F2BDA65, NTSC, 1, 0, 1, 16, 0, true, Horizontal, "Maniac Mansion (Sweden).nes"
   3F56A392, NTSC, 1, 0, 1, 16, 0, false, Horizontal, "Captain ED (Japan).nes"
