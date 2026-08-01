@@ -282,35 +282,37 @@ impl Map for BandaiFCG {
 
     /// Datach carts answer $6000-$7FFF from a barcode reader and one or two serial EEPROMs.
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
+        // Both devices latch their output when clocked, so a read only samples it. Nothing here
+        // needs `&mut self`, which is why the debugger can share the same answer.
+        self.prg_peek(addr)
+    }
+
+    fn prg_peek(&self, addr: u16) -> Option<u8> {
         if !matches!(addr, 0x6000..=0x7FFF)
             || !matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite)
         {
-            // Mapper 153's ordinary PRG-RAM falls through to the page table.
-            return matches!(addr, 0x6000..=0x7FFF).then_some(0);
+            // Mapper 153 puts ordinary PRG-RAM here, which the page table serves.
+            return None;
         }
         let mut val = 0x00;
-        if let Some(barcode_reader) = &mut self.barcode_reader {
+        if let Some(barcode_reader) = &self.barcode_reader {
             val |= barcode_reader.read();
         }
-        if let (Some(eeprom1), Some(eeprom2)) = (&mut self.standard_eeprom, &mut self.extra_eeprom)
-        {
+        if let (Some(eeprom1), Some(eeprom2)) = (&self.standard_eeprom, &self.extra_eeprom) {
             val |= (eeprom1.read() & eeprom2.read()) << 4;
-        } else if let Some(eeprom) = &mut self.standard_eeprom {
+        } else if let Some(eeprom) = &self.standard_eeprom {
             val |= eeprom.read() << 4;
         }
         Some(val)
     }
 
-    fn prg_peek(&self, addr: u16) -> Option<u8> {
-        // Reading the EEPROMs clocks their state machines, so peeking cannot do it. Report open
-        // bus rather than disturb them.
-        (matches!(addr, 0x6000..=0x7FFF)
-            && matches!(self.sram_access, MemoryOp::Read | MemoryOp::ReadWrite))
-        .then_some(0)
-    }
-
-    /// The battery covers the EEPROMs, not PRG-RAM.
-    fn save_sram(&self, _memory: &Memory, path: &Path) -> fs::Result<()> {
+    /// The battery covers the EEPROMs, and on mapper 153 the PRG-RAM as well.
+    ///
+    /// The EEPROMs keep their own files, so the two never collide.
+    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
+        if self.mapper_num == 153 {
+            fs::save_sram(path, &memory.region_ref(Src::PrgRam).to_vec())?;
+        }
         if let Some(eeprom) = &self.standard_eeprom {
             eeprom.save(path)?;
         }
@@ -320,7 +322,13 @@ impl Map for BandaiFCG {
         Ok(())
     }
 
-    fn load_sram(&mut self, _memory: &mut Memory, path: &Path) -> fs::Result<()> {
+    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
+        if self.mapper_num == 153 {
+            let data = fs::load_sram::<Vec<u8>>(path)?;
+            let ram = memory.region_mut(Src::PrgRam);
+            let len = ram.len().min(data.len());
+            ram[..len].copy_from_slice(&data[..len]);
+        }
         if let Some(eeprom) = &mut self.standard_eeprom {
             eeprom.load(path)?;
         }
@@ -855,14 +863,16 @@ impl Eeprom {
             EepromModel::X24C02 => "eeprom256",
         }
     }
+
+    /// The EEPROM keeps its own file beside the `.sram`, named for its size.
     pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
-        fs::save(path.as_ref().with_extension(extension), &self.rom_data)
+        fs::save_sram(path.as_ref().with_extension(extension), &self.rom_data)
     }
 
     pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
         let extension = self.sram_extension();
-        fs::load(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
+        fs::load_sram(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
     }
 }
 
@@ -1006,7 +1016,10 @@ mod board_tests {
             assert!(!mapper.irq_pending(), "too early, at clock {clock}");
         }
         mapper.clock();
-        assert!(mapper.irq_pending(), "the original latch value still governs");
+        assert!(
+            mapper.irq_pending(),
+            "the original latch value still governs"
+        );
     }
 
     /// On the FCG-1/2 the same registers write straight through to the counter, with no latch.
@@ -1076,6 +1089,29 @@ mod board_tests {
 
         write(&mut mapper, &mut cart, 0x800D, 0x00);
         assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled again");
+    }
+
+    /// The board answers $6000-$7FFF for the Datach devices, so 153 - which has memory there
+    /// instead - has to decline the read and let the page table serve it. Peeking alone cannot
+    /// show this: the debugger and the CPU take different entry points, and only the read one
+    /// reaches the game.
+    #[test]
+    fn mapper_153_declines_the_prg_ram_range_so_the_page_table_serves_it() {
+        let (mut mapper, mut cart) = load(153, 0);
+        write(&mut mapper, &mut cart, 0x800D, 0x20);
+
+        assert_eq!(mapper.prg_read(0x6000), None, "not the board's to answer");
+        assert_eq!(mapper.prg_peek(0x6000), None, "and the debugger agrees");
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "so RAM is read");
+    }
+
+    /// A Datach cart does answer that range, and both entry points have to give the same byte -
+    /// nothing in the barcode reader or the EEPROMs advances on a read.
+    #[test]
+    fn datach_reads_and_peeks_agree() {
+        let (mut mapper, _cart) = load(157, 0);
+        assert_eq!(mapper.prg_read(0x6000), mapper.prg_peek(0x6000));
+        assert!(mapper.prg_peek(0x6000).is_some(), "the board answers");
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
