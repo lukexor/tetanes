@@ -977,9 +977,18 @@ impl Running {
         if let Some(action) = self.input_bindings.get(&input).copied() {
             trace!("action: {action:?}, state: {state:?}, repeat: {repeat:?}");
             let released = state == ElementState::Released;
+            // One-shot shortcuts act on key-down, the way accelerators do in every desktop
+            // toolkit, and ignore auto-repeat so holding the key doesn't fire them again.
+            // Activating on release is the *pointer* convention — it exists so a click can be
+            // cancelled by dragging off the target, which a key cannot do — so a shortcut bound
+            // to a mouse button keeps it.
+            let activated = match input {
+                Input::Mouse(_) => released,
+                _ => !released && !repeat,
+            };
             let is_root_window = Some(window_id) == self.renderer.root_window_id();
             match action {
-                Action::Ui(ui_state) if released => match ui_state {
+                Action::Ui(ui_state) if activated => match ui_state {
                     Ui::Quit => self.tx.event(UiEvent::Terminate),
                     Ui::TogglePause => {
                         if is_root_window && self.renderer.rom_loaded() {
@@ -1017,9 +1026,9 @@ impl Running {
                         }
                     }
                 },
-                Action::Menu(menu) if released => self.event(RendererEvent::Menu(menu)),
+                Action::Menu(menu) if activated => self.event(RendererEvent::Menu(menu)),
                 Action::Feature(feature) if is_root_window => match feature {
-                    Feature::ToggleReplayRecording if released => {
+                    Feature::ToggleReplayRecording if activated => {
                         if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.replay_recording = !self.replay_recording;
@@ -1032,7 +1041,7 @@ impl Running {
                             );
                         }
                     }
-                    Feature::ToggleAudioRecording if released => {
+                    Feature::ToggleAudioRecording if activated => {
                         if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.audio_recording = !self.audio_recording;
@@ -1045,7 +1054,7 @@ impl Running {
                             );
                         }
                     }
-                    Feature::TakeScreenshot if released => {
+                    Feature::TakeScreenshot if activated => {
                         if feature!(Filesystem) {
                             if self.renderer.rom_loaded() {
                                 self.event(EmulationEvent::Screenshot);
@@ -1057,6 +1066,8 @@ impl Running {
                             );
                         }
                     }
+                    // The one binding that has to wait for the key to come up: a tap and a hold
+                    // do different things, and which one it was isn't known until then.
                     Feature::VisualRewind => {
                         if !self.rewinding {
                             if repeat {
@@ -1073,46 +1084,46 @@ impl Running {
                     _ => (),
                 },
                 Action::Setting(setting) => match setting {
-                    Setting::ToggleFullscreen if released => {
+                    Setting::ToggleFullscreen if activated => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
                         self.renderer.set_fullscreen(
                             self.cfg.renderer.fullscreen,
                             self.cfg.renderer.embed_viewports,
                         );
                     }
-                    Setting::ToggleEmbedViewports if released => {
+                    Setting::ToggleEmbedViewports if activated => {
                         self.cfg.renderer.embed_viewports = !self.cfg.renderer.embed_viewports;
                         self.renderer
                             .set_embed_viewports(self.cfg.renderer.embed_viewports);
                     }
-                    Setting::ToggleAlwaysOnTop if released => {
+                    Setting::ToggleAlwaysOnTop if activated => {
                         self.cfg.renderer.always_on_top = !self.cfg.renderer.always_on_top;
                         self.renderer
                             .set_always_on_top(self.cfg.renderer.always_on_top);
                     }
-                    Setting::ToggleAudio if released => {
+                    Setting::ToggleAudio if activated => {
                         self.cfg.audio.enabled = !self.cfg.audio.enabled;
                         self.event(ConfigEvent::AudioEnabled(self.cfg.audio.enabled));
                     }
-                    Setting::ToggleMenubar if released => {
+                    Setting::ToggleMenubar if activated => {
                         self.cfg.renderer.show_menubar = !self.cfg.renderer.show_menubar;
                         self.event(RendererEvent::ShowMenubar(self.cfg.renderer.show_menubar));
                     }
-                    Setting::IncrementScale if released => {
+                    Setting::IncrementScale if activated => {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.increment_scale();
                         if scale != new_scale {
                             self.event(ConfigEvent::Scale(new_scale));
                         }
                     }
-                    Setting::DecrementScale if released => {
+                    Setting::DecrementScale if activated => {
                         let scale = self.cfg.renderer.scale;
                         let new_scale = self.cfg.decrement_scale();
                         if scale != new_scale {
                             self.event(ConfigEvent::Scale(new_scale));
                         }
                     }
-                    Setting::IncrementSpeed if released => {
+                    Setting::IncrementSpeed if activated => {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.increment_speed();
                         if speed != new_speed {
@@ -1123,7 +1134,7 @@ impl Running {
                             );
                         }
                     }
-                    Setting::DecrementSpeed if released => {
+                    Setting::DecrementSpeed if activated => {
                         let speed = self.cfg.emulation.speed;
                         let new_speed = self.cfg.decrement_speed();
                         if speed != new_speed {
@@ -1134,6 +1145,7 @@ impl Running {
                             );
                         }
                     }
+                    // Held rather than tapped, so both edges matter: 2x while down, 1x on release.
                     Setting::FastForward
                         if !repeat && is_root_window && self.renderer.rom_loaded() =>
                     {
@@ -1148,7 +1160,7 @@ impl Running {
                             }
                         }
                     }
-                    Setting::SetShader(shader) if released => {
+                    Setting::SetShader(shader) if activated => {
                         let shader = if self.cfg.renderer.shader == shader {
                             Shader::Default
                         } else {
@@ -1160,7 +1172,7 @@ impl Running {
                     _ => (),
                 },
                 Action::Deck(action) => match action {
-                    DeckAction::Reset(kind) if released => {
+                    DeckAction::Reset(kind) if activated => {
                         self.event(EmulationEvent::Reset(kind));
                     }
                     DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
@@ -1170,7 +1182,7 @@ impl Running {
                     DeckAction::ZapperAim(_)
                     | DeckAction::ZapperAimOffscreen
                     | DeckAction::ZapperTrigger => (),
-                    DeckAction::SetSaveSlot(slot) if released => {
+                    DeckAction::SetSaveSlot(slot) if activated => {
                         if feature!(Storage) {
                             if self.cfg.emulation.save_slot != slot {
                                 self.cfg.emulation.save_slot = slot;
@@ -1186,7 +1198,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::SaveState if released && is_root_window => {
+                    DeckAction::SaveState if activated && is_root_window => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
@@ -1196,7 +1208,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::LoadState if released && is_root_window => {
+                    DeckAction::LoadState if activated && is_root_window => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
@@ -1206,7 +1218,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::ToggleApuChannel(channel) if released => {
+                    DeckAction::ToggleApuChannel(channel) if activated => {
                         self.cfg.deck.channels_enabled[channel as usize] =
                             !self.cfg.deck.channels_enabled[channel as usize];
                         self.event(ConfigEvent::ApuChannelEnabled((
@@ -1214,7 +1226,7 @@ impl Running {
                             self.cfg.deck.channels_enabled[channel as usize],
                         )));
                     }
-                    DeckAction::MapperRevision(rev) if released => {
+                    DeckAction::MapperRevision(rev) if activated => {
                         self.cfg.deck.mapper_revisions.set(rev);
                         self.event(ConfigEvent::MapperRevisions(self.cfg.deck.mapper_revisions));
                         self.renderer.add_message(
@@ -1222,7 +1234,7 @@ impl Running {
                             format!("Changed Mapper Revision to {rev}"),
                         );
                     }
-                    DeckAction::SetNesRegion(region) if released => {
+                    DeckAction::SetNesRegion(region) if activated => {
                         self.cfg.deck.region = region;
                         self.event(ConfigEvent::Region(self.cfg.deck.region));
                         self.renderer.add_message(
@@ -1230,7 +1242,7 @@ impl Running {
                             format!("Changed NES Region to {region:?}"),
                         );
                     }
-                    DeckAction::SetVideoFilter(filter) if released => {
+                    DeckAction::SetVideoFilter(filter) if activated => {
                         let filter = if self.cfg.deck.filter == filter {
                             VideoFilter::Pixellate
                         } else {
@@ -1242,7 +1254,7 @@ impl Running {
                     _ => (),
                 },
                 Action::Debug(action) => match action {
-                    Debug::Toggle(kind) if released => {
+                    Debug::Toggle(kind) if activated => {
                         if matches!(kind, DebugKind::Ppu) {
                             self.event(RendererEvent::Menu(Menu::PpuViewer));
                         } else {
@@ -1252,7 +1264,9 @@ impl Running {
                             );
                         }
                     }
-                    Debug::Step(step) if (released | repeat) && is_root_window => {
+                    // Unlike the other one-shots, stepping takes auto-repeat: holding the key
+                    // walks the debugger forward.
+                    Debug::Step(step) if !released && is_root_window => {
                         self.event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),
