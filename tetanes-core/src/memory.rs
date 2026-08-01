@@ -474,6 +474,12 @@ impl Memory {
     ///
     /// For the rare access a page entry cannot express: MMC5's extended-attribute mode picks a
     /// 4 KiB CHR bank per *tile* from a byte of ExRAM, so the bank is not known until the fetch.
+    //
+    // The remainder stays, though it is a divide. Wrapping with a mask needs a power-of-two test
+    // first, because a region is a whole number of pages and not necessarily a power of two, and
+    // that test measured worth ~2% on the extended-attribute games while costing about 1% on
+    // everything else - a shared function grown for one board's benefit, paid for by every game
+    // that never calls it.
     #[must_use]
     pub fn region_peek(&self, src: Src, offset: usize) -> u8 {
         let region = self.region(src);
