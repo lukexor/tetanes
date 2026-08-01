@@ -194,7 +194,12 @@ where
     save_version(path, value, SRAM_VERSION)
 }
 
-/// Reads a board's battery-backed RAM from `path`.
+/// Reads a board's battery-backed RAM from `path`, moving the file aside if it cannot be read.
+///
+/// A save that fails to load is not a save that may be discarded: the caller keeps playing and
+/// writes this same path back out when the ROM is unloaded, so an unreadable file is overwritten
+/// by whatever the console happens to hold. Copying it to `<name>.bak` first makes a bad header or
+/// a truncated file cost a rename instead of the player's game.
 ///
 /// # Errors
 ///
@@ -203,7 +208,34 @@ pub fn load_sram<T>(path: impl AsRef<Path>) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    load_version(path, SRAM_VERSION)
+    let path = path.as_ref();
+    load_version(path, SRAM_VERSION).inspect_err(|err| back_up_sram(path, err))
+}
+
+/// Copies an unreadable save alongside itself as `<name>.bak`.
+///
+/// Never overwrites an existing backup: the second run after a save broke would otherwise back up
+/// the replacement and destroy the copy made by the first.
+fn back_up_sram(path: &Path, err: &Error) {
+    if !exists(path) {
+        return;
+    }
+    let Some(name) = path.file_name() else {
+        return;
+    };
+    let mut name = name.to_os_string();
+    name.push(".bak");
+    let backup = path.with_file_name(name);
+    if exists(&backup) {
+        warn!("failed to load {path:?} ({err}); {backup:?} already exists, leaving it alone");
+        return;
+    }
+    match load_raw(path).and_then(|data| save_raw(&backup, &data)) {
+        Ok(()) => warn!("failed to load {path:?} ({err}); backed it up to {backup:?}"),
+        Err(backup_err) => {
+            warn!("failed to load {path:?} ({err}); backing it up also failed: {backup_err}");
+        }
+    }
 }
 
 /// Writes bytes to `path` with no header, compression or serialization.
@@ -387,6 +419,35 @@ mod tests {
             validate_header(&mut file.as_slice(), SAVE_VERSION).is_ok(),
             "validate header"
         );
+    }
+
+    /// The caller keeps playing after a failed load and writes the same path back out on unload,
+    /// so an unreadable save has to be copied aside at the moment it fails to read - and a second
+    /// run must not then back up the replacement over the copy the first run made.
+    #[test]
+    fn an_unreadable_save_is_backed_up_once() {
+        let path = std::env::temp_dir().join("tetanes-unreadable.sram");
+        let backup = std::env::temp_dir().join("tetanes-unreadable.sram.bak");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&backup);
+
+        save_version(&path, &vec![1u8, 2, 3], "9").expect("writes a future version");
+        let original = std::fs::read(&path).expect("reads back");
+
+        let _ = load_sram::<Vec<u8>>(&path).expect_err("cannot be read");
+        assert_eq!(std::fs::read(&backup).expect("backed up"), original);
+
+        // Now the save has been replaced, as `unload_rom` would.
+        save_sram(&path, &vec![9u8]).expect("saves");
+        load_sram::<Vec<u8>>(&path).expect("readable now");
+        assert_eq!(
+            std::fs::read(&backup).expect("still there"),
+            original,
+            "the first backup survives"
+        );
+
+        std::fs::remove_file(&path).expect("cleans up");
+        std::fs::remove_file(&backup).expect("cleans up");
     }
 
     /// The version is one ASCII byte, and a mismatch is the one message a player sees when a save
