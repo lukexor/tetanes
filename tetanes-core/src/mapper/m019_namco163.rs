@@ -208,21 +208,20 @@ impl Map for Namco163 {
 
                 if addr >= 0xC000 && self.board == Board::Namco175 {
                     self.regs.prg_ram_protect = val;
+                } else if addr >= 0xC000 && self.board != Board::Namco163 {
+                    // Only mapper 019 has nametable registers here; 210's mirroring is hardwired
+                    // or, on the 340, comes from $E000 (`docs/mapper/019.txt:104`). Writing the
+                    // nametable slots from here would override it - which is how Splatter House
+                    // ended up the one 210 game with correct mirroring.
                 } else {
                     let bank = ((addr - 0x8000) >> 11) as usize;
-                    // The eight CHR registers at $8000-$BFFF can only redirect a bank to CIRAM on
-                    // a Namco163, and only when the matching nametable mode bit allows it. The
-                    // four nametable registers at $C000-$DFFF apply the >= $E0 rule on every
-                    // variant - gating those on Namco163 too left the 340 reading CHR-ROM for its
-                    // nametables.
+                    // A CHR register can only redirect a bank to CIRAM on a Namco163, and only
+                    // when the matching nametable mode bit allows it.
                     let nt_bank_enable = val >= 0xE0
+                        && self.board == Board::Namco163
                         && match addr {
-                            0x8000..=0x9FFF => {
-                                !self.regs.nt_select_lo && self.board == Board::Namco163
-                            }
-                            0xA000..=0xBFFF => {
-                                !self.regs.nt_select_hi && self.board == Board::Namco163
-                            }
+                            0x8000..=0x9FFF => !self.regs.nt_select_lo,
+                            0xA000..=0xBFFF => !self.regs.nt_select_hi,
                             _ => true,
                         };
                     self.nt_bank_enable[bank] = nt_bank_enable;
@@ -276,9 +275,13 @@ impl Map for Namco163 {
     }
 
     fn update_banks(&mut self, memory: &mut Memory) {
-        // Twelve 1K slots cover $0000-$2FFF; each independently selects CHR-ROM or CIRAM, which is
-        // how this board expresses both pattern banking and nametable layout.
-        for slot in 0..12 {
+        // Twelve 1K slots cover $0000-$2FFF on a Namco163, where the four above $2000 are the
+        // nametables and each independently selects CHR-ROM or CIRAM - the board expresses
+        // pattern banking and nametable layout the same way. A 210 has no such registers: its
+        // mirroring is hardwired on the 175 and comes from $E000 on the 340, so it maps the eight
+        // pattern slots and leaves the nametables to `set_mirroring` below.
+        let slots = if self.board == Board::Namco163 { 12 } else { 8 };
+        for slot in 0..slots {
             let src = if self.nt_bank_enable[slot] {
                 Src::CiRam
             } else {
@@ -295,6 +298,10 @@ impl Map for Namco163 {
                     src,
                 );
             }
+        }
+
+        if self.board != Board::Namco163 {
+            memory.set_mirroring(self.mirroring);
         }
 
         for (slot, bank) in self.prg_banks.iter().enumerate() {
@@ -737,6 +744,81 @@ mod tests {
         assert_eq!(payload.len(), 8 + 8 * 1024 + 0x80);
 
         std::fs::remove_file(&path).expect("cleans up");
+    }
+
+    /// A cart on one of the 210 boards, whose mirroring comes from the header rather than from
+    /// nametable registers it does not have.
+    fn load_210(submapper_num: u8, mirroring: Mirroring) -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(128 * 1024, 8 * 1024, 64 * 1024);
+        cart.header.mapper_num = 210;
+        cart.header.submapper_num = submapper_num;
+        cart.header.flags = match mirroring {
+            Mirroring::Vertical => 0x01,
+            _ => 0x00,
+        };
+        let mapper = Namco163::load(&mut cart).expect("valid mapper");
+        (mapper, cart)
+    }
+
+    /// Mapper 210 has no nametable registers - the 175's mirroring is hardwired and the 340's
+    /// comes from $E000 - so `update_banks` is the only thing that can apply it. Without that the
+    /// nametable slots keep the single CIRAM page they power on pointing at, and every 210 game
+    /// renders both halves of the screen from one nametable.
+    #[test]
+    fn mapper_210_applies_its_own_mirroring() {
+        for (submapper_num, mirroring) in [(1, Mirroring::Horizontal), (2, Mirroring::Vertical)] {
+            let (mapper, mut cart) = load_210(submapper_num, mirroring);
+            cart.memory.chr_write(0x2000, 0x11);
+            let mirrored = match mirroring {
+                Mirroring::Horizontal => 0x2400,
+                _ => 0x2800,
+            };
+            assert_eq!(
+                chr_peek(&mapper, &cart, mirrored),
+                0x11,
+                "submapper {submapper_num} is {mirroring:?}"
+            );
+            let opposite = match mirroring {
+                Mirroring::Horizontal => 0x2800,
+                _ => 0x2400,
+            };
+            assert_ne!(
+                chr_peek(&mapper, &cart, opposite),
+                0x11,
+                "submapper {submapper_num}: the other nametable is a different page"
+            );
+        }
+    }
+
+    /// $C000-$D800 are mapper 019's nametable registers. A 210 has none, so honouring them there
+    /// would let a game overwrite the mirroring its board actually has.
+    #[test]
+    fn mapper_210_ignores_the_nametable_registers() {
+        let (mut mapper, mut cart) = load_210(2, Mirroring::Vertical);
+        cart.memory.chr_write(0x2000, 0x11);
+
+        for addr in [0xC000, 0xC800, 0xD000, 0xD800] {
+            write(&mut mapper, &mut cart, addr, 0xE0);
+        }
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x2800),
+            0x11,
+            "still vertical, not the single screen those writes would select"
+        );
+    }
+
+    /// The 340 takes its mirroring from $E000's top two bits, which is the one 210 variant that
+    /// can change it at run time.
+    #[test]
+    fn namco340_selects_mirroring_from_e000() {
+        let (mut mapper, mut cart) = load_210(2, Mirroring::Vertical);
+        cart.memory.chr_write(0x2000, 0x11);
+
+        write(&mut mapper, &mut cart, 0xE000, 0b1000_0000); // horizontal
+        assert_eq!(chr_peek(&mapper, &cart, 0x2400), 0x11, "horizontal");
+
+        write(&mut mapper, &mut cart, 0xE000, 0b0100_0000); // vertical
+        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x11, "vertical");
     }
 
     /// PRG-RAM is mapped and writable on a Namco163.
