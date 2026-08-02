@@ -198,10 +198,12 @@ impl Apu {
     }
 
     fn new_synth(clock_rate: f32, sample_rate: f32) -> BandLimited {
-        // A block's worth of output samples, with room to spare for a raised rate or a slowed
-        // emulation speed, both of which put more samples in the same number of cycles.
-        let capacity = (Self::CYCLE_SIZE as f32 * sample_rate / clock_rate * 4.0) as usize;
-        BandLimited::new(clock_rate, sample_rate, capacity)
+        // Sized by the same `set_rate` that resizes it whenever the rate moves, so a block fits
+        // here for the same reason it fits after a speed change - rather than by a headroom
+        // factor guessed once and then outgrown.
+        let mut synth = BandLimited::new(clock_rate, sample_rate, 0);
+        synth.set_rate(clock_rate, sample_rate, Self::CYCLE_SIZE);
+        synth
     }
 
     /// Records this cycle's expansion-audio sample from the cartridge.
@@ -395,6 +397,7 @@ impl Apu {
             self.synth.set_rate(
                 self.clock_rate,
                 self.sample_rate / self.speed * self.sample_ratio,
+                Self::CYCLE_SIZE,
             );
         }
         self.rewind_block();

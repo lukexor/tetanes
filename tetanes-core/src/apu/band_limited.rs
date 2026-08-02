@@ -76,12 +76,31 @@ impl BandLimited {
         }
     }
 
-    /// Retune to a new output rate, which dynamic rate control does every frame.
+    /// Retune to a new output rate, growing the buffer if a block of `block_cycles` no longer
+    /// fits. Dynamic rate control does this every frame.
     ///
     /// Only safe between blocks: the deltas already recorded were placed using the old rate.
-    pub fn set_rate(&mut self, clock_rate: f32, sample_rate: f32) {
+    ///
+    /// The buffer has to follow the rate, not a fixed guess at the worst case. A block that does
+    /// not fit is not clipped at the edges - [`BandLimited::read`] simply hands back fewer samples
+    /// than the block produced, which loses time from the output and leaves the frontend's rate
+    /// control chasing a deficit it is itself widening.
+    pub fn set_rate(&mut self, clock_rate: f32, sample_rate: f32, block_cycles: u32) {
         self.samples_per_cycle =
             ((f64::from(sample_rate) / f64::from(clock_rate)) * Self::ONE as f64) as i64;
+        // `+ 1` for the fractional offset a block can carry in, and `WIDTH` so a step placed at
+        // the last sample still writes its whole response.
+        let needed = Self::block_capacity(self.samples_per_cycle, block_cycles) + 1 + Self::WIDTH;
+        if self.deltas.len() < needed {
+            let mut deltas = vec![0.0; needed];
+            deltas[..self.deltas.len()].copy_from_slice(&self.deltas);
+            self.deltas = deltas.into();
+        }
+    }
+
+    /// Output samples a block of `block_cycles` produces at `samples_per_cycle`.
+    const fn block_capacity(samples_per_cycle: i64, block_cycles: u32) -> usize {
+        ((block_cycles as i64 * samples_per_cycle) >> Self::FRAC_BITS) as usize
     }
 
     /// One windowed-sinc impulse response per sub-sample phase.
@@ -194,6 +213,35 @@ mod tests {
 
     fn synth() -> BandLimited {
         BandLimited::new(CLOCK, RATE, 4096)
+    }
+
+    /// A block has to fit in the buffer at whatever rate the synthesiser has been retuned to.
+    ///
+    /// It does not fail loudly if it does not: `read` hands back `count.min(len)` samples, so a
+    /// block that overruns silently loses the difference. That is time missing from the output,
+    /// and a frontend pacing itself on the sample count reacts by asking for a *higher* rate,
+    /// which overruns further. 0.25x speed with dynamic rate control at its +5% clamp is the
+    /// combination that reaches it.
+    #[test]
+    fn a_block_fits_at_every_rate_the_apu_can_ask_for() {
+        const BLOCK: u32 = 10_000; // `Apu::CYCLE_SIZE`
+
+        let mut synth = BandLimited::new(CLOCK, RATE, (BLOCK as f32 * RATE / CLOCK) as usize);
+        for speed in [1.0f32, 0.5, 0.25] {
+            for ratio in [0.95f32, 1.0, 1.05] {
+                synth.set_rate(CLOCK, RATE / speed * ratio, BLOCK);
+
+                let produced = synth.end_block(BLOCK);
+                let mut out = Vec::new();
+                synth.read(produced, &mut out);
+                assert_eq!(
+                    out.len(),
+                    produced,
+                    "{speed}x at ratio {ratio} produced {produced} samples, buffer holds {}",
+                    synth.deltas.len()
+                );
+            }
+        }
     }
 
     /// Magnitude of `samples` at `hz`, by direct transform of a single bin.
