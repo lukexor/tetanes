@@ -513,6 +513,10 @@ impl ControlDeck {
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
         self.bus.rebuild_mapper_state();
+        // A board revision is the player's choice, not the machine's - the state carries whichever
+        // one was selected when it was recorded, and restoring that would change IRQ timing
+        // underneath a running game.
+        self.update_mapper_revisions();
         // The console this deck was showing is gone; anything cached from it describes a machine
         // that is no longer here.
         self.invalidate_frame();
@@ -1902,6 +1906,58 @@ mod tests {
             deck.frame_buffer().to_vec(),
             early_frame,
             "reports the restored console, not the one it replaced"
+        );
+    }
+
+    /// Which buttons are held is emulated state the game reads, so it travels with the state -
+    /// but carrying the session's four-player setting across used to hard-reset the input on the
+    /// way, which rewind does once per display frame.
+    #[test]
+    fn restoring_a_state_keeps_the_buttons_it_recorded() {
+        use crate::input::JoypadBtn;
+
+        let mut deck = spritecans();
+        clock_display_frame(&mut deck);
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, true);
+        let held = deck.bus().clone();
+
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, false);
+        deck.load_bus(held).expect("restores");
+        assert!(
+            deck.joypad_mut(Player::One).button(JoypadBtn::A.into()),
+            "the state recorded A held, so the restored console has it held"
+        );
+    }
+
+    /// A board revision is the player's choice, not the machine's. A state recorded under another
+    /// one must not put it back and change IRQ timing underneath a running game.
+    #[test]
+    fn restoring_a_state_keeps_the_selected_mapper_revision() {
+        use crate::mapper::{Mapper, MapperRevision, Mmc3Revision};
+
+        let mut deck = ControlDeck::with_config(Config {
+            ram_state: RamState::AllZeros,
+            ..Default::default()
+        });
+        let path = "test_roms/mapper/m004_txrom/rev_b.nes";
+        let mut rom = File::open(path).expect("test rom exists");
+        deck.load_rom(path, &mut rom).expect("test rom loads");
+
+        let revision = |deck: &ControlDeck| match &deck.bus().mapper {
+            Mapper::Txrom(board) => board.mmc3.revision,
+            _ => panic!("expected an MMC3 board"),
+        };
+
+        deck.set_mapper_revision(MapperRevision::Mmc3(Mmc3Revision::A));
+        let recorded_under_a = deck.bus().clone();
+        assert_eq!(revision(&deck), Mmc3Revision::A);
+
+        deck.set_mapper_revision(MapperRevision::Mmc3(Mmc3Revision::BC));
+        deck.load_bus(recorded_under_a).expect("restores");
+        assert_eq!(
+            revision(&deck),
+            Mmc3Revision::BC,
+            "the state carries A, but BC is what the player has selected now"
         );
     }
 

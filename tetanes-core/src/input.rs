@@ -198,8 +198,16 @@ impl Input {
         self.zapper.connected = connected;
     }
 
-    /// Selects the four-player adapter, clearing all input state.
+    /// Selects the four-player adapter, clearing all input state if that changes what is plugged
+    /// in.
+    ///
+    /// Selecting what is already selected changes nothing, and must not clear anything: restoring
+    /// a state carries the session's adapter across every time, and rewind does it once per
+    /// display frame. Resetting unconditionally there released any button the player was holding.
     pub fn set_four_player(&mut self, four_player: FourPlayer) {
+        if self.four_player == four_player {
+            return;
+        }
         self.four_player = four_player;
         self.reset(ResetKind::Hard);
     }
