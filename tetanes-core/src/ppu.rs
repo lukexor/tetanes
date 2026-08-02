@@ -68,11 +68,10 @@ pub struct PaletteRam(ConstArray<u8, 32>);
 impl PaletteRam {
     /// Return palette address, mirrored.
     //
-    // A table rather than arithmetic, and mirroring on read rather than storing both halves of
-    // each backdrop mirror at write time: the second load depends on the first, so resolving the
-    // mirror here looks like the expensive direction, but it measured 1.8% *faster* than a plain
-    // indexed load off a write-mirrored array. Both loads are L1-resident and independent between
-    // pixels, so the chain overlaps rather than stalling.
+    // Mirroring on read rather than storing both halves of each backdrop mirror at write time:
+    // this pays a second, dependent load per pixel and still measured 1.8% faster than a plain
+    // indexed load off a write-mirrored array. The pair is 5.4% of frame time and neither load is
+    // bounds checked, so there was little to win and code layout swamped it.
     #[inline(always)]
     const fn mirror(addr: u16) -> usize {
         const PALETTE_MIRROR: [u8; 32] = [

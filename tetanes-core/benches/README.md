@@ -763,15 +763,26 @@ not attempted once the first two came back this small.
 
 The lesson generalises: **these branches are perfectly predicted, and a perfectly predicted branch
 on an out-of-order core is close to free.** Counting operations in a hot loop ranks work in the
-order a static reading suggests, not the order the machine experiences. `perf annotate -l` on
-`ppu_clock` is what actually apportions its 47.6%, and it puts the cost in the pixel path:
+order a static reading suggests, not the order the machine experiences.
+
+> **`perf annotate -s <symbol>` reports percentages of that symbol, not of the program.** Since
+> `ppu_clock` is ~47% of the frame, every number it prints has to be halved before it means
+> anything next to a `perf report` share. Use `perf report --sort srcline` for line shares that are
+> already whole-program, and `-e cycles:pp` so PEBS removes skid. On this workload precise and
+> non-precise sampling agree to within a few tenths, so skid is not what misleads here - reading
+> symbol-relative percentages as absolute ones is.
+
+Whole-program line shares, Zelda, `cycles:pp` (lines at or above 0.3% cover 84% of samples):
 
 | Source | Share of frame |
 |---|---|
-| `PaletteRam::peek` + `mirror` (`ppu.rs:76,84`) | 11.9% |
-| `Ppu::render_pixel` body (`ppu.rs:1009,1012,1020`) | ~10% |
-| `Ppu::pixel_palette` body (`ppu.rs:910-957`) | ~11% |
-| `Bus::check_debugger` (`ppu.rs:1642`) | 1.7% |
+| `Ppu::load_sprites` (`ppu.rs:1455-1480`) | 10.0% |
+| `Ppu::pixel_palette` body (`ppu.rs:910-975`) | 8.7% |
+| `PaletteRam::peek` + `mirror` (`ppu.rs:82,90`) | 5.4% |
+| `Ppu::render_pixel` body (`ppu.rs:1024-1035`) | 4.7% |
+| `Memory::prg_peek`/`chr_peek` (`memory.rs:324,325,340,341`) | 4.1% |
+| `Frame::set_pixel` (`frame.rs:87`) | 2.2% |
+| `Bus::check_debugger` (`ppu.rs:1660-1662`) | 1.0% |
 
 ### Palette mirroring: read-side table beats write-side duplication
 
@@ -780,15 +791,19 @@ so a pixel pays two loads where the second depends on the first's result - 61,44
 with the result feeding `set_pixel` immediately. MesenCE pays one load, because it writes both
 halves of each mirror and indexes storage directly.
 
-Duplicating on write and indexing directly measured **+1.8% slower** (2.158 against 2.120, three
-consecutive rounds, no round disagreeing). Every ROM snapshot hash was unchanged, so this is a pure
-performance answer: both loads are L1-resident and consecutive pixels are independent, so the
-dependency chain overlaps in the out-of-order window instead of stalling, and the extra branch the
-write path picks up is not free even at a few writes a frame. Reverted; the comment on
-`PaletteRam::mirror` records the measurement so it is not re-attempted.
+Duplicating on write and indexing directly - which is exactly what MesenCE does, at
+`BaseNesPpu::WritePaletteRam` - measured **+1.8% slower** (2.158 against 2.120, three consecutive
+rounds, no round disagreeing). Every ROM snapshot hash was unchanged, so this is a pure performance
+answer. Reverted; the comment on `PaletteRam::mirror` records the measurement.
 
-**A dependent load pair is not automatically a stall.** That it appears at the top of an annotated
-profile means the samples land there, not that removing an instruction from it wins anything.
+Why so little was on the table: the whole pair is 5.4% of the frame, the second load is the one
+that has to happen, and dropping the first shortens a chain whose consumer - a store into the frame
+buffer - nothing is waiting on. What is left is well inside the range a code-layout shift moves a
+function that is 47% of runtime, which is the likeliest explanation for the sign.
+
+**Neither load is bounds checked.** `ConstArray` indexes with `index & (N - 1)`, so the disassembly
+is `and $0x1f` and a `movzbl`, with no compare and no panic edge - `get_unchecked` has nothing to
+remove here.
 
 ### Sprite coverage as a bitmask (2026-08-01)
 
@@ -818,6 +833,37 @@ sprite that has since moved. Without the test that underflows `7 - spr_shift`, w
 it is a branch that is taken almost every time the bit is set.
 
 Cost is one byte per dot instead of one bit, for a 256-byte array that was already there.
+
+### What a bounds check actually costs
+
+The two hot reads that *are* bounds checked - `Memory::chr_peek`, whose arena is a `Box<[u8]>` the
+compiler cannot prove an index into, and `Frame::set_pixel`, whose `Buffer` derefs to a plain array
+rather than through `ConstArray`'s mask - both show the check in the disassembly and both show it
+costing nothing.
+
+`Frame::set_pixel`, from `perf annotate -e cycles:pp`:
+
+```
+shl  $0x8,%edi        1.67
+add  %rax,%rdi        0.00
+cmp  $0xf000,%rdi     0.00      <- the bounds check
+jae  <panic>          0.00      <- the panic edge
+```
+
+`Memory::chr_peek`:
+
+```
+mov  0x370(%rdi),%rsi   0.11    <- load data.len()
+cmp  %rsi,%rax          0.38    <- the bounds check
+jae  <panic>            0.00
+mov  (%r14),%rdx        0.00
+movzbl (%rdx,%rax,1)    1.75    <- the load the whole thing exists to do
+```
+
+So **`get_unchecked` is worth at most ~0.5%, and only on `chr_peek`** - the length load and the
+compare. The branch to the panic block is 0.00% in both: never taken, perfectly predicted, and the
+block itself is laid out cold so it costs no instruction cache on the hot path. This is the whole
+reason the planned "remove the remaining bounds checks" work was dropped rather than attempted.
 
 ### `-C target-cpu` is worth about 1% (not shipped)
 
