@@ -39,12 +39,14 @@ pub struct SunsoftFme7 {
     pub chr_banks: [u8; 8],
     /// 3x 8K PRG-ROM banks at $8000/$A000/$C000. $E000 is fixed to the last bank.
     pub prg_banks: [u8; 3],
-    /// Bank selected into the $6000 window, from PRG-RAM or PRG-ROM per `regs.prg_ram_enabled`.
+    /// Page selected into the $6000 window, from PRG-RAM or PRG-ROM per R:8's RAM/ROM select.
     pub prg_ram_bank: u8,
 }
 
 impl SunsoftFme7 {
     const PRG_WINDOW: usize = 8 * 1024;
+    /// R:8 bit 6: RAM/ROM select for the $6000 window. Bit 7 only enables the RAM.
+    const PRG_RAM_SELECT: u8 = 0x40;
     const CHR_WINDOW: usize = 1024;
 
     // PPU $0000..=$1FFF 8x 1K CHR Banks
@@ -119,13 +121,18 @@ impl Map for SunsoftFme7 {
             let addr = (slot * Self::CHR_WINDOW) as u16;
             memory.map_chr(addr, Self::CHR_WINDOW, i32::from(*bank), Src::Chr);
         }
-        // The $6000 window selects the same bank index from either PRG-RAM or PRG-ROM.
-        let src = if self.regs.prg_ram_enabled {
-            Src::PrgRam
+        // R:8 is [ERPP PPPP] (`docs/mapper/069.txt:55`): R picks RAM or ROM for the $6000 window
+        // and E only enables the RAM, so selecting RAM while it is disabled is neither - the
+        // window is open bus. Reading E as the select instead makes ROM unreachable whenever RAM
+        // is enabled, and open bus unreachable altogether.
+        let bank = i32::from(self.prg_ram_bank);
+        if self.regs.parameter & Self::PRG_RAM_SELECT == 0 {
+            memory.map_prg(0x6000, Self::PRG_WINDOW, bank, Src::PrgRom);
+        } else if self.regs.prg_ram_enabled {
+            memory.map_prg(0x6000, Self::PRG_WINDOW, bank, Src::PrgRam);
         } else {
-            Src::PrgRom
-        };
-        memory.map_prg(0x6000, Self::PRG_WINDOW, i32::from(self.prg_ram_bank), src);
+            memory.unmap_prg(0x6000, Self::PRG_WINDOW);
+        }
         for (slot, bank) in self.prg_banks.iter().enumerate() {
             let addr = 0x8000 + (slot * Self::PRG_WINDOW) as u16;
             memory.map_prg(addr, Self::PRG_WINDOW, i32::from(*bank), Src::PrgRom);
@@ -317,19 +324,37 @@ mod tests {
         }
     }
 
-    /// Command 8 is the board's distinctive one: the $6000 window takes a bank index from *either*
-    /// PRG-RAM or PRG-ROM depending on bit 7, so the same index means two different things.
+    /// Command 8 is the board's distinctive one: `[ERPP PPPP]`, where R picks RAM or ROM for the
+    /// $6000 window and E only enables the RAM. The same page index therefore means two different
+    /// things, and asking for RAM that is disabled means neither.
+    ///
+    /// Every FME-7 cart writes E and R together - `$00`, `$C0`, or a bare ROM page - so the two
+    /// mixed encodings are unreachable in practice and reading E as the select gives the right
+    /// answer for all of them. The decode still has to be right: nothing stops a cart from
+    /// mapping ROM at $6000 while its RAM is enabled.
     #[test]
-    fn the_6000_window_selects_prg_ram_or_prg_rom_per_bit_7() {
+    fn the_6000_window_selects_prg_ram_or_prg_rom_per_the_select_bit() {
         let (mut mapper, mut cart) = load();
 
-        // Bit 7 clear: PRG-ROM bank 5, an ordinary 8K window into the ROM.
+        // R clear: PRG-ROM page 5, an ordinary 8K window into the ROM.
         command(&mut mapper, &mut cart, 0x8, 5);
-        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 5 * 8, "PRG-ROM bank 5");
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 5 * 8, "PRG-ROM page 5");
 
-        // Bit 7 set: the same index now selects PRG-RAM.
-        command(&mut mapper, &mut cart, 0x8, 0x80);
+        // R and E set: the same index now selects PRG-RAM.
+        command(&mut mapper, &mut cart, 0x8, 0xC0);
         assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "PRG-RAM");
+
+        // R set with E clear selects RAM that is not enabled, which is open bus.
+        command(&mut mapper, &mut cart, 0x8, 0x40);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "open bus");
+
+        // E set with R clear is still ROM - the enable does not select anything.
+        command(&mut mapper, &mut cart, 0x8, 0x80 | 5);
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x6000),
+            5 * 8,
+            "PRG-ROM page 5 again"
+        );
     }
 
     /// Command $C sets mirroring, which for this board is ordinary CIRAM mirroring.
@@ -340,7 +365,11 @@ mod tests {
         command(&mut mapper, &mut cart, 0xC, 0b00);
         cart.memory.chr_write(0x2000, 0x11);
         cart.memory.chr_write(0x2400, 0x22);
-        assert_eq!(chr_peek(&mapper, &cart, 0x2800), 0x11, "vertical: $2800=$2000");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x2800),
+            0x11,
+            "vertical: $2800=$2000"
+        );
 
         command(&mut mapper, &mut cart, 0xC, 0b01);
         cart.memory.chr_write(0x2000, 0x33);
