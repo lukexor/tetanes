@@ -187,7 +187,9 @@ impl Map for Vrc24 {
         }
         for (slot, bank) in self.chr_banks.iter().enumerate() {
             out.push((
-                ["CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7"][slot],
+                [
+                    "CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7",
+                ][slot],
                 u32::from(*bank),
             ));
         }
@@ -244,9 +246,18 @@ impl Map for Vrc24 {
         let is_vrc2 = self.revision.is_vrc2();
         match self.register_addr(addr) {
             0x8000..=0x8003 => self.prg_banks[0] = val & 0x1F,
+            // VRC2 answers the whole block with its one mirroring register
+            // (`docs/mapper/022.txt:71`), and has a single bit: it has no PRG modes and no
+            // internal WRAM control, so there is nothing for the upper half to mean.
+            0x9000..=0x9003 if is_vrc2 => {
+                self.mirroring = if val & 0x01 == 0 {
+                    Mirroring::Vertical
+                } else {
+                    Mirroring::Horizontal
+                };
+            }
             0x9000 | 0x9001 => {
-                // VRC2 has one mirroring bit; VRC4 has two.
-                self.mirroring = match val & if is_vrc2 { 0x01 } else { 0x03 } {
+                self.mirroring = match val & 0x03 {
                     0 => Mirroring::Vertical,
                     1 => Mirroring::Horizontal,
                     2 => Mirroring::SingleScreenA,
@@ -254,9 +265,6 @@ impl Map for Vrc24 {
                 };
             }
             0x9002 | 0x9003 => {
-                if is_vrc2 {
-                    return;
-                }
                 self.prg_swap = val & 0x02 == 0x02;
                 self.wram_enabled = val & 0x01 == 0x01;
             }
@@ -576,6 +584,46 @@ mod tests {
             write(&mut mapper, &mut cart, 0x9000, val);
             assert_eq!(mapper.mirroring(), expected, "VRC2 ${val:02X}");
         }
+    }
+
+    /// A VRC2 has no PRG mode and no internal WRAM control, so the upper half of the $9000 block
+    /// is not a second register - the one mirroring register answers all four indices
+    /// (`docs/mapper/022.txt:71`). No VRC2 cart writes anything but index 0, so this is a decode
+    /// that hardware would exercise and software never has.
+    #[test]
+    fn a_vrc2_answers_the_whole_9000_block_with_mirroring() {
+        // VRC2b decodes A0 and A1 in order, so the four indices are $9000-$9003.
+        let (mut mapper, mut cart) = load(23, 3);
+        for addr in [0x9000, 0x9001, 0x9002, 0x9003] {
+            write(&mut mapper, &mut cart, addr, 1);
+            assert_eq!(
+                mapper.mirroring(),
+                Mirroring::Horizontal,
+                "${addr:04X} selects mirroring"
+            );
+            write(&mut mapper, &mut cart, addr, 0);
+            assert_eq!(
+                mapper.mirroring(),
+                Mirroring::Vertical,
+                "${addr:04X} selects mirroring"
+            );
+        }
+    }
+
+    /// The same block on a VRC4 is split: mirroring low, PRG mode and WRAM enable high.
+    #[test]
+    fn a_vrc4_splits_the_9000_block() {
+        let (mut mapper, mut cart) = vrc4a();
+        // VRC4a decodes A1 and A2, so index 2 is $9004.
+        write(&mut mapper, &mut cart, 0x9000, 2);
+        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenA);
+
+        write(&mut mapper, &mut cart, 0x9004, 0x03);
+        assert_eq!(
+            mapper.mirroring(),
+            Mirroring::SingleScreenA,
+            "the control register leaves mirroring alone"
+        );
     }
 
     /// The reload value arrives as two nibbles, and the counter is the shared VRC one: an
