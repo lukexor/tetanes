@@ -209,6 +209,13 @@ pub struct Ppu {
 
     /// Current PPU frame buffer.
     pub frame: Frame,
+    /// How much of [`Ppu::frame`] has had greyscale and colour emphasis applied.
+    //
+    // Rendering stores raw palette colours and the $2001 bits are folded in over whole runs of
+    // pixels, so a frame that never touches them - which is nearly every frame - pays nothing per
+    // pixel. Derived from a frame buffer that is itself not serialized.
+    #[serde(skip)]
+    pub color_bits_applied: usize,
     // === 128 : end of cache line ===
     /// Palette RAM: the 32 colours currently loaded, at $3F00-$3F1F.
     pub palette: PaletteRam,
@@ -473,6 +480,7 @@ impl Ppu {
 
             prevent_vbl: false,
             frame: Frame::new(),
+            color_bits_applied: 0,
 
             region,
             skip_rendering: false,
@@ -1028,11 +1036,37 @@ impl Ppu {
             self.palette.peek(addr)
         };
 
-        self.frame.set_pixel(
-            self.cycle - 1,
-            self.scanline,
-            u16::from(color & self.mask.grayscale) | self.mask.emphasis,
-        );
+        self.frame
+            .set_pixel(self.cycle - 1, self.scanline, u16::from(color));
+    }
+
+    /// One past the frame-buffer index of the last pixel rendered.
+    #[inline]
+    fn rendered_through(&self) -> usize {
+        if self.scanline > scanline::VISIBLE_END {
+            return size::FRAME;
+        }
+        (usize::from(self.scanline) << 8) + usize::from(self.cycle).min(256)
+    }
+
+    /// Fold greyscale and colour emphasis into every pixel rendered since this last ran.
+    ///
+    /// Called where the $2001 bits are about to change and once at the end of a frame, so each run
+    /// is covered by the settings it was drawn under. Neither bit is set in the overwhelming
+    /// majority of frames, which is the case this exists to make free.
+    fn apply_color_bits(&mut self, through: usize) {
+        let through = through.min(size::FRAME);
+        if through <= self.color_bits_applied {
+            return;
+        }
+        if self.mask.grayscale != 0x3F || self.mask.emphasis != 0 {
+            let grayscale = u16::from(self.mask.grayscale);
+            let emphasis = self.mask.emphasis;
+            for pixel in &mut self.frame.buffer[self.color_bits_applied..through] {
+                *pixel = (*pixel & grayscale) | emphasis;
+            }
+        }
+        self.color_bits_applied = through;
     }
 
     // $2002 | R   | PPUSTATUS
@@ -1266,6 +1300,7 @@ impl Ppu {
         self.spr_zero_visible = false;
         self.spr_count = 0;
         self.vram_buffer = 0x00;
+        self.color_bits_applied = 0;
 
         if kind == ResetKind::Hard {
             self.oamaddr = 0x0000;
@@ -1631,11 +1666,17 @@ impl Bus {
         // === POST-RENDER (240/261) ===
         match self.ppu.scanline {
             s if s == self.ppu.vblank_scanline - 1 => {
+                // Every visible scanline is done, and this is where the frame counter advances -
+                // so it is the last point before a consumer can ask for the buffer. The mark stays
+                // at the end of the buffer through vblank, so a $2001 write there finds nothing
+                // outstanding rather than folding the bits into the finished frame a second time.
+                self.ppu.apply_color_bits(size::FRAME);
                 self.ppu.frame.increment();
             }
             s if s > self.ppu.prerender_scanline => {
                 // Wrap scanline back to 0
                 self.ppu.scanline = 0;
+                self.ppu.color_bits_applied = 0;
                 // Force prerender scanline sprite fetches to load the dummy $FF tiles (fixes
                 // shaking in Ninja Gaiden 3 stage 1 after beating boss)
                 self.ppu.spr_count = 0;
@@ -1867,6 +1908,9 @@ impl Bus {
         if self.ppu.reset_signal {
             return;
         }
+        // Settle the pixels drawn under the old greyscale/emphasis before adopting the new ones.
+        let through = self.ppu.rendered_through();
+        self.ppu.apply_color_bits(through);
         self.ppu.mask.write(val);
         // MMC5 tracks changes to PPUMASK
         self.mapper.ppu_write(0x2001, val);

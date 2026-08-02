@@ -89,14 +89,14 @@ machine and corpus.
 
 | ROM | Mapper | TetaNES | MesenCE | gap |
 |---|---|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 1.783 | 1.625 | +9.7% |
-| Super Mario Bros. | 000 NROM | 1.830 | 1.631 | +12.2% |
-| Legend of Zelda | 001 MMC1 | 1.832 | 1.600 | +14.5% |
-| Super Mario Bros. 3 | 004 MMC3 | 2.006 | 1.687 | +18.9% |
-| Punch-Out!! | 009 MMC2 | 1.703 | 1.582 | +7.6% |
-| Castlevania III | 005 MMC5 | 2.915 | 2.534 | +15.0% |
-| Akumajou Densetsu | 024 VRC6 | 2.408 | 2.241 | +7.5% |
-| **geometric mean** | | **2.032** | **1.812** | **+12.1%** |
+| spritecans | 000 NROM (sprite stress) | 1.768 | 1.625 | +8.8% |
+| Super Mario Bros. | 000 NROM | 1.783 | 1.631 | +9.3% |
+| Legend of Zelda | 001 MMC1 | 1.788 | 1.600 | +11.8% |
+| Super Mario Bros. 3 | 004 MMC3 | 1.991 | 1.687 | +18.0% |
+| Punch-Out!! | 009 MMC2 | 1.725 | 1.582 | +9.0% |
+| Castlevania III | 005 MMC5 | 2.853 | 2.534 | +12.6% |
+| Akumajou Densetsu | 024 VRC6 | 2.372 | 2.241 | +5.8% |
+| **geometric mean** | | **2.007** | **1.812** | **+10.8%** |
 
 **Compare like with like or this number is wrong by half.** Timing the TetaNES default against
 MesenCE's default reads as a ~25% gap, because it puts `Video::apply_filter` on one side and
@@ -864,6 +864,34 @@ So **`get_unchecked` is worth at most ~0.5%, and only on `chr_peek`** - the leng
 compare. The branch to the panic block is 0.00% in both: never taken, perfectly predicted, and the
 block itself is laid out cold so it costs no instruction cache on the hot path. This is the whole
 reason the planned "remove the remaining bounds checks" work was dropped rather than attempted.
+
+### Greyscale and emphasis, folded in by the run (2026-08-01)
+
+`$2001`'s greyscale bit and three emphasis bits are a mask and an or on the colour of every pixel -
+two operations, 61,440 times a frame, to apply settings that the overwhelming majority of frames
+never turn on at all.
+
+`Ppu::apply_color_bits` folds them into whole runs of pixels instead: rendering stores the raw
+palette colour, and the bits are applied over everything drawn since the last run whenever `$2001`
+is about to change and once at the end of each frame. When neither is set, which is the usual case,
+the pass is a bounds compare and an assignment.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 1.785 | 1.768 | -1.0% |
+| Super Mario Bros. | 000 NROM | 1.830 | 1.783 | -2.6% |
+| Legend of Zelda | 001 MMC1 | 1.835 | 1.788 | -2.6% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.015 | 1.991 | -1.2% |
+| Punch-Out!! | 009 MMC2 | 1.716 | 1.725 | +0.5% |
+| Castlevania III | 005 MMC5 | 2.913 | 2.853 | -2.1% |
+| Akumajou Densetsu | 024 VRC6 | 2.414 | 2.372 | -1.7% |
+| **geometric mean** | | **2.038** | **2.007** | **-1.5%** |
+
+**Reset the mark when the visible frame starts, not when it ends.** Leaving it at the end of the
+buffer through vblank is what makes a `$2001` write there - which games do every frame - find
+nothing outstanding instead of folding the bits into the finished frame a second time. Getting this
+backwards fails `apu::dpcmletterbox` and nothing else, which is a thin margin for a bug that
+double-darkens every frame of any game using emphasis.
 
 ### `-C target-cpu` is worth about 1% (not shipped)
 
