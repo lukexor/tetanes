@@ -35,7 +35,8 @@ pub struct Bf909x {
 impl Bf909x {
     const PRG_WINDOW: usize = 16 * 1024;
     const CHR_WINDOW: usize = 8 * 1024;
-    const SINGLE_SCREEN_A: u8 = 0x10;
+    /// $9000 bit 4: clear selects one-screen A, set selects B.
+    const SINGLE_SCREEN_B: u8 = 0x10;
 
     // PPU $0000..=$1FFF 8K Fixed CHR-ROM/CHR-RAM Bank
     // CPU $8000..=$BFFF 16K PRG-ROM Bank Switchable
@@ -76,10 +77,10 @@ impl Map for Bf909x {
             self.prg_bank = val;
             memory.map_prg(0x8000, Self::PRG_WINDOW, i32::from(val), Src::PrgRom);
         } else {
-            self.mirroring = if val & Self::SINGLE_SCREEN_A == Self::SINGLE_SCREEN_A {
-                Mirroring::SingleScreenA
-            } else {
+            self.mirroring = if val & Self::SINGLE_SCREEN_B == Self::SINGLE_SCREEN_B {
                 Mirroring::SingleScreenB
+            } else {
+                Mirroring::SingleScreenA
             };
             memory.set_mirroring(self.mirroring);
         }
@@ -155,10 +156,12 @@ mod tests {
 
     /// A BF9097 splits the range: $C000 and up is the bank register, below it is mirroring.
     ///
-    /// NB the polarity follows Mesen, which this board was ported from - bit 4 set selects
-    /// nametable A. FCEUX has it the other way round (`MI_0 + ((V >> 4) & 1)`), and the wiki says
-    /// only that the bit "selects the 1 KiB CIRAM bank" without pinning which. Left as Mesen has
-    /// it; there is no Fire Hawk ROM here to settle it.
+    /// Bit 4 clear selects nametable A, per `docs/mapper/071.txt:40`. Emulators disagree - Mesen
+    /// has it the other way round, FCEUX (`MI_0 + ((V >> 4) & 1)`) agrees with the doc, and the
+    /// wiki says only that the bit "selects the 1 KiB CIRAM bank" - and Fire Hawk cannot settle
+    /// it: with every nametable address mapped to one page, which physical page that is never
+    /// reaches the screen, and 3000 frames of it hash identically either way. What the polarity
+    /// decides is only which page a debugger shows, so this follows the doc in the repo.
     #[test]
     fn a_bf9097_splits_the_range_into_mirroring_and_banking() {
         let (mut mapper, mut cart) = load(1);
@@ -166,7 +169,7 @@ mod tests {
         write(&mut mapper, &mut cart, 0xC000, 3);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "$C000 banks");
 
-        write(&mut mapper, &mut cart, 0x9000, 0x10);
+        write(&mut mapper, &mut cart, 0x9000, 0x00);
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenA);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "$9000 does not");
         cart.memory.chr_write(0x2000, 0xAA);
@@ -174,12 +177,12 @@ mod tests {
             assert_eq!(chr_peek(&mapper, &cart, nt), 0xAA, "one-screen A");
         }
 
-        write(&mut mapper, &mut cart, 0x9000, 0x00);
+        write(&mut mapper, &mut cart, 0x9000, 0x10);
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenB);
         cart.memory.chr_write(0x2000, 0xBB);
         assert_eq!(chr_peek(&mapper, &cart, 0x2C00), 0xBB, "one-screen B");
         // The two screens are separate CIRAM banks, so switching back finds the old contents.
-        write(&mut mapper, &mut cart, 0x9000, 0x10);
+        write(&mut mapper, &mut cart, 0x9000, 0x00);
         assert_eq!(chr_peek(&mapper, &cart, 0x2000), 0xAA);
     }
 
@@ -191,13 +194,13 @@ mod tests {
         write(&mut mapper, &mut cart, 0x8000, 3);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "still a BF909x");
 
-        write(&mut mapper, &mut cart, 0x9000, 0x10);
+        write(&mut mapper, &mut cart, 0x9000, 0x00);
         assert_eq!(revision(&mapper), Revision::Bf9097, "detected");
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenA);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16, "not a bank write");
 
         // And from here on $8000-$BFFF is mirroring, not banking.
-        write(&mut mapper, &mut cart, 0xA000, 0x00);
+        write(&mut mapper, &mut cart, 0xA000, 0x10);
         assert_eq!(mapper.mirroring(), Mirroring::SingleScreenB);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 3 * 16);
     }
@@ -219,7 +222,7 @@ mod tests {
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = load(1);
         write(&mut mapper, &mut cart, 0xC000, 3);
-        write(&mut mapper, &mut cart, 0x9000, 0x10);
+        write(&mut mapper, &mut cart, 0x9000, 0x10); // one-screen B
 
         let sample = |mapper: &Mapper, cart: &Cart| {
             [
@@ -235,6 +238,10 @@ mod tests {
         mapper.update_banks(&mut cart.memory);
 
         assert_eq!(before, sample(&mapper, &cart));
-        assert_eq!(mapper.mirroring(), Mirroring::SingleScreenA, "mirroring too");
+        assert_eq!(
+            mapper.mirroring(),
+            Mirroring::SingleScreenB,
+            "mirroring too"
+        );
     }
 }
