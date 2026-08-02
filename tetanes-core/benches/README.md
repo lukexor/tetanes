@@ -36,9 +36,10 @@ stress ROM and serves as the pessimistic end of the range.
 
 The benchmark calls `clock_frame()` **and** `frame_buffer()` each frame, so `Video::apply_filter`
 and the NTSC filter are measured by default - every real frame is filtered, and leaving it out
-under-reports frame time by ~6%. Set `TETANES_BENCH_NO_OUTPUT=1` to time the CPU/PPU/APU core
-alone, which is what you want when A/B-ing a core change: the filter is a constant offset that
-dilutes the delta.
+under-reports frame time by 2.9% (measured 2026-08-01, interleaved A/B on the 7-ROM corpus:
+2.262 against 2.327 geomean). Set `TETANES_BENCH_NO_OUTPUT=1` to time the CPU/PPU/APU core alone,
+which is what you want when A/B-ing a core change: the filter is a constant offset that dilutes
+the delta.
 
 > **Every baseline recorded below predates that default flipping (2026-07) and excluded the
 > filter.** Compare them against `TETANES_BENCH_NO_OUTPUT=1` runs, not against the current default.
@@ -77,6 +78,30 @@ report it as a win or a loss.
 
 A coefficient of variation (`cv`) under ~1% means the run is clean and a 2% change is real. If `cv`
 climbs, suspect background load, CPU frequency scaling, or non-deterministic emulator state.
+
+## Against MesenCE
+
+Recorded 2026-08-01, `--profile release`, unpinned on a quiet 16-core machine, every ROM under
+0.6% cv. `TETANES_BENCH_NO_OUTPUT=1` against MesenCE's default (core-only) mode, which is the
+matched pair - MesenCE runs its video filter on the `VideoDecoder` thread, so its default number
+excludes filtering just as `NO_OUTPUT` does here. MesenCE figures are its own benchmark on the same
+machine and corpus.
+
+| ROM | Mapper | TetaNES | MesenCE | gap |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 1.783 | 1.625 | +9.7% |
+| Super Mario Bros. | 000 NROM | 1.830 | 1.631 | +12.2% |
+| Legend of Zelda | 001 MMC1 | 1.832 | 1.600 | +14.5% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.006 | 1.687 | +18.9% |
+| Punch-Out!! | 009 MMC2 | 1.703 | 1.582 | +7.6% |
+| Castlevania III | 005 MMC5 | 2.915 | 2.534 | +15.0% |
+| Akumajou Densetsu | 024 VRC6 | 2.408 | 2.241 | +7.5% |
+| **geometric mean** | | **2.032** | **1.812** | **+12.1%** |
+
+**Compare like with like or this number is wrong by half.** Timing the TetaNES default against
+MesenCE's default reads as a ~25% gap, because it puts `Video::apply_filter` on one side and
+nothing on the other. Both binaries here are non-PGO and generic x86-64 (MesenCE passes no
+`-march` at all), so the comparison is architectural.
 
 ## Baseline
 
@@ -269,42 +294,41 @@ rather than reading its mean.
 
 ### Current profile
 
-`perf record` on Super Mario Bros. 3 (MMC3), after the changes above. Remaining targets, largest
-first:
+`perf record -F 999`, `--profile perf`, 3 x 600 frames, `TETANES_BENCH_NO_OUTPUT=1`. Two boards,
+because mapper cost is the one thing a single-ROM profile cannot see:
 
-| Function | Share |
-|---|---|
-| `Ppu::clock` | 33.5% |
-| `FilterChain::consume` | 13.6% |
-| `Ppu::bg_fetch_cycle` | 13.4% |
-| `ControlDeck::clock_instr` | 7.1% |
-| `Apu::clock_sync` | 6.3% |
-| `Ppu::oam_eval_cycle` | 4.1% |
-| `Bus::cpu_clock` | 3.5% |
-| `Ppu::fetch_bg_nt_byte` | 2.4% |
-| `Bus::read` | 2.3% |
+| Function | Zelda (MMC1) | SMB3 (MMC3) |
+|---|---|---|
+| `Bus::ppu_clock` | 47.6% | 45.3% |
+| `Bus::bg_fetch_cycle` | 16.8% | 17.9% |
+| `ControlDeck::clock_one_frame` | 12.5% | 9.7% |
+| `Ppu::oam_eval_cycle` | 6.8% | 5.6% |
+| `Bus::cpu_bus_read` | 4.6% | 3.7% |
+| `Apu::clock_lazy` | 3.1% | 2.8% |
+| `Bus::fetch_bg_nt_byte` | 2.6% | 2.8% |
+| `Mapper::clock` | 2.1% | 1.9% |
+| `Apu::clock_channels` | 0.8% | 3.2% |
 
-Roughly: PPU ~54%, APU ~26%, CPU ~10%, Bus ~6%. `fmaf`/`fmaf_with_fma`, previously 5.2% combined,
-no longer appear at all, and `Fir::output` fell from 4.5% to ~1%. **No MMC3 symbol appears at all**
-now that `Txrom` holds only registers - the board's entire contribution is the `Mmc3::clock_irq`
-call inlined into the PPU fetch path.
+Rolled up: **PPU ~72-74%, CPU ~17%, APU ~4-6%, mapper ~2-3%.** The whole instruction path -
+dispatch, addressing modes and the opcode bodies - inlines into `clock_one_frame`, so that row is
+CPU-total rather than one loop; only `bpl` and `lda` stay out of line, and only on SMB3.
 
-Mapper cost varies enormously by board, which is the whole reason the corpus exists. On
-Castlevania III, **MMC5-specific code is 13.2% of frame time**, down from 18.2% before the port:
-`Exrom::chr_read_hook` 4.6%, `Exrom::output` 4.5% (called every CPU cycle for expansion audio),
-`Exrom::clock` 4.1%. The hook is the one that did not shrink, because it now runs on every PPU
-fetch rather than only on the reads MMC5 had to synthesise. On Super Mario Bros. no mapper symbol
-appears at all.
+Two things this says about where work is worth spending:
 
-Note that `bg_fetch_cycle` is 13.9% even on NROM, where `Nrom::chr_peek` is two match arms - so it
-is mostly genuine PPU fetch work, **not** mapper dispatch. Removing dispatch will not reclaim most
-of it.
+- **The APU is done.** It was ~26% of frame time before band-limited synthesis and output-rate
+  filtering; at 4-6% it is now cheaper than MesenCE's (~8%), and nothing in it is worth another
+  pass. `FilterChain` does not appear at all.
+- **The remaining gap to MesenCE is entirely the PPU.** On Zelda, PPU work is 73.8% of 1.923 ms =
+  1.42 ms against MesenCE's 67% of 1.600 ms = 1.07 ms. That 0.35 ms difference is the whole 0.32 ms
+  frame-time gap; CPU and APU are already at or ahead of parity.
 
-`FilterChain::consume` runs at CPU clock rate and walks six `SampledFilter` entries per cycle,
-each ~64 bytes apart, so it touches five scattered cache lines per CPU cycle to do little more
-than a float compare and add. Improving it likely needs a more compact hot representation of the
-period counters, which is a layout change and therefore save-state-affecting - see the plan's
-Phase 5.
+`bg_fetch_cycle` is ~17% even on NROM, where `Nrom::chr_peek` is two match arms - so it is mostly
+genuine PPU fetch work, **not** mapper dispatch. Removing dispatch will not reclaim most of it.
+
+Mapper cost still varies enormously by board, which is the whole reason the corpus exists. On
+Castlevania III, MMC5-specific code is a large share of frame time - `Exrom::chr_read_hook` runs on
+every PPU fetch, and `Exrom::output` on every CPU cycle for expansion audio. On Super Mario Bros.
+no mapper symbol appears at all.
 
 Notes:
 
@@ -722,3 +746,95 @@ The cost is binary size. Measured on the bench binary: `.rodata` +294,560 B for 
 Worth knowing for the wasm build: **do not pre-compress the blob in the binary**. A deflated table
 embedded in the wasm is ~166 KB over the wire, where shipping it raw and letting the transport
 compress is ~117 KB - the transport does a better job than an inner layer it can no longer squeeze.
+
+### The PPU dot loop is not branch-bound (2026-08-01)
+
+Reading MesenCE's `NesPpu::Exec` next to `Bus::ppu_clock` says the dot loop should be branch-bound:
+MesenCE reaches its scanline dispatch in two predicted branches and hides every deferred update
+behind one `_needStateUpdate` bool, where `ppu_clock` tests `mask.clock()`, `scroll.delayed_update`
+and a handful of ranges on each of ~89,000 dots a frame. **It is not.**
+
+Merging the pixel and shift-register range tests into one, and putting the `cycle == 1` compare
+ahead of the two vblank scanline compares, removes about four operations per dot and measured
+**-0.7%** across five interleaved rounds (-0.97, -0.65, +0.19, -0.05, -1.94) - straddling the noise
+floor. Kept, because the code is shorter, not because the number is convincing. The third change
+this ranking predicted, collapsing the two deferred-update tests behind a single cached bool, was
+not attempted once the first two came back this small.
+
+The lesson generalises: **these branches are perfectly predicted, and a perfectly predicted branch
+on an out-of-order core is close to free.** Counting operations in a hot loop ranks work in the
+order a static reading suggests, not the order the machine experiences. `perf annotate -l` on
+`ppu_clock` is what actually apportions its 47.6%, and it puts the cost in the pixel path:
+
+| Source | Share of frame |
+|---|---|
+| `PaletteRam::peek` + `mirror` (`ppu.rs:76,84`) | 11.9% |
+| `Ppu::render_pixel` body (`ppu.rs:1009,1012,1020`) | ~10% |
+| `Ppu::pixel_palette` body (`ppu.rs:910-957`) | ~11% |
+| `Bus::check_debugger` (`ppu.rs:1642`) | 1.7% |
+
+### Palette mirroring: read-side table beats write-side duplication
+
+`PaletteRam::peek` resolves the $3F10/$3F14/$3F18/$3F1C backdrop mirrors through a 32-byte table,
+so a pixel pays two loads where the second depends on the first's result - 61,440 times a frame,
+with the result feeding `set_pixel` immediately. MesenCE pays one load, because it writes both
+halves of each mirror and indexes storage directly.
+
+Duplicating on write and indexing directly measured **+1.8% slower** (2.158 against 2.120, three
+consecutive rounds, no round disagreeing). Every ROM snapshot hash was unchanged, so this is a pure
+performance answer: both loads are L1-resident and consecutive pixels are independent, so the
+dependency chain overlaps in the out-of-order window instead of stalling, and the extra branch the
+write path picks up is not free even at a few writes a frame. Reverted; the comment on
+`PaletteRam::mirror` records the measurement so it is not re-attempted.
+
+**A dependent load pair is not automatically a stall.** That it appears at the top of an annotated
+profile means the samples land there, not that removing an instruction from it wins anything.
+
+### Sprite coverage as a bitmask (2026-08-01)
+
+The one change in this round that paid, and the one that removes *work* rather than a branch.
+
+`Ppu::spr_cover` holds one bit per sprite index for each dot, so `Ppu::pixel_palette` visits only
+the sprites whose 8-pixel span contains the dot - `trailing_zeros` for the next set bit, `n & (n-1)`
+to clear it, which is also sprite priority order. Scanning all `spr_count` sprites and range-testing
+each is what it replaces, and those range tests are data-dependent on sprite X positions, so they
+mispredict in a way the dot loop's fixed branches never do.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 1.880 | 1.783 | -5.2% |
+| Super Mario Bros. | 000 NROM | 1.852 | 1.830 | -1.2% |
+| Legend of Zelda | 001 MMC1 | 1.945 | 1.832 | -5.8% |
+| Super Mario Bros. 3 | 004 MMC3 | 2.077 | 2.006 | -3.4% |
+| Punch-Out!! | 009 MMC2 | 1.815 | 1.703 | -6.2% |
+| Castlevania III | 005 MMC5 | 3.060 | 2.915 | -4.7% |
+| Akumajou Densetsu | 024 VRC6 | 2.522 | 2.408 | -4.5% |
+| **geometric mean** | | **2.127** | **2.032** | **-4.5%** |
+
+The span test inside the loop stays, and is not redundant: the cover bits are rebuilt at dot 257
+only when rendering was enabled there, so toggling `$2001` mid-frame can leave a bit set against a
+sprite that has since moved. Without the test that underflows `7 - spr_shift`, which
+`ppu::spr_hit_right_edge` and `ppu::read_buffer` both catch. Keeping it costs nothing measurable -
+it is a branch that is taken almost every time the bit is set.
+
+Cost is one byte per dot instead of one bit, for a 256-byte array that was already there.
+
+### `-C target-cpu` is worth about 1% (not shipped)
+
+`RUSTFLAGS="-Zthreads=8 -Ctarget-cpu=x86-64-v3"` measured **-1.1%** (2.017 against 2.039 geomean,
+three interleaved rounds, none disagreeing). AVX2/BMI instruction count in the bench binary goes
+from 54 to 517, so the flag is doing something; it is just not doing much, because this workload is
+byte-at-a-time state machine code with nothing to vectorise.
+
+Two things to know before reaching for it:
+
+- **Pass it as `RUSTFLAGS` and keep `-Zthreads=8`,** or the env var replaces the workspace cargo
+  config's `build.rustflags` wholesale and drops the parallel frontend.
+- **Read the binary path back from `cargo build --message-format=json`.** Changing rustflags changes
+  the `-C metadata` hash, so the artifact lands under a different filename and copying the old path
+  silently benchmarks the previous build against itself.
+
+It stays out of shipped builds: MesenCE passes no `-march` either, so leaving it off keeps the
+comparison architectural, and v3 excludes pre-2015 hardware for ~1%. If hardware FMA ever becomes a
+baseline assumption, `Apu::mix_level` is where it would pay - the comment there explains why
+`mul_add` is avoided today.

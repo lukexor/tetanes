@@ -176,7 +176,7 @@ mod tests {
 
             secondary_oamdata: ConstArray<u8, 32>,
             sprites: [Sprite; 8],
-            spr_present: ConstArray<bool, 256>,
+            spr_cover: ConstArray<u8, 256>,
             oamdata: ConstArray<u8, 256>,
 
             palette: PaletteRam,

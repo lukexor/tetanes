@@ -67,6 +67,12 @@ pub struct PaletteRam(ConstArray<u8, 32>);
 
 impl PaletteRam {
     /// Return palette address, mirrored.
+    //
+    // A table rather than arithmetic, and mirroring on read rather than storing both halves of
+    // each backdrop mirror at write time: the second load depends on the first, so resolving the
+    // mirror here looks like the expensive direction, but it measured 1.8% *faster* than a plain
+    // indexed load off a write-mirrored array. Both loads are L1-resident and independent between
+    // pixels, so the chain overlaps rather than stalling.
     #[inline(always)]
     const fn mirror(addr: u16) -> usize {
         const PALETTE_MIRROR: [u8; 32] = [
@@ -213,10 +219,14 @@ pub struct Ppu {
     // === 192 : end of cache line ===
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
-    /// Whether a sprite is present at the given x-coordinate. Used for `spr_zero_hit` detection.
-    // This is a per-frame optimization, shouldn't need to be saved
+    /// Which of the scanline's sprites cover each dot, one bit per index into [`Ppu::sprites`].
+    ///
+    /// A set bit means that sprite's 8-pixel span contains the dot, so the pixel path visits only
+    /// the sprites that can contribute instead of scanning all [`Ppu::spr_count`] of them and
+    /// range-testing each.
+    // Rebuilt every scanline, so there is nothing here worth saving.
     #[serde(skip)]
-    pub spr_present: ConstArray<bool, 256>,
+    pub spr_cover: ConstArray<u8, 256>,
     // === 384 : end of cache line
     /// $2004 Object Attribute Memory (OAM) data (read/write).
     pub oamdata: ConstArray<u8, 256>,
@@ -460,7 +470,7 @@ impl Ppu {
             oamdata: ConstArray::new(),
             secondary_oamdata: ConstArray::new(),
             sprites: [Sprite::new(); 8],
-            spr_present: ConstArray::new(),
+            spr_cover: ConstArray::new(),
 
             prevent_vbl: false,
             frame: Frame::new(),
@@ -916,12 +926,17 @@ impl Ppu {
             * ((((self.tile_shift_hi >> bg_shift) & 0x01) << 1)
                 | ((self.tile_shift_lo >> bg_shift) & 0x01)) as u8;
 
-        let count = usize::from(self.spr_count);
-        if (count > 0)
-            & (show_spr & (show_left_spr | min_render_x))
-            & self.spr_present[usize::from(cycle)]
-        {
-            for (i, sprite) in self.sprites.iter().take(count).enumerate() {
+        let mut covering = self.spr_cover[usize::from(cycle)];
+        if (covering != 0) & (show_spr & (show_left_spr | min_render_x)) {
+            while covering != 0 {
+                // Lowest set bit first, which is sprite priority order.
+                let i = covering.trailing_zeros() as usize;
+                covering &= covering - 1;
+                let sprite = &self.sprites[i];
+
+                // The cover bits are rebuilt from `sprites` each scanline, but only when rendering
+                // was on at dot 257 - toggling it mid-frame can leave a bit set against a sprite
+                // that has since moved, so the span is still checked here.
                 let spr_shift = x.wrapping_sub(sprite.x);
                 if spr_shift <= 7 {
                     let spr_shift = if sprite.flip_horizontal {
@@ -974,7 +989,7 @@ impl Ppu {
         if (bg_mask == 0)
             | !(show_spr & (show_left_spr | min_render_x))
             | (cycle == 256)
-            | !self.spr_present[usize::from(cycle)]
+            | (self.spr_cover[usize::from(cycle)] == 0)
         {
             return;
         }
@@ -1260,7 +1275,7 @@ impl Ppu {
             self.reset_signal = self.emulate_warmup;
         }
         self.sprites = [Sprite::new(); 8];
-        self.spr_present = ConstArray::new();
+        self.spr_cover = ConstArray::new();
         self.prevent_vbl = false;
         self.frame.reset(kind);
     }
@@ -1514,7 +1529,10 @@ impl Bus {
                     flip_horizontal: (attr & 0x40) == 0x40,
                 };
                 let cycle = usize::from(x + 1);
-                self.ppu.spr_present[cycle..(cycle + 8).min(256)].fill(true);
+                let bit = 1 << idx;
+                for dot in &mut self.ppu.spr_cover[cycle..(cycle + 8).min(256)] {
+                    *dot |= bit;
+                }
             } else {
                 // Fetches for remaining sprites/hidden fetch tile $FF
                 // Required for accurate MMC3 IRQ
@@ -1565,7 +1583,7 @@ impl Bus {
                 // Copy X bits at the start of a new line since we're going to start writing
                 // new x values to t
                 self.ppu.scroll.copy_x();
-                self.ppu.spr_present = ConstArray::new();
+                self.ppu.spr_cover = ConstArray::new();
             }
             // 280..=304
             if self.ppu.is_prerender_scanline && cycle::COPY_Y_RANGE.contains(&self.ppu.cycle) {
@@ -1677,28 +1695,33 @@ impl Bus {
             self.notify_ppu_bus(self.ppu.scroll.addr());
         }
 
-        // Pixels should be put even if rendering is disabled, as this is what blanks out the
-        // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
-        if self.ppu.is_visible_scanline && self.ppu.cycle <= cycle::VISIBLE_END {
-            if self.ppu.skip_rendering {
-                self.ppu.headless_sprite_zero_hit();
-            } else {
-                self.ppu.render_pixel();
+        // The pixel and the shift registers both want the visible dots, so the range is tested
+        // once for the two of them rather than once each.
+        if self.ppu.cycle <= cycle::VISIBLE_END {
+            // Pixels should be put even if rendering is disabled, as this is what blanks out the
+            // screen. Rendering disabled just means we don't evaluate/read bg/sprite info
+            if self.ppu.is_visible_scanline {
+                if self.ppu.skip_rendering {
+                    self.ppu.headless_sprite_zero_hit();
+                } else {
+                    self.ppu.render_pixel();
+                }
             }
-        }
-
-        if self.ppu.cycle <= cycle::VISIBLE_END
-            || cycle::BG_PREFETCH_RANGE.contains(&self.ppu.cycle)
-        {
+            self.ppu.tile_shift_lo <<= 1;
+            self.ppu.tile_shift_hi <<= 1;
+        } else if cycle::BG_PREFETCH_RANGE.contains(&self.ppu.cycle) {
             self.ppu.tile_shift_lo <<= 1;
             self.ppu.tile_shift_hi <<= 1;
         }
 
         // === VBLANK / IDLE ===
-        if self.ppu.scanline == self.ppu.vblank_scanline && self.ppu.cycle == cycle::VBLANK {
-            self.ppu.start_vblank();
-        } else if self.ppu.is_prerender_scanline && self.ppu.cycle == cycle::VBLANK {
-            self.ppu.stop_vblank();
+        // Both edges land on dot 1, so that compare goes first and rejects 340 of every 341 dots.
+        if self.ppu.cycle == cycle::VBLANK {
+            if self.ppu.scanline == self.ppu.vblank_scanline {
+                self.ppu.start_vblank();
+            } else if self.ppu.is_prerender_scanline {
+                self.ppu.stop_vblank();
+            }
         }
 
         self.check_debugger();
@@ -2077,7 +2100,7 @@ mod tests {
         bus.ppu.tile_shift_hi = 0x0000;
 
         bus.ppu.spr_zero_visible = true;
-        bus.ppu.spr_present[9..17].fill(true);
+        bus.ppu.spr_cover[9..17].fill(1 << 0);
 
         bus.ppu.sprites[0].x = 8;
         bus.ppu.sprites[0].tile_lo = 0b0100;
