@@ -624,8 +624,11 @@ impl Exrom {
     ///
     /// The last two nametable fetches of a scanline prefetch the next one, so they scroll by a
     /// scanline more than the counter says.
+    ///
+    /// Both of them: tiles 40 and 41 are columns 0 and 1 of the next line, and `scanline` is not
+    /// incremented until the dummy fetches that follow them.
     fn split_scroll(&self) -> u16 {
-        let scanline = if self.ppu_status.tile_number >= 41 {
+        let scanline = if self.ppu_status.tile_number >= 40 {
             self.ppu_status.scanline + 1
         } else {
             self.ppu_status.scanline
@@ -862,7 +865,12 @@ impl Map for Exrom {
 
                 // Reading $5204 will clear the pending flag (acknowledging the IRQ).
                 // Clearing is done in `prg_read`.
-                (u8::from(self.regs.irq_pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
+                //
+                // `irq_state.pending`, not `regs.irq_pending`: the hardware raises the pending
+                // flag whether or not IRQs are enabled, and only the *assertion* to the CPU is
+                // gated (`docs/mapper/005.txt:411`). A game that polls $5204 with IRQs disabled
+                // reads the flag, so reporting the gated one tells it a scanline never matched.
+                (u8::from(self.irq_state.pending) << 7) | (u8::from(self.irq_state.in_frame) << 6)
             }
             0x5205 => (self.regs.mult_result & 0xFF) as u8,
             0x5206 => ((self.regs.mult_result >> 8) & 0xFF) as u8,
@@ -1634,6 +1642,55 @@ mod tests {
         // Outside the split, everything falls back to the ordinary sources.
         exrom(&mut mapper).regs.vsplit.in_region = false;
         assert_eq!(mapper.chr_peek(&cart.memory, 0x0000), None);
+    }
+
+    /// The hardware raises the pending flag whenever the scanline matches, and gates only the
+    /// assertion to the CPU on the enable bit (`docs/mapper/005.txt:411`). A game that polls $5204
+    /// with IRQs disabled has to see it.
+    #[test]
+    fn the_pending_flag_reads_back_even_with_irqs_disabled() {
+        let (mut mapper, cart) = load();
+        {
+            let exrom = exrom(&mut mapper);
+            exrom.irq_state.in_frame = true;
+            // What a scanline match does: raise the hardware flag, and assert to the CPU only if
+            // enabled - which it is not.
+            exrom.irq_state.pending = true;
+            exrom.regs.irq_enabled = false;
+            exrom.regs.irq_pending = false;
+        }
+
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x5204) & 0x80,
+            0x80,
+            "the pending flag reads back set"
+        );
+        assert!(
+            !mapper.irq_pending(),
+            "while the CPU is still not being interrupted"
+        );
+    }
+
+    /// The last two nametable fetches of a scanline prefetch columns 0 and 1 of the *next* one,
+    /// and the scanline counter does not move until the dummy fetches after them - so both have to
+    /// scroll a line further, not just the second.
+    #[test]
+    fn both_nametable_prefetches_scroll_to_the_next_scanline() {
+        let (mut mapper, _cart) = load();
+        let exrom = exrom(&mut mapper);
+        exrom.ppu_status.scanline = 5;
+        exrom.regs.vsplit.scroll = 0;
+
+        exrom.ppu_status.tile_number = 39;
+        assert_eq!(exrom.split_scroll(), 5, "still the current scanline");
+        for tile_number in [40, 41] {
+            exrom.ppu_status.tile_number = tile_number;
+            assert_eq!(
+                exrom.split_scroll(),
+                6,
+                "tile {tile_number} is a prefetch for the next scanline"
+            );
+        }
     }
 
     /// Page tables are derived state that save states do not carry, so `update_banks` has to rebuild every
