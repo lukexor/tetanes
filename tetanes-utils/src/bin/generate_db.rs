@@ -77,12 +77,12 @@ fn main() -> anyhow::Result<()> {
 fn apply_corrections(game: &mut Game) {
     match game.crc32 {
         // Mapper 210 games incorrectly marked as Mapper 19
-        0x808606F0 | 0x81B7F1A8 | 0xC247CC80 | 0xC47946D => {
+        0x808606F0 | 0x81B7F1A8 | 0xC247CC80 | 0xC47946D | 0xBD523011 => {
             // Famista '91
             // Heisei Tensai Bakabon
             // Family Circuit '91
             // Chibi Maruko-chan: Uki Uki Shopping
-            // Dream Master - TODO: Missing crc
+            // Namco Prism Zone: Dream Master
             game.mapper = 210;
             game.submapper = 1;
         }

@@ -1966,7 +1966,7 @@
   BD29178A, NTSC, 79, 0, 4, 2, 0, false, Horizontal, "Dudes with Attitude (USA) (Unl).nes"
   BD339E75, PAL, 1, 0, 16, 8, 0, false, Vertical, "Best of the Best - Championship Karate (Europe).nes"
   BD50F230, NTSC, 4, 0, 16, 8, 0, false, Horizontal, "Doki!Doki! Yuuenchi - Crazy Land Daisakusen (Japan).nes"
-  BD523011, NTSC, 19, 0, 32, 16, 0, false, Horizontal, "Namco Prism Zone - Dream Master (Japan).nes"
+  BD523011, NTSC, 210, 1, 32, 16, 0, false, Horizontal, "Namco Prism Zone - Dream Master (Japan).nes"
   BD9D0E85, NTSC, 2, 0, 1, 8, 0, false, Vertical, "Bomber King (Japan).nes"
   BDA183BB, NTSC, 4, 0, 32, 16, 0, false, Vertical, "Teenage Mutant Ninja Turtles II - The Arcade Game (Unknown) (Beta).nes"
   BDA7925E, NTSC, 87, 0, 0, 2, 0, false, Horizontal, "Kage no Densetsu (Japan).nes"
