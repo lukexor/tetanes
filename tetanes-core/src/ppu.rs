@@ -214,15 +214,20 @@ pub struct Ppu {
     // Rendering stores raw palette colours and the $2001 bits are folded in over whole runs of
     // pixels, so a frame that never touches them - which is nearly every frame - pays nothing per
     // pixel. Derived from a frame buffer that is itself not serialized.
+    //
+    // Cold, but it lives here rather than with the other cold fields: moving it down shifts every
+    // field below by eight bytes, and that measured 3.2% slower even though it is what aligns
+    // `palette` inside a single cache line. See `benches/README.md`.
     #[serde(skip)]
     pub color_bits_applied: usize,
-    // === 128 : end of cache line ===
+    // === 104 ===
     /// Palette RAM: the 32 colours currently loaded, at $3F00-$3F1F.
     pub palette: PaletteRam,
+    // === 136 ===
     /// Secondary OAM data on a given scanline.
     pub secondary_oamdata: ConstArray<u8, 32>,
 
-    // === 192 : end of cache line ===
+    // === 160 ===
     /// Each scanline can hold 8 sprites at a time before the `spr_overflow` flag is set.
     pub sprites: [Sprite; 8],
     /// Which of the scanline's sprites cover each dot, one bit per index into [`Ppu::sprites`].
@@ -233,11 +238,11 @@ pub struct Ppu {
     // Rebuilt every scanline, so there is nothing here worth saving.
     #[serde(skip)]
     pub spr_cover: ConstArray<u8, 256>,
-    // === 384 : end of cache line
+    // === 520 ===
     /// $2004 Object Attribute Memory (OAM) data (read/write).
     pub oamdata: ConstArray<u8, 256>,
 
-    // === 640 : end of cache line
+    // === 776 ===
     /// NMI pending.
     pub nmi_pending: bool,
 

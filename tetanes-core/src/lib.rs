@@ -61,8 +61,8 @@ mod tests {
         memory::ConstArray,
         memory::Memory,
         ppu::{
-            PaletteRam, ctrl::Ctrl, mask::Mask, scroll::Scroll, sprite::Sprite,
-            status::Status as PpuStatus,
+            PaletteRam, ctrl::Ctrl, frame::Frame as PpuFrame, mask::Mask, scroll::Scroll,
+            sprite::Sprite, status::Status as PpuStatus,
         },
     };
     use std::collections::HashMap;
@@ -87,6 +87,33 @@ mod tests {
                 println!("  {field:<25}: offset {offset:4}, size {size:4}");
             }
         }};
+    }
+
+    /// The `Ppu` field placement the dot loop depends on.
+    ///
+    /// `print_layouts` only prints, so on its own it cannot notice a field being inserted in the
+    /// middle of a hot struct - which is how `palette` came to straddle a cache line. These are the
+    /// placements worth failing a build over; everything else is free to move.
+    fn assert_ppu_cache_lines() {
+        const LINE: usize = 64;
+        use std::mem::offset_of;
+
+        // Everything the per-dot path reads on the way through `Bus::ppu_clock` shares the first
+        // line: the counters, the three register files, the tile shifters and the scanline kind.
+        assert_eq!(
+            offset_of!(Ppu, master_clock),
+            0,
+            "the dot loop starts a line"
+        );
+        assert_eq!(
+            offset_of!(Ppu, is_render_scanline),
+            LINE - 1,
+            "the per-dot fields must end the first cache line, not spill past it"
+        );
+
+        // `palette` deliberately straddles 128 and is not asserted here: aligning it inside one
+        // line, by moving the eight bytes above it, shifts every field below and measured 3.2%
+        // slower. Placement past the first line is a question for the benchmark, not for a rule.
     }
 
     // Utility to help print alignment and size of struct field for cache-optimization.
@@ -172,7 +199,8 @@ mod tests {
 
             status: PpuStatus,
 
-            frame: Frame,
+            frame: PpuFrame,
+            color_bits_applied: usize,
 
             secondary_oamdata: ConstArray<u8, 32>,
             sprites: [Sprite; 8],
@@ -189,6 +217,8 @@ mod tests {
 
 
         );
+
+        assert_ppu_cache_lines();
 
         print_struct_layout!(
             Apu,

@@ -893,6 +893,58 @@ nothing outstanding instead of folding the bits into the finished frame a second
 backwards fails `apu::dpcmletterbox` and nothing else, which is a thin margin for a bug that
 double-darkens every frame of any game using emphasis.
 
+### Drilling into a symbol that everything inlines into
+
+`Bus::ppu_clock` is ~45% of frame time and almost the whole PPU is inlined into it, so the function
+list says nothing about what inside it is expensive. Two traps in getting at that:
+
+- **`perf annotate -s <symbol>` percentages are relative to that symbol.** They sum to 100% of
+  `ppu_clock`, not of the run, so every figure needs multiplying by the symbol's own share before it
+  can sit next to a `perf report` number. `--percent-type global-period` does *not* fix the sorted
+  summary - it only affects the disassembly listing below it.
+- **Line numbers alone are not function names.** A range read off the summary can span two inlined
+  functions and be attributed to the wrong one.
+
+What works is `perf report --no-children --sort srcline -e cycles:pp`, whose shares are
+whole-program already, with each line mapped to its enclosing `fn` by matching braces in the source.
+Zelda, current:
+
+| Inlined function | Share of frame |
+|---|---|
+| `Ppu::pixel_palette` | 10.8% |
+| `Bus::bg_fetch_cycle` | 9.7% |
+| `Bus::ppu_clock` itself | 8.8% |
+| `Ppu::oam_eval_cycle` | 4.9% |
+| `Bus::clock_render_scanline` | 4.4% |
+| `Ppu::render_pixel` | 3.7% |
+| `Memory::chr_peek` | 3.6% |
+| `Bus::ppu_clock_to` | 3.5% |
+| `PaletteRam::mirror` + `peek` | 6.1% |
+| `Bus::cpu_bus_read` | 2.5% |
+| `Frame::set_pixel` | 2.1% |
+
+### Cache-line placement past the first line is not predictable
+
+`Ppu` is `#[repr(C)]` and hand-ordered so the per-dot working set - counters, `mask`, `ctrl`,
+`scroll`, the tile shifters, the scanline-kind flags - fills the first 64 bytes exactly. That part
+is real and `tests::print_layouts` now asserts it.
+
+Past that, offset arithmetic stops predicting anything. `palette` is 32 bytes at offset 104, so it
+straddles the line at 128, and it is read once per visible pixel - textbook grounds for moving the
+eight bytes above it. Doing that lands `palette` at 96 inside a single line and incidentally aligns
+`spr_cover` to 256 and `oamdata` to 512, and it measured **3.2% slower** (2.072 against 2.008, three
+rounds). The eight bytes cannot move without shifting every field below them, and the layout that
+looks worse on paper is the one that runs faster. Left as it is.
+
+**`print_layouts` had been printing a field it was not measuring.** `use super::prelude::*` brings
+`video::Frame` into scope, so the `frame: Frame` row was reporting the size of the RGB output frame
+rather than `ppu::frame::Frame`, and `color_bits_applied` was missing entirely. A test that only
+prints cannot notice either. It now asserts the first cache line, which is the part that is load
+bearing.
+
+There is no third-party crate worth adding for this - `std::mem::offset_of!` is what the macro
+already uses, and it is the whole mechanism.
+
 ### `-C target-cpu` is worth about 1% (not shipped)
 
 `RUSTFLAGS="-Zthreads=8 -Ctarget-cpu=x86-64-v3"` measured **-1.1%** (2.017 against 2.039 geomean,
