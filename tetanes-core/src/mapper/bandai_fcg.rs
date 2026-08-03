@@ -608,7 +608,9 @@ pub struct Eeprom {
     pub output: u8,
     pub prev_scl: u8,
     pub prev_sda: u8,
-    pub rom_data: Buffer<Box<[u8]>>,
+    // Crate-internal because `Buffer` is: the type is a plain byte container, not part of the
+    // crate's API.
+    pub(crate) rom_data: Buffer<Box<[u8]>>,
 }
 
 impl Eeprom {

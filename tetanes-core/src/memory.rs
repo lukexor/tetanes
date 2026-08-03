@@ -22,8 +22,7 @@
 //! map CHR-ROM into the nametable range fall out for free.
 //!
 //! Alongside the arena this module holds the small memory primitives the rest of the emulator
-//! shares: [`Buffer`] and [`ConstArray`] for plain byte storage, and [`RamState`] for power-on
-//! fill.
+//! shares: [`ConstArray`] for plain byte storage, and [`RamState`] for power-on fill.
 
 use crate::ppu::Mirroring;
 use rand::Rng;
@@ -38,7 +37,6 @@ use std::{
     ops::{Deref, DerefMut, Index, IndexMut, Range, RangeInclusive},
     str::FromStr,
 };
-use tracing::warn;
 
 /// Address bits translated within a single page. 1 KiB granularity.
 pub const PAGE_SHIFT: usize = 10;
@@ -555,75 +553,29 @@ impl Memory {
 /// A plain byte buffer with a `Debug` impl that reports its length instead of its contents, and
 /// an `Index` impl that masks rather than panics.
 ///
-/// Distinct from [`Memory`]: this is a container, not an address space. It backs the console's own
-/// RAM and the odd board-private buffer, neither of which is reachable through the page tables.
+/// Distinct from [`Memory`]: this is a container, not an address space. It backs the odd
+/// board-private buffer that is not reachable through the page tables - so far only the Bandai
+/// FCG EEPROMs.
 #[derive(Default, Copy, Clone, Serialize, Deserialize)]
-pub struct Buffer<D> {
+pub(crate) struct Buffer<D> {
     data: D,
 }
 
 impl Buffer<Box<[u8]>> {
-    /// Create an empty `Buffer`.
-    pub fn empty() -> Self {
-        Self {
-            data: Vec::new().into_boxed_slice(),
-        }
-    }
-
     /// Create a zeroed `Buffer` of `size` bytes.
-    pub fn new(mut size: usize) -> Self {
-        if size > 0 && !size.is_power_of_two() {
-            warn!("memory size {size} must be a power of two");
-            size = size.next_power_of_two();
-        }
+    //
+    // `size` is expected to be a power of two: `Index` masks the index with `len - 1` rather than
+    // bounds-checking it, so any other length wraps to the wrong byte. The one caller asks for
+    // 128 or 256.
+    pub(crate) fn new(size: usize) -> Self {
+        debug_assert!(size.is_power_of_two(), "buffer size must be a power of two");
         Self {
             data: vec![0; size].into_boxed_slice(),
         }
     }
-
-    /// Allocates `size` bytes initialised per `state`.
-    pub fn with_ram_state(size: usize, state: RamState) -> Self {
-        let mut mem = Self::new(size);
-        state.fill(&mut mem.data);
-        mem
-    }
-
-    /// Shortens the `Buffer` by keeping the first `size` bytes and dropping the rest.
-    pub fn truncate(&mut self, size: usize) {
-        let mut data = std::mem::take(&mut self.data).to_vec();
-        data.truncate(size);
-        self.data = data.into_boxed_slice();
-    }
-}
-
-impl<T, const N: usize> Buffer<ConstArray<T, N>> {
-    /// Create a zeroed `Buffer`.
-    pub fn new_const() -> Self
-    where
-        T: Default + Copy,
-    {
-        Self::default()
-    }
-}
-
-impl<const N: usize> Buffer<ConstArray<u8, N>> {
-    /// Fill memory based on [`RamState`].
-    pub fn with_ram_state_const(state: RamState) -> Self {
-        let mut mem = Self::default();
-        state.fill(&mut *mem.data);
-        mem
-    }
 }
 
 impl fmt::Debug for Buffer<Box<[u8]>> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Buffer")
-            .field("len", &self.data.len())
-            .finish()
-    }
-}
-
-impl<T, const N: usize> fmt::Debug for Buffer<ConstArray<T, N>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Buffer")
             .field("len", &self.data.len())
