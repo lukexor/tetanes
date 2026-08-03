@@ -124,6 +124,8 @@ pub struct Memory {
     /// CRC32 of the cart's ROM - the same one the game database is keyed by. It says *which game*
     /// this arena belongs to, which a state that carries no ROM otherwise has no way to record.
     rom_crc32: u32,
+    /// Whether the cart's RAM is battery-backed, and so survives a power cycle.
+    battery_backed: bool,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
     chr: Range<usize>,
@@ -212,6 +214,9 @@ impl<'de> Deserialize<'de> for Memory {
             data,
             ram_start: state.ram_start,
             rom_crc32: state.rom_crc32,
+            // Cart-derived, like the ROM itself, and put back from the running console by
+            // `Memory::restore_rom_from`.
+            battery_backed: false,
             prg_rom: state.prg_rom,
             prg_ram: state.prg_ram,
             chr: state.chr,
@@ -310,6 +315,7 @@ impl Memory {
             data: vec![0; offset].into_boxed_slice(),
             ram_start,
             rom_crc32: 0,
+            battery_backed: false,
             prg_rom,
             prg_ram,
             chr: chr_rom.or(chr_ram).unwrap_or(0..0),
@@ -534,7 +540,28 @@ impl Memory {
         self.rom_crc32 = crc32;
     }
 
-    /// Copy the immutable ROM half in from the running console's memory.
+    /// Whether the cart's RAM is battery-backed, and so survives a power cycle.
+    #[must_use]
+    pub const fn battery_backed(&self) -> bool {
+        self.battery_backed
+    }
+
+    /// Record whether the cart's RAM is battery-backed.
+    pub const fn set_battery_backed(&mut self, battery_backed: bool) {
+        self.battery_backed = battery_backed;
+    }
+
+    /// Fill the cart's RAM as if the console had just been powered on: PRG-RAM, and CHR when the
+    /// cart provides CHR-RAM rather than CHR-ROM.
+    pub fn fill_ram(&mut self, state: RamState) {
+        state.fill(self.region_mut(Src::PrgRam));
+        if self.chr_writable {
+            state.fill(self.region_mut(Src::Chr));
+        }
+    }
+
+    /// Copy the immutable ROM half, and the rest of what the cart rather than the console
+    /// decides, in from the running console's memory.
     ///
     /// Save states carry only the mutable tail, so a freshly deserialized
     /// `Memory` has a zero-filled ROM region until this puts it back.
@@ -555,6 +582,7 @@ impl Memory {
             return false;
         }
         self.data[..self.ram_start].copy_from_slice(&src.data[..src.ram_start]);
+        self.battery_backed = src.battery_backed;
         true
     }
 

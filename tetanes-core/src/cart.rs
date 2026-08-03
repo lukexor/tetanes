@@ -179,10 +179,7 @@ impl Cart {
             // the coupling of knowing the mapper before the memory exists.
             ex_ram: 8 * 1024,
         });
-        if chr_rom_size == 0 {
-            ram_state.fill(memory.region_mut(Src::Chr));
-        }
-        ram_state.fill(memory.region_mut(Src::PrgRam));
+        memory.fill_ram(ram_state);
         memory
     }
 
@@ -377,6 +374,9 @@ impl Cart {
         // Header mirroring is the default for every board; only boards that override it - either
         // hard-wired or via a register - touch it again.
         cart.memory.set_mirroring(cart.mirroring());
+        // The arena outlives the `Cart` - `Bus::load_cart` keeps only it and the board - so what
+        // the console still needs to know about the cart travels with it.
+        cart.memory.set_battery_backed(cart.battery_backed());
         Ok(cart)
     }
 

@@ -406,14 +406,21 @@ impl Bus {
 
     /// Resets the console, forwarding it to every component.
     ///
-    /// A hard reset also re-initialises work RAM. The CPU takes seven cycles to reset, and running
-    /// them clocks the rest of the console.
+    /// A hard reset is a power cycle, so it also re-initialises RAM that a power cycle would not
+    /// preserve: the console's work RAM, and the cart's unless a battery is keeping it. The CPU
+    /// takes seven cycles to reset, and running them clocks the rest of the console.
     pub fn reset(&mut self, kind: ResetKind) {
         trace!("{kind:?} RESET");
 
         self.cpu.reset(kind);
         if kind == ResetKind::Hard {
             self.ram_state.fill(&mut **self.wram);
+            // Battery-backed cart RAM is left alone: keeping it across a power cycle is what the
+            // battery is for, and `.sram` is only written when the cart is unloaded, so wiping it
+            // here would throw away a game the player has not put away yet.
+            if !self.memory.battery_backed() {
+                self.memory.fill_ram(self.ram_state);
+            }
         }
         self.ppu.reset(kind);
         self.mapper.reset(kind);
@@ -862,5 +869,41 @@ mod test {
 
         bus.reset(ResetKind::Hard);
         assert_eq!(bus.cpu_bus_peek(0x0001), 0x00, "a hard reset clears WRAM");
+    }
+
+    /// A hard reset is a power cycle, so cart RAM comes back up in whatever state the console is
+    /// configured for - unless a battery is keeping it, which is the whole point of the battery.
+    #[test]
+    fn hard_reset_refills_cart_ram_unless_it_is_battery_backed() {
+        for battery_backed in [false, true] {
+            let mut bus = Bus {
+                ram_state: RamState::AllOnes,
+                ..Default::default()
+            };
+            let mut cart = Cart::empty_sized(0x4000, 0x2000);
+            cart.mapper = Nrom::load(&mut cart).expect("valid mapper");
+            bus.load_cart(cart);
+            bus.memory.set_battery_backed(battery_backed);
+            bus.memory.region_mut(Src::PrgRam).fill(0x42);
+
+            bus.reset(ResetKind::Soft);
+            assert!(
+                bus.memory
+                    .region_ref(Src::PrgRam)
+                    .iter()
+                    .all(|&b| b == 0x42),
+                "a soft reset leaves cart RAM alone"
+            );
+
+            bus.reset(ResetKind::Hard);
+            let expected = if battery_backed { 0x42 } else { 0xFF };
+            assert!(
+                bus.memory
+                    .region_ref(Src::PrgRam)
+                    .iter()
+                    .all(|&b| b == expected),
+                "battery_backed {battery_backed}: cart RAM after a power cycle"
+            );
+        }
     }
 }
