@@ -204,7 +204,9 @@ impl Map for Vrc6 {
         }
         for (slot, bank) in self.regs.chr.iter().enumerate() {
             out.push((
-                ["CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7"][slot],
+                [
+                    "CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7",
+                ][slot],
                 *bank as u32,
             ));
         }
@@ -255,9 +257,20 @@ impl Map for Vrc6 {
                 self.regs.chr[(4 + (addr & 0x03)) as usize] = val.into();
                 self.update_nametables();
             }
-            0xF000 => self.irq.write_reload(val),
-            0xF001 => self.irq.write_control(val),
-            0xF002 => self.irq.acknowledge(),
+            // The IRQ registers drive the scanline counter and move nothing that is banked, so a
+            // game arming them per scanline does not rebuild all 40 page entries.
+            0xF000 => {
+                self.irq.write_reload(val);
+                return;
+            }
+            0xF001 => {
+                self.irq.write_control(val);
+                return;
+            }
+            0xF002 => {
+                self.irq.acknowledge();
+                return;
+            }
             _ => return,
         }
         self.update_banks(memory);
@@ -717,9 +730,11 @@ mod tests {
         let before: Vec<u8> = [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
             .into_iter()
             .map(|addr| prg_peek(&mapper, &cart, addr))
-            .chain([0x0000, 0x2000].into_iter().map(|addr| {
-                chr_peek(&mapper, &cart, addr)
-            }))
+            .chain(
+                [0x0000, 0x2000]
+                    .into_iter()
+                    .map(|addr| chr_peek(&mapper, &cart, addr)),
+            )
             .collect();
 
         // Wipe every mapping, then rebuild from the registers alone.
@@ -730,9 +745,11 @@ mod tests {
         let after: Vec<u8> = [0x6000, 0x8000, 0xA000, 0xC000, 0xE000]
             .into_iter()
             .map(|addr| prg_peek(&mapper, &cart, addr))
-            .chain([0x0000, 0x2000].into_iter().map(|addr| {
-                chr_peek(&mapper, &cart, addr)
-            }))
+            .chain(
+                [0x0000, 0x2000]
+                    .into_iter()
+                    .map(|addr| chr_peek(&mapper, &cart, addr)),
+            )
             .collect();
         assert_eq!(before, after);
     }

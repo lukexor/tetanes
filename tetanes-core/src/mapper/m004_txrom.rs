@@ -170,6 +170,8 @@ impl Map for Txrom {
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         let (mut addr, mut val) = (addr, val);
+        let mut banking_changed = false;
+        let mut mirroring_changed = false;
         match self.mapper_num {
             76 | 88 | 95 | 206 => self.apply_prg_write_masks(&mut addr, &mut val),
             154 => {
@@ -178,6 +180,7 @@ impl Map for Txrom {
                 } else {
                     Mirroring::SingleScreenA
                 };
+                mirroring_changed = true;
                 self.apply_prg_write_masks(&mut addr, &mut val);
             }
             _ => (),
@@ -185,8 +188,14 @@ impl Map for Txrom {
 
         if addr >= 0x8000 {
             match addr & 0xE001 {
-                0x8000 => self.mmc3.write_bank_select(val),
-                0x8001 => self.mmc3.write_bank_data(val),
+                0x8000 => {
+                    self.mmc3.write_bank_select(val);
+                    banking_changed = true;
+                }
+                0x8001 => {
+                    self.mmc3.write_bank_data(val);
+                    banking_changed = true;
+                }
                 0xA000 => {
                     // Four-screen carts wire their own nametable RAM and ignore this register.
                     if self.mirroring != Mirroring::FourScreen {
@@ -195,6 +204,7 @@ impl Map for Txrom {
                         } else {
                             Mirroring::Vertical
                         };
+                        mirroring_changed = true;
                     }
                 }
                 // $A001 is PRG-RAM protect, which is not emulated.
@@ -215,9 +225,17 @@ impl Map for Txrom {
                 (1, 1) => Mirroring::SingleScreenB,
                 _ => Mirroring::Horizontal,
             };
+            mirroring_changed = true;
         }
 
-        self.update_banks(memory);
+        // A game arms the IRQ counter once a scanline, and those four registers feed nothing that
+        // is banked; rebuilding all 64 page entries for them is pure cost. A mirroring write moves
+        // only the eight nametable pages.
+        if banking_changed {
+            self.update_banks(memory);
+        } else if mirroring_changed {
+            memory.set_mirroring(self.mirroring);
+        }
     }
 
     fn update_banks(&mut self, memory: &mut Memory) {

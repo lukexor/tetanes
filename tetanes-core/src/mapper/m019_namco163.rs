@@ -177,6 +177,10 @@ impl Map for Namco163 {
     }
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
+        // Board auto-detection fires from registers that bank nothing themselves, and it changes
+        // the whole layout - how many CHR slots exist, and whether PRG-RAM is mapped or writable.
+        let board = self.board;
+        let mut banking_changed = false;
         match addr {
             0x4800..=0x4FFF => {
                 self.maybe_set_board(Board::Namco163);
@@ -200,6 +204,7 @@ impl Map for Namco163 {
                 }
             }
             0x8000..=0xDFFF => {
+                banking_changed = true;
                 if addr >= 0xC800 {
                     self.maybe_set_board(Board::Namco163);
                 } else if addr >= 0xC000 && self.board != Board::Namco163 {
@@ -233,6 +238,7 @@ impl Map for Namco163 {
                 }
             }
             0xE000..=0xE7FF => {
+                banking_changed = true;
                 if val & 0x80 == 0x80 || (val & 0x40 == 0x40 && self.board != Board::Namco163) {
                     self.maybe_set_board(Board::Namco340);
                 }
@@ -253,6 +259,7 @@ impl Map for Namco163 {
                 }
             }
             0xE800..=0xEFFF => {
+                banking_changed = true;
                 self.prg_banks[1] = val & 0x3F;
 
                 if self.board == Board::Namco163 {
@@ -260,10 +267,15 @@ impl Map for Namco163 {
                     self.regs.nt_select_hi = (val & 0x80) == 0x80;
                 }
             }
-            0xF000..=0xF7FF => self.prg_banks[2] = val & 0x3F,
+            0xF000..=0xF7FF => {
+                banking_changed = true;
+                self.prg_banks[2] = val & 0x3F;
+            }
             0xF800..=0xFFFF => {
                 self.maybe_set_board(Board::Namco163);
                 if self.board == Board::Namco163 {
+                    // Write-protect is only consulted on a 175, so it changes no page here; a
+                    // board change is what would, and the check below catches that.
                     self.regs.prg_ram_protect = val;
 
                     self.audio.write_register(addr, val);
@@ -271,7 +283,12 @@ impl Map for Namco163 {
             }
             _ => (),
         }
-        self.update_banks(memory);
+        // $4800-$5FFF is sound RAM and the IRQ counter, $6000-$7FFF a PRG-RAM store the `Bus`
+        // already did, and $F800 the sound-RAM pointer - all written far more often than the
+        // banking they leave alone.
+        if banking_changed || self.board != board {
+            self.update_banks(memory);
+        }
     }
 
     fn update_banks(&mut self, memory: &mut Memory) {

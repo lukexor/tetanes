@@ -98,11 +98,16 @@ impl JalecoSs88006 {
 impl Map for JalecoSs88006 {
     fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
         for (slot, bank) in self.prg_banks.iter().enumerate() {
-            out.push((["PRG $8000", "PRG $A000", "PRG $C000"][slot], u32::from(*bank)));
+            out.push((
+                ["PRG $8000", "PRG $A000", "PRG $C000"][slot],
+                u32::from(*bank),
+            ));
         }
         for (slot, bank) in self.chr_banks.iter().enumerate() {
             out.push((
-                ["CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7"][slot],
+                [
+                    "CHR 0", "CHR 1", "CHR 2", "CHR 3", "CHR 4", "CHR 5", "CHR 6", "CHR 7",
+                ][slot],
                 u32::from(*bank),
             ));
         }
@@ -146,13 +151,19 @@ impl Map for JalecoSs88006 {
             0xC002 | 0xC003 => self.chr_banks[5] = bits.page(self.chr_banks[5], val),
             0xD000 | 0xD001 => self.chr_banks[6] = bits.page(self.chr_banks[6], val),
             0xD002 | 0xD003 => self.chr_banks[7] = bits.page(self.chr_banks[7], val),
-            0xE000..=0xE003 => self.regs.irq_reload[(addr & 0x03) as usize] = val,
+            // The IRQ registers below feed the counter and nothing that is banked, so they return
+            // rather than republish every page entry; a game rearms them every frame.
+            0xE000..=0xE003 => {
+                self.regs.irq_reload[(addr & 0x03) as usize] = val;
+                return;
+            }
             0xF000 => {
                 self.regs.irq_pending = false;
                 self.irq_counter = u16::from(self.regs.irq_reload[0])
                     | (u16::from(self.regs.irq_reload[1]) << 4)
                     | (u16::from(self.regs.irq_reload[2]) << 8)
                     | (u16::from(self.regs.irq_reload[3]) << 12);
+                return;
             }
             0xF001 => {
                 self.regs.irq_enabled = val & 0x01 == 0x01;
@@ -166,6 +177,7 @@ impl Map for JalecoSs88006 {
                 } else {
                     0
                 };
+                return;
             }
             0xF002 => {
                 self.mirroring = match val & 0x03 {
@@ -174,10 +186,13 @@ impl Map for JalecoSs88006 {
                     0b10 => Mirroring::SingleScreenA,
                     _ => Mirroring::SingleScreenB,
                 };
+                // Mirroring moves only the eight nametable pages, which is the whole update.
+                memory.set_mirroring(self.mirroring);
+                return;
             }
-            // $F003 selects expansion audio, which is not emulated.
-            0xF003 => (),
-            _ => (),
+            // $F003 selects expansion audio, which is not emulated, and $9003 is not decoded.
+            0xF003 => return,
+            _ => return,
         }
         self.update_banks(memory);
     }
@@ -278,7 +293,9 @@ mod tests {
     #[test]
     fn chr_registers_map_eight_1k_banks() {
         let (mut mapper, mut cart) = load();
-        let regs = [0xA000, 0xA002, 0xB000, 0xB002, 0xC000, 0xC002, 0xD000, 0xD002];
+        let regs = [
+            0xA000, 0xA002, 0xB000, 0xB002, 0xC000, 0xC002, 0xD000, 0xD002,
+        ];
         for (slot, reg) in regs.into_iter().enumerate() {
             bank(&mut mapper, &mut cart, reg, 20 + slot as u8);
         }

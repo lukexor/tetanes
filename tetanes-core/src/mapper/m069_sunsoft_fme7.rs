@@ -82,7 +82,12 @@ impl Map for SunsoftFme7 {
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
-            0x8000..=0x9FFF => self.regs.command = val & 0x0F,
+            // The command register only picks which register the next $A000 write lands in, so it
+            // banks nothing of its own - and every register write goes through it.
+            0x8000..=0x9FFF => {
+                self.regs.command = val & 0x0F;
+                return;
+            }
             0xA000..=0xBFFF => match self.regs.command {
                 0..=7 => self.chr_banks[usize::from(self.regs.command)] = val,
                 8 => {
@@ -97,20 +102,34 @@ impl Map for SunsoftFme7 {
                         0b01 => Mirroring::Horizontal,
                         0b10 => Mirroring::SingleScreenA,
                         _ => Mirroring::SingleScreenB,
-                    }
+                    };
+                    // Mirroring moves only the eight nametable pages, which is the whole update.
+                    memory.set_mirroring(self.mirroring);
+                    return;
                 }
+                // The IRQ registers feed the counter and nothing that is banked.
                 0xD => {
                     self.regs.irq_enabled = (val & 0x01) == 0x01;
                     self.regs.irq_counter_enabled = (val & 0x80) == 0x80;
                     self.regs.irq_pending = false;
+                    return;
                 }
-                0xE => self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val),
+                0xE => {
+                    self.regs.irq_counter = (self.regs.irq_counter & 0xFF00) | u16::from(val);
+                    return;
+                }
                 0xF => {
                     self.regs.irq_counter = (self.regs.irq_counter & 0xFF) | (u16::from(val) << 8);
+                    return;
                 }
-                _ => (),
+                _ => return,
             },
-            0xC000..=0xFFFF => self.audio.write_register(addr, val),
+            // $C000-$FFFF is the YM2149 port; a game writing music rewrites it thousands of times
+            // a frame, and none of it is banking.
+            0xC000..=0xFFFF => {
+                self.audio.write_register(addr, val);
+                return;
+            }
             _ => return,
         }
         self.update_banks(memory);
