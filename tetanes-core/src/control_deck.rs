@@ -607,15 +607,16 @@ impl ControlDeck {
         self.bus.ppu.emulate_warmup = enabled;
     }
 
-    /// Adds a debugger callback to be executed any time the debugger conditions match.
+    /// Attaches a debugger callback, to be executed any time the debugger conditions match.
     ///
-    /// The callback is handed the whole [`Bus`]; see [`Debugger`].
-    pub fn add_debugger(&mut self, debugger: Debugger) {
+    /// The console holds one, so this replaces whatever was attached before. The callback is
+    /// handed the whole [`Bus`]; see [`Debugger`].
+    pub fn set_debugger(&mut self, debugger: Debugger) {
         self.bus.set_debugger(debugger);
     }
 
-    /// Removes the debugger callback.
-    pub fn remove_debugger(&mut self, _debugger: Debugger) {
+    /// Detaches the debugger callback.
+    pub fn clear_debugger(&mut self) {
         self.bus.set_debugger(Debugger::default());
     }
 
