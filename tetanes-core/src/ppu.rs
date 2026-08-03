@@ -998,8 +998,10 @@ impl Ppu {
     /// Reload the BG tile shift registers from the last fetched tile bytes and rotate the
     /// attribute palette latches, at the start of each 8-dot tile fetch.
     //
-    // Not run on the garbage sprite-period NT fetches - hardware has no reload event there, and
-    // with no shifts between dots 257 and 320 the reloads were idempotent busywork.
+    // Not run on the garbage sprite-period NT fetches or the dummy NT fetches at 337-340:
+    // hardware has no reload event at either, and rotating on the dummy fetches would collapse
+    // the palette latch pipeline before dot 1, rendering the first tile's left pixels with the
+    // second prefetched tile's attributes.
     #[inline(always)]
     fn reload_bg_shifters(&mut self) {
         self.prev_palette = self.curr_palette;
@@ -1721,7 +1723,6 @@ impl Bus {
                 self.bg_fetch_cycle();
             } else {
                 // 337..=340
-                self.ppu.reload_bg_shifters();
                 self.fetch_bg_nt_byte();
             }
 
