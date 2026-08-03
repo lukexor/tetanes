@@ -29,8 +29,6 @@ impl Cnrom {
     // PPU $0000..=$1FFF 8K CHR-ROM Bank Switchable
     // CPU $8000..=$FFFF 16K or 32K Fixed PRG-ROM
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        // A 16K cart maps the same bank into both slots, which falls out of the bank index
-        // wrapping within the region.
         let mut board = Self {
             mirroring: cart.mirroring(),
             chr_bank: 0,
@@ -98,7 +96,11 @@ mod tests {
         let (mapper, cart) = load(16 * 1024);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0);
         assert_eq!(prg_peek(&mapper, &cart, 0xC000), 0);
-        assert_eq!(prg_peek(&mapper, &cart, 0xFFFF), 15, "mirrored reset vectors");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xFFFF),
+            15,
+            "mirrored reset vectors"
+        );
     }
 
     /// Any write to $8000-$FFFF selects the 8K CHR bank, and PRG never moves with it.
@@ -134,11 +136,16 @@ mod tests {
     fn a_bank_past_the_end_of_the_chr_rom_wraps() {
         let (mut mapper, mut cart) = cnrom();
         write(&mut mapper, &mut cart, 0x8000, 0xFF);
-        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | (3 * 8), "wraps to 3");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0x80 | (3 * 8),
+            "wraps to 3"
+        );
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = cnrom();

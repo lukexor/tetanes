@@ -486,8 +486,9 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state - and here that includes the lock,
-    /// which is not derivable from the MMC1 registers.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state - and here that includes the lock, which is not derivable from the MMC1
+    /// registers.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = nes_event();

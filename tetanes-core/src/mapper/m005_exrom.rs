@@ -1694,10 +1694,11 @@ mod tests {
         }
     }
 
-    /// Page tables are derived state that save states do not carry, so `update_banks` has to rebuild every
-    /// one of MMC5's mappings from its registers alone.
+    /// Page tables are derived state that save states do not carry, so `update_banks` has to
+    /// rebuild every one of MMC5's mappings from its registers alone - which is what
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on.
     #[test]
-    fn sync_rebuilds_every_mapping_from_register_state() {
+    fn update_banks_rebuilds_every_mapping_from_register_state() {
         let (mut mapper, mut cart) = load();
         write(&mut mapper, &mut cart, 0x5100, 3);
         write(&mut mapper, &mut cart, 0x5114, 0x80 | 2);
@@ -1713,7 +1714,7 @@ mod tests {
         let (mut restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
             .expect("memory deserializes");
         // Save states carry only the mutable tail, so ROM comes back from the running console -
-        // `Cpu::load` does this for real.
+        // `Bus::load_state` does this for real.
         assert!(restored.restore_rom_from(&cart.memory), "same cart");
         cart.memory = restored;
         mapper.update_banks(&mut cart.memory);

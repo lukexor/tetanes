@@ -255,8 +255,9 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state - including the latch, which
-    /// selects a different bank register than the one a fresh board would use.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state - including the latch, which selects a different bank register than the one a
+    /// fresh board would use.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = pxrom();

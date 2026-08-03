@@ -99,8 +99,16 @@ mod tests {
 
         write(&mut mapper, &mut cart, 0x8000, 0x23);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 2 * 32, "PRG bank 2");
-        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 2 * 32 + 16, "one 32K bank");
-        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x80 | (3 * 8), "CHR bank 3");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xC000),
+            2 * 32 + 16,
+            "one 32K bank"
+        );
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0x80 | (3 * 8),
+            "CHR bank 3"
+        );
     }
 
     /// Bits 7-6 belong to neither register, and PRG is only the two bits above the CHR nibble.
@@ -130,7 +138,8 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = gxrom();

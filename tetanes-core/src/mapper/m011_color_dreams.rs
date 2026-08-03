@@ -178,7 +178,8 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = color_dreams();

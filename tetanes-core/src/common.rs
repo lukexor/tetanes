@@ -771,8 +771,8 @@ pub(crate) mod tests {
             panic!(
                 "mismatched audio profile for {rom:?} at frame {frame_number}.\n  \
                  expected: {expected:?}\n  actual:   {actual:?}\n  \
-                 Each pair is (RMS in 1/1000 full scale, pitch in units of 10Hz) for one eighth of \
-                 the run."
+                 Each pair is (RMS in 1/10000 full scale, mean-crossing rate in Hz) for one \
+                 sixteenth of the run."
             );
         }
         for (mut expected, actual, frame_number, screenshot) in results {

@@ -247,7 +247,11 @@ mod tests {
         control(&mut mapper, &mut cart, 0b00000);
         serial_write(&mut mapper, &mut cart, 0xE000, 4);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 4 * 16);
-        assert_eq!(prg_peek(&mapper, &cart, 0xC000), 5 * 16, "the 32K is one bank");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xC000),
+            5 * 16,
+            "the 32K is one bank"
+        );
         serial_write(&mut mapper, &mut cart, 0xE000, 5);
         assert_eq!(
             prg_peek(&mapper, &cart, 0x8000),
@@ -332,7 +336,11 @@ mod tests {
     #[test]
     fn prg_ram_disable_is_honoured_except_on_mmc1a() {
         let (mut mapper, mut cart) = mmc1();
-        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x5A, "enabled at power-on");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0x6000),
+            0x5A,
+            "enabled at power-on"
+        );
 
         serial_write(&mut mapper, &mut cart, 0xE000, 0x10);
         assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0, "disabled reads as 0");
@@ -350,7 +358,8 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = mmc1();

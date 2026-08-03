@@ -35,8 +35,8 @@ impl Nrom {
     // CPU $8000..=$BFFF 16K PRG-ROM Bank 1 for NROM128 or NROM256
     // CPU $C000..=$FFFF 16K PRG-ROM Bank 2 for NROM256 or Bank 1 Mirror for NROM128
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
-        // NROM-128 has a single 16K bank mirrored into both slots, which falls out of the bank
-        // index wrapping within the region rather than needing a `mirror_prg_rom` flag.
+        // NROM-128 and NROM-256 need no distinction here: `update_banks` maps the last 16K bank at
+        // $C000, and on a 16K cart that index wraps within the region back to the only bank.
         let mut board = Self {
             mirroring: cart.mirroring(),
         };
@@ -53,8 +53,8 @@ impl Map for Nrom {
     fn update_banks(&mut self, memory: &mut Memory) {
         memory.map_prg(0x6000, 8 * 1024, 0, Src::PrgRam);
         memory.map_prg(0x8000, Self::PRG_WINDOW, 0, Src::PrgRom);
-        // NROM-128 has a single 16K bank mirrored into both slots, which falls out of the bank
-        // index wrapping within the region rather than needing a `mirror_prg_rom` flag.
+        // Bank -1 is the last 16K bank, which on an NROM-256 is its second half. On an NROM-128 the
+        // index wraps within a region only one bank long, mirroring that bank into both slots.
         memory.map_prg(0xC000, Self::PRG_WINDOW, -1, Src::PrgRom);
         memory.map_chr(0x0000, Self::CHR_WINDOW, 0, Src::Chr);
         memory.set_mirroring(self.mirroring);
@@ -89,16 +89,20 @@ mod tests {
         assert_eq!(chr_peek(&mapper, &cart, 0x1FFF), 0x87);
     }
 
-    /// NROM-128 has one 16K bank in both slots. That is not a `mirror_prg_rom` flag - it falls out
-    /// of the bank index wrapping within a region only one bank long, so the reset vectors at
-    /// $FFFA are the same bytes as $BFFA.
+    /// NROM-128 has one 16K bank in both slots. Nothing special-cases it - the last-bank index at
+    /// $C000 wraps within a region only one bank long, so the reset vectors at $FFFA are the same
+    /// bytes as $BFFA.
     #[test]
     fn an_nrom_128_cart_mirrors_its_single_bank_into_both_slots() {
         let (mapper, cart) = load(16 * 1024);
         assert_eq!(prg_peek(&mapper, &cart, 0x8000), 0);
         assert_eq!(prg_peek(&mapper, &cart, 0xC000), 0, "the same bank again");
         assert_eq!(prg_peek(&mapper, &cart, 0xBFFF), 15);
-        assert_eq!(prg_peek(&mapper, &cart, 0xFFFF), 15, "mirrored reset vectors");
+        assert_eq!(
+            prg_peek(&mapper, &cart, 0xFFFF),
+            15,
+            "mirrored reset vectors"
+        );
     }
 
     /// The board has no registers at all, so a write anywhere in cart space must leave the layout
@@ -131,7 +135,8 @@ mod tests {
     }
 
     /// `update_banks` must rebuild every window from the board alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = nrom_256();

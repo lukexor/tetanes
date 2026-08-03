@@ -134,12 +134,17 @@ mod tests {
         let (mut mapper, mut cart) = uxrom();
         write(&mut mapper, &mut cart, 0x8000, 4);
         cart.memory.chr_write(0x0000, 0x33);
-        assert_eq!(chr_peek(&mapper, &cart, 0x0000), 0x33, "CHR-RAM is writable");
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0x33,
+            "CHR-RAM is writable"
+        );
         assert_eq!(chr_peek(&mapper, &cart, 0x1000), 0x84, "still CHR page 4");
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what
-    /// `Ppu::rebuild_mapper_state` relies on after a save state.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) relies on after a
+    /// save state.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = uxrom();

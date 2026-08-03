@@ -89,7 +89,8 @@ impl HighPass {
 
 /// The filters applied to synthesised output, at the output rate.
 ///
-/// Only the console's two high-pass corners are left here. Keeping the output below Nyquist is
+/// These are the console's own RC corners - two high-pass stages and a 14 kHz low-pass - applied
+/// in that order, and nothing else. Keeping the output below Nyquist is
 /// [`BandLimited`](crate::apu::band_limited::BandLimited)'s job, and it does it by construction
 /// rather than by filtering afterwards.
 #[derive(Debug, Clone, Serialize, Deserialize)]
