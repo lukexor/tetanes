@@ -1723,8 +1723,12 @@ impl Bus {
             if self.ppu.cycle <= cycle::BG_PREFETCH_END {
                 self.bg_fetch_cycle();
             } else {
-                // 337..=340
-                self.fetch_bg_nt_byte();
+                // 337..=340: two dummy NT fetches of two dots each; the reads land on 337 and
+                // 339. MMC5 counts consecutive same-address NT reads to detect scanlines, so the
+                // read count here is part of the bus contract, not just filler.
+                if self.ppu.cycle & 0x01 == 1 {
+                    self.fetch_bg_nt_byte();
+                }
             }
 
             self.ppu.oam_fetch = self.ppu.secondary_oamdata[0];

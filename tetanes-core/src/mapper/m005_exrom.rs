@@ -626,7 +626,7 @@ impl Exrom {
     /// scanline more than the counter says.
     ///
     /// Both of them: tiles 40 and 41 are columns 0 and 1 of the next line, and `scanline` is not
-    /// incremented until the dummy fetches that follow them.
+    /// incremented until the scanline-detect fetch at the start of that line.
     fn split_scroll(&self) -> u16 {
         let scanline = if self.ppu_status.tile_number >= 40 {
             self.ppu_status.scanline + 1
@@ -905,13 +905,14 @@ impl Map for Exrom {
                 // https://wiki.nesdev.org/w/index.php?title=MMC5#Scanline_Detection_and_Scanline_IRQ
                 let status = &mut self.ppu_status;
                 let irq_state = &mut self.irq_state;
-                // Wait for three consecutive fetches to match the same address, which means we're
-                // at the end of the render scanlines fetching dummy NT bytes
+                // Wait for three consecutive fetches to match the same address: the two dummy NT
+                // fetches that end a scanline plus the next scanline's first NT fetch, which reads
+                // the same address because v has not moved in between.
                 if addr <= 0x2FFF && Some(addr) == irq_state.prev_addr {
                     irq_state.match_count = irq_state.match_count.saturating_add(1);
                     if irq_state.match_count >= 2 {
-                        // The dummy fetches run into the first fetch of the next scanline, so the
-                        // column counter restarts here rather than at the scanline boundary.
+                        // Detection lands on the new scanline's first fetch, so the column counter
+                        // restarts with it.
                         status.tile_number = 0;
                     }
                     if irq_state.match_count == 2 {
