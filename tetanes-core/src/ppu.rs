@@ -1554,7 +1554,8 @@ impl Bus {
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = addr::NAMETABLE_START | (self.ppu.scroll.addr() & nametable_addr_mask);
         let tile_index = u16::from(self.chr_read(addr));
-        self.ppu.tile_addr = self.ppu.ctrl_bg_select | (tile_index << 4) | self.ppu.scroll.fine_y;
+        self.ppu.tile_addr =
+            self.ppu.ctrl_bg_select | (tile_index << 4) | (self.ppu.scroll.v >> 12);
     }
 
     /// Fetch BG attribute byte.

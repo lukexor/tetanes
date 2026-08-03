@@ -19,7 +19,6 @@ pub struct Scroll {
     pub delay_v: u16,
     pub t: u16, // Temporary v - Also the addr of top-left onscreen tile
     pub fine_x: u16,
-    pub fine_y: u16,
     pub write_latch: bool, // 1st or 2nd write toggle
     pub delay_v_cycles: u8,
 }
@@ -51,7 +50,6 @@ impl Scroll {
             v: 0x0000,
             t: 0x0000,
             fine_x: 0x00,
-            fine_y: 0x00,
             write_latch: false,
             delay_v_cycles: 0,
             delay_v: 0x0000,
@@ -146,12 +144,6 @@ impl Scroll {
         self.write_latch = !self.write_latch;
     }
 
-    #[inline(always)]
-    pub const fn set_v(&mut self, val: u16) {
-        self.v = val;
-        self.fine_y = self.v >> 12;
-    }
-
     // Delayed update for PPUADDR after 2 PPU cycles (based on Visual NES findings)
     // Returns true when it was updated so the PPU can inform mappers monitoring $2006 reads and
     // writes. e.g. MMC3 clocks using A12
@@ -160,7 +152,7 @@ impl Scroll {
         if self.delay_v_cycles > 0 {
             self.delay_v_cycles -= 1;
             if self.delay_v_cycles == 0 {
-                self.set_v(self.delay_v);
+                self.v = self.delay_v;
                 return true;
             }
         }
@@ -171,7 +163,7 @@ impl Scroll {
     // Address wraps around
     #[inline(always)]
     pub const fn increment(&mut self, val: u16) {
-        self.set_v(self.v.wrapping_add(val));
+        self.v = self.v.wrapping_add(val);
     }
 
     // Copy Coarse X from register t and add it to PPUADDR v
@@ -181,7 +173,7 @@ impl Scroll {
         // t: .....F.. ...EDCBA
         // v: .....F.. ...EDCBA
         let x_mask = Self::NT_X_MASK | Self::COARSE_X_MASK;
-        self.set_v((self.v & !x_mask) | (self.t & x_mask));
+        self.v = (self.v & !x_mask) | (self.t & x_mask);
     }
 
     // Copy Fine y and Coarse Y from register t and add it to PPUADDR v
@@ -191,7 +183,7 @@ impl Scroll {
         // t: .IHGF.ED CBA.....
         // v: .IHGF.ED CBA.....
         let y_mask = Self::FINE_Y_MASK | Self::NT_Y_MASK | Self::COARSE_Y_MASK;
-        self.set_v((self.v & !y_mask) | (self.t & y_mask));
+        self.v = (self.v & !y_mask) | (self.t & y_mask);
     }
 
     // Increment Coarse X
@@ -200,12 +192,11 @@ impl Scroll {
     // https://wiki.nesdev.org/w/index.php/PPU_scrolling#Wrapping_around
     #[inline]
     pub const fn increment_x(&mut self) {
-        // let v = self.v;
         // If we've reached the last column, toggle horizontal nametable
         if (self.v & Self::COARSE_X_MASK) == Self::X_MAX_COL {
-            self.set_v((self.v & !Self::COARSE_X_MASK) ^ Self::NT_X_MASK); // toggles X nametable
+            self.v = (self.v & !Self::COARSE_X_MASK) ^ Self::NT_X_MASK; // toggles X nametable
         } else {
-            self.set_v(self.v + 1);
+            self.v += 1;
         }
     }
 
@@ -215,13 +206,14 @@ impl Scroll {
     // https://wiki.nesdev.org/w/index.php/PPU_scrolling#Wrapping_around
     #[inline]
     pub const fn increment_y(&mut self) {
-        if (self.v & Self::FINE_Y_MASK) == Self::FINE_Y_MASK {
-            self.set_v(self.v & !Self::FINE_Y_MASK); // set fine y = 0 and overflow into coarse y
-            let mut y = (self.v & Self::COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
+        let mut v = self.v;
+        if (v & Self::FINE_Y_MASK) == Self::FINE_Y_MASK {
+            v &= !Self::FINE_Y_MASK; // set fine y = 0 and overflow into coarse y
+            let mut y = (v & Self::COARSE_Y_MASK) >> 5; // Get 5 bits of coarse y
             if y == Self::Y_MAX_COL {
                 y = 0;
                 // switches vertical nametable
-                self.set_v(self.v ^ Self::NT_Y_MASK);
+                v ^= Self::NT_Y_MASK;
             } else if y == Self::Y_OVER_COL {
                 // Out of bounds. Does not switch nametable
                 // Some games use this
@@ -229,11 +221,12 @@ impl Scroll {
             } else {
                 y += 1; // increment coarse y
             }
-            self.set_v((self.v & !Self::COARSE_Y_MASK) | (y << 5)); // put coarse y back into v
+            v = (v & !Self::COARSE_Y_MASK) | (y << 5); // put coarse y back into v
         } else {
             // If fine y < 7 (0b111), increment
-            self.set_v(self.v + Self::Y_INCREMENT);
+            v += Self::Y_INCREMENT;
         }
+        self.v = v;
     }
 
     #[inline(always)]
