@@ -103,6 +103,40 @@ MesenCE's default reads as a ~25% gap, because it puts `Video::apply_filter` on 
 nothing on the other. Both binaries here are non-PGO and generic x86-64 (MesenCE passes no
 `-march` at all), so the comparison is architectural.
 
+## On target: Raspberry Pi 5 (2026-08-03)
+
+The original goal of the perf campaign was 60fps on a Raspberry Pi. Measured on a Pi 5 Model B
+(Cortex-A76 x4 @ 2.4 GHz, Rocky 10), `--profile perf` built for `aarch64-unknown-linux-musl` with
+`rust-lld` (static, no cross-glibc concerns), performance governor, `taskset`-pinned. Same 7-ROM
+corpus.
+
+| mode | geomean ms/frame | worst (Castlevania III) |
+|---|---|---|
+| core only (`NO_OUTPUT=1`) | 3.275 | 5.20 |
+| core + Pixellate (`TETANES_BENCH_FILTER=pixellate`) | 3.371 | 5.23 |
+| core + NTSC (default) | 3.451 | 5.31 |
+
+Every mode clears the 16.6 ms/60fps budget by at least 3x, NTSC filter included - the filter costs
+~5% here, same share as on x86. Extrapolating A76@2.4 to a Pi 4's A72@1.5 (~2.5x single-thread)
+puts the worst case around 13 ms: under budget, but MMC5 titles leave limited headroom for the UI
+stack on that board. Measured, not extrapolated: the Pi 5 meets the goal in every mode.
+
+Two architectural differences from the x86 findings, from `perf` on the worst-case ROM:
+
+- **The dot loop is not cache-bound here either, but it *is* branch-bound.** IPC 2.26, L1d misses
+  0.03%, L1i 0.14% - the A76's 64 KB L1s hold the whole working set - but the branch-miss rate is
+  2.06%, roughly 15% of all cycles at this machine's mispredict penalty. The same branches a
+  desktop predictor eats for free are a real tax on this core.
+- **The misses are not a hotspot.** Attribution mirrors the cycle profile (`ppu_clock` 36%,
+  `bg_fetch_cycle` 13%, MMC5 hooks ~18%): it is the emulator's inherent data-dependent branching,
+  not one convertible select. Chasing it means branchless dot-loop reformulations - the same shape
+  of change that measured null on x86 - and with 3x headroom there is no need. A future
+  ARM-focused session should A/B on target; run-to-run variance there is 0.02-0.34% cv, far
+  tighter than x86.
+
+The measurement setup survives on the Pi in `~/bench` (binary, ROMs, `perf`); the governor reverts
+to `ondemand` on reboot.
+
 ## Baseline
 
 Recorded 2026-07-25. `--profile perf`, 10 iterations x 600 frames, 120 warmup.
