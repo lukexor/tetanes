@@ -384,22 +384,27 @@ impl Map for Fk23C {
             memory.map_prg(addr, Self::PRG_WINDOW, page as i32, Src::PrgRom);
         }
 
-        // WRAM is up to 32K in 8K pages, optionally also visible at $4000.
+        // WRAM is up to 32K in 8K pages, optionally also visible at $4000. Only a window that is
+        // actually mapped gets its writable flag set: an unmapped page carries offset 0, the
+        // reserved zero-filled page, so write-enabling one would route $4100-$7FFF stores - the
+        // board's own $5xx0-$5xx3 register writes among them - into the block every unmapped read
+        // in both address spaces returns.
+        let writable = self.wram_writable();
         if self.wram_config_enabled {
             let bank = i32::from(self.wram_bank_select);
             memory.map_prg(0x4000, Self::WRAM_BANK, (bank + 1) & 0x03, Src::PrgRam);
             memory.map_prg(0x6000, Self::WRAM_BANK, bank, Src::PrgRam);
+            memory.set_prg_writable(0x4000, Self::WRAM_BANK, writable);
+            memory.set_prg_writable(0x6000, Self::WRAM_BANK, writable);
         } else {
             memory.unmap_prg(0x4000, Self::WRAM_BANK);
             if self.wram_enabled {
                 memory.map_prg(0x6000, Self::WRAM_BANK, 0, Src::PrgRam);
+                memory.set_prg_writable(0x6000, Self::WRAM_BANK, writable);
             } else {
                 memory.unmap_prg(0x6000, Self::WRAM_BANK);
             }
         }
-        let writable = self.wram_writable();
-        memory.set_prg_writable(0x4000, Self::WRAM_BANK, writable);
-        memory.set_prg_writable(0x6000, Self::WRAM_BANK, writable);
 
         memory.set_mirroring(self.mirroring);
     }
@@ -581,6 +586,26 @@ mod tests {
             prg_peek(&mapper, &cart, 0x6000),
             "$4000 is the next WRAM bank, not a mirror"
         );
+    }
+
+    /// At power-on both WRAM windows are unmapped while WRAM is nominally writable, and the board's
+    /// own mode registers live at $5xx0-$5xx3. An unmapped page carries offset 0 - the reserved
+    /// zero page every unmapped read in both address spaces returns - so write-enabling one would
+    /// turn each register write into a store that dirties it.
+    #[test]
+    fn register_writes_leave_the_reserved_zero_page_alone() {
+        let (mut mapper, mut cart) = load();
+        mode(&mut mapper, &mut cart, 1, 0x7F);
+        write(&mut mapper, &mut cart, 0x5000, 0xA5);
+
+        for addr in [0x4100, 0x5000, 0x5011, 0x6000, 0x7FFF] {
+            assert_eq!(prg_peek(&mapper, &cart, addr), 0, "${addr:04X} reads as 0");
+        }
+
+        // Over-protecting would be the other bug: once $A001 maps WRAM there, it still takes writes.
+        write(&mut mapper, &mut cart, 0xA001, 0x20);
+        write(&mut mapper, &mut cart, 0x6000, 0x3C);
+        assert_eq!(prg_peek(&mapper, &cart, 0x6000), 0x3C, "mapped WRAM is R/W");
     }
 
     /// Single-screen mirroring is only reachable once $A001 bit 3 unlocks it; without it the
