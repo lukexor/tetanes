@@ -710,7 +710,8 @@ mod tests {
     }
 
     /// `update_banks` has to rebuild every window from the register state alone - that is what
-    /// `Ppu::rebuild_mapper_state` calls after loading a save state, which carries no page tables.
+    /// [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) calls after loading a
+    /// save state, which carries no page tables.
     #[test]
     fn update_banks_rebuilds_every_window_from_register_state() {
         let (mut mapper, mut cart) = vrc6a();
