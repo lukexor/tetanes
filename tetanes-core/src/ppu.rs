@@ -1429,8 +1429,11 @@ impl Bus {
 
     /// Peek a byte from CHR-ROM/RAM/CIRAM at a given address.
     ///
-    /// Reads through the same routing the emulation uses; reaching into `mapper` directly bypasses
-    /// page-table boards and yields garbage.
+    /// The routing a debugger wants, with none of a fetch's side effects: the board gets first
+    /// refusal, and anything it does not serve itself comes from the page tables. Going straight
+    /// to [`Memory::chr_peek`](crate::memory::Memory::chr_peek) sees only the page tables, so the
+    /// fetches a board synthesises - MMC5's, mostly - read back as whatever happens to be banked
+    /// at that address instead.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
         if self.mapper_ops.intersects(MapperOps::SERVES_CHR_READS)

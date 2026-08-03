@@ -86,15 +86,18 @@ ControlDeck → Bus → { Cpu, Ppu, Mapper, Memory, Apu, Input, WRAM }
 
 `Bus` is the container the components are wired into, and the whole of the emulated state — a save
 state, a rewind frame and a run-ahead snapshot are each exactly one `Bus`, which is why it holds
-emulated state and nothing else (the session — video, run-ahead buffers, `sram_dir`, config — stays
-on `ControlDeck`).
+bus state and nothing else: the emulated components, plus what the bus itself needs to run them
+(`ram_state`, the attached `debugger`, `disasm`). The session — video, run-ahead buffers,
+`sram_dir`, config — stays on `ControlDeck`.
 
 `Cpu` and `Ppu` are the state a 6502 and a 2C02 keep. **What they do is an `impl Bus` block**,
 because an access moves the whole machine: reading a byte clocks the PPU, the APU and the board on
 the way past, and a CHR fetch goes through the board's page tables. Those blocks live in the file
 that owns the state they read — the CPU's in `cpu.rs`, the instruction set's in `cpu/instr.rs`, the
-PPU's in `ppu.rs` — not in `bus.rs`, which holds CPU-bus routing. What needs only a component's own
-registers stays on that component (`Cpu::set_acc`, `Ppu::render_pixel`, `Ppu::read_status`).
+PPU's in `ppu.rs`, the ones that install a board or rebuild its page tables in `mapper.rs`,
+`set_debugger` in `debug.rs` — not in `bus.rs`, which holds CPU-bus routing. What needs only a
+component's own registers stays on that component (`Cpu::set_acc`, `Ppu::render_pixel`,
+`Ppu::read_status`).
 
 Naming, since one type now carries both address spaces:
 

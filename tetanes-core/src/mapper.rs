@@ -47,14 +47,13 @@
 //!
 //! Only [`Map::mirroring`] is required - everything else defaults, so a board writes exactly the
 //! hooks its hardware has. The two that matter most are [`Map::write_register`], called for every
-//! CPU write in `$4020..=$FFFF`, and [`Map::update_banks`], which republishes the whole banking
+//! CPU write in `$4100..=$FFFF`, and [`Map::update_banks`], which republishes the whole banking
 //! layout into the page tables from the board's current registers.
 //!
-//! Keeping all banking in `update_banks` is what lets save states restore correctly: page tables
-//! are derived state and are not serialized, so
-//! [`Bus::rebuild_mapper_state`](crate::bus::Bus::rebuild_mapper_state) rebuilds them by replaying
-//! `update_banks` against the restored registers. A board that banks anywhere *else* will load a
-//! broken state.
+//! Keeping all banking in [`Map::update_banks`] is what lets save states restore correctly: page
+//! tables are derived state and are not serialized, so [`Bus::rebuild_mapper_state`] rebuilds them
+//! by replaying [`Map::update_banks`] against the restored registers. A board that banks anywhere
+//! *else* will load a broken state.
 //!
 //! Beyond that: [`Map::clock`] for boards with a per-cycle IRQ counter, [`Map::irq_pending`],
 //! [`Map::output`] for expansion audio, [`Map::prg_read`]/[`Map::chr_read`] as escape hatches for
@@ -689,9 +688,8 @@ boards! {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
     /// `Waixing FK23C`/`FS303` (Mapper 176)
-    // Holds only registers, so `print_layouts` reports 56 and it is not what drives the enum's size
-    // (SunsoftFme7's 72 is). Kept boxed anyway - unboxing is a cache-behaviour question to measure,
-    // not assume.
+    // Holds only registers, so it is small enough to sit in the enum unboxed and pay no
+    // indirection; `print_layouts` prints every board's size if that stops being true.
     Fk23C(Fk23C) = 176 in m176_fk23c { 176 => Fk23C::load(cart) },
 }
 
@@ -801,8 +799,10 @@ pub trait Map {
 
     /// Handle a CPU-space write, re-banking as needed.
     ///
-    /// Called for every write in `$4020..=$FFFF`; the plain data store into PRG-RAM has already
-    /// happened, so this only needs to handle registers.
+    /// Called for every write in `$4100..=$FFFF`; the plain data store into PRG-RAM has already
+    /// happened, so this only needs to handle registers. The console decodes `$4000..=$401F` and
+    /// nothing routes the `$4020..=$40FF` expansion range, so a board with registers down there
+    /// never sees the write.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
 
     /// Write this board's battery-backed state.
@@ -1160,11 +1160,11 @@ mod tests {
         );
     }
 
-    /// Page tables are `#[serde(skip)]` derived state, and `Cpu::load` replaces the whole console
-    /// when a save state is loaded. Without an `update_banks` on the way back in, every page comes back
-    /// unmapped and a restored state reads zeroes.
+    /// Page tables are `#[serde(skip)]` derived state, and [`Bus::load_state`] replaces the whole
+    /// console when a save state is loaded. Without a [`Map::update_banks`] on the way back in,
+    /// every page comes back unmapped and a restored state reads zeroes.
     #[test]
-    fn sync_rebuilds_page_tables_after_a_save_state_round_trip() {
+    fn update_banks_rebuilds_page_tables_after_a_save_state_round_trip() {
         let mut cart = Cart::empty_sized(0x8000, 0x2000);
         for (i, page) in cart
             .memory
@@ -1191,21 +1191,21 @@ mod tests {
             0,
             "page tables must not survive serialization"
         );
-        // ROM is not serialized either; `Cpu::load` reattaches it from the running console.
+        // ROM is not serialized either; `Bus::load_state` reattaches it from the running console.
         assert!(restored.restore_rom_from(&cart.memory), "same cart");
         mapper.update_banks(&mut restored);
         assert_eq!(
             restored.prg_peek(0x8000),
             16,
-            "sync must rebuild the mapping from mapper registers"
+            "update_banks must rebuild the mapping from mapper registers"
         );
     }
 
     /// Nametable mapping lives in the CHR page table, which is also skipped by serde, so a board
-    /// that does not restore mirroring in `update_banks` comes back with unmapped nametables and renders
-    /// from a zero-filled page.
+    /// that does not restore mirroring in [`Map::update_banks`] comes back with unmapped
+    /// nametables and renders from a zero-filled page.
     #[test]
-    fn sync_restores_nametable_mirroring() {
+    fn update_banks_restores_nametable_mirroring() {
         for four_screen in [false, true] {
             let mut cart = Cart::empty_sized(0x8000, 0x2000);
             if four_screen {
@@ -1228,7 +1228,7 @@ mod tests {
             assert_eq!(
                 restored.chr_peek(0x2000),
                 0x5A,
-                "sync must restore nametable mirroring (four_screen: {four_screen})"
+                "update_banks must restore nametable mirroring (four_screen: {four_screen})"
             );
         }
     }
