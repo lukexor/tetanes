@@ -1032,7 +1032,17 @@ variant both ways is the cheapest way to tell a real change from a lucky draw.
 Since a code-layout draw is worth ±3% here, a single A/B cannot tell a real change from a lucky
 one. Build each variant twice - once normally, once with
 `RUSTFLAGS="-Zthreads=8 -Cllvm-args=-align-all-nofallthru-blocks=5"` - and believe the sign only
-when both agree. Two candidates measured that way, both rejected:
+when both agree.
+
+The second layout is owed only to decisions the perf number itself makes (2026-08-03): a change
+accepted *because* it wins, or rejected *despite* being wanted, gets both layouts, because those
+are the two verdicts a layout draw can corrupt. A fix or refactor kept on its own merits gets a
+single default-layout run to rule out a large regression, and a clean sub-noise-floor null at
+default stands without confirmation. The aligned build never ships either way -
+basic-block placement has no source-level annotation to pin it, which is exactly why it works as
+an independent second sample of the layout lottery.
+
+Candidates measured across both layouts:
 
 | candidate | default codegen | block-aligned | verdict |
 |---|---|---|---|
@@ -1040,6 +1050,15 @@ when both agree. Two candidates measured that way, both rejected:
 | horizontal flip baked into the stored sprite bytes | +4.3% | +0.2% | slower, rejected |
 | BG shifter reload dropped from the garbage/dummy fetches | +0.2% | -0.3% | neutral, kept as the base of a palette-latch fix |
 | `bg_fetch_cycle` dispatch folded into a single `match` | +1.5% | -1.5% | perfectly symmetric layout draw, rejected |
+| cached `Scroll::fine_y` deleted, single-store `increment_y` | **-2.2%** | **-1.4%** | real win, kept |
+
+The `fine_y` result (2026-08-03) is the counterpart to the branch results: the dot loop does not
+care about predicted branches, but it does care about stores. Deleting the derived field removed
+a second store from every `v` mutation (up to six per `increment_y`), and both layouts agreed on
+the sign and cleared the floor.
+
+Under the narrowed rule, the dummy-fetch trim (reads on 337/339 only, an accuracy fix) measured
++0.5% at default only - sub-floor, kept on correctness grounds.
 
 The reload result (2026-08-03) is also a layout cautionary tale: the intermediate shape - reload
 split out but still pinned to the dummy fetches - measured **+2.8% at default codegen and +0.15%
