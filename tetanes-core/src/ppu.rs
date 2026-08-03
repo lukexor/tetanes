@@ -995,6 +995,20 @@ impl Ppu {
         }
     }
 
+    /// Reload the BG tile shift registers from the last fetched tile bytes and rotate the
+    /// attribute palette latches, at the start of each 8-dot tile fetch.
+    //
+    // Not run on the garbage sprite-period NT fetches - hardware has no reload event there, and
+    // with no shifts between dots 257 and 320 the reloads were idempotent busywork.
+    #[inline(always)]
+    fn reload_bg_shifters(&mut self) {
+        self.prev_palette = self.curr_palette;
+        self.curr_palette = self.next_palette;
+
+        self.tile_shift_lo |= u16::from(self.tile_lo);
+        self.tile_shift_hi |= u16::from(self.tile_hi);
+    }
+
     #[inline]
     fn pixel_palette(&mut self) -> u8 {
         let cycle = self.cycle;
@@ -1535,12 +1549,6 @@ impl Bus {
     /// See: <https://wiki.nesdev.org/w/index.php/PPU_scrolling#Tile_and_attribute_fetching>
     #[inline]
     fn fetch_bg_nt_byte(&mut self) {
-        self.ppu.prev_palette = self.ppu.curr_palette;
-        self.ppu.curr_palette = self.ppu.next_palette;
-
-        self.ppu.tile_shift_lo |= u16::from(self.ppu.tile_lo);
-        self.ppu.tile_shift_hi |= u16::from(self.ppu.tile_hi);
-
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = addr::NAMETABLE_START | (self.ppu.scroll.addr() & nametable_addr_mask);
         let tile_index = u16::from(self.chr_read(addr));
@@ -1575,7 +1583,10 @@ impl Bus {
         }
 
         match phase {
-            1 => self.fetch_bg_nt_byte(),
+            1 => {
+                self.ppu.reload_bg_shifters();
+                self.fetch_bg_nt_byte();
+            }
             3 => self.fetch_bg_attr_byte(),
             5 => self.ppu.tile_lo = self.chr_read(self.ppu.tile_addr),
             7 => self.ppu.tile_hi = self.chr_read(self.ppu.tile_addr + 8),
@@ -1710,6 +1721,7 @@ impl Bus {
                 self.bg_fetch_cycle();
             } else {
                 // 337..=340
+                self.ppu.reload_bg_shifters();
                 self.fetch_bg_nt_byte();
             }
 
