@@ -347,8 +347,10 @@ impl Map for Fk23C {
                         self.fk23_registers_enabled = val & 0x40 != 0;
                         self.wram_write_protected = val & 0x40 != 0;
                         self.wram_enabled = val & 0x80 != 0;
-                        // Only mirroring/WRAM/CHR-RAM routing changes here; the
-                        // routing is read per-access, so just refresh mirroring.
+                        // Mirroring is derived state and has to be recomputed here, because the
+                        // single-screen unlock bit changes the mask. The CHR-RAM overlay and the
+                        // WRAM windows are chosen at map time rather than per access, so they
+                        // depend on the unconditional `update_banks` at the end of this function.
                         self.update_mirroring();
                     }
                     0xC000 => self.mmc3.write_irq_latch(val),
