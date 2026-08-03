@@ -233,11 +233,11 @@ impl Input {
         match self.four_player {
             FourPlayer::Disabled => self.joypads[player].read(),
             FourPlayer::FourScore => {
-                if self.joypads[player].index() < 8 {
+                if self.joypads[player].index < 8 {
                     self.joypads[player].read()
-                } else if self.joypads[player + 2].index() < 8 {
+                } else if self.joypads[player + 2].index < 8 {
                     self.joypads[player + 2].read()
-                } else if self.signatures[player].index() < 8 {
+                } else if self.signatures[player].index < 8 {
                     self.signatures[player].read()
                 } else {
                     0x01
@@ -259,11 +259,11 @@ impl Input {
         match self.four_player {
             FourPlayer::Disabled => self.joypads[player].peek(),
             FourPlayer::FourScore => {
-                if self.joypads[player].index() < 8 {
+                if self.joypads[player].index < 8 {
                     self.joypads[player].peek()
-                } else if self.joypads[player + 2].index() < 8 {
+                } else if self.joypads[player + 2].index < 8 {
                     self.joypads[player + 2].peek()
-                } else if self.signatures[player].index() < 8 {
+                } else if self.signatures[player].index < 8 {
                     self.signatures[player].peek()
                 } else {
                     0x01
@@ -517,12 +517,6 @@ impl Joypad {
         }
     }
 
-    /// How far the shift register has been read.
-    #[must_use]
-    pub const fn index(&self) -> u8 {
-        self.index
-    }
-
     /// Releases every button.
     pub const fn clear(&mut self) {
         self.buttons = JoypadBtnState::empty();
@@ -546,10 +540,10 @@ pub struct Zapper {
     pub triggered: f32,
     /// How long a pull lasts, in seconds.
     pub trigger_release_delay: f32,
-    /// Aim position in screen pixels.
+    /// The aim's X position in screen pixels.
     #[serde(skip)] // Don't save zapper position
     pub x: u16,
-    /// Aim position in screen pixels.
+    /// The aim's Y position in screen pixels.
     #[serde(skip)] // Don't save zapper position
     pub y: u16,
     /// Radius in pixels around the aim point sampled for light.
@@ -559,20 +553,6 @@ pub struct Zapper {
 }
 
 impl Zapper {
-    /// The aim's X position in screen pixels.
-    #[inline(always)]
-    #[must_use]
-    pub const fn x(&self) -> u16 {
-        self.x
-    }
-
-    /// The aim's Y position in screen pixels.
-    #[inline(always)]
-    #[must_use]
-    pub const fn y(&self) -> u16 {
-        self.y
-    }
-
     /// Pulls the trigger, which releases itself after `trigger_release_delay`.
     #[inline(always)]
     pub fn trigger(&mut self) {

@@ -1330,11 +1330,6 @@ impl Ppu {
         }
     }
 
-    /// Returns the region the PPU is timed for.
-    pub const fn region(&self) -> NesRegion {
-        self.region
-    }
-
     /// Sets the region, which re-times the frame and forwards the change to the loaded mapper.
     pub fn set_region(&mut self, region: NesRegion) {
         // https://www.nesdev.org/wiki/Cycle_reference_chart

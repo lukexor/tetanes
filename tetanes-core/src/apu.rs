@@ -679,10 +679,6 @@ impl Apu {
     pub const fn clear_dma_pending(&mut self) {
         self.dmc.dma_pending = false;
     }
-    /// The region the APU is timed for.
-    pub const fn region(&self) -> NesRegion {
-        self.region
-    }
 
     /// Sets the region, which re-times the frame counter, the noise and DMC period tables and the
     /// filter chain.

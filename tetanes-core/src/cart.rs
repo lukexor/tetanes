@@ -408,11 +408,6 @@ impl Cart {
         self.header.flags & 0x02 == 0x02
     }
 
-    /// Returns `RamState`.
-    pub const fn ram_state(&self) -> RamState {
-        self.ram_state
-    }
-
     /// Returns hardware configured `Mirroring`.
     pub fn mirroring(&self) -> Mirroring {
         if self.header.flags & 0x08 == 0x08 {
@@ -545,10 +540,6 @@ impl Cart {
                 None
             }
         }
-    }
-    /// The region this cart runs in.
-    pub const fn region(&self) -> NesRegion {
-        self.region
     }
 
     /// Sets the region this cart runs in.

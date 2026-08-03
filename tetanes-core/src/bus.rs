@@ -433,11 +433,6 @@ impl Bus {
 }
 
 impl Bus {
-    /// The region the bus and its components are timed for.
-    pub const fn region(&self) -> NesRegion {
-        self.region
-    }
-
     /// Sets the region, forwarding it to every component.
     pub fn set_region(&mut self, region: NesRegion) {
         self.region = region;
@@ -535,11 +530,11 @@ mod test {
             .expect("valid cart");
 
         let expected_mirroring = cart.mirroring();
-        let expected_region = cart.region();
+        let expected_region = cart.region;
         bus.load_cart(cart);
 
-        assert_eq!(bus.ppu.region(), expected_region, "ppu region");
-        assert_eq!(bus.apu.region(), expected_region, "apu region");
+        assert_eq!(bus.ppu.region, expected_region, "ppu region");
+        assert_eq!(bus.apu.region, expected_region, "apu region");
         assert!(
             matches!(bus.mapper, Mapper::Nrom(_)),
             "mapper is Nrom: {:?}",

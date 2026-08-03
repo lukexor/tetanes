@@ -133,11 +133,6 @@ impl Mmc3 {
         }
     }
 
-    /// Whether an IRQ is pending acknowledgement.
-    #[must_use]
-    pub const fn irq_pending(&self) -> bool {
-        self.irq_pending
-    }
     pub fn reset(&mut self, _kind: ResetKind) {
         // Preserve the configured revision; reset only the volatile register file.
         let revision = self.revision;

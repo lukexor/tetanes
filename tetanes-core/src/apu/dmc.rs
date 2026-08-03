@@ -264,10 +264,6 @@ impl Dmc {
         }
     }
 
-    pub const fn region(&self) -> NesRegion {
-        self.region
-    }
-
     pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
         self.timer.period = Self::period(region, 0);

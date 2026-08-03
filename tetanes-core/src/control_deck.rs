@@ -455,7 +455,7 @@ impl ControlDeck {
         let loaded_rom = LoadedRom {
             name: name.clone(),
             battery_backed: cart.battery_backed(),
-            region: cart.region(),
+            region: cart.region,
         };
         if self.auto_detect_region {
             self.bus.set_region(loaded_rom.region);
@@ -1300,7 +1300,7 @@ impl ControlDeck {
     #[must_use]
     pub const fn zapper_pos(&self) -> (u16, u16) {
         let zapper = self.bus.input.zapper;
-        (zapper.x(), zapper.y())
+        (zapper.x, zapper.y)
     }
 
     /// Trigger [`Zapper`](crate::input::Zapper) gun.
@@ -1414,7 +1414,7 @@ impl ControlDeck {
 
     /// Get the NES format for the emulation.
     pub const fn region(&self) -> NesRegion {
-        self.bus.region()
+        self.bus.region
     }
 
     /// Set the NES format for the emulation.

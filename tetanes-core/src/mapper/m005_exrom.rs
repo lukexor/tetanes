@@ -366,10 +366,10 @@ impl Exrom {
             tile_cache: 0,
             chr_set: ChrBank::Spr,
             last_chr_write: ChrBank::Spr,
-            region: cart.region(),
+            region: cart.region,
             pulse1: Pulse::new(PulseChannel::One, OutputFreq::Ultrasonic),
             pulse2: Pulse::new(PulseChannel::Two, OutputFreq::Ultrasonic),
-            dmc: Dmc::new(cart.region()),
+            dmc: Dmc::new(cart.region),
             dmc_mode: 0x01, // Default to read mode
             cpu_cycle: 0,
             pulse_timer: 0.0,

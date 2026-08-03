@@ -179,10 +179,6 @@ impl Noise {
         self.shift >>= 1;
         self.shift |= feedback << 14;
     }
-    pub const fn region(&self) -> NesRegion {
-        self.region
-    }
-
     pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }

@@ -260,7 +260,7 @@ impl Map for Fk23C {
     }
 
     fn irq_pending(&self) -> bool {
-        self.mmc3.irq_pending()
+        self.mmc3.irq_pending
     }
 
     fn mirroring(&self) -> Mirroring {
