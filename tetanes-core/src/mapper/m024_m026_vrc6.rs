@@ -85,14 +85,6 @@ impl Vrc6 {
         self.regs.banking_mode & 0x80 == 0x80
     }
 
-    pub const fn set_nametable_page(&mut self, bank: usize, page: usize) {
-        self.nt_banks[bank] = page;
-    }
-
-    pub const fn set_nametables(&mut self, nametables: &[usize; 4]) {
-        self.nt_banks = *nametables;
-    }
-
     /// Translate a mirroring mode into the four nametable page selections.
     pub const fn set_mirroring(&mut self, mirroring: Mirroring) {
         self.mirroring = mirroring;

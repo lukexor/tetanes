@@ -56,14 +56,6 @@ impl Txrom {
         self.mmc3.set_revision(rev);
     }
 
-    const fn chr_window(&self) -> usize {
-        if self.mapper_num == 76 {
-            Self::CHR_WINDOW_76
-        } else {
-            Self::CHR_WINDOW
-        }
-    }
-
     #[inline]
     const fn apply_prg_write_masks(&self, addr: &mut u16, val: &mut u8) {
         *addr &= 0x8001;
@@ -133,7 +125,6 @@ impl Txrom {
             single(memory, 0x1800, chr[4]);
             single(memory, 0x1C00, chr[5]);
         }
-        let _ = self.chr_window();
     }
 }
 
