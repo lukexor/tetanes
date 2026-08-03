@@ -186,21 +186,10 @@ impl BandLimited {
         self.deltas[kept..].fill(0.0);
     }
 
-    /// Drop everything recorded, keeping the running level.
-    pub fn clear(&mut self) {
-        self.deltas.fill(0.0);
-    }
-
     /// Output samples per input cycle, in fixed point; what the synthesiser is tuned to.
     #[must_use]
     pub const fn samples_per_cycle(&self) -> i64 {
         self.samples_per_cycle
-    }
-
-    /// The level the last read left, which is what a new delta is relative to.
-    #[must_use]
-    pub const fn level(&self) -> f32 {
-        self.level
     }
 }
 
