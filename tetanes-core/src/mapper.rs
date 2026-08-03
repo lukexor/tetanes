@@ -5,7 +5,7 @@
 //!
 //! [`Mapper`] is an enum with static dispatch rather than a boxed trait object; this is deliberate,
 //! since board dispatch sits on the hottest paths in the emulator. Each board implements [`Map`],
-//! and the [`Mapper`] holding it hangs off the [`Bus`](crate::bus::Bus) alongside [`Memory`] - the
+//! and the [`Mapper`] holding it hangs off the [`Bus`] alongside [`Memory`] - the
 //! PPU is the heaviest user, but the CPU reaches PRG through them too.
 //!
 //! # Adding a board
@@ -94,6 +94,7 @@
 //! Optionally add a `test_roms!` group in `common.rs`.
 
 use crate::{
+    bus::Bus,
     cart::Cart,
     common::{NesRegion, ResetKind},
     fs,
@@ -697,6 +698,49 @@ boards! {
 impl Default for Mapper {
     fn default() -> Self {
         Self::none()
+    }
+}
+
+/// Installing a board and keeping the state derived from it in step. Takes the [`Bus`] rather than
+/// the [`Mapper`] because both the board and the [`Memory`] it banks hang off the bus.
+impl Bus {
+    /// Install a board, replacing whatever cart was loaded.
+    #[inline]
+    pub fn load_mapper(&mut self, mapper: Mapper) {
+        self.mapper_ops = mapper.mapper_ops();
+        self.mapper = mapper;
+        // `ControlDeck::load_rom` sets the region *before* installing the cart, so a mapper whose
+        // timing depends on it (MMC5's expansion audio) would otherwise never be told.
+        self.mapper.set_region(self.region);
+        #[cfg(debug_assertions)]
+        self.mapper.check_mapper_ops(&self.memory);
+    }
+
+    /// Notify the mapper of a PPU bus address, for A12 scanline counters and CHR latches.
+    ///
+    /// Reads made through `Bus::chr_read` notify the board themselves; this exists for the sites
+    /// that move the PPU address without fetching through it, such as `$2006` writes.
+    #[inline(always)]
+    pub fn notify_ppu_bus(&mut self, addr: u16) {
+        if self.mapper_ops.intersects(MapperOps::WATCHES_PPU_BUS) {
+            let Self { mapper, memory, .. } = self;
+            mapper.ppu_bus_addr(memory, addr);
+        }
+    }
+
+    /// Rebuild the page tables from the mapper's register state.
+    ///
+    /// Required after loading a save state: page tables are derived state and are not serialized,
+    /// so without this a restored state would have every page unmapped.
+    pub fn rebuild_mapper_state(&mut self) {
+        let Self { mapper, memory, .. } = self;
+        mapper.update_banks(memory);
+        // mapper_ops is #[serde(skip)] - a restored save state replaced the whole `Bus`, so this
+        // is the state-load path's chance to recompute it from the (serialized, and thus correct)
+        // mapper.
+        self.mapper_ops = self.mapper.mapper_ops();
+        #[cfg(debug_assertions)]
+        self.mapper.check_mapper_ops(&self.memory);
     }
 }
 

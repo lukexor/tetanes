@@ -36,6 +36,18 @@ impl PartialEq for Debugger {
     }
 }
 
+impl Bus {
+    /// Attach (or clear, via [`Debugger::default`]) a debugger callback.
+    //
+    // Recomputes the cached `debugger_active` flag so the per-dot path tests one bool instead of
+    // touching the cold `debugger` field when nothing is attached.
+    #[inline]
+    pub fn set_debugger(&mut self, debugger: Debugger) {
+        self.debugger_active = debugger != Debugger::default();
+        self.debugger = debugger;
+    }
+}
+
 impl std::fmt::Debug for Debugger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Debugger")
