@@ -121,6 +121,9 @@ pub struct Memory {
     /// Offset at which mutable regions begin. Everything below this is ROM and never changes, so
     /// save states only need `data[ram_start..]`.
     ram_start: usize,
+    /// CRC32 of the cart's ROM - the same one the game database is keyed by. It says *which game*
+    /// this arena belongs to, which a state that carries no ROM otherwise has no way to record.
+    rom_crc32: u32,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
     chr: Range<usize>,
@@ -138,7 +141,9 @@ pub struct Memory {
 /// Everything below `ram_start` is ROM: it comes from the cart and cannot change, so it is left
 /// out and put back from the running console in
 /// [`Bus::load_state`](crate::bus::Bus::load_state), which every restore path goes through. For
-/// Super Mario Bros. 3 that is 394 KiB of a 408 KiB state, and rewind keeps ~900 of them.
+/// Super Mario Bros. 3 that is 394 KiB of a 408 KiB state, and rewind keeps ~900 of them. What
+/// does travel is the ROM's CRC32, so that the console can tell a state of its own from one
+/// recorded against a different game with the same memory layout.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
 /// mapper's registers by `Map::update_banks`.
@@ -146,6 +151,7 @@ pub struct Memory {
 struct MemoryState<'a> {
     len: usize,
     ram_start: usize,
+    rom_crc32: u32,
     prg_rom: &'a Range<usize>,
     prg_ram: &'a Range<usize>,
     chr: &'a Range<usize>,
@@ -160,6 +166,7 @@ struct MemoryState<'a> {
 struct MemoryStateOwned {
     len: usize,
     ram_start: usize,
+    rom_crc32: u32,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
     chr: Range<usize>,
@@ -174,6 +181,7 @@ impl Serialize for Memory {
         MemoryState {
             len: self.data.len(),
             ram_start: self.ram_start,
+            rom_crc32: self.rom_crc32,
             prg_rom: &self.prg_rom,
             prg_ram: &self.prg_ram,
             chr: &self.chr,
@@ -203,6 +211,7 @@ impl<'de> Deserialize<'de> for Memory {
         Ok(Self {
             data,
             ram_start: state.ram_start,
+            rom_crc32: state.rom_crc32,
             prg_rom: state.prg_rom,
             prg_ram: state.prg_ram,
             chr: state.chr,
@@ -300,6 +309,7 @@ impl Memory {
         let mut memory = Self {
             data: vec![0; offset].into_boxed_slice(),
             ram_start,
+            rom_crc32: 0,
             prg_rom,
             prg_ram,
             chr: chr_rom.or(chr_ram).unwrap_or(0..0),
@@ -519,16 +529,25 @@ impl Memory {
         &mut self.data[self.ram_start..]
     }
 
+    /// Record which cart's ROM this arena holds. See [`Memory::restore_rom_from`].
+    pub fn set_rom_crc32(&mut self, crc32: u32) {
+        self.rom_crc32 = crc32;
+    }
+
     /// Copy the immutable ROM half in from the running console's memory.
     ///
     /// Save states carry only the mutable tail, so a freshly deserialized
     /// `Memory` has a zero-filled ROM region until this puts it back.
     ///
-    /// Returns `false` when `src` was not built from the same cart - a differing allocation size or
-    /// ROM/RAM split means the state belongs to another game, and applying it would leave the
-    /// console running one game's RAM against another's ROM.
+    /// Returns `false` when `src` was not built from the same cart, in which case nothing is
+    /// copied: applying the state would leave the console running one game's RAM against
+    /// another's ROM.
     pub fn restore_rom_from(&mut self, src: &Self) -> bool {
-        if self.data.len() != src.data.len()
+        // The ROM's CRC is what says which *game* this is; the geometry is checked as well
+        // because it is what makes the copy below sound, and because an arena built without a
+        // ROM to hash - `Cart::empty_sized`, and the tests on it - has nothing else to go on.
+        if self.rom_crc32 != src.rom_crc32
+            || self.data.len() != src.data.len()
             || self.ram_start != src.ram_start
             || self.prg_rom != src.prg_rom
             || self.chr != src.chr
@@ -1108,6 +1127,7 @@ mod tests {
         });
         memory.region_mut(Src::PrgRom).fill(0xAA);
         memory.region_mut(Src::PrgRam).fill(0x5A);
+        memory.set_rom_crc32(0xDEAD_BEEF);
 
         let config = bincode::config::legacy();
         let bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
@@ -1155,6 +1175,38 @@ mod tests {
             ex_ram: 8 * 1024,
         });
         assert!(!large.restore_rom_from(&small), "different cart is refused");
+    }
+
+    /// Two games can want exactly the same allocation, so the ROM's CRC is what a state is
+    /// matched by. Without it a state loads as a hybrid console: one game's RAM, another's ROM.
+    #[test]
+    fn restoring_rom_from_another_cart_of_the_same_shape_is_refused() {
+        let layout = MemoryLayout {
+            prg_rom: 32 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 8 * 1024,
+            chr_writable: false,
+            ciram: 2 * 1024,
+            ex_ram: 8 * 1024,
+        };
+        let mut running = Memory::new(layout);
+        running.set_rom_crc32(0x1111_1111);
+        running.region_mut(Src::PrgRom).fill(0xAA);
+
+        let mut state = Memory::new(layout);
+        state.set_rom_crc32(0x2222_2222);
+        assert!(
+            !state.restore_rom_from(&running),
+            "another game's state is refused"
+        );
+        assert!(
+            state.region_ref(Src::PrgRom).iter().all(|&b| b == 0),
+            "and nothing is copied into it"
+        );
+
+        state.set_rom_crc32(0x1111_1111);
+        assert!(state.restore_rom_from(&running), "the same game's is not");
+        assert!(state.region_ref(Src::PrgRom).iter().all(|&b| b == 0xAA));
     }
 
     /// Truncated or corrupt input must be an error rather than a panic writing the RAM tail.

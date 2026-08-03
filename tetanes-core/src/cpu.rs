@@ -98,8 +98,8 @@ bitflags! {
 }
 /// Returned by [`Bus::load_state`] when a save state was not produced by the loaded cart.
 ///
-/// A save state carries no ROM - it is reattached from the running console - so a state whose
-/// memory layout does not match cannot be applied at all.
+/// A save state carries no ROM - it is reattached from the running console - so it carries the
+/// ROM's CRC32 instead, and a state recorded against another game cannot be applied at all.
 #[derive(thiserror::Error, Debug, Copy, Clone, PartialEq, Eq)]
 #[error("save state does not match the loaded ROM")]
 #[must_use]

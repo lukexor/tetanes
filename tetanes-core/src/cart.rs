@@ -321,11 +321,12 @@ impl Cart {
             Self::calculate_ram_size(header.chr_ram_shift, 11)?
         };
 
+        let crc32 = Self::rom_crc32(&prg_rom, &chr_rom);
         // Deliberately does not overwrite `header.mapper_num`: the header records what the ROM
         // itself claims, and `Cart::mapper_num` layers the database on top. Clobbering it made the
         // database self-referential, since `generate_db` could then only ever read back its own
         // previous answer.
-        let game_info = Self::lookup_info(&prg_rom, &chr_rom);
+        let game_info = Self::lookup_info(crc32);
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {
             match header.tv_mode {
                 1 => NesRegion::Pal,
@@ -358,6 +359,7 @@ impl Cart {
         if chr_rom_size > 0 {
             memory.region_mut(Src::Chr)[..chr_rom_size].copy_from_slice(&chr_rom);
         }
+        memory.set_rom_crc32(crc32);
 
         let mut cart = Self {
             name,
@@ -507,7 +509,21 @@ impl Cart {
         Ok(volatile + non_volatile)
     }
 
-    fn lookup_info(prg_rom: &[u8], chr: &[u8]) -> Option<GameInfo> {
+    /// CRC32 of the ROM itself: PRG-ROM, plus CHR-ROM when the cart has any.
+    ///
+    /// It identifies the game. The bundled database is keyed by it, and [`Cart::memory`] carries
+    /// it so that a save state - which holds no ROM of its own - can be refused when it belongs
+    /// to another game.
+    fn rom_crc32(prg_rom: &[u8], chr_rom: &[u8]) -> u32 {
+        let crc32 = fs::compute_crc32(prg_rom);
+        if chr_rom.is_empty() {
+            crc32
+        } else {
+            fs::compute_combine_crc32(crc32, chr_rom)
+        }
+    }
+
+    fn lookup_info(crc32: u32) -> Option<GameInfo> {
         const GAME_DB: &[u8] = include_bytes!("../game_db.dat");
 
         let Ok(games) = fs::load_bytes_version::<Vec<GameInfo>>(GAME_DB, fs::GAME_DB_VERSION)
@@ -515,11 +531,6 @@ impl Cart {
             error!("failed to load `game_db.dat`");
             return None;
         };
-
-        let mut crc32 = fs::compute_crc32(prg_rom);
-        if !chr.is_empty() {
-            crc32 = fs::compute_combine_crc32(crc32, chr);
-        }
 
         match games.binary_search_by(|game| game.crc32.cmp(&crc32)) {
             Ok(index) => {
