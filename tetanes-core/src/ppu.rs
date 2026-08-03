@@ -66,9 +66,10 @@ impl PaletteRam {
     /// Return palette address, mirrored.
     //
     // Mirroring on read rather than storing both halves of each backdrop mirror at write time:
-    // this pays a second, dependent load per pixel and still measured 1.8% faster than a plain
-    // indexed load off a write-mirrored array. The pair is 5.4% of frame time and neither load is
-    // bounds checked, so there was little to win and code layout swamped it.
+    // this pays a second, dependent load per pixel and is still faster, by 4.1% at one code layout
+    // and 0.9% at another - measured twice because a single layout cannot tell a real result from
+    // an alignment draw. The pair is 5.4% of frame time and neither load is bounds checked, so
+    // there was little to win, and the branch write-mirroring adds sits in the CPU write path.
     #[inline(always)]
     const fn mirror(addr: u16) -> usize {
         const PALETTE_MIRROR: [u8; 32] = [

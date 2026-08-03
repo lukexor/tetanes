@@ -1027,6 +1027,29 @@ to manage.
 rides on an unstable interface. It stays a measurement instrument, not a shipped flag: building a
 variant both ways is the cheapest way to tell a real change from a lucky draw.
 
+### Measure every candidate at two code layouts
+
+Since a code-layout draw is worth ±3% here, a single A/B cannot tell a real change from a lucky
+one. Build each variant twice - once normally, once with
+`RUSTFLAGS="-Zthreads=8 -Cllvm-args=-align-all-nofallthru-blocks=5"` - and believe the sign only
+when both agree. Two candidates measured that way, both rejected:
+
+| candidate | default codegen | block-aligned | verdict |
+|---|---|---|---|
+| palette mirrors resolved at write time | +4.1% | +0.9% | consistently slower, rejected |
+| horizontal flip baked into the stored sprite bytes | +4.3% | +0.2% | slower, rejected |
+
+The palette result settles a question an earlier single-layout run left open: read-side mirroring
+really is faster, not accidentally faster.
+
+The flip result is arithmetic, not layout. Storing sprite tile bytes already flipped removes one
+conditional select per covering sprite pixel - about 15,000 a frame - but costs a `reverse_bits` on
+two bytes per sprite load, and x86 has no bit-reverse instruction, so that is roughly seven
+operations 3,840 times a frame. MesenCE gets this for free because its sprites are genuine shift
+registers, clocked one bit per dot, so the flip is just which way the byte was loaded and the pixel
+is always the top bit - no variable shift and no select. Porting that means giving the sprite
+pipeline per-dot shift state, which is a different design rather than a tweak.
+
 ### `-C target-cpu` is worth about 1% (not shipped)
 
 `RUSTFLAGS="-Zthreads=8 -Ctarget-cpu=x86-64-v3"` measured **-1.1%** (2.017 against 2.039 geomean,
