@@ -1097,7 +1097,7 @@ impl ControlDeck {
         //
         // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
         // RAM at once, where a clone each would be hundreds of megabytes.
-        let saved = self.bus.clone();
+        let mut saved = self.bus.clone();
 
         // Clock the intermediate frames, whose video is never seen. Restored rather than set back
         // to `false`, so this does not quietly turn rendering on for a headless deck.
@@ -1120,8 +1120,9 @@ impl ControlDeck {
         std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.pending);
         frames.pending_valid = true;
 
-        // Rewind, and give the console back the frame it had rendered.
-        self.bus = saved;
+        // Rewind, and give the console back the frame it had rendered. Through the same funnel
+        // every other restore uses, so that the debugger and the cart's ROM are handled once.
+        self.bus.swap_state(&mut saved)?;
         std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
         self.run_ahead_frames = Some(frames);

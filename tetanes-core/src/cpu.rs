@@ -329,24 +329,48 @@ impl Cpu {
 impl Bus {
     /// Load a console state, leaving `self` untouched if it does not belong to this cart.
     ///
-    /// Every restore path - save states, rewind, run-ahead - goes through here, and it is what
-    /// puts back what a state must not carry: the cart's ROM, copied in from the running console,
-    /// the attached debugger, and the player's settings (see `Bus::keep_session_settings`).
-    ///
     /// # Errors
     ///
     /// If the state was not produced by the currently loaded cart.
     pub fn load_state(&mut self, mut state: Self) -> Result<(), StateMismatch> {
+        // Checked before anything moves out of the running console, so that a state from another
+        // cart leaves it exactly as it was.
+        if !self.memory.is_same_cart(&state.memory) {
+            return Err(StateMismatch);
+        }
+        // A state recorded elsewhere - a file, a rewind buffer - carries the settings the player
+        // had when it was recorded. Those are the session's, not the machine's, and must not come
+        // back with it. See `Bus::keep_session_settings`.
+        state.keep_session_settings(self);
+        self.swap_state(&mut state)
+    }
+
+    /// Exchange the console for `state`, leaving what was running here in `state`.
+    ///
+    /// Every restore path ends here - [`Bus::load_state`], rewind, and run-ahead, which calls it
+    /// directly - so it is what puts back what a state must not carry: the cart's ROM, copied in
+    /// from the running console, and the attached debugger. It is also where a state belonging to
+    /// a different cart is refused.
+    ///
+    /// Run-ahead restores a snapshot of *this* console taken a few frames ago, which is why it
+    /// stops short of `Bus::keep_session_settings`: the settings are already its own, and the APU
+    /// filter and synthesiser history that would come across with them belongs to the timeline
+    /// being discarded. Swapping rather than assigning also hands it back the console it gave up,
+    /// whose allocations it snapshots into again next frame.
+    ///
+    /// # Errors
+    ///
+    /// If the state was not produced by the currently loaded cart.
+    pub(crate) fn swap_state(&mut self, state: &mut Self) -> Result<(), StateMismatch> {
         if !state.memory.restore_rom_from(&self.memory) {
             return Err(StateMismatch);
         }
         state.debugger = std::mem::take(&mut self.debugger);
         state.debugger_active = self.debugger_active;
-        state.keep_session_settings(self);
         // The pixel path compares against thresholds derived from $2001 rather than reading its
         // flags, and they are not part of the save format.
         state.ppu.update_draw_thresholds();
-        *self = state;
+        std::mem::swap(self, state);
         Ok(())
     }
 

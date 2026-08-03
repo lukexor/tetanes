@@ -126,6 +126,12 @@ pub struct Memory {
     rom_crc32: u32,
     /// Whether the cart's RAM is battery-backed, and so survives a power cycle.
     battery_backed: bool,
+    /// Whether `data[..ram_start]` holds the cart's ROM.
+    ///
+    /// A deserialized arena does not - a save state carries only the mutable tail - until
+    /// [`Memory::restore_rom_from`] puts it back. A live or cloned one always does. It describes
+    /// this copy of the arena rather than the console, so it is not serialized.
+    rom_present: bool,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
     chr: Range<usize>,
@@ -141,8 +147,8 @@ pub struct Memory {
 /// What a save state actually stores of a [`Memory`]: the layout, and the *mutable tail only*.
 ///
 /// Everything below `ram_start` is ROM: it comes from the cart and cannot change, so it is left
-/// out and put back from the running console in
-/// [`Bus::load_state`](crate::bus::Bus::load_state), which every restore path goes through. For
+/// out and put back from the running console in `Bus::swap_state`, which every restore path ends
+/// in - a save state, rewind, and run-ahead alike. For
 /// Super Mario Bros. 3 that is 394 KiB of a 408 KiB state, and rewind keeps ~900 of them. What
 /// does travel is the ROM's CRC32, so that the console can tell a state of its own from one
 /// recorded against a different game with the same memory layout.
@@ -217,6 +223,7 @@ impl<'de> Deserialize<'de> for Memory {
             // Cart-derived, like the ROM itself, and put back from the running console by
             // `Memory::restore_rom_from`.
             battery_backed: false,
+            rom_present: false,
             prg_rom: state.prg_rom,
             prg_ram: state.prg_ram,
             chr: state.chr,
@@ -316,6 +323,7 @@ impl Memory {
             ram_start,
             rom_crc32: 0,
             battery_backed: false,
+            rom_present: true,
             prg_rom,
             prg_ram,
             chr: chr_rom.or(chr_ram).unwrap_or(0..0),
@@ -560,28 +568,40 @@ impl Memory {
         }
     }
 
+    /// Whether `other` was built from the same cart as this arena.
+    ///
+    /// The ROM's CRC is what says which *game* it is; the geometry is checked as well because it
+    /// is what makes [`Memory::restore_rom_from`]'s copy sound, and because an arena built with no
+    /// ROM to hash - `Cart::empty_sized`, and the tests on it - has nothing else to go on.
+    #[must_use]
+    pub fn is_same_cart(&self, other: &Self) -> bool {
+        self.rom_crc32 == other.rom_crc32
+            && self.data.len() == other.data.len()
+            && self.ram_start == other.ram_start
+            && self.prg_rom == other.prg_rom
+            && self.chr == other.chr
+    }
+
     /// Copy the immutable ROM half, and the rest of what the cart rather than the console
     /// decides, in from the running console's memory.
     ///
-    /// Save states carry only the mutable tail, so a freshly deserialized
-    /// `Memory` has a zero-filled ROM region until this puts it back.
+    /// Save states carry only the mutable tail, so a freshly deserialized `Memory` has a
+    /// zero-filled ROM region until this puts it back. An arena that already has its ROM - a
+    /// clone rather than a state read back - is left as it is.
     ///
     /// Returns `false` when `src` was not built from the same cart, in which case nothing is
     /// copied: applying the state would leave the console running one game's RAM against
     /// another's ROM.
     pub fn restore_rom_from(&mut self, src: &Self) -> bool {
-        // The ROM's CRC is what says which *game* this is; the geometry is checked as well
-        // because it is what makes the copy below sound, and because an arena built without a
-        // ROM to hash - `Cart::empty_sized`, and the tests on it - has nothing else to go on.
-        if self.rom_crc32 != src.rom_crc32
-            || self.data.len() != src.data.len()
-            || self.ram_start != src.ram_start
-            || self.prg_rom != src.prg_rom
-            || self.chr != src.chr
-        {
+        if !self.is_same_cart(src) {
             return false;
         }
-        self.data[..self.ram_start].copy_from_slice(&src.data[..src.ram_start]);
+        // Skipped for an arena that already holds the ROM, so that run-ahead - which restores a
+        // clone of the running console every frame - does not pay a whole-cart memcpy for it.
+        if !self.rom_present {
+            self.data[..self.ram_start].copy_from_slice(&src.data[..src.ram_start]);
+            self.rom_present = true;
+        }
         self.battery_backed = src.battery_backed;
         true
     }
@@ -1221,7 +1241,12 @@ mod tests {
         running.set_rom_crc32(0x1111_1111);
         running.region_mut(Src::PrgRom).fill(0xAA);
 
-        let mut state = Memory::new(layout);
+        // Through serde, because that is what leaves a state with no ROM of its own.
+        let config = bincode::config::legacy();
+        let bytes = bincode::serde::encode_to_vec(&running, config).expect("serializes");
+        let (mut state, _) =
+            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).expect("deserializes");
+
         state.set_rom_crc32(0x2222_2222);
         assert!(
             !state.restore_rom_from(&running),
