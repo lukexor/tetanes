@@ -699,10 +699,10 @@ impl Ppu {
 
                         let x = sprite_x + x;
                         let y = sprite_y + y;
-                        let show_left_bg = self.mask.show_left_bg;
-                        let show_left_spr = self.mask.show_left_spr;
-                        let show_bg = self.mask.show_bg;
-                        let show_spr = self.mask.show_spr;
+                        let show_left_bg = self.mask.show_left_bg();
+                        let show_left_spr = self.mask.show_left_spr();
+                        let show_bg = self.mask.show_bg();
+                        let show_spr = self.mask.show_spr();
                         let fine_x = self.scroll.fine_x;
 
                         let left_clip_bg = x < 8 && !show_left_bg;
@@ -925,21 +925,16 @@ impl Ppu {
     fn pixel_palette(&mut self) -> u8 {
         let cycle = self.cycle;
         let x = cycle - 1;
-        let show_left_bg = self.mask.show_left_bg;
-        let show_left_spr = self.mask.show_left_spr;
-        let show_bg = self.mask.show_bg;
-        let show_spr = self.mask.show_spr;
         let fine_x = self.scroll.fine_x;
         let bg_shift = 15 - fine_x;
 
-        let min_render_x = x >= 8;
-        let bg_mask = u8::from(show_bg & (show_left_bg | min_render_x));
+        let bg_mask = u8::from(cycle > self.mask.min_draw_bg_cycle);
         let bg_color = bg_mask
             * ((((self.tile_shift_hi >> bg_shift) & 0x01) << 1)
                 | ((self.tile_shift_lo >> bg_shift) & 0x01)) as u8;
 
         let mut covering = self.spr_cover[usize::from(cycle)];
-        if (covering != 0) & (show_spr & (show_left_spr | min_render_x)) {
+        if (covering != 0) & (cycle > self.mask.min_draw_spr_cycle) {
             while covering != 0 {
                 // Lowest set bit first, which is sprite priority order.
                 let i = covering.trailing_zeros() as usize;
@@ -991,15 +986,9 @@ impl Ppu {
         }
 
         let cycle = self.cycle;
-        let show_left_bg = self.mask.show_left_bg;
-        let show_left_spr = self.mask.show_left_spr;
-        let show_bg = self.mask.show_bg;
-        let show_spr = self.mask.show_spr;
-        let min_render_x = cycle >= 9;
-
-        let bg_mask = u8::from(show_bg & (show_left_bg | min_render_x));
+        let bg_mask = u8::from(cycle > self.mask.min_draw_bg_cycle);
         if (bg_mask == 0)
-            | !(show_spr & (show_left_spr | min_render_x))
+            | (cycle <= self.mask.min_draw_spr_cycle)
             | (cycle == 256)
             | (self.spr_cover[usize::from(cycle)] == 0)
         {

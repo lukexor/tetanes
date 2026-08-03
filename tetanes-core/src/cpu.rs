@@ -343,6 +343,9 @@ impl Bus {
         state.debugger = std::mem::take(&mut self.debugger);
         state.debugger_active = self.debugger_active;
         state.keep_session_settings(self);
+        // The pixel path compares against thresholds derived from $2001 rather than reading its
+        // flags, and they are not part of the save format.
+        state.ppu.mask.update_draw_thresholds();
         *self = state;
         Ok(())
     }

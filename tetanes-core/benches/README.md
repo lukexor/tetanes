@@ -89,14 +89,14 @@ machine and corpus.
 
 | ROM | Mapper | TetaNES | MesenCE | gap |
 |---|---|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 1.768 | 1.625 | +8.8% |
-| Super Mario Bros. | 000 NROM | 1.783 | 1.631 | +9.3% |
-| Legend of Zelda | 001 MMC1 | 1.788 | 1.600 | +11.8% |
-| Super Mario Bros. 3 | 004 MMC3 | 1.991 | 1.687 | +18.0% |
-| Punch-Out!! | 009 MMC2 | 1.725 | 1.582 | +9.0% |
-| Castlevania III | 005 MMC5 | 2.853 | 2.534 | +12.6% |
-| Akumajou Densetsu | 024 VRC6 | 2.372 | 2.241 | +5.8% |
-| **geometric mean** | | **2.007** | **1.812** | **+10.8%** |
+| spritecans | 000 NROM (sprite stress) | 1.716 | 1.625 | +5.6% |
+| Super Mario Bros. | 000 NROM | 1.742 | 1.631 | +6.8% |
+| Legend of Zelda | 001 MMC1 | 1.774 | 1.600 | +10.9% |
+| Super Mario Bros. 3 | 004 MMC3 | 1.959 | 1.687 | +16.1% |
+| Punch-Out!! | 009 MMC2 | 1.672 | 1.582 | +5.7% |
+| Castlevania III | 005 MMC5 | 2.808 | 2.534 | +10.8% |
+| Akumajou Densetsu | 024 VRC6 | 2.323 | 2.241 | +3.7% |
+| **geometric mean** | | **1.965** | **1.812** | **+8.4%** |
 
 **Compare like with like or this number is wrong by half.** Timing the TetaNES default against
 MesenCE's default reads as a ~25% gap, because it puts `Video::apply_filter` on one side and
@@ -944,6 +944,38 @@ bearing.
 
 There is no third-party crate worth adding for this - `std::mem::offset_of!` is what the macro
 already uses, and it is the whole mechanism.
+
+### Precomputed draw thresholds, and what the first cache line is worth (2026-08-01)
+
+`Ppu::pixel_palette` asked, for every pixel, whether the background is enabled and whether this dot
+is past the left-column clip - four flag loads and three logic operations, from settings that only
+change on a `$2001` write. `Mask::min_draw_bg_cycle` and `min_draw_spr_cycle` hold the first dot
+each layer is drawn on, or [`Mask::NEVER_DRAWN`] (300, past the end of a scanline) when it is not,
+so the pixel path compares once.
+
+| ROM | Mapper | before | after | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 1.755 | 1.716 | -2.2% |
+| Super Mario Bros. | 000 NROM | 1.792 | 1.742 | -2.8% |
+| Legend of Zelda | 001 MMC1 | 1.808 | 1.774 | -1.9% |
+| Super Mario Bros. 3 | 004 MMC3 | 1.996 | 1.959 | -1.9% |
+| Punch-Out!! | 009 MMC2 | 1.716 | 1.672 | -2.6% |
+| Castlevania III | 005 MMC5 | 2.857 | 2.808 | -1.7% |
+| Akumajou Densetsu | 024 VRC6 | 2.356 | 2.323 | -1.4% |
+| **geometric mean** | | **2.007** | **1.965** | **-2.1%** |
+
+**The two thresholds only pay if they are free.** Adding them as two `u16` fields grew `Mask` from
+12 to 16 bytes, which pushed `is_render_scanline` from offset 63 to 67 and spilled the per-dot
+working set out of the first cache line. Measured that way the same logic change was **+1.0%
+slower**. Dropping the four `show_*` bools it made redundant - they are decoded from `bits` on
+demand now, and only a debugger path still asks - put `Mask` back at 12 bytes and the line back at
+exactly 64, and the same change became -2.1%.
+
+**A 3.1% swing from four bytes.** Alongside the 3.2% regression from realigning `palette` (above),
+the two together say something narrow and useful: the first 64 bytes of `Ppu` are worth defending
+and `tests::print_layouts` should keep failing when they overflow, while placement past that line
+is not something to reason about at all - only to measure. A change that adds a hot field is really
+two changes, and the layout half can be larger than the logic half and point the other way.
 
 ### `-C target-cpu` is worth about 1% (not shipped)
 

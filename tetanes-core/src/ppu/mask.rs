@@ -21,10 +21,17 @@ pub struct Mask {
     pub rendering_enabled: bool,
     pub prev_rendering_enabled: bool,
     pub pending_rendering_update: bool,
-    pub show_left_bg: bool,
-    pub show_left_spr: bool,
-    pub show_bg: bool,
-    pub show_spr: bool,
+    /// First dot on which the background is drawn, or [`Mask::NEVER_DRAWN`] when it is not.
+    ///
+    /// Collapses "is the background on, and is this dot past the left-column clip" into one
+    /// comparison for the pixel path, which asks it 61,440 times a frame.
+    // Derived from `bits`; recomputed after a state load rather than stored, so the save format
+    // does not depend on it.
+    #[serde(skip)]
+    pub min_draw_bg_cycle: u16,
+    /// First dot on which sprites are drawn. See [`Mask::min_draw_bg_cycle`].
+    #[serde(skip)]
+    pub min_draw_spr_cycle: u16,
     pub bits: Bits,
     pub region: NesRegion,
 }
@@ -74,12 +81,60 @@ impl Mask {
         } else {
             0x3F
         };
-        self.show_left_bg = self.bits.contains(Bits::SHOW_LEFT_BG);
-        self.show_left_spr = self.bits.contains(Bits::SHOW_LEFT_SPR);
-        self.show_bg = self.bits.contains(Bits::SHOW_BG);
-        self.show_spr = self.bits.contains(Bits::SHOW_SPR);
-        self.pending_rendering_update = self.rendering_enabled != (self.show_bg || self.show_spr);
+        self.pending_rendering_update =
+            self.rendering_enabled != (self.show_bg() || self.show_spr());
+        self.update_draw_thresholds();
         self.update_emphasis();
+    }
+
+    /// A dot beyond the end of a scanline, so `cycle > threshold` is never true.
+    pub const NEVER_DRAWN: u16 = 300;
+
+    /// Whether the background is shown at all.
+    //
+    // Decoded from `bits` on demand rather than stored: the dot loop asks
+    // [`Mask::min_draw_bg_cycle`] instead, and four bools here are four bytes out of the 64 the
+    // per-dot working set has to fit in.
+    #[inline]
+    pub const fn show_bg(&self) -> bool {
+        self.bits.contains(Bits::SHOW_BG)
+    }
+
+    /// Whether sprites are shown at all.
+    #[inline]
+    pub const fn show_spr(&self) -> bool {
+        self.bits.contains(Bits::SHOW_SPR)
+    }
+
+    /// Whether the background is shown in the leftmost 8 pixels.
+    #[inline]
+    pub const fn show_left_bg(&self) -> bool {
+        self.bits.contains(Bits::SHOW_LEFT_BG)
+    }
+
+    /// Whether sprites are shown in the leftmost 8 pixels.
+    #[inline]
+    pub const fn show_left_spr(&self) -> bool {
+        self.bits.contains(Bits::SHOW_LEFT_SPR)
+    }
+
+    /// Recompute the dot thresholds the pixel path compares against.
+    ///
+    /// Public because they are derived rather than stored: a state restored from disk carries
+    /// `bits` and the flags but not these, and [`Bus::load_state`](crate::bus::Bus::load_state)
+    /// puts them back.
+    pub const fn update_draw_thresholds(&mut self) {
+        // The left-column clips hide the first 8 pixels, i.e. everything up to and including dot 8.
+        self.min_draw_bg_cycle = if self.show_bg() {
+            if self.show_left_bg() { 0 } else { 8 }
+        } else {
+            Self::NEVER_DRAWN
+        };
+        self.min_draw_spr_cycle = if self.show_spr() {
+            if self.show_left_spr() { 0 } else { 8 }
+        } else {
+            Self::NEVER_DRAWN
+        };
     }
 
     pub fn update_emphasis(&mut self) {
@@ -122,7 +177,7 @@ impl Mask {
             self.pending_rendering_update = false;
 
             self.prev_rendering_enabled = self.rendering_enabled;
-            self.rendering_enabled = self.show_bg || self.show_spr;
+            self.rendering_enabled = self.show_bg() || self.show_spr();
             self.pending_rendering_update = self.prev_rendering_enabled != self.rendering_enabled;
         }
     }
