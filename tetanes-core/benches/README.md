@@ -1038,6 +1038,14 @@ when both agree. Two candidates measured that way, both rejected:
 |---|---|---|---|
 | palette mirrors resolved at write time | +4.1% | +0.9% | consistently slower, rejected |
 | horizontal flip baked into the stored sprite bytes | +4.3% | +0.2% | slower, rejected |
+| BG shifter reload dropped from the garbage/dummy fetches | +0.2% | -0.3% | neutral, kept as the base of a palette-latch fix |
+
+The reload result (2026-08-03) is also a layout cautionary tale: the intermediate shape - reload
+split out but still pinned to the dummy fetches - measured **+2.8% at default codegen and +0.15%
+aligned**. One more call pair at one site was worth almost 3% at one layout and nothing at the
+other. The final shape erased it. Twelve removed reloads per scanline were themselves worth
+nothing measurable, which is the "not branch-bound" finding again at a second site: the reload
+stores all hit L1 lines the fetch path already owns.
 
 The palette result settles a question an earlier single-layout run left open: read-side mirroring
 really is faster, not accidentally faster.
