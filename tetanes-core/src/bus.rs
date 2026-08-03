@@ -620,14 +620,14 @@ mod test {
         let mut bus = Bus::default();
 
         bus.cpu_bus_write(0x2000, 0x80);
-        assert_eq!(bus.ppu.ctrl.bits.bits(), 0x80, "$2000 PPUCTRL");
+        assert!(bus.ppu.ctrl_nmi_enabled, "$2000 PPUCTRL");
         bus.cpu_bus_write(0x3FF8, 0x00);
-        assert_eq!(bus.ppu.ctrl.bits.bits(), 0x00, "$3FF8 mirrors $2000");
+        assert!(!bus.ppu.ctrl_nmi_enabled, "$3FF8 mirrors $2000");
 
         bus.cpu_bus_write(0x2001, 0x1E);
-        assert_eq!(bus.ppu.mask.bits.bits(), 0x1E, "$2001 PPUMASK");
+        assert_eq!(bus.ppu.mask_bits.bits(), 0x1E, "$2001 PPUMASK");
         bus.cpu_bus_write(0x3FF9, 0x00);
-        assert_eq!(bus.ppu.mask.bits.bits(), 0x00, "$3FF9 mirrors $2001");
+        assert_eq!(bus.ppu.mask_bits.bits(), 0x00, "$3FF9 mirrors $2001");
         bus.cpu_bus_write(0x2003, 0x42);
         assert_eq!(bus.ppu.oamaddr, 0x42, "$2003 OAMADDR");
 
@@ -646,7 +646,7 @@ mod test {
 
         // $2002 clears the vblank flag as a side effect, so a second read differs - and `peek`
         // must not do it.
-        bus.ppu.status.set_in_vblank(true);
+        bus.ppu.set_in_vblank(true);
         assert_ne!(bus.cpu_bus_peek(0x2002) & 0x80, 0, "peek sees vblank");
         assert_ne!(bus.cpu_bus_peek(0x2002) & 0x80, 0, "and leaves it set");
         assert_ne!(bus.cpu_bus_read(0x2002) & 0x80, 0, "read sees vblank");

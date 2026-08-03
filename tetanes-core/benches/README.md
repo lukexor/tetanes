@@ -89,14 +89,14 @@ machine and corpus.
 
 | ROM | Mapper | TetaNES | MesenCE | gap |
 |---|---|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 1.716 | 1.625 | +5.6% |
-| Super Mario Bros. | 000 NROM | 1.742 | 1.631 | +6.8% |
-| Legend of Zelda | 001 MMC1 | 1.774 | 1.600 | +10.9% |
-| Super Mario Bros. 3 | 004 MMC3 | 1.959 | 1.687 | +16.1% |
-| Punch-Out!! | 009 MMC2 | 1.672 | 1.582 | +5.7% |
-| Castlevania III | 005 MMC5 | 2.808 | 2.534 | +10.8% |
-| Akumajou Densetsu | 024 VRC6 | 2.323 | 2.241 | +3.7% |
-| **geometric mean** | | **1.965** | **1.812** | **+8.4%** |
+| spritecans | 000 NROM (sprite stress) | 1.708 | 1.625 | +5.1% |
+| Super Mario Bros. | 000 NROM | 1.739 | 1.631 | +6.6% |
+| Legend of Zelda | 001 MMC1 | 1.732 | 1.600 | +8.3% |
+| Super Mario Bros. 3 | 004 MMC3 | 1.937 | 1.687 | +14.8% |
+| Punch-Out!! | 009 MMC2 | 1.669 | 1.582 | +5.5% |
+| Castlevania III | 005 MMC5 | 2.811 | 2.534 | +10.9% |
+| Akumajou Densetsu | 024 VRC6 | 2.314 | 2.241 | +3.3% |
+| **geometric mean** | | **1.953** | **1.812** | **+7.8%** |
 
 **Compare like with like or this number is wrong by half.** Timing the TetaNES default against
 MesenCE's default reads as a ~25% gap, because it puts `Video::apply_filter` on one side and
@@ -976,6 +976,56 @@ the two together say something narrow and useful: the first 64 bytes of `Ppu` ar
 and `tests::print_layouts` should keep failing when they overflow, while placement past that line
 is not something to reason about at all - only to measure. A change that adds a hot field is really
 two changes, and the layout half can be larger than the logic half and point the other way.
+
+### The registers are fields on `Ppu`, not structs (2026-08-01)
+
+`$2000`, `$2001` and `$2002` are `ctrl_*`, `mask_*` and `status_*` fields on [`Ppu`], with each
+register's logic in an `impl Ppu` block in its own module - the same arrangement `Bus` already uses,
+where a CPU access lives with the state it reads. One definition site per register, field order
+alone decides cache placement, and `Mask` no longer keeps a second copy of `NesRegion`.
+
+`status_bits` and `ctrl_bits` are gone with the structs. Neither register has readable content the
+flags do not already carry: `$2000` is write-only, and `$2002`'s low five bits are open bus, so
+`Ppu::read_status_bits` composes the byte from the three flags. That also takes a bit-set out of
+the pixel loop.
+
+**What this cost, and why the answer took four tries to find.** Flattening measured **+2.4%**, and
+neither restoring the old field offsets nor removing the `*_bits` fields recovered any of it.
+`perf stat` is what settled it:
+
+| counter | structs | flat |
+|---|---|---|
+| cycles | 18.088 G | 18.665 G (**+3.2%**) |
+| instructions | 44.690 G | 44.737 G (+0.10%) |
+| branches | 8.245 G | 8.250 G (+0.06%) |
+| branch-misses | 136.8 M | 138.0 M (+0.90%) |
+| L1-dcache-load-misses | 5.567 M | 5.487 M (-1.4%) |
+| cache-misses | 287.9 K | 224.3 K (-22%) |
+| `idq.dsb_uops` | 35.91 G | 27.82 G (**-22.5%**) |
+| `idq.mite_uops` | 15.20 G | 22.60 G (**+48.7%**) |
+
+Same instructions, same branches, *better* data-cache behaviour, 3.2% more cycles. Uop-cache
+delivery fell from 70.3% to 55.2% of the stream: about 8 billion uops stopped coming from the DSB
+and went through legacy decode instead. Disassembling `ppu_clock` in both builds confirmed it was
+nothing in the code - 988 instructions against 996, with the differences (`orb` -3, `andb` -1) in
+the flat build's favour, and function start alignment identical in both.
+
+The fix was to shrink what `ppu_clock` has to keep in the uop cache. `Ppu::load_sprites` runs on 8
+of every 341 dots for 0.12% of frame time, and inlined it was **more than half** of `ppu_clock`'s
+4121 bytes; `Ppu::headless_sprite_zero_hit` only runs under `HeadlessMode` at all. Marking both
+`#[inline(never)]` took `ppu_clock` to 2252 bytes and the flat build to **-0.6%** against the
+struct version.
+
+**Outlining is not a general win** - the same two attributes on the struct build measured **+4.0%
+slower**. Like every layout result here it is a draw, not a rule. What is durable is the diagnosis:
+when cycles move but instructions, branches and cache misses do not, look at `idq.dsb_uops` versus
+`idq.mite_uops` before looking anywhere else, and treat the hot function's byte count as the thing
+to manage.
+
+`RUSTFLAGS="-Cllvm-args=-align-all-nofallthru-blocks=5"` also recovers it - measured 1.944 against
+1.971 - but it grows `.text` by 22% (714 KB to 874 KB), matters differently for the wasm build, and
+rides on an unstable interface. It stays a measurement instrument, not a shipped flag: building a
+variant both ways is the cheapest way to tell a real change from a lucky draw.
 
 ### `-C target-cpu` is worth about 1% (not shipped)
 

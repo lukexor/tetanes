@@ -24,12 +24,9 @@ use crate::{
     memory::ConstArray,
     ppu::frame::Frame,
 };
-use ctrl::Ctrl;
-use mask::Mask;
 use scroll::Scroll;
 use serde::{Deserialize, Serialize};
 use sprite::Sprite;
-use status::Status;
 use std::cmp::Ordering;
 use tracing::{error, trace};
 
@@ -126,12 +123,44 @@ pub struct Ppu {
     pub cycle: u16,
     /// (0, 261) NTSC or (0, 311) PAL/Dendy scanlines per frame.
     pub scanline: u16,
-    /// $2001 PPUMASK (write-only).
-    pub mask: Mask,
+    /// First dot on which the background is drawn, or [`Ppu::NEVER_DRAWN`] when it is not.
+    ///
+    /// Collapses "is the background on, and is this dot past the left-column clip" into one
+    /// comparison for the pixel path, which asks it 61,440 times a frame.
+    // Derived from `mask_bits`; recomputed after a state load rather than stored, so the save
+    // format does not depend on it.
+    #[serde(skip)]
+    pub mask_min_draw_bg_cycle: u16,
+    /// First dot on which sprites are drawn. See [`Ppu::mask_min_draw_bg_cycle`].
+    #[serde(skip)]
+    pub mask_min_draw_spr_cycle: u16,
+    /// $2001 PPUMASK rendering enable, i.e. background or sprites shown (write-only).
+    pub mask_rendering_enabled: bool,
+    /// $2001 PPUMASK rendering enable as of the previous dot; it takes effect a cycle late.
+    pub mask_prev_rendering_enabled: bool,
+    /// Whether [`Ppu::mask_rendering_enabled`] still has that delayed update to apply.
+    pub mask_pending_rendering_update: bool,
     // === 20 ===
-    /// $2000 PPUCTRL (write-only).
-    pub ctrl: Ctrl,
+    /// $2000 PPUCTRL background pattern table select, `$0000` or `$1000` (write-only).
+    pub ctrl_bg_select: u16,
+    /// $2000 PPUCTRL sprite pattern table select for 8x8, `$0000` or `$1000` (write-only).
+    pub ctrl_spr_select: u16,
+    /// $2000 PPUCTRL sprite height, 8 or 16 (write-only).
+    pub ctrl_spr_height: u16,
+    // === 26 ===
+    /// $2002 PPUSTATUS sprite 0 hit (read-only).
+    pub status_spr_zero_hit: bool,
+    /// $2002 PPUSTATUS sprite overflow (read-only).
+    pub status_spr_overflow: bool,
+    /// $2002 PPUSTATUS vblank started (read-only).
+    pub status_in_vblank: bool,
     // === 30 ===
+    /// $2000 PPUCTRL VRAM address increment: 32 when set, 1 when clear (write-only).
+    pub ctrl_vram_increment: bool,
+    /// $2000 PPUCTRL master/slave select (write-only).
+    pub ctrl_master_slave: u8,
+    /// $2000 PPUCTRL NMI-on-vblank enable (write-only).
+    pub ctrl_nmi_enabled: bool,
     /// $2005 PPUSCROLL and $2006 PPUADDR (write-only).
     pub scroll: Scroll,
     /// Scanline that Vertical Blank (VBlank) starts on.
@@ -178,8 +207,16 @@ pub struct Ppu {
     pub is_render_scanline: bool,
 
     // === 64 : end of cache line ===
-    /// $2002 PPUSTATUS (read-only).
-    pub status: Status,
+    // The rest of $2000. Nothing reads these while fetching - a $2000/$2007 access or a vblank NMI
+    // does - so they stay out of the per-dot working set above.
+    // The rest of $2001. Colour emphasis and greyscale are folded in over runs of pixels rather
+    // than per pixel, so nothing here is read while fetching either.
+    /// $2001 PPUMASK colour emphasis bits, positioned for the frame buffer (write-only).
+    pub mask_emphasis: u16,
+    /// $2001 PPUMASK greyscale mask applied to a colour: `0x30` when set, `0x3F` when clear.
+    pub mask_grayscale: u8,
+    /// $2001 PPUMASK raw register bits (write-only).
+    pub mask_bits: mask::Bits,
     /// Scanline is a PAL sprite evaluation scanline.
     pub is_pal_spr_eval_scanline: bool,
 
@@ -444,9 +481,27 @@ impl Ppu {
             is_pal_spr_eval_scanline: false,
             open_bus: 0x00,
 
-            mask: Mask::new(region),
+            ctrl_bg_select: 0,
+            ctrl_spr_select: 0,
+            ctrl_spr_height: 8,
+            ctrl_vram_increment: false,
+            ctrl_master_slave: 0,
+            ctrl_nmi_enabled: false,
+
+            status_spr_zero_hit: false,
+            status_spr_overflow: false,
+            status_in_vblank: false,
+
+            mask_min_draw_bg_cycle: 0,
+            mask_min_draw_spr_cycle: 0,
+            mask_rendering_enabled: false,
+            mask_prev_rendering_enabled: false,
+            mask_pending_rendering_update: false,
+            mask_emphasis: 0,
+            mask_grayscale: 0x3F,
+            mask_bits: mask::Bits::empty(),
+
             scroll: Scroll::new(),
-            ctrl: Ctrl::new(),
 
             // NOTE: PPU RAM is a bit more predictable at power on - games like Huge Insect don't
             // properly initialize both nametables, which can result in garbage sprites when
@@ -462,7 +517,6 @@ impl Ppu {
             tile_hi: 0x00,
             tile_addr: 0x0000,
 
-            status: Status::new(),
             nmi_pending: false,
 
             oam_fetch: 0x00,
@@ -493,6 +547,11 @@ impl Ppu {
             emulate_warmup: false,
         };
 
+        // Decode both registers from zero rather than trusting the literals above: everything
+        // derived from them - the draw thresholds especially, whose "never" value is not zero -
+        // then has exactly one definition.
+        ppu.write_ctrl(0);
+        ppu.write_mask(0);
         ppu.set_region(ppu.region);
 
         ppu
@@ -534,15 +593,29 @@ impl Ppu {
             is_pal_spr_eval_scanline: self.is_pal_spr_eval_scanline,
             open_bus: self.open_bus,
 
-            mask: self.mask,
+            mask_min_draw_bg_cycle: self.mask_min_draw_bg_cycle,
+            mask_min_draw_spr_cycle: self.mask_min_draw_spr_cycle,
+            mask_rendering_enabled: self.mask_rendering_enabled,
+            mask_prev_rendering_enabled: self.mask_prev_rendering_enabled,
+            mask_pending_rendering_update: self.mask_pending_rendering_update,
+            mask_emphasis: self.mask_emphasis,
+            mask_grayscale: self.mask_grayscale,
+            mask_bits: self.mask_bits,
             scroll: self.scroll,
-            ctrl: self.ctrl,
+            ctrl_bg_select: self.ctrl_bg_select,
+            ctrl_spr_select: self.ctrl_spr_select,
+            ctrl_spr_height: self.ctrl_spr_height,
+            ctrl_vram_increment: self.ctrl_vram_increment,
+            ctrl_master_slave: self.ctrl_master_slave,
+            ctrl_nmi_enabled: self.ctrl_nmi_enabled,
 
             palette: self.palette,
 
             curr_palette: self.curr_palette,
 
-            status: self.status,
+            status_spr_zero_hit: self.status_spr_zero_hit,
+            status_spr_overflow: self.status_spr_overflow,
+            status_in_vblank: self.status_in_vblank,
 
             secondary_oamaddr: self.secondary_oamaddr,
 
@@ -575,7 +648,7 @@ impl Ppu {
                 let base_attr_addr = base_nametable_addr + addr::ATTR_OFFSET;
 
                 let tile_index = u16::from(chr[usize::from(addr)]);
-                let tile_addr = self.ctrl.bg_select | (tile_index << 4);
+                let tile_addr = self.ctrl_bg_select | (tile_index << 4);
 
                 let supertile = ((y_scroll & 0xFC) << 1) + (x_scroll >> 2);
                 let attr = u16::from(chr[usize::from(base_attr_addr + supertile)]);
@@ -599,7 +672,7 @@ impl Ppu {
                         let x = tile_x + (7 - x);
                         let y = tile_y + y;
                         Self::set_pixel(
-                            u16::from(color & self.mask.grayscale) | self.mask.emphasis,
+                            u16::from(color & self.mask_grayscale) | self.mask_emphasis,
                             x + x_offset,
                             y + y_offset,
                             2 * size::WIDTH,
@@ -656,12 +729,12 @@ impl Ppu {
                 let flip_horizontal = (attr & 0x40) == 0x40;
                 let flip_vertical = (attr & 0x80) == 0x80;
 
-                let height = self.ctrl.spr_height;
+                let height = self.ctrl_spr_height;
                 let tile_addr = if height == 16 {
                     // Use bit 0 of tile index to determine pattern table
                     ((tile_index & 0x01) * 0x1000) | ((tile_index & 0xFE) << 4)
                 } else {
-                    self.ctrl.spr_select | (tile_index << 4)
+                    self.ctrl_spr_select | (tile_index << 4)
                 };
 
                 sprites[i] = Sprite {
@@ -699,10 +772,10 @@ impl Ppu {
 
                         let x = sprite_x + x;
                         let y = sprite_y + y;
-                        let show_left_bg = self.mask.show_left_bg();
-                        let show_left_spr = self.mask.show_left_spr();
-                        let show_bg = self.mask.show_bg();
-                        let show_spr = self.mask.show_spr();
+                        let show_left_bg = self.show_left_bg();
+                        let show_left_spr = self.show_left_spr();
+                        let show_bg = self.show_bg();
+                        let show_spr = self.show_spr();
                         let fine_x = self.scroll.fine_x;
 
                         let left_clip_bg = x < 8 && !show_left_bg;
@@ -758,9 +831,9 @@ impl Ppu {
     #[inline(always)]
     const fn increment_vram_addr(&mut self) {
         // During rendering, v increments coarse X and coarse Y simultaneously
-        if self.scanline > scanline::VISIBLE_END || !self.mask.rendering_enabled {
+        if self.scanline > scanline::VISIBLE_END || !self.mask_rendering_enabled {
             self.scroll
-                .increment(self.ctrl.vram_increment as u16 * 31 + 1);
+                .increment(self.ctrl_vram_increment as u16 * 31 + 1);
         } else {
             self.scroll.increment_x();
             self.scroll.increment_y();
@@ -770,8 +843,8 @@ impl Ppu {
     fn start_vblank(&mut self) {
         trace!("Start VBL - PPU:{:3},{:3}", self.cycle, self.scanline);
         if !self.prevent_vbl {
-            self.status.set_in_vblank(true);
-            if self.ctrl.nmi_enabled {
+            self.set_in_vblank(true);
+            if self.ctrl_nmi_enabled {
                 self.nmi_pending = true;
                 trace!("VBL NMI - PPU:{:3},{:3}", self.cycle, self.scanline,);
             }
@@ -784,9 +857,9 @@ impl Ppu {
             "Stop VBL, Sprite0 Hit, Overflow - PPU:{:3},{:3}",
             self.cycle, self.scanline
         );
-        self.status.set_spr_zero_hit(false);
-        self.status.set_spr_overflow(false);
-        self.status.reset_in_vblank();
+        self.set_spr_zero_hit(false);
+        self.set_spr_overflow(false);
+        self.reset_in_vblank();
         self.nmi_pending = false;
         self.reset_signal = false;
         self.open_bus = 0; // Clear open bus every frame
@@ -819,7 +892,7 @@ impl Ppu {
             } else {
                 // If previously not in range, interpret this byte as y
                 let y = u16::from(oam_fetch);
-                let height = self.ctrl.spr_height;
+                let height = self.ctrl_spr_height;
                 spr_in_range |= !spr_in_range && (y..y + height).contains(&scanline);
 
                 // Even cycles are writes to Secondary OAM
@@ -844,7 +917,7 @@ impl Ppu {
                 } else {
                     oam_fetch = self.secondary_oamdata[secondary_oamindex];
                     if spr_in_range {
-                        self.status.set_spr_overflow(true);
+                        self.set_spr_overflow(true);
                         oamaddr_lo += 1;
                         if oamaddr_lo == 0x04 {
                             oamaddr_lo = 0x00;
@@ -928,13 +1001,13 @@ impl Ppu {
         let fine_x = self.scroll.fine_x;
         let bg_shift = 15 - fine_x;
 
-        let bg_mask = u8::from(cycle > self.mask.min_draw_bg_cycle);
+        let bg_mask = u8::from(cycle > self.mask_min_draw_bg_cycle);
         let bg_color = bg_mask
             * ((((self.tile_shift_hi >> bg_shift) & 0x01) << 1)
                 | ((self.tile_shift_lo >> bg_shift) & 0x01)) as u8;
 
         let mut covering = self.spr_cover[usize::from(cycle)];
-        if (covering != 0) & (cycle > self.mask.min_draw_spr_cycle) {
+        if (covering != 0) & (cycle > self.mask_min_draw_spr_cycle) {
             while covering != 0 {
                 // Lowest set bit first, which is sprite priority order.
                 let i = covering.trailing_zeros() as usize;
@@ -955,14 +1028,17 @@ impl Ppu {
                         | ((sprite.tile_lo >> spr_shift) & 0x01);
 
                     if spr_color != 0 {
-                        if self.mask.rendering_enabled
-                            & !self.status.spr_zero_hit
+                        if self.mask_rendering_enabled
+                            & !self.status_spr_zero_hit
                             & self.spr_zero_visible
                             & (cycle != 256)
                             & (i == 0)
                             & (bg_color != 0)
                         {
-                            self.status.set_spr_zero_hit(true);
+                            // Assigned directly rather than through `set_spr_zero_hit`: that takes
+                            // `&mut self`, which would conflict with the borrow of `self.sprites`
+                            // above and force a copy of the sprite per pixel.
+                            self.status_spr_zero_hit = true;
                         }
 
                         if !sprite.bg_priority | (bg_color == 0) {
@@ -979,16 +1055,19 @@ impl Ppu {
         palette + bg_color
     }
 
-    #[inline]
+    // Only reached under `HeadlessMode`, so it is kept out of `ppu_clock`'s code footprint
+    // entirely rather than inlined into a path that never runs it.
+    #[cold]
+    #[inline(never)]
     fn headless_sprite_zero_hit(&mut self) {
-        if !self.spr_zero_visible || self.status.spr_zero_hit {
+        if !self.spr_zero_visible || self.status_spr_zero_hit {
             return;
         }
 
         let cycle = self.cycle;
-        let bg_mask = u8::from(cycle > self.mask.min_draw_bg_cycle);
+        let bg_mask = u8::from(cycle > self.mask_min_draw_bg_cycle);
         if (bg_mask == 0)
-            | (cycle <= self.mask.min_draw_spr_cycle)
+            | (cycle <= self.mask_min_draw_spr_cycle)
             | (cycle == 256)
             | (self.spr_cover[usize::from(cycle)] == 0)
         {
@@ -1014,7 +1093,7 @@ impl Ppu {
             let spr_color = (((sprite.tile_hi >> spr_shift) & 0x01) << 1)
                 | ((sprite.tile_lo >> spr_shift) & 0x01);
             if spr_color != 0 {
-                self.status.set_spr_zero_hit(true);
+                self.set_spr_zero_hit(true);
             }
         }
     }
@@ -1022,7 +1101,7 @@ impl Ppu {
     #[inline(always)]
     fn render_pixel(&mut self) {
         let addr = self.scroll.addr();
-        let color = if self.mask.rendering_enabled || !is_palette(addr) {
+        let color = if self.mask_rendering_enabled || !is_palette(addr) {
             let palette = u16::from(self.pixel_palette());
             self.palette
                 .peek(addr::PALETTE_START | ((palette & 0x03 > 0) as u16 * palette))
@@ -1053,9 +1132,9 @@ impl Ppu {
         if through <= self.color_bits_applied {
             return;
         }
-        if self.mask.grayscale != 0x3F || self.mask.emphasis != 0 {
-            let grayscale = u16::from(self.mask.grayscale);
-            let emphasis = self.mask.emphasis;
+        if self.mask_grayscale != 0x3F || self.mask_emphasis != 0 {
+            let grayscale = u16::from(self.mask_grayscale);
+            let emphasis = self.mask_emphasis;
             for pixel in &mut self.frame.buffer[self.color_bits_applied..through] {
                 *pixel = (*pixel & grayscale) | emphasis;
             }
@@ -1080,7 +1159,7 @@ impl Ppu {
             trace!("$2002 NMI Ack - PPU:{:3},{:3}", self.cycle, self.scanline);
         }
         self.nmi_pending = false;
-        self.status.reset_in_vblank();
+        self.reset_in_vblank();
         self.scroll.reset_latch();
 
         if self.scanline == self.vblank_scanline && self.cycle == cycle::START {
@@ -1108,7 +1187,7 @@ impl Ppu {
     #[inline(always)]
     pub const fn peek_status(&self) -> u8 {
         // Only upper 3 bits are connected for this register
-        (self.status.read() & 0xE0) | (self.open_bus & 0x1F)
+        (self.read_status_bits() & 0xE0) | (self.open_bus & 0x1F)
     }
 
     // $2003 | W   | OAMADDR
@@ -1146,7 +1225,7 @@ impl Ppu {
     pub fn peek_oamdata(&self) -> u8 {
         // Reading OAMDATA during rendering will expose OAM accesses during sprite evaluation and loading
         if self.scanline <= scanline::VISIBLE_END
-            && self.mask.rendering_enabled
+            && self.mask_rendering_enabled
             && cycle::SPR_FETCH_RANGE.contains(&self.cycle)
         {
             self.secondary_oamdata[self.secondary_oamaddr as usize]
@@ -1164,7 +1243,7 @@ impl Ppu {
     pub fn write_oamdata(&mut self, mut val: u8) {
         self.open_bus = val;
 
-        if self.mask.rendering_enabled
+        if self.mask_rendering_enabled
             && (self.is_visible_scanline
                 || self.is_prerender_scanline
                 || self.is_pal_spr_eval_scanline)
@@ -1264,7 +1343,7 @@ impl Ppu {
         self.clock_divider = clock_divider;
         self.vblank_scanline = vblank_scanline;
         self.prerender_scanline = prerender_scanline;
-        self.mask.set_region(region);
+        self.update_emphasis();
     }
 
     /// Resets the PPU. A soft reset leaves VRAM and palette RAM alone, as the console does.
@@ -1278,11 +1357,11 @@ impl Ppu {
         self.is_pal_spr_eval_scanline = false;
         self.open_bus = 0x00;
 
-        self.mask.reset(kind);
+        self.reset_mask(kind);
         self.scroll.reset(kind);
-        self.ctrl.reset(kind);
+        self.reset_ctrl(kind);
 
-        self.status.reset(kind);
+        self.reset_status(kind);
         self.nmi_pending = false;
 
         self.oam_fetch = 0x00;
@@ -1464,7 +1543,7 @@ impl Bus {
         let nametable_addr_mask = 0x0FFF; // Only need lower 12 bits
         let addr = addr::NAMETABLE_START | (self.ppu.scroll.addr() & nametable_addr_mask);
         let tile_index = u16::from(self.chr_read(addr));
-        self.ppu.tile_addr = self.ppu.ctrl.bg_select | (tile_index << 4) | self.ppu.scroll.fine_y;
+        self.ppu.tile_addr = self.ppu.ctrl_bg_select | (tile_index << 4) | self.ppu.scroll.fine_y;
     }
 
     /// Fetch BG attribute byte.
@@ -1484,7 +1563,7 @@ impl Bus {
     #[inline]
     fn bg_fetch_cycle(&mut self) {
         let phase = self.ppu.cycle & 0x07;
-        if self.ppu.mask.prev_rendering_enabled && phase == 0 {
+        if self.ppu.mask_prev_rendering_enabled && phase == 0 {
             // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
             self.ppu.scroll.increment_x();
             // 256, Increment Fine Y when we reach the end of the screen
@@ -1503,6 +1582,9 @@ impl Bus {
         }
     }
 
+    // Out of line deliberately: it runs on 8 of every 341 dots, but inlined it was a large share
+    // of `ppu_clock`'s code footprint, and that function has to stay inside the uop cache.
+    #[inline(never)]
     fn load_sprites(&mut self) {
         // Local variables improve cache locality
         let cycle = self.ppu.cycle;
@@ -1518,7 +1600,7 @@ impl Bus {
             let mut tile_index = u16::from(tile_index);
             let flip_vertical = (attr & 0x80) == 0x80;
 
-            let height = self.ppu.ctrl.spr_height;
+            let height = self.ppu.ctrl_spr_height;
             // Should be in the range 0..=7 or 0..=15 depending on sprite height
             let mut line_offset = if (y..y + height).contains(&scanline) {
                 scanline - y
@@ -1542,7 +1624,7 @@ impl Bus {
                 }
                 sprite_select | ((tile_index & 0xFE) << 4) | line_offset
             } else {
-                self.ppu.ctrl.spr_select | (tile_index << 4) | line_offset
+                self.ppu.ctrl_spr_select | (tile_index << 4) | line_offset
             };
 
             if idx < spr_count {
@@ -1607,7 +1689,7 @@ impl Bus {
                 self.ppu.oamdata[addr] = self.ppu.oamdata[oamindex];
             }
         } else if self.ppu.cycle <= cycle::SPR_FETCH_END {
-            if self.ppu.mask.prev_rendering_enabled && self.ppu.cycle == cycle::SPR_FETCH_START {
+            if self.ppu.mask_prev_rendering_enabled && self.ppu.cycle == cycle::SPR_FETCH_START {
                 // Copy X bits at the start of a new line since we're going to start writing
                 // new x values to t
                 self.ppu.scroll.copy_x();
@@ -1713,7 +1795,7 @@ impl Bus {
         self.ppu.cycle += 1;
 
         // === RENDER LINE (scanlins 0-239, 261) ===
-        if self.ppu.mask.rendering_enabled {
+        if self.ppu.mask_rendering_enabled {
             if self.ppu.is_render_scanline {
                 self.clock_render_scanline();
             } else if self.ppu.is_pal_spr_eval_scanline {
@@ -1721,9 +1803,9 @@ impl Bus {
             }
         }
 
-        self.ppu.mask.clock();
+        self.ppu.clock_mask();
         if self.ppu.scroll.delayed_update()
-            && (!self.ppu.mask.rendering_enabled || self.ppu.scanline > scanline::VISIBLE_END)
+            && (!self.ppu.mask_rendering_enabled || self.ppu.scanline > scanline::VISIBLE_END)
         {
             // MMC3 clocks using A12
             self.notify_ppu_bus(self.ppu.scroll.addr());
@@ -1864,21 +1946,21 @@ impl Bus {
         if self.ppu.reset_signal {
             return;
         }
-        self.ppu.ctrl.write(val);
+        self.ppu.write_ctrl(val);
         self.ppu.scroll.write_nametable_select(val);
         // MMC5 tracks changes to PPUCTRL
         self.mapper.ppu_write(0x2000, val);
 
         trace!(
             "$2000 NMI Enabled: {} - PPU:{:3},{:3}",
-            self.ppu.ctrl.nmi_enabled, self.ppu.cycle, self.ppu.scanline,
+            self.ppu.ctrl_nmi_enabled, self.ppu.cycle, self.ppu.scanline,
         );
 
         // By toggling NMI (bit 7) during VBlank without reading $2002, /NMI can be pulled low
         // multiple times, causing multiple NMIs to be generated.
-        if !self.ppu.ctrl.nmi_enabled {
+        if !self.ppu.ctrl_nmi_enabled {
             self.ppu.nmi_pending = false;
-        } else if self.ppu.status.in_vblank {
+        } else if self.ppu.status_in_vblank {
             trace!(
                 "$2000 NMI During VBL - PPU:{:3},{:3}",
                 self.ppu.cycle, self.ppu.scanline
@@ -1905,7 +1987,7 @@ impl Bus {
         // Settle the pixels drawn under the old greyscale/emphasis before adopting the new ones.
         let through = self.ppu.rendered_through();
         self.ppu.apply_color_bits(through);
-        self.ppu.mask.write(val);
+        self.ppu.write_mask(val);
         // MMC5 tracks changes to PPUMASK
         self.mapper.ppu_write(0x2001, val);
     }
@@ -2117,11 +2199,11 @@ mod tests {
     #[test]
     fn read_status_resets_vblank() {
         let mut bus = Bus::default();
-        bus.ppu.status.set_in_vblank(true);
+        bus.ppu.set_in_vblank(true);
 
         let status = bus.ppu.read_status();
         assert_eq!(status >> 7, 1);
-        assert_eq!(bus.ppu.status.read() >> 7, 0);
+        assert_eq!(bus.ppu.read_status_bits() >> 7, 0);
     }
 
     #[test]
@@ -2147,7 +2229,7 @@ mod tests {
 
         bus.ppu_clock();
 
-        assert!(bus.ppu.status.spr_zero_hit);
+        assert!(bus.ppu.status_spr_zero_hit);
     }
 
     #[test]

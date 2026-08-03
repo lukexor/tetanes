@@ -705,7 +705,7 @@ impl State {
 
         let nametable_addr = base_nametable_addr + nametable_index;
         let tile_index = u16::from(self.snapshot.chr[usize::from(nametable_addr)]);
-        let tile_addr = self.snapshot.ppu.ctrl.bg_select + (tile_index << 4);
+        let tile_addr = self.snapshot.ppu.ctrl_bg_select + (tile_index << 4);
 
         let supertile = ((row & 0xFC) << 1) + (col >> 2);
         let attr_addr = base_attr_addr + supertile;

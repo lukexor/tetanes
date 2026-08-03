@@ -60,10 +60,7 @@ mod tests {
         mapper::{BOARD_LAYOUTS, MapperOps},
         memory::ConstArray,
         memory::Memory,
-        ppu::{
-            PaletteRam, ctrl::Ctrl, frame::Frame as PpuFrame, mask::Mask, scroll::Scroll,
-            sprite::Sprite, status::Status as PpuStatus,
-        },
+        ppu::{PaletteRam, frame::Frame as PpuFrame, mask, scroll::Scroll, sprite::Sprite},
     };
     use std::collections::HashMap;
 
@@ -99,16 +96,19 @@ mod tests {
         use std::mem::offset_of;
 
         // Everything the per-dot path reads on the way through `Bus::ppu_clock` shares the first
-        // line: the counters, the three register files, the tile shifters and the scanline kind.
+        // line: the counters, the hot halves of $2000/$2001/$2002, the scroll registers, the tile
+        // shifters and the scanline kind. Growing any of them by four bytes so that this spills
+        // measured 1.0% slower where the same change with the line intact measured -2.1%.
         assert_eq!(
             offset_of!(Ppu, master_clock),
             0,
             "the dot loop starts a line"
         );
-        assert_eq!(
-            offset_of!(Ppu, is_render_scanline),
-            LINE - 1,
-            "the per-dot fields must end the first cache line, not spill past it"
+        assert!(
+            offset_of!(Ppu, is_render_scanline) < LINE,
+            "the per-dot fields must fit the first cache line; \
+             `is_render_scanline` is at {} of {LINE}",
+            offset_of!(Ppu, is_render_scanline)
         );
 
         // `palette` deliberately straddles 128 and is not asserted here: aligning it inside one
@@ -161,8 +161,20 @@ mod tests {
             master_clock: u32,
             cycle: u16,
             scanline: u16,
-            mask: Mask,
-            ctrl: Ctrl,
+            mask_min_draw_bg_cycle: u16,
+            mask_min_draw_spr_cycle: u16,
+            mask_rendering_enabled: bool,
+            mask_prev_rendering_enabled: bool,
+            mask_pending_rendering_update: bool,
+            mask_emphasis: u16,
+            mask_grayscale: u8,
+            mask_bits: mask::Bits,
+            ctrl_bg_select: u16,
+            ctrl_spr_select: u16,
+            ctrl_spr_height: u16,
+            ctrl_vram_increment: bool,
+            ctrl_master_slave: u8,
+            ctrl_nmi_enabled: bool,
             scroll: Scroll,
             tile_shift_lo: u16,
             tile_shift_hi: u16,
@@ -197,7 +209,9 @@ mod tests {
             is_render_scanline: bool,
             is_pal_spr_eval_scanline: bool,
 
-            status: PpuStatus,
+            status_spr_zero_hit: bool,
+            status_spr_overflow: bool,
+            status_in_vblank: bool,
 
             frame: PpuFrame,
             color_bits_applied: usize,

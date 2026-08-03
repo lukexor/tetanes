@@ -1,29 +1,19 @@
 //! PPUCTRL register implementation.
 //!
 //! See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
+//!
+//! The register's fields live on [`Ppu`] as `ctrl_*` rather than in a struct of their own, so that
+//! field order alone decides which of them share the dot loop's cache line - `ctrl_bg_select` is
+//! wanted every few dots while fetching, `ctrl_nmi_enabled` once a frame. What the register *does*
+//! stays here, in an `impl Ppu` block, the same way a CPU-bus access lives with the state it reads.
 
 // The PPU's internal register and fetch state, whose meaning is the hardware's rather than this
 // crate's. Public for embedders and debuggers, not a stable surface - see the module docs on `ppu`.
 #![allow(missing_docs)]
 
-use crate::common::ResetKind;
+use crate::{common::ResetKind, ppu::Ppu};
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-
-/// PPUCTRL register.
-///
-/// See: <https://wiki.nesdev.org/w/index.php/PPU_registers#PPUCTRL>
-#[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
-#[must_use]
-pub struct Ctrl {
-    pub bg_select: u16,
-    pub spr_select: u16,
-    pub spr_height: u16,
-    pub vram_increment: bool,
-    pub master_slave: u8,
-    pub nmi_enabled: bool,
-    pub bits: Bits,
-}
 
 bitflags! {
     // $2000 PPUCTRL
@@ -54,29 +44,25 @@ bitflags! {
     }
 }
 
-impl Ctrl {
-    pub fn new() -> Self {
-        let mut ctrl = Self::default();
-        ctrl.write(0);
-        ctrl
+impl Ppu {
+    /// Decode a $2000 PPUCTRL write into the `ctrl_*` fields.
+    pub const fn write_ctrl(&mut self, val: u8) {
+        let bits = Bits::from_bits_truncate(val);
+        // 0x1000 or 0x0000
+        self.ctrl_spr_select = bits.contains(Bits::SPR_SELECT) as u16 * 0x1000;
+        // 0x1000 or 0x0000
+        self.ctrl_bg_select = bits.contains(Bits::BG_SELECT) as u16 * 0x1000;
+        // 16 or 8
+        self.ctrl_spr_height = bits.contains(Bits::SPR_HEIGHT) as u16 * 8 + 8;
+        // 1 or 0
+        self.ctrl_master_slave = bits.contains(Bits::MASTER_SLAVE) as u8;
+        self.ctrl_nmi_enabled = bits.contains(Bits::NMI_ENABLE);
+        // 32 or 1
+        self.ctrl_vram_increment = bits.contains(Bits::VRAM_INCREMENT);
     }
 
-    pub const fn write(&mut self, val: u8) {
-        self.bits = Bits::from_bits_truncate(val);
-        // 0x1000 or 0x0000
-        self.spr_select = self.bits.contains(Bits::SPR_SELECT) as u16 * 0x1000;
-        // 0x1000 or 0x0000
-        self.bg_select = self.bits.contains(Bits::BG_SELECT) as u16 * 0x1000;
-        // 16 or 8
-        self.spr_height = self.bits.contains(Bits::SPR_HEIGHT) as u16 * 8 + 8;
-        // 1 or 0
-        self.master_slave = self.bits.contains(Bits::MASTER_SLAVE) as u8;
-        self.nmi_enabled = self.bits.contains(Bits::NMI_ENABLE);
-        // 32 or 1
-        self.vram_increment = self.bits.contains(Bits::VRAM_INCREMENT);
-    }
     // https://www.nesdev.org/wiki/PPU_power_up_state
-    pub const fn reset(&mut self, _kind: ResetKind) {
-        self.write(0);
+    pub const fn reset_ctrl(&mut self, _kind: ResetKind) {
+        self.write_ctrl(0);
     }
 }
