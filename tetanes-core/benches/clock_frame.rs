@@ -42,6 +42,10 @@
 //! unchanged - so this isolates the cost of turning channel state into samples, not the cost of
 //! the APU as a whole.
 //!
+//! `TETANES_BENCH_FILTER=pixellate` swaps the output path's NTSC filter for the plain palette
+//! decode, which is what a low-power target would run. Default is NTSC, matching the shipped
+//! default and every recorded baseline.
+//!
 //! `TETANES_BENCH_RUN_AHEAD=n` clocks with run-ahead enabled, which costs a console snapshot and
 //! `n` extra frames per call. Off by default so the recorded baselines stay comparable.
 
@@ -54,7 +58,7 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
-use tetanes_core::prelude::*;
+use tetanes_core::{prelude::*, video::VideoFilter};
 
 /// Frames clocked per timed iteration. Override with `TETANES_BENCH_FRAMES`.
 const FRAMES_TO_RUN: u32 = 600;
@@ -94,6 +98,17 @@ fn bench_no_audio() -> bool {
     std::env::var_os("TETANES_BENCH_NO_AUDIO").is_some()
 }
 
+/// Video filter for the output path: `TETANES_BENCH_FILTER=pixellate|ntsc`, default NTSC.
+///
+/// The NTSC filter is the shipped default; Pixellate is the cheap palette decode, which is what a
+/// low-power target would run. Only meaningful without `TETANES_BENCH_NO_OUTPUT`.
+fn bench_filter() -> VideoFilter {
+    match std::env::var("TETANES_BENCH_FILTER").as_deref() {
+        Ok("pixellate") => VideoFilter::Pixellate,
+        _ => VideoFilter::Ntsc,
+    }
+}
+
 /// Timing results for a single ROM.
 struct Report {
     name: String,
@@ -113,12 +128,20 @@ fn main() {
     let warmup = env_or("TETANES_BENCH_WARMUP", WARMUP_FRAMES as usize) as u32;
     let output = bench_output();
     let no_audio = bench_no_audio();
+    let filter = bench_filter();
     let run_ahead = env_or("TETANES_BENCH_RUN_AHEAD", 0);
 
     println!(
         "{iterations} iterations x {frames} frames ({warmup} warmup), {} ROM(s){}{}{}\n",
         roms.len(),
-        if output { ", +frame_buffer" } else { "" },
+        if output {
+            match filter {
+                VideoFilter::Pixellate => ", +frame_buffer (pixellate)",
+                VideoFilter::Ntsc => ", +frame_buffer",
+            }
+        } else {
+            ""
+        },
         if no_audio { ", no audio mixing" } else { "" },
         if run_ahead > 0 {
             format!(", run_ahead {run_ahead}")
@@ -130,7 +153,9 @@ fn main() {
     let mut reports = Vec::with_capacity(roms.len());
     let mut skipped = Vec::new();
     for rom in &roms {
-        match bench_rom(rom, frames, iterations, warmup, output, no_audio, run_ahead) {
+        match bench_rom(
+            rom, frames, iterations, warmup, output, no_audio, filter, run_ahead,
+        ) {
             Ok(report) => reports.push(report),
             // Sweeping a whole library will turn up boards this emulator does not implement yet.
             // Report them rather than aborting the run.
@@ -185,6 +210,7 @@ fn bench_rom(
     warmup: u32,
     output: bool,
     no_audio: bool,
+    filter: VideoFilter,
     run_ahead: usize,
 ) -> Result<Report, String> {
     let name = path
@@ -203,6 +229,7 @@ fn bench_rom(
         let mut deck = ControlDeck::with_config(Config {
             // Deterministic RAM so runs are comparable.
             ram_state: RamState::AllZeros,
+            filter,
             run_ahead,
             headless_mode: if no_audio {
                 HeadlessMode::NO_AUDIO
