@@ -1078,6 +1078,18 @@ registers, clocked one bit per dot, so the flip is just which way the byte was l
 is always the top bit - no variable shift and no select. Porting that means giving the sprite
 pipeline per-dot shift state, which is a different design rather than a tweak.
 
+Read in full (2026-08-03), that port was declined. MesenCE's flip is not free after all -
+`LoadSprite` bit-reverses both tile bytes of a mirrored sprite at load, the same mechanism the
+rejected experiment above measured - and its active-shifter walk has no early exit: it must visit
+every active shifter on every dot to clock it, where the cover-mask walk stops at the first opaque
+pixel. What remains in its favor is small: fixed top-bit extraction instead of a flip select plus
+a variable shift per covering pixel, and one activation compare per dot instead of a cover-array
+load per pixel - paid for with a per-scanline sort of the shifter list and extra state exactly at
+the accuracy-sensitive edges (odd-frame skip, mid-frame rendering toggles). The expected payoff
+sits inside the noise floor, and this session's pattern was that candidates argued from saved
+operations measured null while the one that removed stores (`fine_y`) won. The sprite pipeline
+stays as it is until a profile shows the pixel walk itself, not its arithmetic, on top.
+
 ### `-C target-cpu` is worth about 1% (not shipped)
 
 `RUSTFLAGS="-Zthreads=8 -Ctarget-cpu=x86-64-v3"` measured **-1.1%** (2.017 against 2.039 geomean,
