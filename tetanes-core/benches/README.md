@@ -1039,6 +1039,7 @@ when both agree. Two candidates measured that way, both rejected:
 | palette mirrors resolved at write time | +4.1% | +0.9% | consistently slower, rejected |
 | horizontal flip baked into the stored sprite bytes | +4.3% | +0.2% | slower, rejected |
 | BG shifter reload dropped from the garbage/dummy fetches | +0.2% | -0.3% | neutral, kept as the base of a palette-latch fix |
+| `bg_fetch_cycle` dispatch folded into a single `match` | +1.5% | -1.5% | perfectly symmetric layout draw, rejected |
 
 The reload result (2026-08-03) is also a layout cautionary tale: the intermediate shape - reload
 split out but still pinned to the dummy fetches - measured **+2.8% at default codegen and +0.15%
