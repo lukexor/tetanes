@@ -419,18 +419,17 @@ impl PpuViewer {
 
 impl State {
     fn update_debugger(&self, open: bool) {
-        let tx = self.tx.clone();
-        let debugger = Debugger {
-            cycle: self.refresh_cycle,
-            scanline: self.refresh_scanline,
-            callback: Arc::new(move |bus| {
-                tx.event(DebugEvent::Ppu(Box::new(PpuSnapshot::capture(bus))))
-            }),
-        };
         self.tx.event(if open {
-            EmulationEvent::AddDebugger(debugger)
+            let tx = self.tx.clone();
+            EmulationEvent::AddDebugger(Debugger {
+                cycle: self.refresh_cycle,
+                scanline: self.refresh_scanline,
+                callback: Arc::new(move |bus| {
+                    tx.event(DebugEvent::Ppu(Box::new(PpuSnapshot::capture(bus))))
+                }),
+            })
         } else {
-            EmulationEvent::RemoveDebugger(debugger)
+            EmulationEvent::RemoveDebugger
         });
     }
 

@@ -449,10 +449,10 @@ impl State {
     fn on_emulation_event(&mut self, event: &EmulationEvent) {
         match event {
             EmulationEvent::AddDebugger(debugger) => {
-                self.control_deck.add_debugger(debugger.clone());
+                self.control_deck.set_debugger(debugger.clone());
             }
-            EmulationEvent::RemoveDebugger(debugger) => {
-                self.control_deck.remove_debugger(debugger.clone());
+            EmulationEvent::RemoveDebugger => {
+                self.control_deck.clear_debugger();
             }
             EmulationEvent::AudioRecord(recording) => {
                 if self.control_deck.is_running() {

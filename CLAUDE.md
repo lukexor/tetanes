@@ -141,11 +141,14 @@ states.
 
 **A save state carries only mutable state.** `Memory` puts its immutable regions (PRG-ROM, CHR-ROM)
 first and marks the boundary with `ram_start`; its hand-written `Serialize`/`Deserialize` store the
-layout plus `data[ram_start..]` only, and `Bus::load_state` copies the ROM back in from the console
-already running. `Bus::load_state` is the single funnel for *every* restore path — `load_state`,
-rewind and run-ahead — so it is also where a state belonging to a different cart is rejected
-(`cpu::StateMismatch`) rather than left running one game's RAM against another's ROM. Page tables are
-likewise absent, rebuilt by `Bus::rebuild_mapper_state` from the restored mapper registers.
+layout plus `data[ram_start..]` only, and the restore copies the ROM back in from the console
+already running. `Bus::swap_state` is the single funnel for *every* restore path —
+`Bus::load_state`, rewind, and run-ahead, which calls it directly — so it is also where a state
+belonging to a different cart is rejected (`cpu::StateMismatch`) rather than left running one game's
+RAM against another's ROM. `load_state` is that plus `keep_session_settings`, which run-ahead must
+skip: a snapshot's settings are already the running console's, and the APU history that would come
+back with them belongs to the timeline being discarded. Page tables are likewise absent, rebuilt by
+`Bus::rebuild_mapper_state` from the restored mapper registers.
 
 **A debugger callback is handed the whole `Bus`** (`debug.rs`), not one component's state, because
 what a debugger needs differs per debugger — a CPU debugger wants registers and the disassembly

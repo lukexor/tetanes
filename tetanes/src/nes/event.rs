@@ -180,7 +180,7 @@ impl From<DebugEvent> for NesEvent {
 #[must_use]
 pub enum EmulationEvent {
     AddDebugger(Debugger),
-    RemoveDebugger(Debugger),
+    RemoveDebugger,
     AudioRecord(bool),
     CpuCorrupted { instr: InstrRef },
     DebugStep(DebugStep),
