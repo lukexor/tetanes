@@ -264,15 +264,16 @@ pub struct LoadedRom {
     pub region: NesRegion,
 }
 
-/// Frame buffers [`ControlDeck`] recycles for run-ahead.
+/// What [`ControlDeck`] recycles between run-ahead frames.
 ///
 /// Run-ahead rewinds the console *past* the frame it wants to display, which would take that
 /// frame's pixels with it - so `pending` parks them where [`ControlDeck::frame_buffer`] can still
 /// reach them afterwards. `spare` holds the console's real frame meanwhile, and comes back on
 /// restore.
 ///
-/// They exist to be swapped rather than allocated: [`Buffer`](crate::ppu::frame::Buffer)'s
-/// `Default` allocates and zeroes 120 KiB, which this path would otherwise pay on every frame.
+/// All three exist to be reused rather than allocated:
+/// [`Buffer`](crate::ppu::frame::Buffer)'s `Default` allocates and zeroes 120 KiB, and a console's
+/// arena is the size of a cartridge, both of which this path would otherwise pay on every frame.
 #[derive(Debug, Clone, Default)]
 struct RunAheadFrames {
     /// The pixels of the frame that should be displayed, parked here before the console is rewound.
@@ -284,6 +285,9 @@ struct RunAheadFrames {
     pending_valid: bool,
     /// The console's own frame, parked while the run-ahead frames render.
     spare: crate::ppu::frame::Buffer,
+    /// The console the last run-ahead left behind, kept to snapshot into again. `None` until
+    /// run-ahead first runs. See `Bus::snapshot_from`.
+    snapshot: Option<Box<Bus>>,
 }
 
 /// Represents an NES Control Deck. Encapsulates the entire emulation state.
@@ -1090,14 +1094,24 @@ impl ControlDeck {
         // Park the frame just rendered and hand the PPU a recycled buffer to scribble over.
         std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
-        // Snapshot the console. A plain clone, not a serialized state: run-ahead restores into
-        // the same session one frame later, so a compact encoding buys nothing and measures
-        // 1.6-5.1x slower than the clone (see benches/README.md). The clone also carries the page
-        // tables, so no `rebuild_mapper_state` is needed on the way back.
+        // Snapshot the console. A plain copy, not a serialized state: run-ahead restores into the
+        // same session one frame later, so a compact encoding buys nothing and measures 1.6-5.1x
+        // slower than a clone (see benches/README.md). A copy also carries the page tables, so no
+        // `rebuild_mapper_state` is needed on the way back.
         //
         // Rewind is the opposite trade and keeps the serialized form: it holds ~900 snapshots in
         // RAM at once, where a clone each would be hundreds of megabytes.
-        let mut saved = self.bus.clone();
+        //
+        // It goes into the console the last run-ahead gave back rather than a fresh one: that
+        // console has already run this cart, so its arena is the right size with the right ROM in
+        // it, and only what a frame can change has to be copied.
+        let mut saved = match frames.snapshot.take() {
+            Some(mut saved) => {
+                saved.snapshot_from(&self.bus);
+                saved
+            }
+            None => Box::new(self.bus.clone()),
+        };
 
         // Clock the intermediate frames, whose video is never seen. Restored rather than set back
         // to `false`, so this does not quietly turn rendering on for a headless deck.
@@ -1125,6 +1139,9 @@ impl ControlDeck {
         self.bus.swap_state(&mut saved)?;
         std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
+        // `saved` is now the console the run-ahead frames left behind, which is next frame's
+        // snapshot buffer.
+        frames.snapshot = Some(saved);
         self.run_ahead_frames = Some(frames);
         Ok(())
     }
@@ -1709,8 +1726,9 @@ mod tests {
     /// then rewinds to the snapshot - so afterwards the console must sit exactly where a single
     /// `clock_frame` would have left it, and carry on identically.
     ///
-    /// This has no coverage otherwise, and the snapshot is a plain `Bus::clone` rather than a
-    /// serialized state, so nothing else would notice if the restore stopped being faithful.
+    /// This has no coverage otherwise, and the snapshot is a field-wise copy into the console the
+    /// last one gave back rather than a serialized state, so nothing else would notice if it
+    /// stopped being faithful.
     #[test]
     fn run_ahead_leaves_the_console_where_a_plain_frame_would() {
         for run_ahead in 1..=4 {

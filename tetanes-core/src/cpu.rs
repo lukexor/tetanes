@@ -329,6 +329,10 @@ impl Cpu {
 impl Bus {
     /// Load a console state, leaving `self` untouched if it does not belong to this cart.
     ///
+    /// A state is the emulated machine and nothing else, so this is also what puts back what one
+    /// cannot carry: the cart's ROM, reattached from the running console, the attached debugger,
+    /// and the settings that belong to the player rather than to the NES.
+    ///
     /// # Errors
     ///
     /// If the state was not produced by the currently loaded cart.

@@ -183,6 +183,54 @@ impl Bus {
         self.load_mapper(Mapper::default());
     }
 
+    /// Overwrites this console with `src`'s state, reusing the allocations it already holds.
+    ///
+    /// What run-ahead wants every frame is not a fresh `Bus` but the one it snapshotted into last
+    /// frame, refilled: a console that has already run this cart has an arena of the right size
+    /// whose ROM half is already correct, so only what a frame can actually change has to be
+    /// copied. Restoring is `Bus::swap_state`, which hands the console back for the next one.
+    ///
+    /// The debugger and the disassembly scratch are not copied, for the same reason `swap_state`
+    /// moves them across a restore: they belong to the session rather than to the state.
+    pub(crate) fn snapshot_from(&mut self, src: &Self) {
+        // Destructured exhaustively so that a field added to `Bus` is a compile error here rather
+        // than console state that silently fails to survive a run-ahead frame.
+        let Self {
+            cpu,
+            ppu,
+            mapper_ops,
+            mapper,
+            memory,
+            apu,
+            input,
+            wram,
+            genie_codes,
+            open_bus,
+            ram_state,
+            region,
+            debugger_active,
+            debugger: _,
+            disasm: _,
+        } = src;
+
+        self.cpu.clone_from(cpu);
+        // Copies the 120 KiB frame buffer with it. Skipping that needs a field-wise copy of `Ppu`,
+        // which belongs next to `Ppu` rather than here; the pixels themselves are dead either way,
+        // since the caller parks the frame it means to display before snapshotting.
+        self.ppu.clone_from(ppu);
+        self.mapper_ops = *mapper_ops;
+        self.mapper.clone_from(mapper);
+        self.memory.snapshot_from(memory);
+        self.apu.clone_from(apu);
+        self.input.clone_from(input);
+        self.wram.clone_from(wram);
+        self.genie_codes.clone_from(genie_codes);
+        self.open_bus = *open_bus;
+        self.ram_state = *ram_state;
+        self.region = *region;
+        self.debugger_active = *debugger_active;
+    }
+
     /// Copies the PPU's address space - `$0000-$2FFF`, banked and mirrored as it is right now -
     /// into `dst`.
     ///

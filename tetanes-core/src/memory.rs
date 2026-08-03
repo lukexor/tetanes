@@ -148,10 +148,10 @@ pub struct Memory {
 ///
 /// Everything below `ram_start` is ROM: it comes from the cart and cannot change, so it is left
 /// out and put back from the running console in `Bus::swap_state`, which every restore path ends
-/// in - a save state, rewind, and run-ahead alike. For
-/// Super Mario Bros. 3 that is 394 KiB of a 408 KiB state, and rewind keeps ~900 of them. What
-/// does travel is the ROM's CRC32, so that the console can tell a state of its own from one
-/// recorded against a different game with the same memory layout.
+/// in - a save state, rewind, and run-ahead alike. For Super Mario Bros. 3 that is 394 KiB of a
+/// 408 KiB state, and rewind keeps ~900 of them. What does travel is the ROM's CRC32, so that the
+/// console can tell a state of its own from one recorded against a different game with the same
+/// memory layout.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
 /// mapper's registers by `Map::update_banks`.
@@ -544,7 +544,7 @@ impl Memory {
     }
 
     /// Record which cart's ROM this arena holds. See [`Memory::restore_rom_from`].
-    pub fn set_rom_crc32(&mut self, crc32: u32) {
+    pub const fn set_rom_crc32(&mut self, crc32: u32) {
         self.rom_crc32 = crc32;
     }
 
@@ -566,6 +566,26 @@ impl Memory {
         if self.chr_writable {
             state.fill(self.region_mut(Src::Chr));
         }
+    }
+
+    /// Overwrite this arena with `src`, reusing the allocation it already has.
+    ///
+    /// The ROM half is left where it is when both arenas hold the same cart's - so a run-ahead
+    /// snapshot, which is taken every frame and restored moments later, copies its game's RAM
+    /// rather than its whole cartridge. Anything else falls back to a plain clone.
+    pub fn snapshot_from(&mut self, src: &Self) {
+        if !self.rom_present || !self.is_same_cart(src) {
+            *self = src.clone();
+            return;
+        }
+        self.data[self.ram_start..].copy_from_slice(&src.data[src.ram_start..]);
+        self.prg_ram = src.prg_ram.clone();
+        self.ciram = src.ciram.clone();
+        self.ex_ram = src.ex_ram.clone();
+        self.chr_writable = src.chr_writable;
+        self.battery_backed = src.battery_backed;
+        self.prg_pages = src.prg_pages;
+        self.chr_pages = src.chr_pages;
     }
 
     /// Whether `other` was built from the same cart as this arena.
@@ -1260,6 +1280,56 @@ mod tests {
         state.set_rom_crc32(0x1111_1111);
         assert!(state.restore_rom_from(&running), "the same game's is not");
         assert!(state.region_ref(Src::PrgRom).iter().all(|&b| b == 0xAA));
+    }
+
+    /// A snapshot copies the RAM half and leaves the ROM half where it already is, so it has to
+    /// come out equal to a clone - and fall back to one when there is nothing to reuse.
+    #[test]
+    fn a_snapshot_copies_the_ram_and_keeps_the_rom_it_already_has() {
+        let mut running = Memory::new(MemoryLayout {
+            prg_rom: 64 * 1024,
+            prg_ram: 8 * 1024,
+            chr: 8 * 1024,
+            ..Default::default()
+        });
+        running.set_rom_crc32(0x1234_5678);
+        running.region_mut(Src::PrgRom).fill(0xAA);
+        running.region_mut(Src::PrgRam).fill(0x11);
+        running.map_prg(0x8000, 32 * 1024, 1, Src::PrgRom);
+
+        // A console that has already run this cart, one frame behind.
+        let mut snapshot = running.clone();
+        running.region_mut(Src::PrgRam).fill(0x22);
+        running.map_prg(0x8000, 32 * 1024, 0, Src::PrgRom);
+        snapshot.snapshot_from(&running);
+
+        assert_eq!(
+            snapshot.region_ref(Src::PrgRam),
+            running.region_ref(Src::PrgRam),
+            "the game's RAM comes across"
+        );
+        assert_eq!(
+            snapshot.region_ref(Src::PrgRom),
+            running.region_ref(Src::PrgRom),
+            "the ROM it already had is still there"
+        );
+        assert_eq!(
+            snapshot.prg_pages(),
+            running.prg_pages(),
+            "with the page tables that address it"
+        );
+
+        // A cart it has never run has nothing to reuse.
+        let mut other = Memory::new(MemoryLayout {
+            prg_rom: 32 * 1024,
+            ..Default::default()
+        });
+        other.snapshot_from(&running);
+        assert!(other.is_same_cart(&running), "so it takes a whole copy");
+        assert_eq!(
+            other.region_ref(Src::PrgRom),
+            running.region_ref(Src::PrgRom)
+        );
     }
 
     /// Truncated or corrupt input must be an error rather than a panic writing the RAM tail.
