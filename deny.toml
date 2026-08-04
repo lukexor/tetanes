@@ -11,8 +11,8 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
 ignore = [
-  { id = "RUSTSEC-2024-0436", reason = "paste is a downstream dependency of many crates with no upgrade path" },
   { id = "RUSTSEC-2025-0141", reason = "need to plan an upgrade path from bincode to rkyv" },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained with no successor release; it arrives under winit's default wayland-csd-adwaita feature, so dropping it means giving up the title text in Wayland client-side decorations" },
 ]
 
 [licenses]
@@ -29,7 +29,6 @@ allow = [
   "MIT",                            # https://tldrlegal.com/license/mit-license
   "MPL-2.0",                        # https://www.mozilla.org/en-US/MPL/2.0/FAQ/ - see Q11.
   "OFL-1.1",                        # https://spdx.org/licenses/OFL-1.1.html
-  "OpenSSL",                        # https://openssl-library.org/source/license/index.html
   "Ubuntu-font-1.0",                # https://ubuntu.com/legal/font-licence
   "Unicode-3.0",                    # https://spdx.org/licenses/Unicode-3.0.html
   "Zlib",                           # https://tldrlegal.com/license/zlib-libpng-license-(zlib)
