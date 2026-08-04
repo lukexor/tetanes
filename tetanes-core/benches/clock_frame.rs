@@ -203,6 +203,7 @@ fn main() {
 }
 
 /// Benchmark a single ROM, printing per-iteration progress to stderr.
+#[allow(clippy::too_many_arguments, reason = "bench method, not a public API")]
 fn bench_rom(
     path: &Path,
     frames: u32,
