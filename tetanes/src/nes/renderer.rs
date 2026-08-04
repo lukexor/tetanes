@@ -452,7 +452,7 @@ impl Renderer {
     pub fn load(ctx: &egui::Context, cfg: &Config) -> anyhow::Result<()> {
         let path = Config::default_config_dir().join("gui.dat");
         if fs::exists(&path) {
-            let data = fs::load_raw(path).context("failed to load gui memory")?;
+            let data = fs::load_raw_path(path).context("failed to load gui memory")?;
             let config = bincode::config::legacy();
             let (memory, _) = bincode::serde::decode_from_slice(&data, config)
                 .context("failed to deserialize gui memory")?;
@@ -483,7 +483,7 @@ impl Renderer {
             let config = bincode::config::legacy();
             let data = bincode::serde::encode_to_vec(mem, config)
                 .context("failed to serialize gui memory")?;
-            fs::save_raw(path, &data).context("failed to save gui memory")
+            fs::save_raw_path(path, &data).context("failed to save gui memory")
         })?;
         self.last_save_time = Instant::now();
 

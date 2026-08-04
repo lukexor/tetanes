@@ -519,6 +519,10 @@ pub(crate) mod tests {
         let mut deck = ControlDeck::with_config(Config {
             ram_state: RamState::AllZeros,
             filter: VideoFilter::Pixellate,
+            // A test ROM's battery is not the player's: reading one would make a run depend on
+            // whatever a previous run left behind, and writing one would scribble in `test_roms`,
+            // since `load_rom` is handed an absolute path here.
+            sram_dir: None,
             ..Default::default()
         });
         deck.load_rom(path.to_string_lossy(), &mut rom)

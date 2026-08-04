@@ -4,7 +4,7 @@ use crate::sys::fs;
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
-    io::{Cursor, Read, Write},
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
@@ -88,7 +88,7 @@ impl Error {
 /// # Errors
 ///
 /// If the header fails to write to disk, then an error is returned.
-pub(crate) fn write_header(f: &mut impl Write, version: &str) -> std::io::Result<()> {
+pub fn write_header(f: &mut impl Write, version: &str) -> std::io::Result<()> {
     f.write_all(&SAVE_FILE_MAGIC)?;
     f.write_all(version.as_bytes())
 }
@@ -98,7 +98,7 @@ pub(crate) fn write_header(f: &mut impl Write, version: &str) -> std::io::Result
 /// # Errors
 ///
 /// If the header fails to validate, then an error is returned.
-pub(crate) fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
+pub fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
     f.read_exact(&mut magic)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
@@ -149,16 +149,18 @@ pub fn decode(data: impl Read) -> std::io::Result<Vec<u8>> {
     Ok(decoded)
 }
 
-/// Serializes, compresses and writes `value` to `path`, behind the current save header.
+/// Serializes, compresses and writes `value` to `writer`, behind the current save header.
+///
+/// Use [`save_path`] to write to the filesystem.
 ///
 /// # Errors
 ///
-/// If the value cannot be serialized or the file cannot be written.
-pub fn save<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
+/// If the value cannot be serialized or the writer fails.
+pub fn save<T>(writer: impl Write, value: &T) -> Result<()>
 where
-    T: Serialize,
+    T: ?Sized + Serialize,
 {
-    save_version(path, value, SAVE_VERSION)
+    save_version(writer, value, SAVE_VERSION)
 }
 
 /// Save data with an explicit format version.
@@ -166,57 +168,52 @@ where
 /// # Errors
 ///
 /// If the data fails to serialize or write, then an error is returned.
-pub fn save_version<T>(path: impl AsRef<Path>, value: &T, version: &str) -> Result<()>
+pub fn save_version<T>(mut writer: impl Write, value: &T, version: &str) -> Result<()>
 where
     T: ?Sized + Serialize,
 {
     let config = bincode::config::legacy();
     let data = bincode::serde::encode_to_vec(value, config)
         .map_err(|err| Error::SerializationFailed(err.to_string()))?;
-    let mut writer = fs::writer_impl(path)?;
     write_header(&mut writer, version).map_err(Error::WriteHeaderFailed)?;
     encode(&mut writer, &data).map_err(Error::EncodingFailed)?;
-    writer
-        .flush()
-        .map_err(|err| Error::io(err, "failed to save data"))?;
     Ok(())
 }
 
-/// Serializes, compresses and writes a board's battery-backed RAM to `path`.
+/// Serializes, compresses and writes a board's battery-backed RAM to `writer`.
 ///
 /// # Errors
 ///
-/// If the value cannot be serialized or the file cannot be written.
-pub fn save_sram<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
+/// If the value cannot be serialized or the writer fails.
+pub fn save_sram<T>(writer: impl Write, value: &T) -> Result<()>
 where
     T: ?Sized + Serialize,
 {
-    save_version(path, value, SRAM_VERSION)
+    save_version(writer, value, SRAM_VERSION)
 }
 
-/// Reads a board's battery-backed RAM from `path`, moving the file aside if it cannot be read.
+/// Reads a board's battery-backed RAM from `reader`.
 ///
-/// A save that fails to load is not a save that may be discarded: the caller keeps playing and
-/// writes this same path back out when the ROM is unloaded, so an unreadable file is overwritten
-/// by whatever the console happens to hold. Copying it to `<name>.bak` first makes a bad header or
-/// a truncated file cost a rename instead of the player's game.
+/// Use [`load_sram_path`] to read from the filesystem, which additionally preserves a save it
+/// cannot parse.
 ///
 /// # Errors
 ///
-/// If the file cannot be read, its header does not match, or it does not hold a `T`.
-pub fn load_sram<T>(path: impl AsRef<Path>) -> Result<T>
+/// If the reader fails, its header does not match, or it does not hold a `T`.
+pub fn load_sram<T>(reader: impl Read) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    let path = path.as_ref();
-    load_version(path, SRAM_VERSION).inspect_err(|err| back_up_sram(path, err))
+    load_version(reader, SRAM_VERSION)
 }
 
 /// Copies an unreadable save alongside itself as `<name>.bak`.
 ///
 /// Never overwrites an existing backup: the second run after a save broke would otherwise back up
 /// the replacement and destroy the copy made by the first.
-fn back_up_sram(path: &Path, err: &Error) {
+///
+/// `err` is only reported, so a caller whose error type is not [`enum@Error`] can still call this.
+pub fn back_up_sram(path: &Path, err: &dyn std::fmt::Display) {
     if !exists(path) {
         return;
     }
@@ -230,7 +227,7 @@ fn back_up_sram(path: &Path, err: &Error) {
         warn!("failed to load {path:?} ({err}); {backup:?} already exists, leaving it alone");
         return;
     }
-    match load_raw(path).and_then(|data| save_raw(&backup, &data)) {
+    match load_raw_path(path).and_then(|data| save_raw_path(&backup, &data)) {
         Ok(()) => warn!("failed to load {path:?} ({err}); backed it up to {backup:?}"),
         Err(backup_err) => {
             warn!("failed to load {path:?} ({err}); backing it up also failed: {backup_err}");
@@ -238,44 +235,40 @@ fn back_up_sram(path: &Path, err: &Error) {
     }
 }
 
-/// Writes bytes to `path` with no header, compression or serialization.
+/// Writes bytes to `writer` with no header, compression or serialization.
 ///
 /// # Errors
 ///
-/// If the file cannot be written.
-pub fn save_raw(path: impl AsRef<Path>, value: &[u8]) -> Result<()> {
-    let mut writer = fs::writer_impl(path)?;
+/// If the writer fails.
+pub fn save_raw(mut writer: impl Write, value: &[u8]) -> Result<()> {
     writer
         .write_all(value)
-        .map_err(|err| Error::io(err, "failed to save data"))?;
-    writer
-        .flush()
-        .map_err(|err| Error::io(err, "failed to save data"))?;
-    Ok(())
+        .map_err(|err| Error::io(err, "failed to save data"))
 }
 
-/// Reads, decompresses and deserializes a value from `path`.
+/// Reads, decompresses and deserializes a value from `reader`.
+///
+/// Use [`load_path`] to read from the filesystem.
 ///
 /// # Errors
 ///
-/// If the file cannot be read, its header does not match, or it does not hold a `T`.
-pub fn load<T>(path: impl AsRef<Path>) -> Result<T>
+/// If the reader fails, its header does not match, or it does not hold a `T`.
+pub fn load<T>(reader: impl Read) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    load_version(path, SAVE_VERSION)
+    load_version(reader, SAVE_VERSION)
 }
 
 /// Load data written with an explicit format version.
 ///
 /// # Errors
 ///
-/// If the file cannot be read, its header does not match, or it does not hold a `T`.
-pub fn load_version<T>(path: impl AsRef<Path>, version: &str) -> Result<T>
+/// If the reader fails, its header does not match, or it does not hold a `T`.
+pub fn load_version<T>(mut reader: impl Read, version: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    let mut reader = fs::reader_impl(path)?;
     validate_header(&mut reader, version)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
     let config = bincode::config::legacy();
@@ -284,34 +277,114 @@ where
     Ok(res)
 }
 
-/// Reads, decompresses and deserializes a value from bytes already in memory.
+/// Reads bytes from `reader` with no header, decompression or deserialization.
 ///
 /// # Errors
 ///
-/// If the header does not match or the bytes do not hold a `T`.
-pub fn load_bytes<T>(bytes: &[u8]) -> Result<T>
-where
-    T: DeserializeOwned,
-{
-    load_bytes_version(bytes, SAVE_VERSION)
+/// If the reader fails.
+pub fn load_raw(mut reader: impl Read) -> Result<Vec<u8>> {
+    let mut data = vec![];
+    reader
+        .read_to_end(&mut data)
+        .map_err(|err| Error::io(err, "failed to load data"))?;
+    Ok(data)
 }
 
-/// Load data from bytes written with an explicit format version.
+/// Serializes, compresses and writes `value` to `path`, behind the current save header.
 ///
 /// # Errors
 ///
-/// If the header is invalid or the data fails to deserialize, then an error is returned.
-pub fn load_bytes_version<T>(bytes: &[u8], version: &str) -> Result<T>
+/// If the value cannot be serialized or the file cannot be written.
+pub fn save_path<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
+where
+    T: ?Sized + Serialize,
+{
+    save_version_path(path, value, SAVE_VERSION)
+}
+
+/// Writes data to `path` with an explicit format version.
+///
+/// # Errors
+///
+/// If the data fails to serialize or the file cannot be written.
+pub fn save_version_path<T>(path: impl AsRef<Path>, value: &T, version: &str) -> Result<()>
+where
+    T: ?Sized + Serialize,
+{
+    let mut writer = fs::writer_impl(path)?;
+    save_version(&mut writer, value, version)?;
+    // The wasm backend buffers the whole file and commits to local storage on flush, so the write
+    // has not happened until this returns.
+    writer
+        .flush()
+        .map_err(|err| Error::io(err, "failed to save data"))
+}
+
+/// Serializes, compresses and writes a board's battery-backed RAM to `path`.
+///
+/// # Errors
+///
+/// If the value cannot be serialized or the file cannot be written.
+pub fn save_sram_path<T>(path: impl AsRef<Path>, value: &T) -> Result<()>
+where
+    T: ?Sized + Serialize,
+{
+    save_version_path(path, value, SRAM_VERSION)
+}
+
+/// Writes bytes to `path` with no header, compression or serialization.
+///
+/// # Errors
+///
+/// If the file cannot be written.
+pub fn save_raw_path(path: impl AsRef<Path>, value: &[u8]) -> Result<()> {
+    let mut writer = fs::writer_impl(path)?;
+    save_raw(&mut writer, value)?;
+    writer
+        .flush()
+        .map_err(|err| Error::io(err, "failed to save data"))
+}
+
+/// Reads, decompresses and deserializes a value from `path`.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
+pub fn load_path<T>(path: impl AsRef<Path>) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    let mut reader = Cursor::new(bytes);
-    validate_header(&mut reader, version)?;
-    let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
-    let config = bincode::config::legacy();
-    let (res, _) = bincode::serde::decode_from_slice(&data, config)
-        .map_err(|err| Error::SerializationFailed(err.to_string()))?;
-    Ok(res)
+    load_version_path(path, SAVE_VERSION)
+}
+
+/// Loads data from `path` written with an explicit format version.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
+pub fn load_version_path<T>(path: impl AsRef<Path>, version: &str) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    load_version(fs::reader_impl(path)?, version)
+}
+
+/// Reads a board's battery-backed RAM from `path`, moving the file aside if it cannot be read.
+///
+/// A save that fails to load is not a save that may be discarded: the caller keeps playing and
+/// writes this same path back out when the ROM is unloaded, so an unreadable file is overwritten
+/// by whatever the console happens to hold. Copying it to `<name>.bak` first makes a bad header or
+/// a truncated file cost a rename instead of the player's game.
+///
+/// # Errors
+///
+/// If the file cannot be read, its header does not match, or it does not hold a `T`.
+pub fn load_sram_path<T>(path: impl AsRef<Path>) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let path = path.as_ref();
+    load_version_path(path, SRAM_VERSION).inspect_err(|err| back_up_sram(path, err))
 }
 
 /// Reads bytes from `path` with no header, decompression or deserialization.
@@ -319,13 +392,8 @@ where
 /// # Errors
 ///
 /// If the file cannot be read.
-pub fn load_raw(path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    let mut reader = fs::reader_impl(path)?;
-    let mut data = vec![];
-    reader
-        .read_to_end(&mut data)
-        .map_err(|err| Error::io(err, "failed to load data"))?;
-    Ok(data)
+pub fn load_raw_path(path: impl AsRef<Path>) -> Result<Vec<u8>> {
+    load_raw(fs::reader_impl(path)?)
 }
 
 /// Removes a directory and everything in it.
@@ -431,15 +499,15 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&backup);
 
-        save_version(&path, &vec![1u8, 2, 3], "9").expect("writes a future version");
+        save_version_path(&path, &vec![1u8, 2, 3], "9").expect("writes a future version");
         let original = std::fs::read(&path).expect("reads back");
 
-        let _ = load_sram::<Vec<u8>>(&path).expect_err("cannot be read");
+        let _ = load_sram_path::<Vec<u8>>(&path).expect_err("cannot be read");
         assert_eq!(std::fs::read(&backup).expect("backed up"), original);
 
         // Now the save has been replaced, as `unload_rom` would.
-        save_sram(&path, &vec![9u8]).expect("saves");
-        load_sram::<Vec<u8>>(&path).expect("readable now");
+        save_sram_path(&path, &vec![9u8]).expect("saves");
+        load_sram_path::<Vec<u8>>(&path).expect("readable now");
         assert_eq!(
             std::fs::read(&backup).expect("still there"),
             original,

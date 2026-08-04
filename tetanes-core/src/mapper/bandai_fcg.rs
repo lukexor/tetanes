@@ -15,7 +15,10 @@ use crate::{
     memory::{Memory, Src},
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, path::Path};
+use std::{
+    cmp::Ordering,
+    io::{Read, Write},
+};
 
 /// `Bandai FCG` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -308,32 +311,36 @@ impl Map for BandaiFCG {
 
     /// The battery covers the EEPROMs, and on mapper 153 the PRG-RAM as well.
     ///
-    /// The EEPROMs keep their own files, so the two never collide.
-    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
-        if self.mapper_num == 153 {
-            fs::save_sram(path, &memory.region_ref(Src::PrgRam).to_vec())?;
-        }
-        if let Some(eeprom) = &self.standard_eeprom {
-            eeprom.save(path)?;
-        }
-        if let Some(eeprom) = &self.extra_eeprom {
-            eeprom.save(path)?;
-        }
-        Ok(())
+    /// All three go out as one value: PRG-RAM, the standard EEPROM, then the Datach's extra one,
+    /// each `None` on a board that lacks it.
+    //
+    // One `save_sram` call, not three. Each writes a header and a deflate stream, and a decoder
+    // reading to end buffers past its own stream, so consecutive blobs in one writer would leave
+    // the reader mid-stream for the second.
+    fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
+        let prg_ram = (self.mapper_num == 153).then(|| memory.region_ref(Src::PrgRam));
+        let standard = self.standard_eeprom.as_ref().map(|e| &e.rom_data);
+        let extra = self.extra_eeprom.as_ref().map(|e| &e.rom_data);
+        fs::save_sram(writer, &(prg_ram, standard, extra))
     }
 
-    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
-        if self.mapper_num == 153 {
-            let data = fs::load_sram::<Vec<u8>>(path)?;
+    fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
+        type Battery = (
+            Option<Vec<u8>>,
+            Option<Buffer<Box<[u8]>>>,
+            Option<Buffer<Box<[u8]>>>,
+        );
+        let (prg_ram, standard, extra) = fs::load_sram::<Battery>(reader)?;
+        if let Some(data) = prg_ram {
             let ram = memory.region_mut(Src::PrgRam);
             let len = ram.len().min(data.len());
             ram[..len].copy_from_slice(&data[..len]);
         }
-        if let Some(eeprom) = &mut self.standard_eeprom {
-            eeprom.load(path)?;
+        if let (Some(eeprom), Some(data)) = (&mut self.standard_eeprom, standard) {
+            eeprom.rom_data = data;
         }
-        if let Some(eeprom) = &mut self.extra_eeprom {
-            eeprom.load(path)?;
+        if let (Some(eeprom), Some(data)) = (&mut self.extra_eeprom, extra) {
+            eeprom.rom_data = data;
         }
         Ok(())
     }
@@ -857,24 +864,6 @@ impl Eeprom {
             };
             self.counter += 1;
         }
-    }
-
-    pub const fn sram_extension(&self) -> &str {
-        match self.model {
-            EepromModel::X24C01 => "eeprom128",
-            EepromModel::X24C02 => "eeprom256",
-        }
-    }
-
-    /// The EEPROM keeps its own file beside the `.sram`, named for its size.
-    pub fn save(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        let extension = self.sram_extension();
-        fs::save_sram(path.as_ref().with_extension(extension), &self.rom_data)
-    }
-
-    pub fn load(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
-        let extension = self.sram_extension();
-        fs::load_sram(path.as_ref().with_extension(extension)).map(|data| self.rom_data = data)
     }
 }
 

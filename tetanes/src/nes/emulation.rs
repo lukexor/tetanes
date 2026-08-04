@@ -732,7 +732,7 @@ impl State {
     fn save_state(&mut self, slot: u8, auto: bool) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             let data_dir = Config::save_path(&rom.name, slot);
-            match self.control_deck.save_state(data_dir) {
+            match self.control_deck.save_state_path(data_dir) {
                 Ok(_) => {
                     if !auto {
                         self.add_message(MessageType::Info, format!("State {slot} Saved"));
@@ -746,7 +746,7 @@ impl State {
     fn load_state(&mut self, slot: u8) {
         if let Some(rom) = self.control_deck.loaded_rom() {
             let save_path = Config::save_path(&rom.name, slot);
-            match self.control_deck.load_state(save_path) {
+            match self.control_deck.load_state_path(save_path) {
                 Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
                 Err(control_deck::Error::NoSaveStateFound) => {
                     self.add_message(MessageType::Warn, format!("State {slot} Not Found"));
@@ -762,7 +762,7 @@ impl State {
         if let Some(rom) = self.control_deck.loaded_rom() {
             if self.auto_save {
                 let save_path = Config::save_path(&rom.name, self.save_slot);
-                if let Err(err) = self.control_deck.save_state(save_path) {
+                if let Err(err) = self.control_deck.save_state_path(save_path) {
                     self.on_error(err);
                 }
             }
@@ -784,7 +784,7 @@ impl State {
     fn on_load_rom(&mut self, rom: LoadedRom) {
         if self.auto_load {
             let save_path = Config::save_path(&rom.name, self.save_slot);
-            if let Err(err) = self.control_deck.load_state(save_path)
+            if let Err(err) = self.control_deck.load_state_path(save_path)
                 && !matches!(err, control_deck::Error::NoSaveStateFound)
             {
                 error!("failed to load state: {err:?}");

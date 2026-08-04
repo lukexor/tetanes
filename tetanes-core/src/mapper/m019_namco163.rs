@@ -141,15 +141,16 @@ impl Map for Namco163 {
     /// The sound RAM goes out as the [`ConstArray`] itself, not as a `Vec`: bincode gives a `Vec` a
     /// length prefix and a fixed-size array none, so serializing the copy would shift every byte
     /// after it and orphan existing `.sram` files.
-    fn save_sram(&self, memory: &Memory, path: &std::path::Path) -> crate::fs::Result<()> {
-        crate::fs::save_sram(
-            path,
-            &(memory.region_ref(Src::PrgRam).to_vec(), &self.audio.ram),
-        )
+    fn save_sram(&self, memory: &Memory, writer: &mut dyn std::io::Write) -> crate::fs::Result<()> {
+        crate::fs::save_sram(writer, &(memory.region_ref(Src::PrgRam), &self.audio.ram))
     }
 
-    fn load_sram(&mut self, memory: &mut Memory, path: &std::path::Path) -> crate::fs::Result<()> {
-        let (prg_ram, audio_ram) = crate::fs::load_sram::<(Vec<u8>, ConstArray<u8, 0x80>)>(path)?;
+    fn load_sram(
+        &mut self,
+        memory: &mut Memory,
+        reader: &mut dyn std::io::Read,
+    ) -> crate::fs::Result<()> {
+        let (prg_ram, audio_ram) = crate::fs::load_sram::<(Vec<u8>, ConstArray<u8, 0x80>)>(reader)?;
         let ram = memory.region_mut(Src::PrgRam);
         let len = ram.len().min(prg_ram.len());
         ram[..len].copy_from_slice(&prg_ram[..len]);
@@ -751,16 +752,13 @@ mod tests {
     #[test]
     fn sound_ram_is_appended_to_the_sram_file_without_a_length_prefix() {
         let (mapper, cart) = load();
-        let path = std::env::temp_dir().join("tetanes-namco163-sram-layout.sram");
-        let _ = std::fs::remove_file(&path);
+        let mut saved = Vec::new();
 
-        mapper.save_sram(&cart.memory, &path).expect("saves");
-        let mut file = std::fs::File::open(&path).expect("opens");
-        crate::fs::validate_header(&mut file, crate::fs::SRAM_VERSION).expect("sram header");
-        let payload = crate::fs::decode(&mut file).expect("deflate");
+        mapper.save_sram(&cart.memory, &mut saved).expect("saves");
+        let mut reader = saved.as_slice();
+        crate::fs::validate_header(&mut reader, crate::fs::SRAM_VERSION).expect("sram header");
+        let payload = crate::fs::decode(&mut reader).expect("deflate");
         assert_eq!(payload.len(), 8 + 8 * 1024 + 0x80);
-
-        std::fs::remove_file(&path).expect("cleans up");
     }
 
     /// A cart on one of the 210 boards, whose mirroring comes from the header rather than from

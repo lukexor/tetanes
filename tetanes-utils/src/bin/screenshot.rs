@@ -34,6 +34,8 @@ fn main() -> anyhow::Result<()> {
 
     let mut deck = ControlDeck::with_config(Config {
         ram_state: RamState::AllZeros,
+        // Rendering a frame is not playing the game; leave the player's saves alone.
+        sram_dir: None,
         ..Default::default()
     });
     let mut rom =

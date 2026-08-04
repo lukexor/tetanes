@@ -103,7 +103,7 @@ impl Record {
             .with_extension("replay");
         let events = std::mem::take(&mut self.events);
 
-        fs::save(&replay_path, &State((start, events)))?;
+        fs::save_path(&replay_path, &State((start, events)))?;
 
         Ok(Some(replay_path))
     }
@@ -123,17 +123,15 @@ impl Replay {
     /// Loads a replay recording file.
     pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Bus> {
         let path = path.as_ref();
-        let State((bus, mut events)) = fs::load(path)?;
+        let State((bus, mut events)) = fs::load_path(path)?;
         events.reverse(); // So we can pop off the end
         self.events = events;
         Ok(bus)
     }
 
     /// Loads a replay from a reader.
-    pub fn load(&mut self, mut replay: impl Read) -> anyhow::Result<Bus> {
-        let mut events = Vec::new();
-        replay.read_to_end(&mut events)?;
-        let State((bus, mut events)) = fs::load_bytes(&events)?;
+    pub fn load(&mut self, replay: impl Read) -> anyhow::Result<Bus> {
+        let State((bus, mut events)) = fs::load(replay)?;
         events.reverse(); // So we can pop off the end
         self.events = events;
         Ok(bus)

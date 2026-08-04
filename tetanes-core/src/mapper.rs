@@ -102,7 +102,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::io::{Read, Write};
 
 bitflags! {
     /// Which of a board's optional hooks apply, resolved once at cart load and cached beside the
@@ -513,13 +513,13 @@ macro_rules! impl_dispatch {
             }
 
             /// Write this board's battery-backed state.
-            pub fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
-                dispatch!(self, [$($variant),+], m => m.save_sram(memory, path))
+            pub fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
+                dispatch!(self, [$($variant),+], m => m.save_sram(memory, writer))
             }
 
             /// Restore state previously written by `save_sram`.
-            pub fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
-                dispatch!(self, [$($variant),+], m => m.load_sram(memory, path))
+            pub fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
+                dispatch!(self, [$($variant),+], m => m.load_sram(memory, reader))
             }
 
             /// Serve a CPU read, returning `None` to fall through to page-table memory.
@@ -815,13 +815,16 @@ pub trait Map {
     /// An override writes through [`fs::save_sram`], which stamps [`fs::SRAM_VERSION`] rather than
     /// the save-state version: a player's battery saves outlive the save-state format, so the two
     /// must be able to move independently.
-    fn save_sram(&self, memory: &Memory, path: &Path) -> fs::Result<()> {
-        fs::save_sram(path, &memory.region_ref(Src::PrgRam).to_vec())
+    //
+    // `dyn` rather than a generic writer: every board is reached through the `Mapper` enum, so a
+    // generic here would monomorphize the whole dispatch table for a path taken twice per session.
+    fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
+        fs::save_sram(writer, memory.region_ref(Src::PrgRam))
     }
 
     /// Restore state previously written by [`Map::save_sram`].
-    fn load_sram(&mut self, memory: &mut Memory, path: &Path) -> fs::Result<()> {
-        let data = fs::load_sram::<Vec<u8>>(path)?;
+    fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
+        let data = fs::load_sram::<Vec<u8>>(reader)?;
         let ram = memory.region_mut(Src::PrgRam);
         let len = ram.len().min(data.len());
         ram[..len].copy_from_slice(&data[..len]);

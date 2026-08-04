@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
                 submapper_num: *submapper,
             });
         }
-        fs::save_version(GAME_DB, &entries, fs::GAME_DB_VERSION)?;
+        fs::save_version_path(GAME_DB, &entries, fs::GAME_DB_VERSION)?;
     } else if path.is_file() {
         todo!("adding individual games is not yet supported");
     }

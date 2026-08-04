@@ -44,7 +44,10 @@ use crate::{
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+};
 use tracing::trace;
 
 /// NES Bus
@@ -486,23 +489,23 @@ impl Bus {
         }
     }
 
-    /// Writes battery-backed cart RAM to `path`.
+    /// Writes battery-backed cart RAM to `writer`.
     ///
     /// # Errors
     ///
-    /// If the file cannot be written.
-    pub fn save_sram(&self, path: impl AsRef<Path>) -> fs::Result<()> {
-        self.mapper.save_sram(&self.memory, path.as_ref())
+    /// If the writer fails.
+    pub fn save_sram(&self, mut writer: impl Write) -> fs::Result<()> {
+        self.mapper.save_sram(&self.memory, &mut writer)
     }
 
-    /// Reads battery-backed cart RAM from `path`.
+    /// Reads battery-backed cart RAM from `reader`.
     ///
     /// # Errors
     ///
-    /// If the file cannot be read.
-    pub fn load_sram(&mut self, path: impl AsRef<Path>) -> fs::Result<()> {
+    /// If the reader fails.
+    pub fn load_sram(&mut self, mut reader: impl Read) -> fs::Result<()> {
         let Self { mapper, memory, .. } = self;
-        mapper.load_sram(memory, path.as_ref())
+        mapper.load_sram(memory, &mut reader)
     }
 }
 

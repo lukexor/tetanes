@@ -230,6 +230,8 @@ fn bench_rom(
         let mut deck = ControlDeck::with_config(Config {
             // Deterministic RAM so runs are comparable.
             ram_state: RamState::AllZeros,
+            // Likewise: a battery file left by a previous run would change what is measured.
+            sram_dir: None,
             filter,
             run_ahead,
             headless_mode: if no_audio {

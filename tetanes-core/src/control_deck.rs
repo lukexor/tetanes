@@ -32,6 +32,7 @@
 //! emulation speed, [`ControlDeck::set_filter`] for video filtering. Everything a [`Config`] sets
 //! up front also has a setter, so it can be changed on a running deck.
 
+use crate::sys::fs as sys_fs;
 use crate::{
     apu::{self, Apu, Channel},
     bus::{self, Bus},
@@ -50,7 +51,7 @@ use crate::{
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::{
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
@@ -172,8 +173,13 @@ pub struct Config {
     pub channels_enabled: [bool; Apu::MAX_CHANNEL_COUNT],
     /// Headless mode.
     pub headless_mode: HeadlessMode,
-    /// Data directory for storing battery-backed RAM.
-    pub data_dir: PathBuf,
+    /// Where battery-backed cart RAM is kept, and whether it is kept at all.
+    ///
+    /// `Some` - the default - means loading a cart restores its battery file and unloading writes
+    /// it back, the way the hardware behaves. `None` is for an embedder whose own frontend owns
+    /// save files: the deck then performs no filesystem access of its own, and
+    /// [`ControlDeck::save_sram`] / [`ControlDeck::load_sram`] are the way in and out.
+    pub sram_dir: Option<PathBuf>,
     /// Which mapper revisions to emulate for any ROM loaded that uses this mapper.
     pub mapper_revisions: MapperRevisionsConfig,
     /// Whether to emulate PPU warmup where writes to certain registers are ignored. Can result in
@@ -209,11 +215,11 @@ impl Config {
         dirs::data_local_dir().map_or_else(|| PathBuf::from("data"), |dir| dir.join(Self::BASE_DIR))
     }
 
-    /// Returns the directory used to store battery-backed Cart RAM.
+    /// Returns the default directory used to store battery-backed Cart RAM.
     #[inline]
     #[must_use]
-    pub fn sram_dir(&self) -> PathBuf {
-        self.data_dir.join(Self::SRAM_DIR)
+    pub fn default_sram_dir() -> PathBuf {
+        Self::default_data_dir().join(Self::SRAM_DIR)
     }
 }
 
@@ -229,7 +235,7 @@ impl Default for Config {
             concurrent_dpad: false,
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
             headless_mode: HeadlessMode::empty(),
-            data_dir: Self::default_data_dir(),
+            sram_dir: Some(Self::default_sram_dir()),
             mapper_revisions: MapperRevisionsConfig::default(),
             emulate_ppu_warmup: false,
             run_ahead: 0,
@@ -310,8 +316,8 @@ pub struct ControlDeck {
     clear_audio_on_clock: bool,
     /// The currently loaded ROM [`Cart`], if any.
     loaded_rom: Option<LoadedRom>,
-    /// Directory for storing battery-backed Cart RAM if a ROM is loaded.
-    sram_dir: PathBuf,
+    /// Where battery-backed Cart RAM is kept, or `None` to perform no filesystem access.
+    sram_dir: Option<PathBuf>,
     /// Mapper revisions to emulate for any ROM loaded that matches the given mappers.
     mapper_revisions: MapperRevisionsConfig,
     /// Whether to auto-detect the region based on the loaded Cart.
@@ -397,7 +403,7 @@ impl ControlDeck {
             run_ahead_frames: None,
             clear_audio_on_clock: cfg.clear_audio_on_clock,
             loaded_rom: None,
-            sram_dir: cfg.sram_dir(),
+            sram_dir: cfg.sram_dir.clone(),
             mapper_revisions: cfg.mapper_revisions,
             auto_detect_region: cfg.region.is_auto(),
             cycles_remaining: 0.0,
@@ -409,11 +415,11 @@ impl ControlDeck {
     }
 
     /// Returns the path to the SRAM save file for a given ROM name, which is used to store
-    /// battery-backed Cart RAM.
-    pub fn sram_path(&self, name: &str) -> PathBuf {
+    /// battery-backed Cart RAM, or `None` when [`Config::sram_dir`] disabled battery files.
+    pub fn sram_path(&self, name: &str) -> Option<PathBuf> {
         self.sram_dir
-            .join(name)
-            .with_extension(Config::SRAM_EXTENSION)
+            .as_ref()
+            .map(|dir| dir.join(name).with_extension(Config::SRAM_EXTENSION))
     }
 
     /// Loads a ROM cartridge from anything implementing [`Read`], hard-resetting the console and
@@ -464,8 +470,9 @@ impl ControlDeck {
         self.loaded_rom = Some(loaded_rom.clone());
         self.update_mapper_revisions();
         self.reset(ResetKind::Hard);
-        let sram_dir = self.sram_path(&name);
-        if let Err(err) = self.load_sram(sram_dir) {
+        if let Some(path) = self.sram_path(&name)
+            && let Err(err) = self.load_sram_path(path)
+        {
             error!("failed to load SRAM: {err:?}");
         }
         Ok(loaded_rom)
@@ -493,11 +500,11 @@ impl ControlDeck {
     ///
     /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
     pub fn unload_rom(&mut self) -> Result<()> {
-        if let Some(rom) = &self.loaded_rom {
-            let sram_dir = self.sram_path(&rom.name);
-            if let Err(err) = self.save_sram(sram_dir) {
-                error!("failed to save SRAM: {err:?}");
-            }
+        if let Some(rom) = &self.loaded_rom
+            && let Some(path) = self.sram_path(&rom.name)
+            && let Err(err) = self.save_sram_path(path)
+        {
+            error!("failed to save SRAM: {err:?}");
         }
         self.loaded_rom = None;
         self.bus.unload_cart();
@@ -653,45 +660,108 @@ impl ControlDeck {
         self.bus.wram()
     }
 
-    /// Save battery-backed Save RAM to a file (if cartridge supports it)
+    /// Write battery-backed Save RAM to `writer` (if the cartridge has any).
     ///
     /// # Errors
     ///
-    /// If the file path is invalid or fails to save, then an error is returned.
-    pub fn save_sram(&self, path: impl AsRef<Path>) -> Result<()> {
+    /// If the writer fails, then an error is returned.
+    pub fn save_sram(&self, writer: impl Write) -> Result<()> {
         if let Some(true) = self.cart_battery_backed() {
-            let path = path.as_ref();
-            if path.is_dir() {
-                return Err(Error::InvalidFilePath(path.to_path_buf()));
-            }
-
             info!("saving SRAM...");
-            self.bus
-                .save_sram(path.with_extension(Config::SRAM_EXTENSION))
-                .map_err(Error::Sram)?;
+            self.bus.save_sram(writer).map_err(Error::Sram)?;
         }
         Ok(())
     }
 
-    /// Load battery-backed Save RAM from a file (if cartridge supports it)
+    /// Read battery-backed Save RAM from `reader` (if the cartridge has any).
     ///
     /// # Errors
     ///
-    /// If the file path is invalid or fails to load, then an error is returned.
-    pub fn load_sram(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    /// If the reader fails, then an error is returned.
+    pub fn load_sram(&mut self, reader: impl Read) -> Result<()> {
+        if let Some(true) = self.cart_battery_backed() {
+            info!("loading SRAM...");
+            self.bus.load_sram(reader).map_err(Error::Sram)?;
+        }
+        Ok(())
+    }
+
+    /// Save battery-backed Save RAM to a file (if the cartridge has any).
+    ///
+    /// # Errors
+    ///
+    /// If the file path is invalid or fails to save, then an error is returned.
+    pub fn save_sram_path(&self, path: impl AsRef<Path>) -> Result<()> {
         if let Some(true) = self.cart_battery_backed() {
             let path = path.as_ref();
             if path.is_dir() {
                 return Err(Error::InvalidFilePath(path.to_path_buf()));
             }
+            let path = path.with_extension(Config::SRAM_EXTENSION);
+            let mut writer = sys_fs::writer_impl(&path).map_err(Error::Sram)?;
+            self.save_sram(&mut writer)?;
+            // The wasm backend commits to local storage on flush, so the save has not happened
+            // until this returns.
+            writer
+                .flush()
+                .map_err(|err| Error::Sram(fs::Error::io(err, "failed to save sram")))?;
+        }
+        Ok(())
+    }
+
+    /// Load battery-backed Save RAM from a file (if the cartridge has any).
+    ///
+    /// A cart with no save file yet is not an error - it is a game that has not been played.
+    ///
+    /// # Errors
+    ///
+    /// If the file path is invalid or fails to load, then an error is returned.
+    pub fn load_sram_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        if let Some(true) = self.cart_battery_backed() {
+            let path = path.as_ref();
+            if path.is_dir() {
+                return Err(Error::InvalidFilePath(path.to_path_buf()));
+            }
+            let path = path.with_extension(Config::SRAM_EXTENSION);
             if path.is_file() {
-                info!("loading SRAM...");
-                self.bus
-                    .load_sram(path.with_extension(Config::SRAM_EXTENSION))
-                    .map_err(Error::Sram)?;
+                let reader = sys_fs::reader_impl(&path).map_err(Error::Sram)?;
+                // A save that fails to load is not a save that may be discarded: the next unload
+                // writes this same path back out, so an unreadable file would be overwritten by
+                // whatever the console happens to hold.
+                self.load_sram(reader)
+                    .inspect_err(|err| fs::back_up_sram(&path, err))?;
             }
         }
         Ok(())
+    }
+
+    /// Write the current state of the console to `writer`.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded or the writer fails, then an error is returned.
+    pub fn save_state(&mut self, writer: impl Write) -> Result<()> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        fs::save(writer, &self.bus).map_err(Error::SaveState)
+    }
+
+    /// Load the console with a state read from `reader`.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded, the reader fails, or the state belongs to a different cart.
+    pub fn load_state(&mut self, reader: impl Read) -> Result<()> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        fs::load::<Bus>(reader)
+            .map_err(Error::SaveState)
+            .and_then(|mut bus| {
+                bus.input.clear(); // Discard inputs from save states
+                self.load_bus(bus)
+            })
     }
 
     /// Save the current state of the console into a save file.
@@ -699,34 +769,28 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If there is an issue saving the state, then an error is returned.
-    pub fn save_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn save_state_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        let path = path.as_ref();
-        fs::save(path, &self.bus).map_err(Error::SaveState)
+        fs::save_path(path, &self.bus).map_err(Error::SaveState)
     }
 
     /// Load the console with data saved from a save state, if it exists.
     ///
     /// # Errors
     ///
-    /// If there is an issue loading the save state, then an error is returned.
-    pub fn load_state(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    /// If there is no save state at `path`, or there is an issue loading it.
+    pub fn load_state_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
         let path = path.as_ref();
-        if fs::exists(path) {
-            fs::load::<Bus>(path)
-                .map_err(Error::SaveState)
-                .and_then(|mut bus| {
-                    bus.input.clear(); // Discard inputs from save states
-                    self.load_bus(bus)
-                })
-        } else {
-            Err(Error::NoSaveStateFound)
+        if !fs::exists(path) {
+            return Err(Error::NoSaveStateFound);
         }
+        let reader = sys_fs::reader_impl(path).map_err(Error::SaveState)?;
+        self.load_state(reader)
     }
 
     /// Returns the frame to display as raw PPU pixels, one palette index per pixel, for callers
@@ -1622,20 +1686,16 @@ mod tests {
     /// zeroes.
     #[test]
     fn save_state_resumes_identically() {
-        let path = std::env::temp_dir().join("tetanes-save-state-resumes-identically.sav");
-        let _ = std::fs::remove_file(&path);
-
         let mut deck = spritecans();
         run(&mut deck, 30);
-        deck.save_state(&path).expect("saves");
+        let mut state = Vec::new();
+        deck.save_state(&mut state).expect("saves");
         let expected = run(&mut deck, 30);
 
         let mut restored = spritecans();
         run(&mut restored, 5); // somewhere else entirely
-        restored.load_state(&path).expect("loads");
+        restored.load_state(state.as_slice()).expect("loads");
         assert_eq!(run(&mut restored, 30), expected);
-
-        std::fs::remove_file(&path).expect("cleans up");
     }
 
     /// Restoring a state must not restore the *player's* settings with it.
@@ -1648,9 +1708,6 @@ mod tests {
     /// waits at all. Rewinding past a fast-forward must not switch fast-forward back on either.
     #[test]
     fn a_restored_state_keeps_the_current_settings() {
-        let path = std::env::temp_dir().join("tetanes-restored-state-keeps-settings.sav");
-        let _ = std::fs::remove_file(&path);
-
         // Record a state with settings a player might have had at the time.
         let mut deck = spritecans();
         deck.set_frame_speed(2.0);
@@ -1659,7 +1716,8 @@ mod tests {
         deck.add_genie_code("AAAAAA".to_string())
             .expect("valid code");
         run(&mut deck, 10);
-        deck.save_state(&path).expect("saves");
+        let mut state = Vec::new();
+        deck.save_state(&mut state).expect("saves");
 
         // Now they are somewhere else entirely.
         let mut restored = spritecans();
@@ -1680,7 +1738,7 @@ mod tests {
             .copied()
             .collect::<Vec<_>>();
         run(&mut restored, 5);
-        restored.load_state(&path).expect("loads");
+        restored.load_state(state.as_slice()).expect("loads");
 
         assert_eq!(restored.apu().speed, 1.0, "speed is the session's");
         assert_eq!(restored.apu().sample_rate, 48_000.0, "so is sample rate");
@@ -1718,8 +1776,6 @@ mod tests {
             session_codes,
             "the session's cheats survive, and the recorded state's do not come back with it"
         );
-
-        std::fs::remove_file(&path).expect("cleans up");
     }
 
     /// Run-ahead clocks the current frame, snapshots, runs ahead to produce the *displayed* frame,
@@ -1987,20 +2043,19 @@ mod tests {
     /// `ControlDeck::save_sram`, which no-ops for a cart without a battery.
     #[test]
     fn sram_round_trips_through_the_board() {
-        let path = std::env::temp_dir().join("tetanes-sram-round-trips.sram");
-        let _ = std::fs::remove_file(&path);
-
         let mut deck = spritecans();
         deck.bus_mut().memory.region_mut(Src::PrgRam)[..4].copy_from_slice(&[1, 2, 3, 4]);
-        deck.bus().save_sram(&path).expect("saves");
+        let mut sram = Vec::new();
+        deck.bus().save_sram(&mut sram).expect("saves");
 
         let mut restored = spritecans();
-        restored.bus_mut().load_sram(&path).expect("loads");
+        restored
+            .bus_mut()
+            .load_sram(sram.as_slice())
+            .expect("loads");
         assert_eq!(
             &restored.bus().memory.region_ref(Src::PrgRam)[..4],
             &[1, 2, 3, 4]
         );
-
-        std::fs::remove_file(&path).expect("cleans up");
     }
 }

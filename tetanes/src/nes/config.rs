@@ -380,7 +380,7 @@ impl Config {
         let path = Config::config_path();
         let data = serde_json::to_vec_pretty(&self).context("failed to serialize config")?;
 
-        fs::save_raw(path, &data).context("failed to save config")?;
+        fs::save_raw_path(path, &data).context("failed to save config")?;
 
         Ok(())
     }
@@ -390,7 +390,7 @@ impl Config {
 
         let mut config = if fs::exists(&path) {
             info!("Loading saved configuration");
-            fs::load_raw(&path)
+            fs::load_raw_path(&path)
                 .context("failed to load config")
                 .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
                 .with_context(|| format!("failed to parse {path:?}"))
