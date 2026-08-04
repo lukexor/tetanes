@@ -64,6 +64,13 @@ pub enum Src {
     PrgRom,
     /// Program RAM, battery-backed or not.
     PrgRam,
+    /// Battery-backed state a board keeps outside PRG-RAM, staged here so that
+    /// [`Memory::sram`] is the whole battery as one slice.
+    ///
+    /// Never mapped into a page table: nothing on the CPU or PPU bus addresses it. The board that
+    /// owns it copies in and out through
+    /// [`Map::sync_battery`](crate::mapper::Map::sync_battery).
+    BatteryExt,
     /// CHR-ROM or CHR-RAM, whichever the cart provides.
     Chr,
     /// Nametable RAM.
@@ -134,6 +141,11 @@ pub struct Memory {
     rom_present: bool,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
+    /// Reserved span for [`Src::BatteryExt`], a whole number of pages like every other region.
+    battery_ext: Range<usize>,
+    /// How much of `battery_ext` the loaded board actually uses, which is what [`Memory::sram`]
+    /// exposes. Zero for every board whose battery is PRG-RAM alone.
+    battery_ext_len: usize,
     chr: Range<usize>,
     chr_writable: bool,
     ciram: Range<usize>,
@@ -162,6 +174,8 @@ struct MemoryState<'a> {
     rom_crc32: u32,
     prg_rom: &'a Range<usize>,
     prg_ram: &'a Range<usize>,
+    battery_ext: &'a Range<usize>,
+    battery_ext_len: usize,
     chr: &'a Range<usize>,
     chr_writable: bool,
     ciram: &'a Range<usize>,
@@ -177,6 +191,8 @@ struct MemoryStateOwned {
     rom_crc32: u32,
     prg_rom: Range<usize>,
     prg_ram: Range<usize>,
+    battery_ext: Range<usize>,
+    battery_ext_len: usize,
     chr: Range<usize>,
     chr_writable: bool,
     ciram: Range<usize>,
@@ -192,6 +208,8 @@ impl Serialize for Memory {
             rom_crc32: self.rom_crc32,
             prg_rom: &self.prg_rom,
             prg_ram: &self.prg_ram,
+            battery_ext: &self.battery_ext,
+            battery_ext_len: self.battery_ext_len,
             chr: &self.chr,
             chr_writable: self.chr_writable,
             ciram: &self.ciram,
@@ -226,6 +244,8 @@ impl<'de> Deserialize<'de> for Memory {
             rom_present: false,
             prg_rom: state.prg_rom,
             prg_ram: state.prg_ram,
+            battery_ext: state.battery_ext,
+            battery_ext_len: state.battery_ext_len,
             chr: state.chr,
             chr_writable: state.chr_writable,
             ciram: state.ciram,
@@ -266,6 +286,11 @@ pub struct MemoryLayout {
     pub prg_rom: usize,
     /// Bytes of PRG-RAM.
     pub prg_ram: usize,
+    /// Bytes to reserve for battery state a board keeps outside PRG-RAM.
+    ///
+    /// An upper bound, since the arena is laid out before the board exists; the board narrows it
+    /// to what it uses with [`Memory::set_battery_ext_len`].
+    pub battery_ext: usize,
     /// Bytes of CHR, ROM or RAM per `chr_writable`.
     pub chr: usize,
     /// Whether the CHR region is RAM. CHR-ROM is placed with the other immutable regions and is
@@ -313,7 +338,10 @@ impl Memory {
 
         let ram_start = offset;
 
+        // Immediately after PRG-RAM, and before anything else mutable, so that `sram` is one
+        // contiguous span rather than two.
         let prg_ram = alloc(layout.prg_ram, &mut offset);
+        let battery_ext = alloc(layout.battery_ext, &mut offset);
         let chr_ram = layout.chr_writable.then(|| alloc(layout.chr, &mut offset));
         let ciram = alloc(ciram, &mut offset);
         let ex_ram = alloc(layout.ex_ram, &mut offset);
@@ -326,6 +354,8 @@ impl Memory {
             rom_present: true,
             prg_rom,
             prg_ram,
+            battery_ext,
+            battery_ext_len: 0,
             chr: chr_rom.or(chr_ram).unwrap_or(0..0),
             chr_writable: layout.chr_writable,
             ciram,
@@ -478,6 +508,11 @@ impl Memory {
         match src {
             Src::PrgRom => self.prg_rom.clone(),
             Src::PrgRam => self.prg_ram.clone(),
+            // The logical length, not the reserved span: the padding up to a page boundary is not
+            // the board's and must not reach a `.sram` file.
+            Src::BatteryExt => {
+                self.battery_ext.start..self.battery_ext.start + self.battery_ext_len
+            }
             Src::Chr => self.chr.clone(),
             Src::CiRam => self.ciram.clone(),
             Src::ExRam => self.ex_ram.clone(),
@@ -488,7 +523,7 @@ impl Memory {
         match src {
             Src::PrgRom => false,
             Src::Chr => self.chr_writable,
-            Src::PrgRam | Src::CiRam | Src::ExRam => true,
+            Src::PrgRam | Src::BatteryExt | Src::CiRam | Src::ExRam => true,
         }
     }
 
@@ -529,6 +564,54 @@ impl Memory {
     /// Bytes of a region.
     pub fn region_ref(&self, src: Src) -> &[u8] {
         &self.data[self.region(src)]
+    }
+
+    /// Declare how much of the reserved [`Src::BatteryExt`] span the loaded board uses.
+    ///
+    /// Called by a board whose battery covers something other than PRG-RAM, once, while loading.
+    /// A board that never calls it contributes nothing to [`Memory::sram`].
+    ///
+    /// # Panics
+    ///
+    /// If `len` exceeds [`MemoryLayout::battery_ext`], which means the reservation keyed by mapper
+    /// number is too small - a bug in that table rather than anything a ROM can cause.
+    pub fn set_battery_ext_len(&mut self, len: usize) {
+        assert!(
+            len <= self.battery_ext.len(),
+            "battery_ext is {} bytes; the board asked for {len}",
+            self.battery_ext.len(),
+        );
+        self.battery_ext_len = len;
+    }
+
+    /// The cart's whole battery as one slice: PRG-RAM, then whatever the board staged in
+    /// [`Src::BatteryExt`].
+    ///
+    /// The two are adjacent by construction, so this borrows rather than assembling a copy. Board
+    /// state staged in `BatteryExt` is only as fresh as the last
+    /// [`Map::sync_battery`](crate::mapper::Map::sync_battery); go through
+    /// [`Bus::sram`](crate::bus::Bus::sram) to be sure of it.
+    pub fn sram(&self) -> &[u8] {
+        &self.data[self.sram_range()]
+    }
+
+    /// The cart's whole battery, for restoring a save.
+    pub fn sram_mut(&mut self) -> &mut [u8] {
+        let range = self.sram_range();
+        &mut self.data[range]
+    }
+
+    /// PRG-RAM and the used part of `battery_ext`, which `Memory::new` lays out back to back.
+    //
+    // Every region is a whole number of pages, so this is only gapless while PRG-RAM is a page
+    // multiple - which every real size (2K, 8K, 32K, 64K) is. `sram_is_contiguous` pins it.
+    const fn sram_range(&self) -> Range<usize> {
+        let end = if self.battery_ext_len == 0 {
+            self.prg_ram.end
+        } else {
+            self.battery_ext.start + self.battery_ext_len
+        };
+        self.prg_ram.start..end
     }
 
     /// The mutable tail of memory: PRG-RAM, CHR-RAM, CIRAM and ExRAM.
@@ -1192,6 +1275,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 8 * 1024,
+            ..Default::default()
         });
         memory.region_mut(Src::PrgRom).fill(0xAA);
         memory.region_mut(Src::PrgRam).fill(0x5A);
@@ -1233,6 +1317,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 8 * 1024,
+            ..Default::default()
         });
         let mut large = Memory::new(MemoryLayout {
             prg_rom: 256 * 1024,
@@ -1241,6 +1326,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 8 * 1024,
+            ..Default::default()
         });
         assert!(!large.restore_rom_from(&small), "different cart is refused");
     }
@@ -1256,6 +1342,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 8 * 1024,
+            ..Default::default()
         };
         let mut running = Memory::new(layout);
         running.set_rom_crc32(0x1111_1111);
@@ -1342,6 +1429,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 8 * 1024,
+            ..Default::default()
         });
         let config = bincode::config::legacy();
         let mut bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
@@ -1450,5 +1538,40 @@ mod tests {
         assert_eq!(memory.prg_peek(0x8000), 0);
         memory.prg_write(0x8000, 0x42);
         assert_eq!(memory.prg_peek(0x8000), 0);
+    }
+
+    /// `sram` borrows one span rather than assembling a copy, which only holds while PRG-RAM and
+    /// `BatteryExt` are adjacent with no page padding between them. Every real PRG-RAM size is a
+    /// page multiple, so this is a claim about the allocator rather than about any one board.
+    #[test]
+    fn sram_is_contiguous() {
+        for prg_ram in [2 * 1024, 8 * 1024, 32 * 1024, 64 * 1024] {
+            let mut memory = Memory::new(MemoryLayout {
+                prg_ram,
+                battery_ext: 0x80,
+                ..Default::default()
+            });
+            memory.set_battery_ext_len(0x80);
+
+            memory.region_mut(Src::PrgRam).fill(0xAA);
+            memory.region_mut(Src::BatteryExt).fill(0xBB);
+
+            let sram = memory.sram();
+            assert_eq!(sram.len(), prg_ram + 0x80, "prg_ram {prg_ram}");
+            assert_eq!(sram[prg_ram - 1], 0xAA, "PRG-RAM runs to its end");
+            assert_eq!(sram[prg_ram], 0xBB, "and the board's tail starts there");
+        }
+    }
+
+    /// A board that never declares a tail gets PRG-RAM alone, which is what a `.srm` from any
+    /// other emulator holds.
+    #[test]
+    fn sram_without_a_battery_tail_is_just_prg_ram() {
+        let memory = Memory::new(MemoryLayout {
+            prg_ram: 8 * 1024,
+            battery_ext: 0x80,
+            ..Default::default()
+        });
+        assert_eq!(memory.sram().len(), 8 * 1024);
     }
 }

@@ -1273,6 +1273,7 @@ mod tests {
             chr_writable: false,
             ciram: 2 * 1024,
             ex_ram: 1024,
+            ..Default::default()
         });
         for (i, page) in cart
             .memory

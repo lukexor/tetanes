@@ -415,7 +415,7 @@ impl ControlDeck {
     }
 
     /// Returns the path to the SRAM save file for a given ROM name, which is used to store
-    /// battery-backed Cart RAM, or `None` when [`Config::sram_dir`] disabled battery files.
+    /// battery-backed Cart RAM, or `None` when [`Config::sram_dir`] disables battery files.
     pub fn sram_path(&self, name: &str) -> Option<PathBuf> {
         self.sram_dir
             .as_ref()
@@ -660,12 +660,25 @@ impl ControlDeck {
         self.bus.wram()
     }
 
+    /// The cart's whole battery as one slice: PRG-RAM, then any state the board keeps outside it.
+    ///
+    /// Empty for a cart without a battery. For all but a handful of boards this is PRG-RAM exactly,
+    /// which is also what other emulators write to a `.srm`.
+    #[must_use]
+    pub fn sram(&mut self) -> &[u8] {
+        if self.cart_battery_backed() == Some(true) {
+            self.bus.sram()
+        } else {
+            &[]
+        }
+    }
+
     /// Write battery-backed Save RAM to `writer` (if the cartridge has any).
     ///
     /// # Errors
     ///
     /// If the writer fails, then an error is returned.
-    pub fn save_sram(&self, writer: impl Write) -> Result<()> {
+    pub fn save_sram(&mut self, writer: impl Write) -> Result<()> {
         if let Some(true) = self.cart_battery_backed() {
             info!("saving SRAM...");
             self.bus.save_sram(writer).map_err(Error::Sram)?;
@@ -691,7 +704,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If the file path is invalid or fails to save, then an error is returned.
-    pub fn save_sram_path(&self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn save_sram_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
         if let Some(true) = self.cart_battery_backed() {
             let path = path.as_ref();
             if path.is_dir() {
@@ -2046,7 +2059,7 @@ mod tests {
         let mut deck = spritecans();
         deck.bus_mut().memory.region_mut(Src::PrgRam)[..4].copy_from_slice(&[1, 2, 3, 4]);
         let mut sram = Vec::new();
-        deck.bus().save_sram(&mut sram).expect("saves");
+        deck.bus_mut().save_sram(&mut sram).expect("saves");
 
         let mut restored = spritecans();
         restored

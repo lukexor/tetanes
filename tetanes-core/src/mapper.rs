@@ -57,9 +57,9 @@
 //!
 //! Beyond that: [`Map::clock`] for boards with a per-cycle IRQ counter, [`Map::irq_pending`],
 //! [`Map::output`] for expansion audio, [`Map::prg_read`]/[`Map::chr_read`] as escape hatches for
-//! things no page entry can express, and [`Map::save_sram`]/[`Map::load_sram`] when the battery
-//! covers something other than PRG-RAM. Declare whichever of the per-cycle hooks you use in
-//! [`Map::mapper_ops`], or they will not be called.
+//! things no page entry can express, and [`Map::sync_battery`]/[`Map::restore_battery`] when the
+//! battery covers something the board holds itself rather than PRG-RAM. Declare whichever of the
+//! per-cycle hooks you use in [`Map::mapper_ops`], or they will not be called.
 //!
 //! Second, one row in the `boards!` table below, in mapper-number order:
 //!
@@ -96,13 +96,11 @@ use crate::{
     bus::Bus,
     cart::Cart,
     common::{NesRegion, ResetKind},
-    fs,
-    memory::{Memory, Src},
+    memory::Memory,
     ppu::Mirroring,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
 
 bitflags! {
     /// Which of a board's optional hooks apply, resolved once at cart load and cached beside the
@@ -512,14 +510,16 @@ macro_rules! impl_dispatch {
                 dispatch!(self, [$($variant),+], m => m.write_register(memory, addr, val))
             }
 
-            /// Write this board's battery-backed state.
-            pub fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
-                dispatch!(self, [$($variant),+], m => m.save_sram(memory, writer))
+            /// Stage battery state the board holds itself into
+            /// [`Src::BatteryExt`](crate::memory::Src::BatteryExt).
+            pub fn sync_battery(&self, memory: &mut Memory) {
+                dispatch!(self, [$($variant),+], m => m.sync_battery(memory))
             }
 
-            /// Restore state previously written by `save_sram`.
-            pub fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
-                dispatch!(self, [$($variant),+], m => m.load_sram(memory, reader))
+            /// Take battery state back out of
+            /// [`Src::BatteryExt`](crate::memory::Src::BatteryExt) after a restore.
+            pub fn restore_battery(&mut self, memory: &Memory) {
+                dispatch!(self, [$($variant),+], m => m.restore_battery(memory))
             }
 
             /// Serve a CPU read, returning `None` to fall through to page-table memory.
@@ -608,6 +608,54 @@ macro_rules! dispatch {
         }
     };
 }
+
+/// Default PRG-RAM provided when a header declares none. Family Basic used 2-4K; boards that want
+/// more declare it in [`min_prg_ram`].
+pub(crate) const DEFAULT_PRG_RAM_SIZE: usize = 8 * 1024;
+
+/// Minimum PRG-RAM a board needs regardless of what its header declares.
+///
+/// Only boards that *bank* PRG-RAM need more than the default: with too little allocated, their
+/// bank selects wrap and alias onto each other. Kept as an explicit list rather than raising the
+/// default for everyone, since PRG-RAM is what gets written to `.sram` files.
+//
+// Beside the `boards!` table, so the edit that adds a board is the edit that sees this one.
+pub(crate) const fn min_prg_ram(mapper_num: u16) -> usize {
+    match mapper_num {
+        // SxROM's 32K PRG-RAM variants (SOROM/SXROM).
+        1 | 155 => 32 * 1024,
+        // MMC5 banks PRG-RAM in eight 8K pages; emulated as one 64K block, as Mesen does, since
+        // the real split between work and save RAM is per-board and not in the header.
+        5 => 64 * 1024,
+        // FK23C banks WRAM in four 8K pages.
+        176 => 32 * 1024,
+        _ => DEFAULT_PRG_RAM_SIZE,
+    }
+}
+
+/// Bytes of [`Src::BatteryExt`](crate::memory::Src::BatteryExt) to allocate for a board whose
+/// battery covers something other than PRG-RAM.
+///
+/// This is the *upper bound* for the mapper number, because the arena is laid out before the board
+/// exists - `Cart::from_rom` builds the [`Memory`] and only then picks a [`Mapper`]. The board
+/// narrows it to what it actually uses with [`Memory::set_battery_ext_len`], and a board that
+/// never calls that contributes nothing to [`Memory::sram`].
+pub(crate) const fn min_battery_ext(mapper_num: u16) -> usize {
+    match mapper_num {
+        // Namco163 keeps 128 bytes of internal sound RAM on the battery.
+        19 => 0x80,
+        // Bandai FCG boards carry a 128- or 256-byte serial EEPROM, and the Datach adds a second
+        // 128-byte one. Which of those are present is a submapper and header question the board
+        // settles, so reserve the largest.
+        16 | 153 | 157 | 159 => 256 + 128,
+        _ => 0,
+    }
+}
+
+/// The largest [`min_battery_ext`] reserves for any board, for a test building a [`Memory`]
+/// before the mapper number is known.
+#[cfg(test)]
+pub(crate) const MAX_BATTERY_EXT: usize = 256 + 128;
 
 boards! {
     // Binds the `&mut Cart` that every loader and guard below refers to as `cart`. Named here
@@ -805,31 +853,24 @@ pub trait Map {
     /// never sees the write.
     fn write_register(&mut self, _memory: &mut Memory, _addr: u16, _val: u8) {}
 
-    /// Write this board's battery-backed state.
+    /// Copy battery-backed state the board holds itself into
+    /// [`Src::BatteryExt`](crate::memory::Src::BatteryExt), so that
+    /// [`Memory::sram`] is the cart's whole battery.
     ///
-    /// The default saves PRG-RAM, which is what almost every board wants. Boards whose battery
-    /// covers something else - Namco163 also keeps internal sound RAM, Bandai's Datach carts have
-    /// EEPROMs and no PRG-RAM at all - override this and keep their own on-disk layout, so `Bus`
-    /// needs no per-board knowledge.
-    ///
-    /// An override writes through [`fs::save_sram`], which stamps [`fs::SRAM_VERSION`] rather than
-    /// the save-state version: a player's battery saves outlive the save-state format, so the two
-    /// must be able to move independently.
+    /// The default does nothing, which is right for every board whose battery is PRG-RAM and
+    /// nothing else. A board that overrides it must also override [`Map::restore_battery`] and
+    /// declare its size with [`Memory::set_battery_ext_len`].
     //
-    // `dyn` rather than a generic writer: every board is reached through the `Mapper` enum, so a
-    // generic here would monomorphize the whole dispatch table for a path taken twice per session.
-    fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
-        fs::save_sram(writer, memory.region_ref(Src::PrgRam))
-    }
+    // Namco163's sound RAM and Bandai's EEPROMs are staged rather than stored here: `Audio` reads
+    // its 128 bytes several times per sample and each `Eeprom` indexes its own buffer from a
+    // serial state machine, so living in `Memory` would cost those hot paths an indirection to
+    // serve a path taken twice a session. The size a mapper number may stage is `min_battery_ext`,
+    // beside the `boards!` table.
+    fn sync_battery(&self, _memory: &mut Memory) {}
 
-    /// Restore state previously written by [`Map::save_sram`].
-    fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
-        let data = fs::load_sram::<Vec<u8>>(reader)?;
-        let ram = memory.region_mut(Src::PrgRam);
-        let len = ram.len().min(data.len());
-        ram[..len].copy_from_slice(&data[..len]);
-        Ok(())
-    }
+    /// Take battery state back out of [`Src::BatteryExt`](crate::memory::Src::BatteryExt) after a
+    /// save has been restored into it.
+    fn restore_battery(&mut self, _memory: &Memory) {}
 
     /// Serve a CPU read, returning `None` to fall through to page-table memory.
     ///
@@ -917,7 +958,7 @@ pub(crate) mod test_utils {
     use super::*;
     use crate::{
         cart::Cart,
-        memory::{MemoryLayout, PAGE_SIZE},
+        memory::{MemoryLayout, PAGE_SIZE, Src},
     };
 
     /// A `Cart` with page-indexed contents: PRG-ROM page `n` is filled with `n`, CHR page `n` with
@@ -936,6 +977,10 @@ pub(crate) mod test_utils {
             chr_writable,
             ciram: 2 * 1024,
             ex_ram: 0,
+            // The caller sets `mapper_num` after this returns, so there is nothing to key
+            // `min_battery_ext` on yet. Reserve enough for any board and let the one under test
+            // narrow it, as a real load would.
+            battery_ext: MAX_BATTERY_EXT,
         });
         for (page, data) in cart
             .memory

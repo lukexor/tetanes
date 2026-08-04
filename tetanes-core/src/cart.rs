@@ -17,27 +17,6 @@ use std::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-/// Default PRG-RAM provided when a header declares none. Family Basic used 2-4K; boards that want
-/// more declare it in [`min_prg_ram`].
-const DEFAULT_PRG_RAM_SIZE: usize = 8 * 1024;
-
-/// Minimum PRG-RAM a board needs regardless of what its header declares.
-///
-/// Only boards that *bank* PRG-RAM need more than the default: with too little allocated, their
-/// bank selects wrap and alias onto each other. Kept as an explicit list rather than raising the
-/// default for everyone, since PRG-RAM is what gets written to `.sram` files.
-const fn min_prg_ram(mapper_num: u16) -> usize {
-    match mapper_num {
-        // SxROM's 32K PRG-RAM variants (SOROM/SXROM).
-        1 | 155 => 32 * 1024,
-        // MMC5 banks PRG-RAM in eight 8K pages; emulated as one 64K block, as Mesen does, since
-        // the real split between work and save RAM is per-board and not in the header.
-        5 => 64 * 1024,
-        // FK23C banks WRAM in four 8K pages.
-        176 => 32 * 1024,
-        _ => DEFAULT_PRG_RAM_SIZE,
-    }
-}
 /// Default CHR-RAM provided when a cart has no CHR-ROM.
 const DEFAULT_CHR_RAM_SIZE: usize = 8 * 1024;
 
@@ -138,6 +117,7 @@ impl Cart {
             ram_state: RamState::default(),
             mapper: Mapper::none(),
             memory: Self::build_memory(
+                0,
                 prg_rom_size,
                 0,
                 chr_rom_size,
@@ -154,7 +134,11 @@ impl Cart {
     }
 
     /// Allocate page-table memory sized for a cart.
+    ///
+    /// `mapper_num` is needed before a [`Mapper`] exists, because a board that keeps battery state
+    /// outside PRG-RAM needs room reserved for it here.
     fn build_memory(
+        mapper_num: u16,
         prg_rom_size: usize,
         prg_ram_size: usize,
         chr_rom_size: usize,
@@ -164,7 +148,8 @@ impl Cart {
     ) -> Memory {
         let mut memory = Memory::new(MemoryLayout {
             prg_rom: prg_rom_size,
-            prg_ram: prg_ram_size.max(DEFAULT_PRG_RAM_SIZE),
+            prg_ram: prg_ram_size.max(mapper::DEFAULT_PRG_RAM_SIZE),
+            battery_ext: mapper::min_battery_ext(mapper_num),
             // `chr_ram_size` is only non-zero when there is no CHR-ROM, so exactly one of the two
             // backs the CHR region.
             chr: if chr_rom_size > 0 {
@@ -340,13 +325,13 @@ impl Cart {
                 .unwrap_or_default()
         };
 
+        let mapper_num = game_info
+            .as_ref()
+            .map_or(header.mapper_num, |info| info.mapper_num);
         let mut memory = Self::build_memory(
+            mapper_num,
             prg_rom_size,
-            prg_ram_size.max(min_prg_ram(
-                game_info
-                    .as_ref()
-                    .map_or(header.mapper_num, |info| info.mapper_num),
-            )),
+            prg_ram_size.max(mapper::min_prg_ram(mapper_num)),
             chr_rom_size,
             chr_ram_size,
             header.flags & 0x08 == 0x08,
@@ -730,9 +715,9 @@ impl NesHeader {
             }
             if chr_ram_shift & 0xF0 != 0 {
                 // The high nibble alone, not `0xF0`, which the reserved-value check just above
-                // already rejects. Only PRG-RAM reaches a `.sram` file, since `Map::save_sram`
-                // writes `Src::PrgRam`, so a battery on CHR-RAM is not persisted. Letting the
-                // cart run and saying so beats refusing to load it.
+                // already rejects. A `.sram` holds `Memory::sram` - PRG-RAM plus whatever the
+                // board stages after it - and CHR-RAM is in neither, so a battery on it is not
+                // persisted. Letting the cart run and saying so beats refusing to load it.
                 warn!("battery-backed chr-ram is not persisted between sessions");
             }
             NesVariant::Nes2

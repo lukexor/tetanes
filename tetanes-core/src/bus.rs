@@ -489,23 +489,44 @@ impl Bus {
         }
     }
 
+    /// The cart's whole battery as one slice, with any board-held state brought up to date.
+    ///
+    /// PRG-RAM first, then whatever the board stages in
+    /// [`Src::BatteryExt`](crate::memory::Src::BatteryExt) - so this is what a `.srm` holds, and
+    /// for the overwhelming majority of boards it is PRG-RAM exactly, which is what other
+    /// emulators write too.
+    pub fn sram(&mut self) -> &[u8] {
+        let Self { mapper, memory, .. } = self;
+        mapper.sync_battery(memory);
+        memory.sram()
+    }
+
     /// Writes battery-backed cart RAM to `writer`.
     ///
     /// # Errors
     ///
     /// If the writer fails.
-    pub fn save_sram(&self, mut writer: impl Write) -> fs::Result<()> {
-        self.mapper.save_sram(&self.memory, &mut writer)
+    pub fn save_sram(&mut self, writer: impl Write) -> fs::Result<()> {
+        fs::save_sram(writer, self.sram())
     }
 
     /// Reads battery-backed cart RAM from `reader`.
     ///
+    /// A save shorter than the cart's battery - one written before a board grew its
+    /// [`Src::BatteryExt`](crate::memory::Src::BatteryExt) - restores what it does hold and leaves
+    /// the rest powered on.
+    ///
     /// # Errors
     ///
     /// If the reader fails.
-    pub fn load_sram(&mut self, mut reader: impl Read) -> fs::Result<()> {
+    pub fn load_sram(&mut self, reader: impl Read) -> fs::Result<()> {
+        let data = fs::load_sram::<Vec<u8>>(reader)?;
         let Self { mapper, memory, .. } = self;
-        mapper.load_sram(memory, &mut reader)
+        let sram = memory.sram_mut();
+        let len = sram.len().min(data.len());
+        sram[..len].copy_from_slice(&data[..len]);
+        mapper.restore_battery(memory);
+        Ok(())
     }
 }
 

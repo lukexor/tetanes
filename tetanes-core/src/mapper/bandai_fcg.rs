@@ -8,17 +8,13 @@
 
 use crate::{
     cart::Cart,
-    fs,
     mapper::{self, Map, Mapper, MapperOps, Mirroring},
     // The EEPROM keeps a small plain buffer; `Memory` here is the page-table type.
     memory::Buffer,
     memory::{Memory, Src},
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    cmp::Ordering,
-    io::{Read, Write},
-};
+use std::cmp::Ordering;
 
 /// `Bandai FCG` registers.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +139,18 @@ impl BandaiFCG {
                 bandai_fcg.sram_access = MemoryOp::Read;
             }
         }
+
+        // Whichever EEPROMs this configuration ended up with are what the battery covers beyond
+        // PRG-RAM; `min_battery_ext` reserved room for the largest combination.
+        let eeprom_bytes: usize = [
+            bandai_fcg.standard_eeprom.as_ref(),
+            bandai_fcg.extra_eeprom.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|eeprom| eeprom.rom_data.len())
+        .sum();
+        cart.memory.set_battery_ext_len(eeprom_bytes);
 
         bandai_fcg.update_banks(&mut cart.memory);
         Ok(bandai_fcg.into())
@@ -311,38 +319,36 @@ impl Map for BandaiFCG {
 
     /// The battery covers the EEPROMs, and on mapper 153 the PRG-RAM as well.
     ///
-    /// All three go out as one value: PRG-RAM, the standard EEPROM, then the Datach's extra one,
-    /// each `None` on a board that lacks it.
+    /// The EEPROMs are staged into [`Src::BatteryExt`], standard then Datach-extra, so the `.sram`
+    /// is PRG-RAM followed by them.
     //
-    // One `save_sram` call, not three. Each writes a header and a deflate stream, and a decoder
-    // reading to end buffers past its own stream, so consecutive blobs in one writer would leave
-    // the reader mid-stream for the second.
-    fn save_sram(&self, memory: &Memory, writer: &mut dyn Write) -> fs::Result<()> {
-        let prg_ram = (self.mapper_num == 153).then(|| memory.region_ref(Src::PrgRam));
-        let standard = self.standard_eeprom.as_ref().map(|e| &e.rom_data);
-        let extra = self.extra_eeprom.as_ref().map(|e| &e.rom_data);
-        fs::save_sram(writer, &(prg_ram, standard, extra))
+    // Staged rather than stored there: each `Eeprom` is a serial state machine that indexes its
+    // own buffer, so moving the bytes into `Memory` would leave the state machine reaching back
+    // out for every one of them.
+    fn sync_battery(&self, memory: &mut Memory) {
+        let ext = memory.region_mut(Src::BatteryExt);
+        let mut at = 0;
+        for eeprom in [self.standard_eeprom.as_ref(), self.extra_eeprom.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let len = eeprom.rom_data.len();
+            ext[at..at + len].copy_from_slice(&eeprom.rom_data);
+            at += len;
+        }
     }
 
-    fn load_sram(&mut self, memory: &mut Memory, reader: &mut dyn Read) -> fs::Result<()> {
-        type Battery = (
-            Option<Vec<u8>>,
-            Option<Buffer<Box<[u8]>>>,
-            Option<Buffer<Box<[u8]>>>,
-        );
-        let (prg_ram, standard, extra) = fs::load_sram::<Battery>(reader)?;
-        if let Some(data) = prg_ram {
-            let ram = memory.region_mut(Src::PrgRam);
-            let len = ram.len().min(data.len());
-            ram[..len].copy_from_slice(&data[..len]);
+    fn restore_battery(&mut self, memory: &Memory) {
+        let ext = memory.region_ref(Src::BatteryExt);
+        let mut at = 0;
+        for eeprom in [self.standard_eeprom.as_mut(), self.extra_eeprom.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            let len = eeprom.rom_data.len();
+            eeprom.rom_data.copy_from_slice(&ext[at..at + len]);
+            at += len;
         }
-        if let (Some(eeprom), Some(data)) = (&mut self.standard_eeprom, standard) {
-            eeprom.rom_data = data;
-        }
-        if let (Some(eeprom), Some(data)) = (&mut self.extra_eeprom, extra) {
-            eeprom.rom_data = data;
-        }
-        Ok(())
     }
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
@@ -1103,6 +1109,35 @@ mod board_tests {
         let (mut mapper, _cart) = load(157, 0);
         assert_eq!(mapper.prg_read(0x6000), mapper.prg_peek(0x6000));
         assert!(mapper.prg_peek(0x6000).is_some(), "the board answers");
+    }
+
+    /// A Datach's battery is its two EEPROMs, which are staged after PRG-RAM so that the whole
+    /// battery is one slice - the 256-byte internal one first, then the cart's 128-byte extra.
+    #[test]
+    fn the_eeproms_follow_prg_ram_in_the_battery() {
+        let (mut mapper, mut cart) = load(157, 0);
+        cart.memory.region_mut(Src::PrgRam).fill(0x5A);
+
+        mapper.sync_battery(&mut cart.memory);
+        assert_eq!(cart.memory.sram().len(), 8 * 1024 + 256 + 128);
+
+        // A restored battery has to reach the boards' own EEPROM buffers, not just the arena.
+        cart.memory.sram_mut()[8 * 1024] = 0xC3;
+        cart.memory.sram_mut()[8 * 1024 + 256] = 0x7E;
+        mapper.restore_battery(&cart.memory);
+
+        cart.memory.sram_mut().fill(0);
+        mapper.sync_battery(&mut cart.memory);
+        assert_eq!(cart.memory.sram()[8 * 1024], 0xC3, "standard EEPROM");
+        assert_eq!(cart.memory.sram()[8 * 1024 + 256], 0x7E, "extra EEPROM");
+    }
+
+    /// A board with no EEPROM at all declares no tail, so its battery is PRG-RAM exactly - which
+    /// is what a `.srm` from any other emulator holds.
+    #[test]
+    fn a_board_without_eeproms_has_no_battery_tail() {
+        let (_mapper, cart) = load(153, 0);
+        assert_eq!(cart.memory.sram().len(), 8 * 1024);
     }
 
     /// `update_banks` must rebuild every window from the registers alone, which is what

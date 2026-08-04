@@ -93,6 +93,11 @@ impl Namco163 {
             chr_banks: [0; 12],
             prg_banks: [0; 3],
         };
+        // Only the 163 has the sound chip, and so the sound RAM the battery covers. `Namco175` and
+        // `Namco340` are mapper 210, for which `min_battery_ext` reserves nothing.
+        if board.board == Board::Namco163 {
+            cart.memory.set_battery_ext_len(Audio::RAM_SIZE);
+        }
         board.update_banks(&mut cart.memory);
         Ok(board.into())
     }
@@ -136,26 +141,23 @@ impl Map for Namco163 {
         self.regs.irq_pending
     }
 
-    /// Internal sound RAM is battery-backed on this board and shares the PRG-RAM save file.
-    ///
-    /// The sound RAM goes out as the [`ConstArray`] itself, not as a `Vec`: bincode gives a `Vec` a
-    /// length prefix and a fixed-size array none, so serializing the copy would shift every byte
-    /// after it and orphan existing `.sram` files.
-    fn save_sram(&self, memory: &Memory, writer: &mut dyn std::io::Write) -> crate::fs::Result<()> {
-        crate::fs::save_sram(writer, &(memory.region_ref(Src::PrgRam), &self.audio.ram))
+    /// Internal sound RAM is battery-backed on this board, so it belongs in the `.sram` after
+    /// PRG-RAM.
+    //
+    // Staged into `Src::BatteryExt` rather than stored there: `Audio` reads it several times per
+    // sample, so an indirection through `Memory` would cost this board's hot path to serve a path
+    // taken twice a session.
+    fn sync_battery(&self, memory: &mut Memory) {
+        memory
+            .region_mut(Src::BatteryExt)
+            .copy_from_slice(self.audio.ram.as_ref());
     }
 
-    fn load_sram(
-        &mut self,
-        memory: &mut Memory,
-        reader: &mut dyn std::io::Read,
-    ) -> crate::fs::Result<()> {
-        let (prg_ram, audio_ram) = crate::fs::load_sram::<(Vec<u8>, ConstArray<u8, 0x80>)>(reader)?;
-        let ram = memory.region_mut(Src::PrgRam);
-        let len = ram.len().min(prg_ram.len());
-        ram[..len].copy_from_slice(&prg_ram[..len]);
-        self.audio.ram = audio_ram;
-        Ok(())
+    fn restore_battery(&mut self, memory: &Memory) {
+        self.audio
+            .ram
+            .as_mut()
+            .copy_from_slice(memory.region_ref(Src::BatteryExt));
     }
 
     /// Audio registers and the IRQ counter live in the expansion range and are not memory.
@@ -370,7 +372,7 @@ impl Map for Namco163 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct Audio {
-    pub ram: ConstArray<u8, 0x80>,
+    pub ram: ConstArray<u8, { Audio::RAM_SIZE }>,
     pub addr: usize,
     pub auto_increment: bool,
     pub disabled: bool,
@@ -389,6 +391,9 @@ impl Default for Audio {
 }
 
 impl Audio {
+    /// Internal sound RAM, which doubles as the channel registers and is battery-backed.
+    pub const RAM_SIZE: usize = 0x80;
+
     const CHANNEL_COUNT: usize = 8;
 
     const REG_FREQ_LOW: usize = 0x00;
@@ -746,19 +751,27 @@ mod tests {
         }
     }
 
-    /// The `.sram` layout is a length-prefixed PRG-RAM `Vec` followed by the 128 sound-RAM bytes
-    /// bare. A round trip cannot see the difference between that and a second length prefix, so
-    /// this pins the size the bytes take on disk instead - existing save games depend on it.
+    /// Sound RAM sits right after PRG-RAM in the battery, with no framing of its own, so a `.sram`
+    /// is one length-prefixed run of `8K + 128` bytes rather than two values.
     #[test]
-    fn sound_ram_is_appended_to_the_sram_file_without_a_length_prefix() {
-        let (mapper, cart) = load();
-        let mut saved = Vec::new();
+    fn sound_ram_follows_prg_ram_in_the_battery() {
+        let (mut mapper, mut cart) = load();
+        cart.memory.region_mut(Src::PrgRam).fill(0x5A);
 
-        mapper.save_sram(&cart.memory, &mut saved).expect("saves");
-        let mut reader = saved.as_slice();
-        crate::fs::validate_header(&mut reader, crate::fs::SRAM_VERSION).expect("sram header");
-        let payload = crate::fs::decode(&mut reader).expect("deflate");
-        assert_eq!(payload.len(), 8 + 8 * 1024 + 0x80);
+        // $F800 points at sound RAM byte 0; $4800 writes it.
+        write(&mut mapper, &mut cart, 0xF800, 0x00);
+        write(&mut mapper, &mut cart, 0x4800, 0xC3);
+
+        mapper.sync_battery(&mut cart.memory);
+        assert_eq!(cart.memory.sram().len(), 8 * 1024 + Audio::RAM_SIZE);
+        assert_eq!(cart.memory.sram()[8 * 1024 - 1], 0x5A, "PRG-RAM first");
+        assert_eq!(cart.memory.sram()[8 * 1024], 0xC3, "then sound RAM");
+
+        // And a restored battery reaches the board, not just the arena.
+        cart.memory.sram_mut()[8 * 1024] = 0x7E;
+        mapper.restore_battery(&cart.memory);
+        write(&mut mapper, &mut cart, 0xF800, 0x00);
+        assert_eq!(prg_peek(&mapper, &cart, 0x4800), 0x7E);
     }
 
     /// A cart on one of the 210 boards, whose mirroring comes from the header rather than from
