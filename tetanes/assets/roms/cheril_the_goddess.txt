@@ -3,7 +3,7 @@ By The Mojon Twins
 
 You control Cheril. There’s plenty of things to do, and you’ll need special
 objects. Cheril can only carry ONE object at a time, so if you try to get a new
-one while you are carring an object, you will drop the one you carry in the
+one while you are carrying an object, you will drop the one you carry in the
 place of the one you take. To get/interchange objects press DOWN. Besides,
 you’ll have to give those objects a use. To use an object, just walk to the
 place you want to use it and press DOWN. For Cheril to fly, she has to

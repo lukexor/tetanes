@@ -32,10 +32,10 @@ so it is actually more like a remake than a port. Levels and graphics redesign
 took most of the time. I also made 5 graphics sets instead of 3 sets from the
 original.
 
-Code part was relatively easy both in assembly (low-level libary) and C (game),
+Code part was relatively easy both in assembly (low-level library) and C (game),
 except for few WTF bugs that took some time to figure out. There are about 1000
 lines of assembly code for library, 1000 lines of FamiTone code (has been
-adapted easiliy), and ~1500 lines of C code. Even total number of lines, 3500,
+adapted easily), and ~1500 lines of C code. Even total number of lines, 3500,
 is significally less than amount of assembly code in my previous NES games that
 were written in assembly, had ~5000 lines each (including FamiTone too), and
 were much simpler gameplay and game logic wise.

@@ -377,7 +377,7 @@ impl Apu {
         }
     }
 
-    /// Runs all componnets up to master clock, synchronizing them.
+    /// Runs all components up to master clock, synchronizing them.
     #[cold]
     #[inline(never)]
     pub fn clock_sync(&mut self) {

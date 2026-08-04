@@ -130,7 +130,7 @@ impl BandaiFCG {
                 bandai_fcg.sram_access = MemoryOp::Read;
             }
         } else {
-            // For iNES Mapper 153 (with SRAM), the writeable ports must only be mirrored across
+            // For iNES Mapper 153 (with SRAM), the writable ports must only be mirrored across
             // $8000-$FFFF. Mappers 157 and 159 do not need to support the FCG-1 and -2 and so
             // should only mirror the ports across $8000-$FFFF.
             if bandai_fcg.mapper_num == 153 {
