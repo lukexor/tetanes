@@ -78,8 +78,8 @@ impl Frame {
         let mut pixels = vec![0; Self::SIZE];
         // Load-bearing: the filters write only the RGB bytes of each pixel, so alpha is set once
         // here and never again. Leaving it zeroed renders every frame fully transparent.
-        for pixel in pixels.chunks_exact_mut(4) {
-            pixel[3] = u8::MAX;
+        for [_, _, _, a] in pixels.as_chunks_mut::<4>().0 {
+            *a = u8::MAX;
         }
         Self(
             pixels
@@ -225,13 +225,12 @@ impl Video {
 
     /// Fills a fully rendered frame with RGB colors.
     pub fn decode_buffer(buffer: &[u16; ppu::size::FRAME], output: &mut [u8; Frame::SIZE]) {
-        for (color, pixels) in buffer.iter().zip(output.chunks_exact_mut(4)) {
+        for (color, [r, g, b, _]) in buffer.iter().zip(output.as_chunks_mut::<4>().0) {
             let index = (*color as usize) * 3;
             assert!(Ppu::NTSC_PALETTE.len() > index + 2);
-            assert!(pixels.len() > 2);
-            pixels[0] = Ppu::NTSC_PALETTE[index];
-            pixels[1] = Ppu::NTSC_PALETTE[index + 1];
-            pixels[2] = Ppu::NTSC_PALETTE[index + 2];
+            *r = Ppu::NTSC_PALETTE[index];
+            *g = Ppu::NTSC_PALETTE[index + 1];
+            *b = Ppu::NTSC_PALETTE[index + 2];
         }
     }
 
@@ -254,7 +253,7 @@ impl Video {
         // Rolling replacement for the per-pixel `(2 + y * 341 + x + even_phase) % 3`: `phase`
         // only ever needs `+ 1 mod 3` per pixel, recomputed from scratch just once per row.
         let mut phase = 0;
-        for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+        for (idx, (color, pixels)) in buffer.iter().zip(output.as_chunks_mut::<4>().0).enumerate() {
             let x = idx % 256;
             let entry = if x == 0 {
                 // Remove pixel 0 artifact from not having a valid previous pixel
@@ -310,8 +309,8 @@ mod tests {
         assert_eq!(frame.len(), Frame::SIZE);
         assert_eq!(frame.as_array().len(), Frame::SIZE);
 
-        for (i, pixel) in frame.as_slice().chunks_exact(4).enumerate() {
-            assert_eq!(pixel, [0, 0, 0, u8::MAX], "pixel {i}");
+        for (i, pixel) in frame.as_slice().as_chunks::<4>().0.iter().enumerate() {
+            assert_eq!(pixel, &[0, 0, 0, u8::MAX], "pixel {i}");
         }
     }
 
@@ -338,7 +337,7 @@ mod tests {
     /// counter didn't change output.
     fn apply_ntsc_filter_reference(buffer: &[u16], frame_number: u32, output: &mut [u8]) {
         let mut prev_color = 0;
-        for (idx, (color, pixels)) in buffer.iter().zip(output.chunks_exact_mut(4)).enumerate() {
+        for (idx, (color, pixels)) in buffer.iter().zip(output.as_chunks_mut::<4>().0).enumerate() {
             let x = idx % 256;
             let rgb = if x == 0 {
                 [0, 0, 0]

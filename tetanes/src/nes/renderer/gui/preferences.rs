@@ -88,7 +88,7 @@ impl Preferences {
     pub fn toggle_open(&self, ctx: &Context) {
         let Ok(open) = self
             .open
-            .fetch_update(Ordering::Release, Ordering::Acquire, |open| Some(!open))
+            .try_update(Ordering::Release, Ordering::Acquire, |open| Some(!open))
         else {
             return;
         };
