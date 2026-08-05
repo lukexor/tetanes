@@ -57,6 +57,8 @@ struct Frontend {
     /// contract, since `GET_VARIABLE_UPDATE` says only that something changed.
     variable_update: bool,
     av_infos: Vec<retro_system_av_info>,
+    /// Buttons the core described, as `(port, id, description)`.
+    input_descriptors: Vec<(c_uint, c_uint, String)>,
 }
 
 thread_local! {
@@ -138,6 +140,26 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
             let updated = FRONTEND.with_borrow_mut(|f| std::mem::take(&mut f.variable_update));
             // SAFETY: the core passes one `bool`.
             unsafe { *data.cast::<bool>() = updated };
+            true
+        }
+        RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => {
+            // SAFETY: the core passes an array running until an entry with a null description.
+            let described = unsafe {
+                let mut described = Vec::new();
+                let mut desc = data.cast::<retro_input_descriptor>();
+                while !(*desc).description.is_null() {
+                    described.push((
+                        (*desc).port,
+                        (*desc).id,
+                        CStr::from_ptr((*desc).description)
+                            .to_string_lossy()
+                            .into_owned(),
+                    ));
+                    desc = desc.add(1);
+                }
+                described
+            };
+            FRONTEND.with_borrow_mut(|f| f.input_descriptors = described);
             true
         }
         RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO => {
@@ -426,6 +448,38 @@ fn the_state_size_is_promised_once_and_only_while_a_cart_is_in() {
     assert_eq!(retro_serialize_size(), 0, "the cart is out again");
     // SAFETY: a state must be refused rather than written with nothing to write about.
     assert!(!unsafe { retro_serialize(vec![0u8; size].as_mut_ptr().cast::<c_void>(), size) });
+}
+
+/// What the remapping menu shows. The mirroring is the point: without a descriptor the menu says
+/// only "B", and the player has no way to learn that it presses NES A.
+#[test]
+fn every_button_on_every_port_is_described() {
+    let session = Session::start();
+    assert!(session.load());
+
+    let described = FRONTEND.with_borrow(|f| f.input_descriptors.clone());
+    assert_eq!(
+        described.len(),
+        input::PORTS.len() * input::BUTTONS.len(),
+        "each port describes each button"
+    );
+
+    for port in 0..input::PORTS.len() as c_uint {
+        let named = |id| {
+            described
+                .iter()
+                .find(|&&(p, i, _)| p == port && i == id)
+                .map(|(_, _, name)| name.as_str())
+        };
+        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_B), Some("A"), "port {port}");
+        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_A), Some("B"), "port {port}");
+        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_Y), Some("Turbo A"));
+        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_START), Some("Start"));
+        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_LEFT), Some("Left"));
+        for (id, _, _) in input::BUTTONS {
+            assert!(named(id).is_some(), "port {port} left {id} unnamed");
+        }
+    }
 }
 
 /// The options have to be declared before content is chosen, since that is when a player opens the

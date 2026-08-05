@@ -5,29 +5,103 @@
 //! "turbo is not held" each frame would wipe A and B the instant they were pressed. What is sent
 //! down is therefore the *difference* from last frame, which is also how the desktop UI drives it.
 
-use crate::sys;
+use crate::{log, sys};
+use std::ffi::{CStr, c_void};
 use tetanes_core::input::{Joypad, JoypadBtnState, Player};
 
-/// How a RetroPad button maps onto the NES pad.
+/// How a RetroPad button maps onto the NES pad, and what the frontend's remapping menu calls it.
 ///
 /// The two layouts are mirrored: what a RetroPad calls `B` sits where the NES `A` is, so a player
 /// holding a modern controller presses the button in the place they expect. `X` and `Y` are dead on
 /// an NES pad and carry turbo instead, which is what other NES cores do with them.
-pub const BUTTONS: [(u32, JoypadBtnState); 10] = [
-    (sys::RETRO_DEVICE_ID_JOYPAD_B, JoypadBtnState::A),
-    (sys::RETRO_DEVICE_ID_JOYPAD_A, JoypadBtnState::B),
-    (sys::RETRO_DEVICE_ID_JOYPAD_Y, JoypadBtnState::TURBO_A),
-    (sys::RETRO_DEVICE_ID_JOYPAD_X, JoypadBtnState::TURBO_B),
-    (sys::RETRO_DEVICE_ID_JOYPAD_SELECT, JoypadBtnState::SELECT),
-    (sys::RETRO_DEVICE_ID_JOYPAD_START, JoypadBtnState::START),
-    (sys::RETRO_DEVICE_ID_JOYPAD_UP, JoypadBtnState::UP),
-    (sys::RETRO_DEVICE_ID_JOYPAD_DOWN, JoypadBtnState::DOWN),
-    (sys::RETRO_DEVICE_ID_JOYPAD_LEFT, JoypadBtnState::LEFT),
-    (sys::RETRO_DEVICE_ID_JOYPAD_RIGHT, JoypadBtnState::RIGHT),
+///
+/// The description is the *NES* button, not the RetroPad one the frontend already knows - which is
+/// what makes the mirroring visible to someone reading the menu rather than a surprise under it.
+pub const BUTTONS: [(u32, JoypadBtnState, &CStr); 10] = [
+    (sys::RETRO_DEVICE_ID_JOYPAD_B, JoypadBtnState::A, c"A"),
+    (sys::RETRO_DEVICE_ID_JOYPAD_A, JoypadBtnState::B, c"B"),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_Y,
+        JoypadBtnState::TURBO_A,
+        c"Turbo A",
+    ),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_X,
+        JoypadBtnState::TURBO_B,
+        c"Turbo B",
+    ),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_SELECT,
+        JoypadBtnState::SELECT,
+        c"Select",
+    ),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_START,
+        JoypadBtnState::START,
+        c"Start",
+    ),
+    (sys::RETRO_DEVICE_ID_JOYPAD_UP, JoypadBtnState::UP, c"Up"),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_DOWN,
+        JoypadBtnState::DOWN,
+        c"Down",
+    ),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_LEFT,
+        JoypadBtnState::LEFT,
+        c"Left",
+    ),
+    (
+        sys::RETRO_DEVICE_ID_JOYPAD_RIGHT,
+        JoypadBtnState::RIGHT,
+        c"Right",
+    ),
 ];
 
 /// Ports this core reads. Four-player lands with `retro_set_controller_port_device`.
 pub const PORTS: [Player; 2] = [Player::One, Player::Two];
+
+/// Tells the frontend what each button does, so its remapping menu names them.
+///
+/// Without this a player sees only the RetroPad's own labels, which is where the mirroring becomes
+/// a surprise: the button marked `B` presses NES `A`, and nothing on screen says so.
+///
+/// # Safety
+///
+/// The environment callback must be valid.
+pub unsafe fn describe(environment: sys::retro_environment_t) {
+    let mut descriptors: Vec<sys::retro_input_descriptor> = PORTS
+        .iter()
+        .enumerate()
+        .flat_map(|(port, _)| {
+            BUTTONS.map(|(id, _, description)| sys::retro_input_descriptor {
+                port: port as u32,
+                device: sys::RETRO_DEVICE_JOYPAD,
+                index: 0,
+                id,
+                description: description.as_ptr(),
+            })
+        })
+        .collect();
+    descriptors.push(sys::retro_input_descriptor {
+        port: 0,
+        device: 0,
+        index: 0,
+        id: 0,
+        description: std::ptr::null(),
+    });
+    // SAFETY: the frontend reads until the null description, and every string is `'static`.
+    let ok = unsafe {
+        environment(
+            sys::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
+            descriptors.as_mut_ptr().cast::<c_void>(),
+        )
+    };
+    if !ok {
+        // Not fatal: it costs the menu its labels, not the player their controls.
+        log::info("the frontend does not take input descriptors");
+    }
+}
 
 /// What each port reported last frame, so that only changes are sent to the console.
 #[derive(Default)]
@@ -39,7 +113,7 @@ impl Pads {
     /// Sends the buttons that changed since last frame.
     pub fn apply(&mut self, port: usize, joypad: &mut Joypad, held: JoypadBtnState) {
         let changed = held.symmetric_difference(self.previous[port]);
-        for (_, button) in BUTTONS {
+        for (_, button, _) in BUTTONS {
             if changed.contains(button) {
                 // Through `set_button` rather than assigning the bits, so SOCD filtering still
                 // applies to the D-pad.
@@ -65,14 +139,14 @@ mod tests {
     /// A duplicate on either side would silently drop a button.
     #[test]
     fn the_mapping_is_one_to_one() {
-        let mut ids: Vec<u32> = BUTTONS.iter().map(|&(id, _)| id).collect();
+        let mut ids: Vec<u32> = BUTTONS.iter().map(|&(id, ..)| id).collect();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), BUTTONS.len(), "a RetroPad id is mapped twice");
 
         let mut nes = BUTTONS
             .iter()
-            .fold(JoypadBtnState::empty(), |acc, &(_, b)| {
+            .fold(JoypadBtnState::empty(), |acc, &(_, b, _)| {
                 assert!(!acc.contains(b), "{b:?} is mapped twice");
                 acc | b
             });
@@ -87,7 +161,7 @@ mod tests {
     /// The mirroring is the part a reader will assume is a typo, so it is asserted.
     #[test]
     fn the_face_buttons_are_mirrored() {
-        let map = |id| BUTTONS.iter().find(|&&(i, _)| i == id).map(|&(_, b)| b);
+        let map = |id| BUTTONS.iter().find(|&&(i, ..)| i == id).map(|&(_, b, _)| b);
         assert_eq!(map(sys::RETRO_DEVICE_ID_JOYPAD_B), Some(JoypadBtnState::A));
         assert_eq!(map(sys::RETRO_DEVICE_ID_JOYPAD_A), Some(JoypadBtnState::B));
     }

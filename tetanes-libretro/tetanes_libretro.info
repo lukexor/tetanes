@@ -30,7 +30,7 @@ savestate = "true"
 # `a_restored_state_replays_the_run_it_was_taken_from` checks.
 savestate_features = "deterministic"
 cheats = "true"
-input_descriptors = "false"
+input_descriptors = "true"
 memory_descriptors = "true"
 libretro_saves = "true"
 core_options = "true"

@@ -301,7 +301,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
                 core.state.attach(&core.deck);
                 // After `attach`, which is what sizes the battery buffer the map points into.
                 if let Some(environment) = core.callbacks.environment {
-                    unsafe { core.memory.describe(environment) };
+                    unsafe {
+                        core.memory.describe(environment);
+                        // At load rather than with the options, because what a port carries is
+                        // about to depend on the four-player adapter.
+                        input::describe(environment);
+                    }
                 }
                 log::info(&format!("loaded {} ({:?})", loaded.name, loaded.region));
                 unsafe { set_pixel_format(core) }
@@ -535,7 +540,7 @@ unsafe fn poll_input(core: &mut core::Core) {
         poll();
         for (port, player) in input::PORTS.into_iter().enumerate() {
             let mut held = JoypadBtnState::empty();
-            for (id, button) in input::BUTTONS {
+            for (id, button, _) in input::BUTTONS {
                 if state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0 {
                     held.insert(button);
                 }
