@@ -19,6 +19,7 @@ mod audio;
 mod core;
 mod input;
 mod log;
+mod memory;
 /// The C API this core implements.
 ///
 /// Public because the exported functions' signatures are written in these types.
@@ -198,6 +199,7 @@ pub extern "C" fn retro_reset() {
         core.wedged = false;
         core.pads.forget();
         core.deck.reset(ResetKind::Soft);
+        core.memory.refresh(&mut core.deck);
     });
 }
 
@@ -212,6 +214,7 @@ pub unsafe extern "C" fn retro_run() {
         // SAFETY: callbacks come from the frontend and are valid until it unloads the core.
         unsafe {
             poll_input(core);
+            core.memory.commit(&mut core.deck);
 
             // A display frame is however many NES frames the speed asks for; at 1x that is one.
             loop {
@@ -225,6 +228,8 @@ pub unsafe extern "C" fn retro_run() {
                     }
                 }
             }
+
+            core.memory.refresh(&mut core.deck);
 
             if let Some(batch) = core.callbacks.audio_batch {
                 let samples = core.audio.interleave(core.deck.audio_samples());
@@ -283,6 +288,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
         match core.deck.load_rom(&name, &mut &rom[..]) {
             Ok(loaded) => {
                 core.deck.set_sample_rate(audio::SAMPLE_RATE as f32);
+                core.memory.attach(&mut core.deck);
                 log::info(&format!("loaded {} ({:?})", loaded.name, loaded.region));
                 unsafe { set_pixel_format(core) }
             }
@@ -310,6 +316,7 @@ pub extern "C" fn retro_unload_game() {
     with_core((), |core| {
         core.wedged = false;
         core.pads.forget();
+        core.memory.detach();
         // Infallible now that the deck performs no battery I/O of its own.
         let _ = core.deck.unload_rom();
     });
@@ -388,23 +395,27 @@ pub extern "C" fn retro_cheat_reset() {
 pub unsafe extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: *const c_char) {}
 
 /// A pointer to one of the console's memory regions.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
+///
+/// The frontend keeps this and both reads and writes through it, so it points at a buffer this
+/// core owns rather than into the console: restoring a save state swaps the whole `Bus`, and a
+/// pointer into it would dangle.
 #[unsafe(no_mangle)]
-pub extern "C" fn retro_get_memory_data(_id: c_uint) -> *mut c_void {
-    std::ptr::null_mut()
+pub extern "C" fn retro_get_memory_data(id: c_uint) -> *mut c_void {
+    with_core(std::ptr::null_mut(), |core| {
+        core.memory
+            .region(id)
+            .map_or(std::ptr::null_mut(), |region| {
+                region.as_mut_ptr().cast::<c_void>()
+            })
+    })
 }
 
-/// How large that region is.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
+/// How large that region is. Zero for one this console has no answer for.
 #[unsafe(no_mangle)]
-pub extern "C" fn retro_get_memory_size(_id: c_uint) -> usize {
-    0
+pub extern "C" fn retro_get_memory_size(id: c_uint) -> usize {
+    with_core(0, |core| {
+        core.memory.region(id).map_or(0, |region| region.len())
+    })
 }
 
 // ---------------------------------------------------------------------------------------------

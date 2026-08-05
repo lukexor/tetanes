@@ -671,6 +671,13 @@ impl ControlDeck {
         self.bus.wram()
     }
 
+    /// Returns the NES Work RAM, for a debugger or a frontend's cheat engine to write.
+    #[inline]
+    #[must_use]
+    pub fn wram_mut(&mut self) -> &mut [u8; bus::size::WRAM] {
+        self.bus.wram_mut()
+    }
+
     /// The cart's whole battery as one slice: PRG-RAM, then any state the board keeps outside it.
     ///
     /// Empty for a cart without a battery. For all but a handful of boards this is PRG-RAM exactly,
@@ -695,6 +702,15 @@ impl ControlDeck {
             self.bus.save_sram(writer).map_err(Error::Sram)?;
         }
         Ok(())
+    }
+
+    /// Replaces battery-backed Save RAM with raw bytes, as [`ControlDeck::sram`] hands them out.
+    ///
+    /// For a frontend that owns the battery file itself. No-op for a cart without a battery.
+    pub fn set_sram(&mut self, data: &[u8]) {
+        if self.cart_battery_backed() == Some(true) {
+            self.bus.set_sram(data);
+        }
     }
 
     /// Read battery-backed Save RAM from `reader` (if the cartridge has any).

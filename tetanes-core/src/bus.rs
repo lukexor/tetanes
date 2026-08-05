@@ -263,6 +263,14 @@ impl Bus {
         &self.wram
     }
 
+    /// The console's 2K of work RAM, for a debugger or a frontend's cheat engine to write.
+    #[must_use]
+    #[inline]
+    #[allow(clippy::missing_const_for_fn)] // false positive on non-const deref coercion
+    pub fn wram_mut(&mut self) -> &mut [u8; size::WRAM] {
+        &mut self.wram
+    }
+
     /// Apply a Game Genie code, replacing any patch already at its address.
     pub fn add_genie_code(&mut self, genie_code: GenieCode) {
         self.patches.insert(Patch::from(&genie_code));
@@ -516,12 +524,21 @@ impl Bus {
     /// If the reader fails.
     pub fn load_sram(&mut self, reader: impl Read) -> fs::Result<()> {
         let data = fs::load_sram::<Vec<u8>>(reader)?;
+        self.set_sram(&data);
+        Ok(())
+    }
+
+    /// Replaces battery-backed cart RAM with raw bytes, as [`Bus::sram`] hands them out.
+    ///
+    /// For a frontend that keeps the battery in its own format and hands it back unwrapped; the
+    /// `.sram` container is [`Bus::load_sram`].
+    pub fn set_sram(&mut self, data: &[u8]) {
         let Self { mapper, memory, .. } = self;
         let sram = memory.sram_mut();
         let len = sram.len().min(data.len());
         sram[..len].copy_from_slice(&data[..len]);
+        // Whatever the board keeps outside PRG-RAM has to be told the bytes changed under it.
         mapper.restore_battery(memory);
-        Ok(())
     }
 }
 

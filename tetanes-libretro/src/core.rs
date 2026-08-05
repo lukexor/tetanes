@@ -4,6 +4,7 @@ use crate::{
     audio::Audio,
     input::Pads,
     log,
+    memory::Memory,
     sys::{
         retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_input_poll_t,
         retro_input_state_t, retro_video_refresh_t,
@@ -37,6 +38,7 @@ pub struct Core {
     pub video: Video,
     pub audio: Audio,
     pub pads: Pads,
+    pub memory: Memory,
     /// Which filter the deck renders with.
     ///
     /// Tracked here because `ControlDeck` takes one but does not hand it back, and the two video
@@ -66,6 +68,7 @@ impl Core {
             video: Video::default(),
             audio: Audio::default(),
             pads: Pads::default(),
+            memory: Memory::default(),
             filter: VideoFilter::Pixellate,
             wedged: false,
         }
