@@ -9,7 +9,29 @@
 //! So the core owns the buffers and copies. Two of at most 10 KiB, twice a frame, against a frame
 //! that is milliseconds long.
 
+use crate::{
+    log,
+    sys::{
+        RETRO_ENVIRONMENT_SET_MEMORY_MAPS, RETRO_MEMDESC_SAVE_RAM, RETRO_MEMDESC_SYSTEM_RAM,
+        retro_environment_t, retro_memory_descriptor, retro_memory_map,
+    },
+};
+use std::ffi::c_void;
 use tetanes_core::{bus::size, control_deck::ControlDeck};
+
+/// The window each region is decoded in: address bits 15-13, so `(addr & 0xE000) == start`.
+///
+/// Work RAM is 2 KiB inside an 8 KiB window and so is mirrored four times across `$0000-$1FFF`,
+/// which is what the hardware does and what one descriptor can therefore say.
+const SELECT: usize = 0xE000;
+
+/// Where the cartridge's battery is decoded, and how much of it the CPU can see.
+///
+/// A board whose battery is larger than the window - the two with a `BatteryExt` tail - is
+/// described only as far as `$7FFF`, because the map describes the CPU's address space rather than
+/// the save file.
+const SAVE_RAM_START: usize = 0x6000;
+const SAVE_RAM_WINDOW: usize = 0x2000;
 
 /// Buffers the frontend holds pointers into.
 pub struct Memory {
@@ -58,6 +80,61 @@ impl Memory {
         deck.wram_mut().copy_from_slice(&self.system_ram);
         if !self.save_ram.is_empty() {
             deck.set_sram(&self.save_ram);
+        }
+    }
+
+    /// Describes where the console's memory sits in the CPU's address space.
+    ///
+    /// Separate from `retro_get_memory_data`, which hands over a bare buffer: a cheat search wants
+    /// the buffer, while RetroAchievements' NES model addresses memory the way the game does, and
+    /// only the map says that `$0000` and `$0800` are the same byte.
+    ///
+    /// # Safety
+    ///
+    /// The environment callback must be valid. The descriptors point into this `Memory`, which
+    /// must therefore outlive the frontend's use of the map - it lives in the `Core`, so it does.
+    pub unsafe fn describe(&mut self, environment: retro_environment_t) {
+        // The frontend copies the descriptors during the call, which is why this array may be a
+        // local; what it keeps is the pointers inside them.
+        let descriptors = [
+            retro_memory_descriptor {
+                flags: RETRO_MEMDESC_SYSTEM_RAM,
+                ptr: self.system_ram.as_mut_ptr().cast::<c_void>(),
+                offset: 0,
+                start: 0x0000,
+                select: SELECT,
+                disconnect: 0,
+                len: size::WRAM,
+                addrspace: std::ptr::null(),
+            },
+            retro_memory_descriptor {
+                flags: RETRO_MEMDESC_SAVE_RAM,
+                ptr: self.save_ram.as_mut_ptr().cast::<c_void>(),
+                offset: 0,
+                start: SAVE_RAM_START,
+                select: SELECT,
+                disconnect: 0,
+                len: self.save_ram.len().min(SAVE_RAM_WINDOW),
+                addrspace: std::ptr::null(),
+            },
+        ];
+        // A cart with no battery gets one descriptor, not a second of zero length.
+        let count = if self.save_ram.is_empty() { 1 } else { 2 };
+        let map = retro_memory_map {
+            descriptors: descriptors.as_ptr(),
+            num_descriptors: count,
+        };
+        // SAFETY: the callback reads `num_descriptors` descriptors through the pointer, and both
+        // outlive the call.
+        let ok = unsafe {
+            environment(
+                RETRO_ENVIRONMENT_SET_MEMORY_MAPS,
+                std::ptr::from_ref(&map).cast_mut().cast::<c_void>(),
+            )
+        };
+        if !ok {
+            // Not fatal: it costs achievements and the frontend's memory viewer, not emulation.
+            log::info("the frontend does not take memory maps");
         }
     }
 

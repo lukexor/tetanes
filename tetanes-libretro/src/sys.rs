@@ -76,6 +76,16 @@ pub const RETRO_DEVICE_ID_JOYPAD_RIGHT: c_uint = 7;
 pub const RETRO_DEVICE_ID_JOYPAD_A: c_uint = 8;
 pub const RETRO_DEVICE_ID_JOYPAD_X: c_uint = 9;
 
+/// What a [`retro_memory_descriptor`] is, and how it may be accessed.
+///
+/// `ALIGN` and `MINSIZE` say the smallest access the hardware can make; both are absent here
+/// because the 6502 addresses memory one byte at a time.
+pub const RETRO_MEMDESC_CONST: u64 = 1 << 0;
+pub const RETRO_MEMDESC_BIGENDIAN: u64 = 1 << 1;
+pub const RETRO_MEMDESC_SYSTEM_RAM: u64 = 1 << 2;
+pub const RETRO_MEMDESC_SAVE_RAM: u64 = 1 << 3;
+pub const RETRO_MEMDESC_VIDEO_RAM: u64 = 1 << 4;
+
 /// Severity passed to [`retro_log_printf_t`].
 pub const RETRO_LOG_DEBUG: c_int = 0;
 pub const RETRO_LOG_INFO: c_int = 1;
@@ -193,6 +203,37 @@ pub struct retro_controller_info {
     pub num_types: c_uint,
 }
 
+/// One region of the emulated address space, for `SET_MEMORY_MAPS`.
+///
+/// The mapping is `(addr & select) == start`, and the byte reached is `addr` masked down to
+/// `len` - so a region smaller than the window `select` opens is mirrored across it, which is how
+/// one descriptor describes the NES' four copies of work RAM.
+#[repr(C)]
+#[derive(Debug)]
+pub struct retro_memory_descriptor {
+    pub flags: u64,
+    /// The core's own buffer. It must stay where it is for as long as the frontend has the map.
+    pub ptr: *mut c_void,
+    /// Where in `ptr` this region starts.
+    pub offset: usize,
+    pub start: usize,
+    /// Address bits compared against `start`. Zero means "the smallest window that fits `len`".
+    pub select: usize,
+    /// Address bits the chip is not wired to.
+    pub disconnect: usize,
+    pub len: usize,
+    /// Names a second address space, for a machine that has one. Null for the CPU's.
+    pub addrspace: *const c_char,
+}
+
+/// The descriptors handed to `SET_MEMORY_MAPS`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct retro_memory_map {
+    pub descriptors: *const retro_memory_descriptor,
+    pub num_descriptors: c_uint,
+}
+
 /// The frontend's logger, returned by `GET_LOG_INTERFACE`.
 #[repr(C)]
 #[derive(Debug)]
@@ -261,6 +302,21 @@ mod tests {
         assert_eq!(offset_of!(retro_controller_info, types), 0);
         assert_eq!(offset_of!(retro_controller_info, num_types), 8);
         assert_eq!(size_of::<retro_controller_info>(), 16);
+
+        assert_eq!(offset_of!(retro_memory_descriptor, flags), 0);
+        assert_eq!(offset_of!(retro_memory_descriptor, ptr), 8);
+        assert_eq!(offset_of!(retro_memory_descriptor, offset), 16);
+        assert_eq!(offset_of!(retro_memory_descriptor, start), 24);
+        assert_eq!(offset_of!(retro_memory_descriptor, select), 32);
+        assert_eq!(offset_of!(retro_memory_descriptor, disconnect), 40);
+        assert_eq!(offset_of!(retro_memory_descriptor, len), 48);
+        assert_eq!(offset_of!(retro_memory_descriptor, addrspace), 56);
+        assert_eq!(size_of::<retro_memory_descriptor>(), 64);
+
+        // `num_descriptors` is four bytes, then C pads to the pointer's alignment.
+        assert_eq!(offset_of!(retro_memory_map, descriptors), 0);
+        assert_eq!(offset_of!(retro_memory_map, num_descriptors), 8);
+        assert_eq!(size_of::<retro_memory_map>(), 16);
 
         assert_eq!(size_of::<retro_log_callback>(), 8);
     }

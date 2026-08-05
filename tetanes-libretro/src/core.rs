@@ -2,6 +2,7 @@
 
 use crate::{
     audio::Audio,
+    cheat::Cheats,
     input::Pads,
     log,
     memory::Memory,
@@ -41,6 +42,7 @@ pub struct Core {
     pub pads: Pads,
     pub memory: Memory,
     pub state: State,
+    pub cheats: Cheats,
     /// Which filter the deck renders with.
     ///
     /// Tracked here because `ControlDeck` takes one but does not hand it back, and the two video
@@ -72,6 +74,7 @@ impl Core {
             pads: Pads::default(),
             memory: Memory::default(),
             state: State::default(),
+            cheats: Cheats::default(),
             filter: VideoFilter::Pixellate,
             wedged: false,
         }

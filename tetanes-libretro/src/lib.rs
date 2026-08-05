@@ -16,6 +16,7 @@
 #![allow(non_snake_case)]
 
 mod audio;
+mod cheat;
 mod core;
 mod input;
 mod log;
@@ -291,6 +292,10 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
                 core.deck.set_sample_rate(audio::SAMPLE_RATE as f32);
                 core.memory.attach(&mut core.deck);
                 core.state.attach(&core.deck);
+                // After `attach`, which is what sizes the battery buffer the map points into.
+                if let Some(environment) = core.callbacks.environment {
+                    unsafe { core.memory.describe(environment) };
+                }
                 log::info(&format!("loaded {} ({:?})", loaded.name, loaded.region));
                 unsafe { set_pixel_format(core) }
             }
@@ -320,6 +325,7 @@ pub extern "C" fn retro_unload_game() {
         core.pads.forget();
         core.memory.detach();
         core.state.detach();
+        core.cheats.reset(&mut core.deck);
         // Infallible now that the deck performs no battery I/O of its own.
         let _ = core.deck.unload_rom();
     });
@@ -399,20 +405,29 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
 /// Removes every cheat.
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_cheat_reset() {
-    with_core((), |core| core.deck.clear_genie_codes());
+    with_core((), |core| core.cheats.reset(&mut core.deck));
 }
 
 /// Applies or removes one cheat.
 ///
+/// A frontend identifies a cheat by `index` and re-sends its whole list whenever one changes, so
+/// this is a write into a slot rather than an append.
+///
 /// # Safety
 ///
 /// `code` must be a NUL-terminated string.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: *const c_char) {}
+pub unsafe extern "C" fn retro_cheat_set(index: c_uint, enabled: bool, code: *const c_char) {
+    with_core((), |core| {
+        if code.is_null() {
+            return;
+        }
+        // SAFETY: the frontend hands over a NUL-terminated string valid for this call.
+        let code = unsafe { CStr::from_ptr(code) }.to_string_lossy();
+        core.cheats
+            .set(&mut core.deck, index as usize, enabled, &code);
+    });
+}
 
 /// A pointer to one of the console's memory regions.
 ///

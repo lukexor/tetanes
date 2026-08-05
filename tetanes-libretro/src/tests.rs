@@ -27,10 +27,22 @@ struct Frame {
     pixels: Vec<u32>,
 }
 
+/// One memory descriptor as the frontend received it, with the pointer kept as an address so it
+/// can be compared against `retro_get_memory_data` without being dereferenced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MemoryRegion {
+    flags: u64,
+    ptr: usize,
+    start: usize,
+    select: usize,
+    len: usize,
+}
+
 /// What the frontend saw, and what it will answer.
 #[derive(Default)]
 struct Frontend {
     pixel_format: Option<c_uint>,
+    memory_map: Vec<MemoryRegion>,
     env_calls: Vec<c_uint>,
     frames: Vec<Frame>,
     audio_frames: usize,
@@ -53,6 +65,27 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
             // SAFETY: the core passes a pointer to one `unsigned` for this call.
             let format = unsafe { *data.cast::<c_uint>() };
             FRONTEND.with_borrow_mut(|f| f.pixel_format = Some(format));
+            true
+        }
+        RETRO_ENVIRONMENT_SET_MEMORY_MAPS => {
+            // SAFETY: the core passes one `retro_memory_map` whose `descriptors` covers
+            // `num_descriptors` entries, and it outlives this call - which is why a real frontend
+            // copies here too.
+            let map = unsafe { &*data.cast::<retro_memory_map>() };
+            let descriptors =
+                unsafe { slice::from_raw_parts(map.descriptors, map.num_descriptors as usize) };
+            FRONTEND.with_borrow_mut(|f| {
+                f.memory_map = descriptors
+                    .iter()
+                    .map(|desc| MemoryRegion {
+                        flags: desc.flags,
+                        ptr: desc.ptr as usize,
+                        start: desc.start,
+                        select: desc.select,
+                        len: desc.len,
+                    })
+                    .collect();
+            });
             true
         }
         // Anything else is a feature this frontend does not have, which a core must cope with.
@@ -326,6 +359,155 @@ fn the_state_size_is_promised_once_and_only_while_a_cart_is_in() {
     assert_eq!(retro_serialize_size(), 0, "the cart is out again");
     // SAFETY: a state must be refused rather than written with nothing to write about.
     assert!(!unsafe { retro_serialize(vec![0u8; size].as_mut_ptr().cast::<c_void>(), size) });
+}
+
+/// A minimal battery-backed NROM cart.
+///
+/// Built rather than committed: no ROM in `test_roms` has a battery, and the save-RAM descriptor
+/// and the `RETRO_MEMORY_SAVE_RAM` region only exist for a cart that does.
+fn battery_rom() -> Vec<u8> {
+    let mut rom = vec![0u8; 16 + 16384 + 8192];
+    rom[..4].copy_from_slice(b"NES\x1a");
+    rom[4] = 1; // one 16 KiB PRG bank
+    rom[5] = 1; // one 8 KiB CHR bank
+    rom[6] = 0x02; // battery-backed
+    // The reset vector, so the CPU starts somewhere real rather than at whatever $FFFC holds.
+    let reset = 16 + 16384 - 4;
+    rom[reset] = 0x00;
+    rom[reset + 1] = 0x80;
+    rom
+}
+
+/// What the map says is what RetroAchievements addresses the game through, so the window and the
+/// mirroring matter as much as the pointer.
+#[test]
+fn the_memory_map_describes_the_cpu_address_space() {
+    let session = Session::start();
+    assert!(session.load(), "the test ROM loads");
+
+    let map = FRONTEND.with_borrow(|f| f.memory_map.clone());
+    assert_eq!(
+        map.len(),
+        1,
+        "spritecans has no battery, so there is nothing to describe at $6000"
+    );
+
+    let wram = map[0];
+    assert_eq!(wram.flags, RETRO_MEMDESC_SYSTEM_RAM);
+    assert_eq!(wram.start, 0x0000);
+    assert_eq!(wram.len, 0x0800, "2 KiB of work RAM");
+    assert_eq!(
+        wram.select, 0xE000,
+        "decoded across $0000-$1FFF, so the four mirrors are one descriptor"
+    );
+    assert_eq!(
+        wram.ptr,
+        retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM) as usize,
+        "the map and `retro_get_memory_data` describe the same buffer"
+    );
+}
+
+/// A cart with a battery gets the second descriptor, and it points at the same buffer the frontend
+/// writes a restored `.srm` into.
+#[test]
+fn a_battery_adds_the_cartridge_ram_to_the_map() {
+    let _session = Session::start();
+    let rom = battery_rom();
+    let info = retro_game_info {
+        path: c"battery.nes".as_ptr(),
+        data: rom.as_ptr().cast::<c_void>(),
+        size: rom.len(),
+        meta: std::ptr::null(),
+    };
+    // SAFETY: `info` outlives the call and `data` covers `size`.
+    assert!(
+        unsafe { retro_load_game(&raw const info) },
+        "the cart loads"
+    );
+
+    let map = FRONTEND.with_borrow(|f| f.memory_map.clone());
+    assert_eq!(map.len(), 2, "work RAM and the battery");
+
+    let save = map[1];
+    assert_eq!(save.flags, RETRO_MEMDESC_SAVE_RAM);
+    assert_eq!(save.start, 0x6000);
+    assert_eq!(save.select, 0xE000, "decoded across $6000-$7FFF");
+    assert_eq!(
+        save.len, 0x2000,
+        "8 KiB of cartridge RAM, filling the window"
+    );
+    assert_eq!(
+        save.ptr,
+        retro_get_memory_data(RETRO_MEMORY_SAVE_RAM) as usize
+    );
+    assert_eq!(save.len, retro_get_memory_size(RETRO_MEMORY_SAVE_RAM));
+}
+
+/// The frontend caches the pointer once and reads through it for the rest of the session, so a
+/// restore that moved the buffer would leave it reading freed memory.
+#[test]
+fn the_memory_pointer_survives_a_state_restore() {
+    let session = Session::start();
+    assert!(session.load());
+    session.run(10);
+
+    let before = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+    let size = retro_serialize_size();
+    let mut buffer = vec![0; size];
+    // SAFETY: the buffer is the size the core asked for.
+    assert!(unsafe { retro_serialize(buffer.as_mut_ptr().cast::<c_void>(), size) });
+    session.run(10);
+    // SAFETY: the same buffer, as the core wrote it.
+    assert!(unsafe { retro_unserialize(buffer.as_ptr().cast::<c_void>(), size) });
+
+    assert_eq!(
+        before,
+        retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM),
+        "the pointer the frontend cached is still good"
+    );
+}
+
+/// Cheats through the exports, which is the path a frontend's cheat menu takes.
+#[test]
+fn a_cheat_reaches_the_game_and_clearing_it_lets_go() {
+    let session = Session::start();
+    assert!(session.load());
+    session.run(10);
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let peek = || {
+        unsafe { core::try_core() }
+            .expect("a core")
+            .deck
+            .bus()
+            .peek(0x00A2)
+    };
+
+    // Whatever the game left at $00A2, the cheat has to override it - so the value chosen is one
+    // it is not already holding.
+    let plain = peek();
+    let cheated = plain.wrapping_add(1);
+    let code = std::ffi::CString::new(format!("00A2:{cheated:02X}")).expect("a code");
+    // SAFETY: a NUL-terminated string that outlives the call.
+    unsafe { retro_cheat_set(0, true, code.as_ptr()) };
+    assert_eq!(peek(), cheated, "the cheat substitutes on read");
+
+    retro_cheat_reset();
+    assert_eq!(peek(), plain, "and resetting puts the game back");
+
+    // Ejecting the cart has to clear them too: the console keeps its patch table across a cart
+    // change, so a code entered here would still be substituting in the next game. Asserted
+    // against the table rather than a read, since a fresh console's RAM is not the running one's.
+    unsafe { retro_cheat_set(0, true, code.as_ptr()) };
+    retro_unload_game();
+    assert!(session.load(), "the cart goes back in");
+    // SAFETY: as above.
+    let patches = unsafe { core::try_core() }
+        .expect("a core")
+        .deck
+        .patches()
+        .count();
+    assert_eq!(patches, 0, "the previous game's cheat is gone");
 }
 
 /// A frontend will hand over rubbish - a truncated download, the wrong file - and the core has to
