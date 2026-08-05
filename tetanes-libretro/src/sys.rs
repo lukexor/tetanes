@@ -62,6 +62,25 @@ pub const RETRO_DEVICE_NONE: c_uint = 0;
 pub const RETRO_DEVICE_JOYPAD: c_uint = 1;
 pub const RETRO_DEVICE_LIGHTGUN: c_uint = 4;
 
+/// A frontend may pass a *subclass* of a device - `RETRO_DEVICE_SUBCLASS` shifts an ordinal into
+/// the high bits - so the base device is what survives this mask.
+pub const RETRO_DEVICE_MASK: c_uint = 0xFF;
+
+/// Light gun axes and buttons.
+///
+/// `SCREEN_X` and `SCREEN_Y` are absolute, spanning `-0x8000..=0x7FFF` across the viewport rather
+/// than the frame, and are only meaningful when `IS_OFFSCREEN` reads zero.
+pub const RETRO_DEVICE_ID_LIGHTGUN_TRIGGER: c_uint = 2;
+pub const RETRO_DEVICE_ID_LIGHTGUN_AUX_A: c_uint = 3;
+pub const RETRO_DEVICE_ID_LIGHTGUN_AUX_B: c_uint = 4;
+pub const RETRO_DEVICE_ID_LIGHTGUN_START: c_uint = 6;
+pub const RETRO_DEVICE_ID_LIGHTGUN_SELECT: c_uint = 7;
+pub const RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X: c_uint = 13;
+pub const RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y: c_uint = 14;
+pub const RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN: c_uint = 15;
+/// A shot deliberately fired off-screen, which is how a game is told to reload.
+pub const RETRO_DEVICE_ID_LIGHTGUN_RELOAD: c_uint = 16;
+
 /// RetroPad buttons, in the order the frontend numbers them.
 ///
 /// Note the NES layout is mirrored against this one: RetroPad `B` is the NES `A`.

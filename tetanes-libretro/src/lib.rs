@@ -72,9 +72,11 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
             if let Some(core) = core::try_core() {
                 core.callbacks.environment = Some(cb);
             }
-            // Declared here rather than at load, so the options are in the frontend's menu before
-            // any content is chosen - which is where a player looks for them.
+            // Declared here rather than at load, so the options and the ports are in the
+            // frontend's menus before any content is chosen - which is where a player looks for
+            // them, and `retro_set_controller_port_device` arrives before a load too.
             options::declare(cb);
+            input::declare_ports(cb);
         }
     });
 }
@@ -190,13 +192,20 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
     *out = with_core(av_info(NesRegion::Ntsc), |core| av_info(core.deck.region()));
 }
 
-/// Selects what is plugged into a port. Unused until four-player and the zapper land.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
+/// Selects what is plugged into a port.
+///
+/// Ports three and four only reach the console through an adapter, which `tetanes_four_player`
+/// chooses - a controller assigned here without one is read and then ignored by the console, as it
+/// would be with nothing plugged into the back of the machine.
 #[unsafe(no_mangle)]
-pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uint) {}
+pub extern "C" fn retro_set_controller_port_device(port: c_uint, device: c_uint) {
+    with_core((), |core| {
+        core.pads.set_device(port as usize, device);
+        // The console needs telling separately, because the Zapper shares $4017 with port two and
+        // reads as nothing at all when unplugged.
+        core.deck.connect_zapper(core.pads.zapper_connected());
+    });
+}
 
 /// Soft-resets the console, as the front-panel button does.
 #[unsafe(no_mangle)]
@@ -527,7 +536,7 @@ unsafe fn set_pixel_format(core: &mut core::Core) -> bool {
     ok
 }
 
-/// Latches input and applies it to the joypads.
+/// Latches input and applies it to whatever is in each port.
 ///
 /// # Safety
 ///
@@ -540,13 +549,52 @@ unsafe fn poll_input(core: &mut core::Core) {
     unsafe {
         poll();
         for (port, player) in input::PORTS.into_iter().enumerate() {
-            let mut held = JoypadBtnState::empty();
-            for (id, button, _) in input::BUTTONS {
-                if state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0 {
-                    held.insert(button);
+            match core.pads.device(port) {
+                // An empty port is not read at all, which is also what makes the two ports a
+                // console has without an adapter cost nothing extra.
+                input::Device::None => {}
+                input::Device::Joypad => {
+                    let mut held = JoypadBtnState::empty();
+                    for (id, button, _) in input::BUTTONS {
+                        if state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0 {
+                            held.insert(button);
+                        }
+                    }
+                    core.pads.apply(port, core.deck.joypad_mut(player), held);
                 }
+                input::Device::Zapper => poll_zapper(core, port, state),
             }
-            core.pads.apply(port, core.deck.joypad_mut(player), held);
         }
+    }
+}
+
+/// Aims the Zapper and pulls its trigger.
+///
+/// # Safety
+///
+/// `state` must be the frontend's callback, already polled this frame.
+unsafe fn poll_zapper(core: &mut core::Core, port: usize, state: retro_input_state_t) {
+    let read = |id| unsafe { state(port as c_uint, RETRO_DEVICE_LIGHTGUN, 0, id) };
+
+    // A reload is a shot the frontend has deliberately aimed away from the screen, which is how a
+    // game is told to reload - so it counts as both off-screen and as a pull.
+    let reload = read(RETRO_DEVICE_ID_LIGHTGUN_RELOAD) != 0;
+    let offscreen = reload || read(RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN) != 0;
+
+    if offscreen {
+        // Aimed where nothing is sampled, so the shot sees no light wherever it was pointed.
+        core.deck.aim_zapper(0, input::OFFSCREEN_Y);
+    } else {
+        core.deck.aim_zapper(
+            input::aim_to_pixel(read(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X), size::WIDTH),
+            input::aim_to_pixel(read(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y), size::HEIGHT),
+        );
+    }
+
+    if core
+        .pads
+        .pulled(reload || read(RETRO_DEVICE_ID_LIGHTGUN_TRIGGER) != 0)
+    {
+        core.deck.trigger_zapper();
     }
 }

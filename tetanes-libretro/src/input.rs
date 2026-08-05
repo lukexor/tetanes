@@ -6,7 +6,7 @@
 //! down is therefore the *difference* from last frame, which is also how the desktop UI drives it.
 
 use crate::{log, sys};
-use std::ffi::{CStr, c_void};
+use std::ffi::{CStr, c_uint, c_void};
 use tetanes_core::input::{Joypad, JoypadBtnState, Player};
 
 /// How a RetroPad button maps onto the NES pad, and what the frontend's remapping menu calls it.
@@ -58,8 +58,113 @@ pub const BUTTONS: [(u32, JoypadBtnState, &CStr); 10] = [
     ),
 ];
 
-/// Ports this core reads. Four-player lands with `retro_set_controller_port_device`.
-pub const PORTS: [Player; 2] = [Player::One, Player::Two];
+/// Ports this core reads.
+///
+/// Four, always. Three and four exist only behind an adapter, and the console ignores them unless
+/// `tetanes_four_player` has plugged one in - but the *ports* are declared regardless, because a
+/// frontend has to be able to assign controllers to them before the option is set.
+pub const PORTS: [Player; 4] = [Player::One, Player::Two, Player::Three, Player::Four];
+
+/// The port the Zapper plugs into, as it does on the hardware: `$4017`, which port two shares.
+pub const ZAPPER_PORT: usize = 1;
+
+/// Aimed here, the light sense reads dark whatever is on screen.
+///
+/// [`Zapper::light_sense`](tetanes_core::input::Zapper) samples a radius around the aim point and
+/// clamps the far edge to the frame, so a Y far enough below it leaves an empty range and nothing
+/// is sampled at all. That is what a shot fired off-screen has to look like: the trigger pulled,
+/// no light seen.
+pub const OFFSCREEN_Y: u16 = 250;
+
+/// What the frontend has plugged into one port.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Device {
+    /// Nothing, so the port is not polled at all.
+    None,
+    #[default]
+    Joypad,
+    /// The Zapper, which only [`ZAPPER_PORT`] accepts.
+    Zapper,
+}
+
+impl Device {
+    /// Reads what a frontend asked for, ignoring a device this port has no socket for.
+    fn from_retro(port: usize, device: c_uint) -> Self {
+        match device & sys::RETRO_DEVICE_MASK {
+            sys::RETRO_DEVICE_NONE => Self::None,
+            sys::RETRO_DEVICE_LIGHTGUN if port == ZAPPER_PORT => Self::Zapper,
+            sys::RETRO_DEVICE_LIGHTGUN => {
+                log::info("the Zapper plugs into port 2, as it does on the console");
+                Self::None
+            }
+            _ => Self::Joypad,
+        }
+    }
+}
+
+/// Devices each port accepts, for the frontend's controller menu.
+const JOYPAD_ONLY: [(&CStr, c_uint); 1] = [(c"Controller", sys::RETRO_DEVICE_JOYPAD)];
+const JOYPAD_OR_ZAPPER: [(&CStr, c_uint); 2] = [
+    (c"Controller", sys::RETRO_DEVICE_JOYPAD),
+    (c"Zapper", sys::RETRO_DEVICE_LIGHTGUN),
+];
+
+/// Tells the frontend what each port accepts, so its controller menu offers the Zapper on the port
+/// that has one and nothing on the ports that do not.
+///
+/// # Safety
+///
+/// The environment callback must be valid.
+pub unsafe fn declare_ports(environment: sys::retro_environment_t) {
+    // Each port's list, then the array of lists, all terminated by a zeroed entry. Held in locals
+    // because the frontend copies during the call; the strings are `'static` regardless.
+    let mut types: Vec<Vec<sys::retro_controller_description>> = PORTS
+        .iter()
+        .enumerate()
+        .map(|(port, _)| {
+            let accepted: &[(&CStr, c_uint)] = if port == ZAPPER_PORT {
+                &JOYPAD_OR_ZAPPER
+            } else {
+                &JOYPAD_ONLY
+            };
+            let mut list: Vec<_> = accepted
+                .iter()
+                .map(|&(desc, id)| sys::retro_controller_description {
+                    desc: desc.as_ptr(),
+                    id,
+                })
+                .collect();
+            list.push(sys::retro_controller_description {
+                desc: std::ptr::null(),
+                id: 0,
+            });
+            list
+        })
+        .collect();
+    let mut ports: Vec<sys::retro_controller_info> = types
+        .iter_mut()
+        .map(|list| sys::retro_controller_info {
+            types: list.as_ptr(),
+            // The terminator is not one of them.
+            num_types: list.len() as c_uint - 1,
+        })
+        .collect();
+    ports.push(sys::retro_controller_info {
+        types: std::ptr::null(),
+        num_types: 0,
+    });
+    // SAFETY: the frontend reads until the null `types`, and everything it points at outlives the
+    // call.
+    let ok = unsafe {
+        environment(
+            sys::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,
+            ports.as_mut_ptr().cast::<c_void>(),
+        )
+    };
+    if !ok {
+        log::info("the frontend does not take controller descriptions");
+    }
+}
 
 /// Tells the frontend what each button does, so its remapping menu names them.
 ///
@@ -83,6 +188,19 @@ pub unsafe fn describe(environment: sys::retro_environment_t) {
             })
         })
         .collect();
+    // The Zapper's own buttons, on the one port that takes it.
+    for (id, description) in [
+        (sys::RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, c"Trigger"),
+        (sys::RETRO_DEVICE_ID_LIGHTGUN_RELOAD, c"Shoot Off-screen"),
+    ] {
+        descriptors.push(sys::retro_input_descriptor {
+            port: ZAPPER_PORT as u32,
+            device: sys::RETRO_DEVICE_LIGHTGUN,
+            index: 0,
+            id,
+            description: description.as_ptr(),
+        });
+    }
     descriptors.push(sys::retro_input_descriptor {
         port: 0,
         device: 0,
@@ -103,13 +221,61 @@ pub unsafe fn describe(environment: sys::retro_environment_t) {
     }
 }
 
-/// What each port reported last frame, so that only changes are sent to the console.
-#[derive(Default)]
+/// What is in each port, and what it reported last frame.
 pub struct Pads {
+    devices: [Device; PORTS.len()],
     previous: [JoypadBtnState; PORTS.len()],
+    /// Whether the Zapper's trigger was held last frame.
+    ///
+    /// The pull is an edge: [`Zapper::trigger`](tetanes_core::input::Zapper) arms a timer that
+    /// releases itself after ~100 ms, so re-arming it every frame a held trigger is reported would
+    /// turn one shot into ten a second.
+    trigger_held: bool,
+}
+
+impl Default for Pads {
+    fn default() -> Self {
+        Self {
+            // Two controllers, which is what a console has without an adapter and what a frontend
+            // that never calls `retro_set_controller_port_device` should still get.
+            devices: [Device::Joypad, Device::Joypad, Device::None, Device::None],
+            previous: [JoypadBtnState::empty(); PORTS.len()],
+            trigger_held: false,
+        }
+    }
 }
 
 impl Pads {
+    /// Records what the frontend plugged into a port. Out-of-range ports are ignored.
+    pub fn set_device(&mut self, port: usize, device: c_uint) {
+        let Some(slot) = self.devices.get_mut(port) else {
+            return;
+        };
+        let device = Device::from_retro(port, device);
+        if *slot != device {
+            *slot = device;
+            // Whatever was held on the old device is not held on the new one.
+            self.previous[port] = JoypadBtnState::empty();
+            self.trigger_held = false;
+        }
+    }
+
+    /// What is in a port.
+    pub fn device(&self, port: usize) -> Device {
+        self.devices.get(port).copied().unwrap_or_default()
+    }
+
+    /// Whether any port has the Zapper in it.
+    pub fn zapper_connected(&self) -> bool {
+        self.devices.contains(&Device::Zapper)
+    }
+
+    /// Whether this frame's trigger report is a fresh pull rather than one still being held.
+    pub const fn pulled(&mut self, held: bool) -> bool {
+        let pulled = held && !self.trigger_held;
+        self.trigger_held = held;
+        pulled
+    }
     /// Sends the buttons that changed since last frame.
     pub fn apply(&mut self, port: usize, joypad: &mut Joypad, held: JoypadBtnState) {
         let changed = held.symmetric_difference(self.previous[port]);
@@ -129,7 +295,18 @@ impl Pads {
     /// button still physically held would otherwise look unchanged and never be sent again.
     pub const fn forget(&mut self) {
         self.previous = [JoypadBtnState::empty(); PORTS.len()];
+        self.trigger_held = false;
     }
+}
+
+/// Turns a light gun's absolute axis into a frame coordinate.
+///
+/// libretro spans `-0x8000..=0x7FFF` across the viewport whatever its size, so the frame's own
+/// dimensions are the only scale needed.
+pub fn aim_to_pixel(axis: i16, span: u16) -> u16 {
+    let offset = i32::from(axis) + 0x8000;
+    let pixel = (offset * i32::from(span)) / 0x1_0000;
+    pixel.clamp(0, i32::from(span) - 1) as u16
 }
 
 #[cfg(test)]
@@ -155,6 +332,85 @@ mod tests {
             nes,
             JoypadBtnState::all() - JoypadBtnState::TURBO_A - JoypadBtnState::TURBO_B,
             "every real NES button is reachable"
+        );
+    }
+
+    /// The Zapper has one socket on the console, and a frontend that asks for it elsewhere has to
+    /// be refused rather than quietly given a second gun.
+    #[test]
+    fn the_zapper_only_fits_the_port_that_has_a_socket() {
+        assert_eq!(
+            Device::from_retro(ZAPPER_PORT, sys::RETRO_DEVICE_LIGHTGUN),
+            Device::Zapper
+        );
+        for port in [0, 2, 3] {
+            assert_eq!(
+                Device::from_retro(port, sys::RETRO_DEVICE_LIGHTGUN),
+                Device::None,
+                "port {port}"
+            );
+        }
+        assert_eq!(Device::from_retro(0, sys::RETRO_DEVICE_NONE), Device::None);
+        // A frontend may hand over a subclass, whose low byte is still the base device.
+        assert_eq!(
+            Device::from_retro(0, sys::RETRO_DEVICE_JOYPAD | (1 << 8)),
+            Device::Joypad
+        );
+    }
+
+    /// A console has two ports without an adapter, so that is what a frontend which never assigns
+    /// anything gets.
+    #[test]
+    fn two_controllers_are_plugged_in_to_begin_with() {
+        let pads = Pads::default();
+        assert_eq!(pads.device(0), Device::Joypad);
+        assert_eq!(pads.device(1), Device::Joypad);
+        assert_eq!(pads.device(2), Device::None);
+        assert_eq!(pads.device(3), Device::None);
+        assert!(!pads.zapper_connected());
+        // Out of range answers rather than panicking, since the frontend picks the number.
+        assert_eq!(pads.device(9), Device::Joypad);
+    }
+
+    /// The whole span maps onto the frame, and the ends land inside it rather than one past.
+    #[test]
+    fn an_absolute_axis_becomes_a_frame_coordinate() {
+        assert_eq!(aim_to_pixel(i16::MIN, 256), 0, "hard left");
+        assert_eq!(aim_to_pixel(i16::MAX, 256), 255, "hard right, still inside");
+        assert_eq!(aim_to_pixel(0, 256), 128, "the middle");
+        assert_eq!(aim_to_pixel(i16::MIN, 240), 0);
+        assert_eq!(aim_to_pixel(i16::MAX, 240), 239);
+    }
+
+    /// The trigger is a pull, not a hold: the console releases it after ~100 ms of its own accord,
+    /// so re-arming every frame would turn one shot into ten a second.
+    #[test]
+    fn the_trigger_fires_once_per_pull() {
+        let mut pads = Pads::default();
+        assert!(pads.pulled(true), "the pull");
+        assert!(!pads.pulled(true), "still held is not another shot");
+        assert!(!pads.pulled(false), "nor is the release");
+        assert!(pads.pulled(true), "the next pull is");
+
+        pads.forget();
+        assert!(pads.pulled(true), "and a reset re-arms it");
+    }
+
+    /// Changing what is in a port must not leave the last device's buttons looking held.
+    #[test]
+    fn swapping_a_device_forgets_what_it_was_holding() {
+        let mut pads = Pads::default();
+        let mut joypad = Joypad::new();
+        pads.apply(0, &mut joypad, JoypadBtnState::START);
+
+        pads.set_device(0, sys::RETRO_DEVICE_NONE);
+        pads.set_device(0, sys::RETRO_DEVICE_JOYPAD);
+        joypad.clear();
+
+        pads.apply(0, &mut joypad, JoypadBtnState::START);
+        assert!(
+            joypad.button(JoypadBtnState::START),
+            "sent again on the new device"
         );
     }
 

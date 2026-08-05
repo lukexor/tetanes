@@ -49,6 +49,11 @@ struct Frontend {
     audio_per_call: Vec<usize>,
     /// Buttons the frontend reports as held, as `(port, id)`.
     held: Vec<(c_uint, c_uint)>,
+    /// Light gun axes and buttons the frontend answers with, by id.
+    lightgun: std::collections::HashMap<c_uint, i16>,
+    /// Every `(port, device)` the core asked about, so an unpolled port can be told from a port
+    /// that reported nothing.
+    state_reads: Vec<(c_uint, c_uint)>,
     polls: usize,
     /// Option keys the core declared, in the order it declared them.
     declared_options: Vec<String>,
@@ -58,8 +63,9 @@ struct Frontend {
     /// contract, since `GET_VARIABLE_UPDATE` says only that something changed.
     variable_update: bool,
     av_infos: Vec<retro_system_av_info>,
-    /// Buttons the core described, as `(port, id, description)`.
-    input_descriptors: Vec<(c_uint, c_uint, String)>,
+    /// Buttons the core described, as `(port, device, id, description)`. The device matters:
+    /// the light gun's trigger and the joypad's Select share an id.
+    input_descriptors: Vec<(c_uint, c_uint, c_uint, String)>,
     fast_forwarding: bool,
 }
 
@@ -158,6 +164,7 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
                 while !(*desc).description.is_null() {
                     described.push((
                         (*desc).port,
+                        (*desc).device,
                         (*desc).id,
                         CStr::from_ptr((*desc).description)
                             .to_string_lossy()
@@ -233,8 +240,15 @@ unsafe extern "C" fn input_poll() {
     FRONTEND.with_borrow_mut(|f| f.polls += 1);
 }
 
-unsafe extern "C" fn input_state(port: c_uint, _device: c_uint, _index: c_uint, id: c_uint) -> i16 {
-    FRONTEND.with_borrow(|f| i16::from(f.held.contains(&(port, id))))
+unsafe extern "C" fn input_state(port: c_uint, device: c_uint, _index: c_uint, id: c_uint) -> i16 {
+    FRONTEND.with_borrow_mut(|f| {
+        f.state_reads.push((port, device));
+        if device == RETRO_DEVICE_LIGHTGUN {
+            f.lightgun.get(&id).copied().unwrap_or(0)
+        } else {
+            i16::from(f.held.contains(&(port, id)))
+        }
+    })
 }
 
 /// Brings a core up the way a frontend does, and tears it down when the guard drops.
@@ -469,28 +483,132 @@ fn every_button_on_every_port_is_described() {
     assert!(session.load());
 
     let described = FRONTEND.with_borrow(|f| f.input_descriptors.clone());
-    assert_eq!(
-        described.len(),
-        input::PORTS.len() * input::BUTTONS.len(),
-        "each port describes each button"
-    );
+    let named = |port: c_uint, device: c_uint, id: c_uint| {
+        described
+            .iter()
+            .find(|&&(p, d, i, _)| (p, d, i) == (port, device, id))
+            .map(|(_, _, _, name)| name.as_str())
+    };
 
     for port in 0..input::PORTS.len() as c_uint {
-        let named = |id| {
-            described
-                .iter()
-                .find(|&&(p, i, _)| p == port && i == id)
-                .map(|(_, _, name)| name.as_str())
-        };
-        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_B), Some("A"), "port {port}");
-        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_A), Some("B"), "port {port}");
-        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_Y), Some("Turbo A"));
-        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_START), Some("Start"));
-        assert_eq!(named(RETRO_DEVICE_ID_JOYPAD_LEFT), Some("Left"));
+        let pad = |id| named(port, RETRO_DEVICE_JOYPAD, id);
+        assert_eq!(pad(RETRO_DEVICE_ID_JOYPAD_B), Some("A"), "port {port}");
+        assert_eq!(pad(RETRO_DEVICE_ID_JOYPAD_A), Some("B"), "port {port}");
+        assert_eq!(pad(RETRO_DEVICE_ID_JOYPAD_Y), Some("Turbo A"));
+        assert_eq!(pad(RETRO_DEVICE_ID_JOYPAD_START), Some("Start"));
+        assert_eq!(pad(RETRO_DEVICE_ID_JOYPAD_LEFT), Some("Left"));
         for (id, _, _) in input::BUTTONS {
-            assert!(named(id).is_some(), "port {port} left {id} unnamed");
+            assert!(pad(id).is_some(), "port {port} left {id} unnamed");
         }
     }
+
+    // The Zapper's own, on the one port that takes it. Its trigger shares an id with the joypad's
+    // Select, which is why the device is part of the lookup.
+    let zapper = input::ZAPPER_PORT as c_uint;
+    let gun = |id| named(zapper, RETRO_DEVICE_LIGHTGUN, id);
+    assert_eq!(gun(RETRO_DEVICE_ID_LIGHTGUN_TRIGGER), Some("Trigger"));
+    assert_eq!(
+        gun(RETRO_DEVICE_ID_LIGHTGUN_RELOAD),
+        Some("Shoot Off-screen")
+    );
+    assert_eq!(
+        named(zapper, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_SELECT),
+        Some("Select"),
+        "the joypad's Select is a different entry, not overwritten"
+    );
+
+    assert_eq!(
+        described.len(),
+        input::PORTS.len() * input::BUTTONS.len() + 2,
+        "every port's buttons, plus the Zapper's two"
+    );
+}
+
+/// Port three is polled and reaches its joypad once a controller is assigned to it.
+///
+/// Whether the *game* can see it is the adapter's business - without one the console shifts out
+/// only two pads - but that is the console's rule, and this is about the port reaching it at all.
+#[test]
+fn a_controller_on_port_three_reaches_its_joypad() {
+    let session = Session::start();
+    retro_set_controller_port_device(2, RETRO_DEVICE_JOYPAD);
+    assert!(session.load());
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let pressed = |player| {
+        unsafe { core::try_core() }
+            .expect("a core")
+            .deck
+            .joypad(player)
+            .button(JoypadBtnState::START)
+    };
+
+    FRONTEND.with_borrow_mut(|f| f.held = vec![(2, RETRO_DEVICE_ID_JOYPAD_START)]);
+    session.run(1);
+    assert!(
+        pressed(Player::Three),
+        "the port is polled whether or not the console can hear it"
+    );
+
+    set_option("tetanes_four_player", "four_score");
+    session.run(1);
+    assert!(pressed(Player::Three), "and still is with the adapter in");
+}
+
+/// An empty port is not read at all, which is what keeps two controllers costing two.
+#[test]
+fn an_empty_port_is_not_polled() {
+    let session = Session::start();
+    assert!(session.load());
+    FRONTEND.with_borrow_mut(|f| {
+        f.held = vec![(0, RETRO_DEVICE_ID_JOYPAD_START)];
+        f.state_reads.clear();
+    });
+    session.run(1);
+
+    let read = |port| FRONTEND.with_borrow(|f| f.state_reads.iter().any(|&(p, _)| p == port));
+    assert!(read(0), "port one is polled");
+    assert!(!read(2), "port three is empty, so it is not");
+
+    retro_set_controller_port_device(0, RETRO_DEVICE_NONE);
+    FRONTEND.with_borrow_mut(|f| f.state_reads.clear());
+    session.run(1);
+    assert!(!read(0), "and unplugging port one stops it too");
+}
+
+/// The Zapper is a light gun on the port that has the socket, aimed in absolute screen
+/// coordinates, whose trigger is a pull rather than a hold.
+#[test]
+fn the_zapper_aims_and_fires() {
+    let session = Session::start();
+    retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_LIGHTGUN);
+    assert!(session.load());
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let deck = || &unsafe { core::try_core() }.expect("a core").deck;
+    assert!(
+        deck().zapper_connected(),
+        "plugging it in reaches the console"
+    );
+
+    // Dead centre of the frame.
+    FRONTEND.with_borrow_mut(|f| {
+        f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X, 0);
+        f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y, 0);
+    });
+    session.run(1);
+    assert_eq!(deck().zapper_pos(), (128, 120));
+
+    // Off-screen aims where nothing is sampled, so a shot there can never see light.
+    FRONTEND.with_borrow_mut(|f| f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN, 1));
+    session.run(1);
+    assert_eq!(deck().zapper_pos().1, input::OFFSCREEN_Y);
+
+    retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_JOYPAD);
+    assert!(
+        !deck().zapper_connected(),
+        "and unplugging it reaches it too"
+    );
 }
 
 /// The options have to be declared before content is chosen, since that is when a player opens the
