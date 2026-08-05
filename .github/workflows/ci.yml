@@ -82,7 +82,7 @@ jobs:
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
       - run: |
-          cargo clippy --locked -p tetanes --all-features --keep-going -- -D warnings
+          cargo clippy --locked -p tetanes --all-features --all-targets --keep-going -- -D warnings
 
   lint-tetanes-core:
     name: Lint TetaNES Core (${{ matrix.os }})
@@ -105,7 +105,7 @@ jobs:
           # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
           CARGO_ENCODED_RUSTFLAGS: ""
         run: |
-          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --keep-going -- -D warnings
+          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --all-targets --keep-going -- -D warnings
 
   lint-tetanes-libretro:
     name: Lint TetaNES libretro (${{ matrix.os }}, ${{ matrix.toolchain }})
@@ -129,7 +129,7 @@ jobs:
           # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
           CARGO_ENCODED_RUSTFLAGS: ""
         run: |
-          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-libretro --all-targets --keep-going -- -D warnings
+          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-libretro --all-features --all-targets --keep-going -- -D warnings
 
   test-tetanes-libretro:
     name: Test TetaNES libretro
