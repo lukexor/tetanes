@@ -59,24 +59,32 @@ impl Video {
         match filter {
             VideoFilter::Pixellate => {
                 for (dst, &entry) in self.xrgb.iter_mut().zip(deck.frame_buffer_raw().iter()) {
-                    // The PPU only ever emits an index this table has, and wrapping it here would
-                    // hide a bug rather than fix one.
+                    // The mask is free - the table is a power of two and the PPU only emits
+                    // six colour bits and three of emphasis - and it keeps the bounds check out of
+                    // the per-pixel loop.
                     *dst = self.palette[usize::from(entry) & (Self::PALETTE_LEN - 1)];
                 }
             }
             VideoFilter::Ntsc => {
                 deck.frame_buffer_into(self.rgba.as_array_mut());
-                for (dst, rgba) in self
-                    .xrgb
-                    .iter_mut()
-                    .zip(self.rgba.as_slice().as_chunks::<4>().0)
-                {
-                    *dst =
-                        (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
-                }
+                self.pack_rgba();
             }
         }
         &self.xrgb
+    }
+
+    /// Packs the core's RGBA into XRGB, which is where red and blue change places.
+    ///
+    /// Split out because that swap is the one thing on this path that can be silently backwards -
+    /// a frame in the wrong channel order still looks like a picture.
+    fn pack_rgba(&mut self) {
+        for (dst, rgba) in self
+            .xrgb
+            .iter_mut()
+            .zip(self.rgba.as_slice().as_chunks::<4>().0)
+        {
+            *dst = (u32::from(rgba[0]) << 16) | (u32::from(rgba[1]) << 8) | u32::from(rgba[2]);
+        }
     }
 }
 
@@ -84,15 +92,56 @@ impl Video {
 mod tests {
     use super::*;
 
-    /// Both paths have to agree, or switching the filter would shift every colour.
+    /// Red and blue change places on the `Ntsc` path, and a frame in the wrong channel order
+    /// still looks like a picture - so the swap is asserted against a colour that cannot be
+    /// mistaken for its own mirror.
     #[test]
-    fn both_filters_produce_the_same_xrgb_for_a_flat_frame() {
+    fn the_ntsc_path_puts_red_and_blue_where_xrgb_wants_them() {
+        let mut video = Video::new();
+        // A pixel that is unambiguous either way round: mostly red, no blue.
+        let rgba = video.rgba.as_array_mut();
+        rgba[0] = 0xC0; // R
+        rgba[1] = 0x30; // G
+        rgba[2] = 0x00; // B
+        rgba[3] = 0xFF; // A, which XRGB drops
+        video.pack_rgba();
+
+        assert_eq!(
+            video.xrgb[0], 0x00C0_3000,
+            "0x00RRGGBB, so red is the high byte and the alpha is gone"
+        );
+    }
+
+    /// The `Pixellate` path is the same conversion done as a table, so it has to agree about which
+    /// byte is which - a table built the other way round would tint every frame.
+    #[test]
+    fn the_palette_table_is_built_in_the_same_channel_order() {
         let video = Video::new();
-        // Palette entry 0 is the NES's dark grey; whatever it is, the two routes must match.
-        let rgb = &Ppu::NTSC_PALETTE[0..3];
-        let expected = (u32::from(rgb[0]) << 16) | (u32::from(rgb[1]) << 8) | u32::from(rgb[2]);
-        assert_eq!(video.palette[0], expected);
-        assert_eq!(video.palette[0] & 0xFF00_0000, 0, "the X byte stays clear");
+        for entry in [0, 1, 0x16, 0x2A, Video::PALETTE_LEN - 1] {
+            let rgb = &Ppu::NTSC_PALETTE[entry * 3..];
+            assert_eq!(
+                video.palette[entry],
+                (u32::from(rgb[0]) << 16) | (u32::from(rgb[1]) << 8) | u32::from(rgb[2]),
+                "palette entry {entry}"
+            );
+            assert_eq!(
+                video.palette[entry] & 0xFF00_0000,
+                0,
+                "the X byte stays clear"
+            );
+        }
+    }
+
+    /// Every index the PPU can emit has to land inside the table, or the mask in `frame` would be
+    /// hiding an out-of-range entry rather than saving a bounds check.
+    #[test]
+    fn the_palette_covers_every_index_the_ppu_emits() {
+        assert_eq!(
+            Video::PALETTE_LEN,
+            512,
+            "64 colours by eight emphasis states"
+        );
+        assert!(Ppu::NTSC_PALETTE.len() >= Video::PALETTE_LEN * 3);
     }
 
     #[test]

@@ -65,6 +65,15 @@ pub const BUTTONS: [(u32, JoypadBtnState, &CStr); 10] = [
 /// frontend has to be able to assign controllers to them before the option is set.
 pub const PORTS: [Player; 4] = [Player::One, Player::Two, Player::Three, Player::Four];
 
+/// Each turbo button and the plain one it fires.
+///
+/// The pairing is the console's, not this crate's: [`Joypad::set_button`] clears the plain button
+/// when its turbo is released, which is why the two have to be tracked together.
+const TURBO: [(JoypadBtnState, JoypadBtnState); 2] = [
+    (JoypadBtnState::TURBO_A, JoypadBtnState::A),
+    (JoypadBtnState::TURBO_B, JoypadBtnState::B),
+];
+
 /// The port the Zapper plugs into, as it does on the hardware: `$4017`, which port two shares.
 pub const ZAPPER_PORT: usize = 1;
 
@@ -269,18 +278,25 @@ impl Default for Pads {
 }
 
 impl Pads {
-    /// Records what the frontend plugged into a port. Out-of-range ports are ignored.
-    pub fn set_device(&mut self, port: usize, device: c_uint) {
+    /// Records what the frontend plugged into a port, reporting whether that changed anything.
+    ///
+    /// A caller that gets `true` must also clear the console's own pad for the port: a button held
+    /// as the device is swapped stays pressed otherwise, and an unplugged port is never polled
+    /// again to release it. Out-of-range ports are ignored.
+    #[must_use]
+    pub fn set_device(&mut self, port: usize, device: c_uint) -> bool {
         let Some(slot) = self.devices.get_mut(port) else {
-            return;
+            return false;
         };
         let device = Device::from_retro(port, device);
-        if *slot != device {
-            *slot = device;
-            // Whatever was held on the old device is not held on the new one.
-            self.previous[port] = JoypadBtnState::empty();
-            self.trigger_held = false;
+        if *slot == device {
+            return false;
         }
+        *slot = device;
+        // Whatever was held on the old device is not held on the new one.
+        self.previous[port] = JoypadBtnState::empty();
+        self.trigger_held = false;
+        true
     }
 
     /// What is in a port.
@@ -309,6 +325,15 @@ impl Pads {
                 joypad.set_button(button, held.contains(button));
             }
         }
+        // Letting go of turbo also clears the plain button it was firing, so one still held has to
+        // be pressed again - the frontend reports it as unchanged from here on and would never
+        // mention it. Without this, releasing turbo mid-game kills the run button until the player
+        // lets go of it and presses it afresh.
+        for (turbo, plain) in TURBO {
+            if changed.contains(turbo) && !held.contains(turbo) && held.contains(plain) {
+                joypad.set_button(plain, true);
+            }
+        }
         self.previous[port] = held;
     }
 
@@ -318,7 +343,6 @@ impl Pads {
     /// button still physically held would otherwise look unchanged and never be sent again.
     pub const fn forget(&mut self) {
         self.previous = [JoypadBtnState::empty(); PORTS.len()];
-        self.trigger_held = false;
     }
 }
 
@@ -363,12 +387,39 @@ mod tests {
     /// moment `declare_ports` returns, and its controls menu reads freed memory - which is a crash,
     /// and was.
     ///
-    /// A `static` has the same address every time; anything allocated per call does not.
+    /// Asserted by handing the table over twice, through the call itself, and checking the
+    /// frontend was given the same addresses both times - which per-call allocation cannot manage.
     #[test]
     fn the_port_devices_outlive_the_call_that_hands_them_over() {
-        let first: Vec<_> = PORT_DEVICES.0.iter().map(|info| info.types).collect();
-        let second: Vec<_> = PORT_DEVICES.0.iter().map(|info| info.types).collect();
-        assert_eq!(first, second, "not the same memory twice");
+        use std::sync::Mutex;
+        static SEEN: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+
+        unsafe extern "C" fn record(cmd: c_uint, data: *mut c_void) -> bool {
+            assert_eq!(cmd, sys::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO);
+            // SAFETY: the core passes an array running until an entry with a null `types`, which
+            // is exactly the walk a frontend does.
+            unsafe {
+                let mut info = data.cast::<sys::retro_controller_info>();
+                while !(*info).types.is_null() {
+                    SEEN.lock().expect("a lock").push((*info).types as usize);
+                    info = info.add(1);
+                }
+            }
+            true
+        }
+
+        // SAFETY: `record` is a valid callback for the length of these two calls.
+        unsafe {
+            declare_ports(record);
+            let first = std::mem::take(&mut *SEEN.lock().expect("a lock"));
+            declare_ports(record);
+            let second = std::mem::take(&mut *SEEN.lock().expect("a lock"));
+            assert_eq!(first.len(), PORTS.len(), "one list per port");
+            assert_eq!(
+                first, second,
+                "the frontend was handed different memory the second time, so the first is gone"
+            );
+        }
 
         assert_eq!(
             PORT_DEVICES.0.len(),
@@ -456,8 +507,14 @@ mod tests {
         assert!(!pads.pulled(false), "nor is the release");
         assert!(pads.pulled(true), "the next pull is");
 
+        // `forget` is about the joypad diff, which a state restore invalidates because the deck
+        // clears its pads. The trigger mirrors the player's finger, and a restore does not move
+        // it - so a held trigger must not read as a fresh pull afterwards. Under the frontend's
+        // rewind or run-ahead, which restore every frame, that would be continuous fire.
         pads.forget();
-        assert!(pads.pulled(true), "and a reset re-arms it");
+        assert!(!pads.pulled(true), "a restore is not a new pull");
+        assert!(!pads.pulled(false), "the release still registers");
+        assert!(pads.pulled(true), "and the next real pull fires");
     }
 
     /// Changing what is in a port must not leave the last device's buttons looking held.
@@ -467,8 +524,12 @@ mod tests {
         let mut joypad = Joypad::new();
         pads.apply(0, &mut joypad, JoypadBtnState::START);
 
-        pads.set_device(0, sys::RETRO_DEVICE_NONE);
-        pads.set_device(0, sys::RETRO_DEVICE_JOYPAD);
+        assert!(pads.set_device(0, sys::RETRO_DEVICE_NONE), "unplugged");
+        assert!(pads.set_device(0, sys::RETRO_DEVICE_JOYPAD), "and back in");
+        assert!(
+            !pads.set_device(0, sys::RETRO_DEVICE_JOYPAD),
+            "the same device again is not a change"
+        );
         joypad.clear();
 
         pads.apply(0, &mut joypad, JoypadBtnState::START);
@@ -504,6 +565,39 @@ mod tests {
 
         pads.apply(0, &mut joypad, JoypadBtnState::empty());
         assert!(!joypad.button(JoypadBtnState::A), "and releasing it lands");
+    }
+
+    /// Letting go of turbo while still holding the button it fires must not take that button with
+    /// it. `set_button` clears the plain button on a turbo release, and the frontend reports the
+    /// plain one as unchanged from then on - so nothing would ever press it again, and the run
+    /// button in Super Mario Bros. dies until the player lets go of B and presses it afresh.
+    #[test]
+    fn releasing_turbo_leaves_the_button_it_fires_held() {
+        for (turbo, plain) in TURBO {
+            let mut pads = Pads::default();
+            let mut joypad = Joypad::new();
+
+            pads.apply(0, &mut joypad, plain | turbo);
+            assert!(joypad.button(plain), "{plain:?} pressed");
+
+            pads.apply(0, &mut joypad, plain);
+            assert!(
+                joypad.button(plain),
+                "{plain:?} survives releasing {turbo:?}"
+            );
+            assert!(!joypad.button(turbo), "and the turbo really did release");
+
+            for frame in 0..5 {
+                pads.apply(0, &mut joypad, plain);
+                assert!(
+                    joypad.button(plain),
+                    "{plain:?} still held on frame {frame}"
+                );
+            }
+
+            pads.apply(0, &mut joypad, JoypadBtnState::empty());
+            assert!(!joypad.button(plain), "and releasing it for real lands");
+        }
     }
 
     /// Turbo has to keep working, which is the behaviour the edge rule exists for.

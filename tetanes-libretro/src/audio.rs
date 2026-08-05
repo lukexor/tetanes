@@ -16,7 +16,7 @@ pub struct Audio {
 }
 
 impl Audio {
-    /// Interleaves one frame of mono samples, returning `(pointer, frames)` for the batch callback.
+    /// Interleaves one frame of mono samples into the buffer the batch callback is given.
     ///
     /// Empty when the frame produced no audio, which is what a headless or muted deck does.
     pub fn interleave(&mut self, mono: &[f32]) -> &[i16] {

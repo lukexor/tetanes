@@ -15,6 +15,13 @@ use tetanes_core::{control_deck::ControlDeck, genie::GenieCode, patch::Patch};
 /// Separates the codes inside one cheat, as a frontend's database packs them.
 const JOIN: char = '+';
 
+/// Most cheats a frontend may address.
+///
+/// The index is the frontend's and nothing in the API bounds it, so it cannot be used to size a
+/// buffer unchecked: a bad one would otherwise reserve gigabytes, and an allocation failure aborts
+/// the process rather than unwinding into the panic guard. No real cheat list approaches this.
+const MAX: usize = 1024;
+
 /// What the frontend has told this core about, indexed as the frontend indexes it.
 ///
 /// A disabled cheat keeps its slot and holds no patches, because libretro identifies a cheat by
@@ -30,6 +37,12 @@ impl Cheats {
     /// A code that will not parse is reported and dropped: a frontend has no way to be told which
     /// entry it was, so the alternative is silently applying half of a multi-part cheat.
     pub fn set(&mut self, deck: &mut ControlDeck, index: usize, enabled: bool, code: &str) {
+        if index >= MAX {
+            log::error(&format!(
+                "ignoring cheat {index}: no more than {MAX} are kept"
+            ));
+            return;
+        }
         let patches = if enabled { parse(code) } else { Vec::new() };
         if self.by_index.len() <= index {
             self.by_index.resize_with(index + 1, Vec::new);
@@ -246,6 +259,20 @@ mod tests {
             vec![Patch::new(0x00A3, 0x20, None)],
             "and the indices start again from empty"
         );
+    }
+
+    /// The index comes from the frontend and nothing in the API bounds it, so it must not be used
+    /// to size a buffer unchecked.
+    #[test]
+    fn an_absurd_index_is_refused_rather_than_reserved() {
+        let mut deck = deck();
+        let mut cheats = Cheats::default();
+        cheats.set(&mut deck, usize::MAX, true, "00A2:10");
+        cheats.set(&mut deck, MAX, true, "00A2:10");
+        assert!(applied(&deck).is_empty(), "neither was applied");
+
+        cheats.set(&mut deck, MAX - 1, true, "00A2:10");
+        assert_eq!(applied(&deck).len(), 1, "the last real slot still works");
     }
 
     /// A cheat has to actually change what the game reads, which is the only assertion here that

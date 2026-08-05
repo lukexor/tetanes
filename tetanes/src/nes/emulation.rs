@@ -303,6 +303,12 @@ pub struct State {
     auto_save_interval: Duration,
     last_auto_save: Instant,
     auto_load: bool,
+    /// The last cart that loaded successfully, which is what tells a swap from a first load.
+    ///
+    /// Not `ControlDeck::loaded_rom`, which a failed load leaves empty: opening a ROM that will not
+    /// load between two games would otherwise look like a first load, and the previous game's
+    /// cheats would carry into the next one.
+    last_rom: Option<String>,
     speed: f32,
     run_ahead: usize,
     show_frame_stats: bool,
@@ -380,6 +386,7 @@ impl State {
             auto_save_interval: cfg.emulation.auto_save_interval,
             last_auto_save: Instant::now(),
             auto_load: cfg.emulation.auto_load,
+            last_rom: None,
             speed: cfg.emulation.speed,
             run_ahead: cfg.emulation.run_ahead,
             show_frame_stats: false,
@@ -784,14 +791,15 @@ impl State {
         }
     }
 
-    fn on_load_rom(&mut self, rom: LoadedRom, previous: Option<String>) {
+    fn on_load_rom(&mut self, rom: LoadedRom) {
         // A cheat belongs to the cart it was entered for: the same address in another game holds
         // something else entirely, so the codes come out with the cartridge. Only on a *change* -
         // a first load has to keep what `--genie-code` and the config put there for the game about
         // to start, and quitting must not wipe the saved list, which both a plain unload hook and
         // a plain load hook would do.
-        if previous.is_some_and(|name| name != rom.name) && self.control_deck.patches().count() > 0
-        {
+        let swapped = self.last_rom.as_ref().is_some_and(|name| *name != rom.name);
+        self.last_rom = Some(rom.name.clone());
+        if swapped && self.control_deck.patches().count() > 0 {
             // Cleared here as well as through the event, so the new game does not run its opening
             // frames under the last one's codes while the event travels to the config and back.
             self.control_deck.clear_genie_codes();
@@ -826,27 +834,19 @@ impl State {
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
-        // Taken before the unload, which is what forgets it.
-        let previous = self.loaded_rom_name();
         self.unload_rom();
         match self.control_deck.load_rom_path(path) {
-            Ok(rom) => self.on_load_rom(rom, previous),
+            Ok(rom) => self.on_load_rom(rom),
             Err(err) => self.on_error(err),
         }
     }
 
     fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
-        let previous = self.loaded_rom_name();
         self.unload_rom();
         match self.control_deck.load_rom(name, rom) {
-            Ok(rom) => self.on_load_rom(rom, previous),
+            Ok(rom) => self.on_load_rom(rom),
             Err(err) => self.on_error(err),
         }
-    }
-
-    /// The cart currently in the machine, which tells a swap from a first load.
-    fn loaded_rom_name(&self) -> Option<String> {
-        self.control_deck.loaded_rom().map(|rom| rom.name.clone())
     }
 
     fn on_load_replay(&mut self, start: Bus, name: impl AsRef<str>) {

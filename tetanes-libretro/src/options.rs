@@ -220,6 +220,8 @@ pub struct Options {
     channels: [bool; CHANNELS.len()],
     /// False until the first apply, so that one runs even where nothing differs from these.
     applied: bool,
+    /// Set when the region changed and the frontend has yet to be told, which only `poll` may do.
+    announce_av: bool,
 }
 
 impl Default for Options {
@@ -236,6 +238,7 @@ impl Default for Options {
             bf909: Bf909Revision::Bf909x,
             channels: [true; CHANNELS.len()],
             applied: false,
+            announce_av: false,
         }
     }
 }
@@ -376,6 +379,22 @@ pub unsafe fn poll(core: &mut Core) {
         // SAFETY: as above.
         unsafe { apply(core) };
     }
+    // Deferred out of `apply`, which also runs from `retro_load_game`: the API permits this call
+    // only from inside `retro_run`, which is the one place `poll` is called from.
+    if core.options.announce_av {
+        core.options.announce_av = false;
+        let mut info = crate::av_info(core.deck.region());
+        // SAFETY: the callback reads one `retro_system_av_info`, which outlives the call.
+        let ok = unsafe {
+            environment(
+                RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
+                std::ptr::from_mut(&mut info).cast::<c_void>(),
+            )
+        };
+        if !ok {
+            log::info("the frontend kept the old timings; the region applies on the next reload");
+        }
+    }
 }
 
 /// Reads every option and pushes it down to the console.
@@ -466,22 +485,17 @@ pub unsafe fn apply(core: &mut Core) {
         core.deck.set_apu_channel_enabled(channel, enabled);
     }
 
-    // Last, and only on a change: the region decides the frame rate and the pixel aspect, so the
-    // frontend has to be told again - and being told rebuilds its audio and video, which is not
-    // something to do on every poll.
-    if next.region != previous.region {
+    if first || next.region != previous.region {
         core.deck.set_region(next.region);
-        // SAFETY: the callback reads one `retro_system_av_info`, which outlives the call.
-        let mut info = crate::av_info(core.deck.region());
-        let ok = unsafe {
-            environment(
-                RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
-                std::ptr::from_mut(&mut info).cast::<c_void>(),
-            )
-        };
-        if !ok {
-            log::info("the frontend kept the old timings; the region applies on the next reload");
-        }
+        // The region decides the frame rate and the pixel aspect, so the frontend has to be told
+        // again - but not from here. `SET_SYSTEM_AV_INFO` may only be sent from inside `retro_run`
+        // (it reinitialises the frontend's audio and video drivers, and doing that mid-load has
+        // been seen to call straight back into the core), and this also runs from
+        // `retro_load_game`. So the announcement is left for the next poll.
+        //
+        // Not on the first apply: `retro_get_system_av_info`, which the frontend calls right after
+        // loading, already reports the region set here.
+        core.options.announce_av = !first;
     }
 }
 
@@ -666,10 +680,16 @@ mod tests {
         }
     }
 
-    /// Every value has to be something `apply` recognises. A typo here is a setting that silently
-    /// does nothing, which is the failure this whole module is most prone to.
+    /// Pins the value strings, which are what the frontend stores and hands back.
+    ///
+    /// Renaming one is how a saved setting silently stops being recognised - the frontend keeps
+    /// answering with the old string and `apply` falls through to the default. This is a second
+    /// copy on purpose, so the rename has to be made twice deliberately.
+    ///
+    /// It does *not* prove `apply` reads them; `tests::every_declared_value_reaches_the_console`
+    /// drives the real thing through the exports for that.
     #[test]
-    fn every_declared_value_is_one_apply_reads() {
+    fn the_declared_value_strings_do_not_change_by_accident() {
         let known: &[(&CStr, &[&str])] = &[
             (REGION, &["auto", "ntsc", "pal", "dendy"]),
             (FILTER, &["pixellate", "ntsc"]),

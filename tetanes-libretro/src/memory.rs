@@ -6,8 +6,10 @@
 //! console, because restoring a save state swaps the whole `Bus`, leaving `Memory`'s arena at a
 //! different address.
 //!
-//! So the core owns the buffers and copies. Two of at most 10 KiB, twice a frame, against a frame
-//! that is milliseconds long.
+//! So the core owns the buffers and copies. The console's 2 KiB always, plus the cart's battery
+//! where it has one - 8 KiB on an ordinary board, and 64 KiB on the largest (MMC5 banks its
+//! PRG-RAM and is emulated as one block). Twice a frame, against a frame that is milliseconds
+//! long.
 
 use crate::{
     log,
@@ -27,9 +29,10 @@ const SELECT: usize = 0xE000;
 
 /// Where the cartridge's battery is decoded, and how much of it the CPU can see.
 ///
-/// A board whose battery is larger than the window - the two with a `BatteryExt` tail - is
-/// described only as far as `$7FFF`, because the map describes the CPU's address space rather than
-/// the save file.
+/// A board whose battery is larger than the window is described only as far as `$7FFF`, because
+/// the map describes the CPU's address space rather than the save file. That covers the boards
+/// which bank PRG-RAM behind `$6000` - MMC5's 64 KiB, SOROM/SXROM's and FK23C's 32 KiB - and the
+/// ones whose battery covers something other than PRG-RAM entirely.
 const SAVE_RAM_START: usize = 0x6000;
 const SAVE_RAM_WINDOW: usize = 0x2000;
 

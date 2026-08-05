@@ -13,7 +13,7 @@ use std::{
     cell::RefCell,
     sync::{Mutex, MutexGuard},
 };
-use tetanes_core::{apu::Channel, input::Player, video::VideoFilter};
+use tetanes_core::{apu::Channel, input::FourPlayer, input::Player, video::VideoFilter};
 
 /// A ROM that draws something busy enough that a blank frame is obviously wrong.
 const ROM: &[u8] = include_bytes!("../../tetanes-core/test_roms/spritecans.nes");
@@ -63,6 +63,10 @@ struct Frontend {
     /// contract, since `GET_VARIABLE_UPDATE` says only that something changed.
     variable_update: bool,
     av_infos: Vec<retro_system_av_info>,
+    /// AV info the core sent while a load was in flight. The API permits `SET_SYSTEM_AV_INFO`
+    /// only from inside `retro_run`, because the frontend reinitialises its drivers in it.
+    av_during_load: Vec<retro_system_av_info>,
+    loading: bool,
     /// Buttons the core described, as `(port, device, id, description)`. The device matters:
     /// the light gun's trigger and the joypad's Select share an id.
     input_descriptors: Vec<(c_uint, c_uint, c_uint, String)>,
@@ -180,7 +184,12 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
         RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO => {
             // SAFETY: the core passes one `retro_system_av_info`.
             let info = unsafe { *data.cast::<retro_system_av_info>() };
-            FRONTEND.with_borrow_mut(|f| f.av_infos.push(info));
+            FRONTEND.with_borrow_mut(|f| {
+                if f.loading {
+                    f.av_during_load.push(info);
+                }
+                f.av_infos.push(info);
+            });
             true
         }
         // Anything else is a feature this frontend does not have, which a core must cope with.
@@ -280,8 +289,11 @@ impl Session {
             size: ROM.len(),
             meta: std::ptr::null(),
         };
+        FRONTEND.with_borrow_mut(|f| f.loading = true);
         // SAFETY: `info` outlives the call, and `data` covers `size`.
-        unsafe { retro_load_game(&raw const info) }
+        let loaded = unsafe { retro_load_game(&raw const info) };
+        FRONTEND.with_borrow_mut(|f| f.loading = false);
+        loaded
     }
 
     fn run(&self, frames: usize) {
@@ -720,7 +732,14 @@ fn fast_forwarding_suppresses_run_ahead() {
 #[test]
 fn changing_the_region_re_declares_the_av_info() {
     let session = Session::start();
+    // Chosen before the cart, which is the case that must *not* announce: the frontend calls
+    // `retro_get_system_av_info` straight after loading and gets the region from there.
+    set_option("tetanes_region", "ntsc");
     assert!(session.load());
+    assert!(
+        FRONTEND.with_borrow(|f| f.av_infos.is_empty()),
+        "nothing to announce during a load"
+    );
     FRONTEND.with_borrow_mut(|f| f.av_infos.clear());
 
     set_option("tetanes_region", "pal");
@@ -733,6 +752,10 @@ fn changing_the_region_re_declares_the_av_info() {
     );
     let infos = FRONTEND.with_borrow(|f| f.av_infos.clone());
     assert_eq!(infos.len(), 1, "told exactly once, not once a frame");
+    assert!(
+        FRONTEND.with_borrow(|f| f.av_during_load.is_empty()),
+        "and from `retro_run`, which is the only place the API allows it"
+    );
     assert!(
         (infos[0].timing.fps - 50.006_98).abs() < 1e-6,
         "the PAL rate, got {}",
@@ -894,6 +917,49 @@ fn a_cheat_reaches_the_game_and_clearing_it_lets_go() {
     assert_eq!(patches, 0, "the previous game's cheat is gone");
 }
 
+/// A panic wedges the core, and resetting or changing the cart has to un-wedge it.
+///
+/// The recovery exports are exactly the ones a wedge would otherwise lock out: they run through
+/// `with_recovering_core` because `with_core` refuses a wedged core, and clearing the flag is what
+/// they are for. Without that, one panic meant Reset, Close Content and loading anything else all
+/// silently did nothing until the frontend unloaded the library.
+#[test]
+fn a_wedged_core_can_be_reset_and_reloaded() {
+    let session = Session::start();
+    assert!(session.load());
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let wedged = || unsafe { core::try_core() }.expect("a core").wedged;
+
+    // Straight through `guard`, which is the same path a panic in emulation takes.
+    core::guard((), || panic!("a fault in emulation"));
+    assert!(wedged(), "the panic was caught and the core stopped");
+
+    session.run(1);
+    let frames = FRONTEND.with_borrow(|f| f.frames.len());
+    session.run(1);
+    assert_eq!(
+        FRONTEND.with_borrow(|f| f.frames.len()),
+        frames,
+        "a wedged core hands back nothing at all"
+    );
+
+    retro_reset();
+    assert!(!wedged(), "the front-panel button recovers it");
+    session.run(1);
+    assert_eq!(
+        FRONTEND.with_borrow(|f| f.frames.len()),
+        frames + 1,
+        "and it runs again"
+    );
+
+    core::guard((), || panic!("and again"));
+    assert!(wedged());
+    retro_unload_game();
+    assert!(!wedged(), "so does ejecting the cart");
+    assert!(session.load(), "and the next one loads");
+}
+
 /// A frontend will hand over rubbish - a truncated download, the wrong file - and the core has to
 /// say no rather than take the process down.
 #[test]
@@ -1045,4 +1111,94 @@ fn audio_arrives_at_a_steady_rate_whatever_run_ahead_is_set_to() {
         "run-ahead must not alter the stream"
     );
     assert_eq!(streams[0], streams[2]);
+}
+
+/// Every value the core declares has to be one `apply` acts on.
+///
+/// A declared value the code never matches is a setting that appears in the menu, saves, reloads,
+/// and does nothing - the quietest failure this crate has. Each option is set to each of its values
+/// in turn and the console is checked for the effect, so a renamed arm fails here rather than in a
+/// player's config.
+#[test]
+fn every_declared_value_reaches_the_console() {
+    let session = Session::start();
+    assert!(session.load());
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let core = || unsafe { core::try_core() }.expect("a core");
+
+    for (value, expected) in [
+        ("pixellate", VideoFilter::Pixellate),
+        ("ntsc", VideoFilter::Ntsc),
+    ] {
+        set_option("tetanes_filter", value);
+        session.run(1);
+        assert_eq!(core().filter(), expected, "tetanes_filter = {value}");
+    }
+
+    for (value, expected) in [
+        ("ntsc", NesRegion::Ntsc),
+        ("pal", NesRegion::Pal),
+        ("dendy", NesRegion::Dendy),
+    ] {
+        set_option("tetanes_region", value);
+        session.run(1);
+        assert_eq!(core().deck.region(), expected, "tetanes_region = {value}");
+    }
+    // `auto` resolves to whatever the cart says, which for this ROM is NTSC - so it has to undo
+    // the Dendy set just above rather than leaving it.
+    set_option("tetanes_region", "auto");
+    session.run(1);
+    assert_eq!(
+        core().deck.region(),
+        NesRegion::Ntsc,
+        "tetanes_region = auto takes it from the cart"
+    );
+
+    for (value, expected) in [
+        ("disabled", FourPlayer::Disabled),
+        ("four_score", FourPlayer::FourScore),
+        ("satellite", FourPlayer::Satellite),
+    ] {
+        set_option("tetanes_four_player", value);
+        session.run(1);
+        assert_eq!(
+            core().deck.four_player(),
+            expected,
+            "tetanes_four_player = {value}"
+        );
+    }
+
+    for value in ["0", "1", "2", "3", "4"] {
+        set_option("tetanes_run_ahead", value);
+        session.run(1);
+        assert_eq!(
+            core().deck.run_ahead(),
+            value.parse::<usize>().expect("a number"),
+            "tetanes_run_ahead = {value}"
+        );
+    }
+
+    for (key, channel) in [
+        ("tetanes_apu_pulse1", Channel::Pulse1),
+        ("tetanes_apu_pulse2", Channel::Pulse2),
+        ("tetanes_apu_triangle", Channel::Triangle),
+        ("tetanes_apu_noise", Channel::Noise),
+        ("tetanes_apu_dmc", Channel::Dmc),
+        ("tetanes_apu_mapper", Channel::Mapper),
+    ] {
+        for (value, expected) in [("disabled", false), ("enabled", true)] {
+            set_option(key, value);
+            session.run(1);
+            assert_eq!(
+                core().deck.apu_channel_enabled(channel),
+                expected,
+                "{key} = {value}"
+            );
+        }
+    }
+
+    // `tetanes_ppu_warmup` and `tetanes_concurrent_dpad` are not checked here: `ControlDeck`
+    // exposes no getter for either, and adding one to the published crate to satisfy a test is a
+    // worse trade than the gap. `the_declared_value_strings_do_not_change_by_accident` still pins
+    // their value strings.
 }

@@ -12,8 +12,8 @@ use tetanes_core::control_deck::ControlDeck;
 /// Marks a buffer as this core's, so a state belonging to another core - or a file that is not a
 /// state at all - is refused instead of being handed to the decoder.
 ///
-/// The trailing `0x1A` makes it an even 8 bytes. It also ends a DOS text stream `cat`ing a state
-/// stops at the header.
+/// The trailing `0x1A` makes it an even 8 bytes, and ends a DOS text stream, so `cat`ing a state
+/// stops at the header rather than spraying the terminal.
 const MAGIC: &[u8; 8] = b"TETANES\x1a";
 
 /// The version of everything after the magic: this header, and the encoding of the payload under

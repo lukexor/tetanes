@@ -54,8 +54,13 @@ pub struct Core {
     /// Set when a panic was caught, after which `retro_run` stops clocking.
     ///
     /// A console whose state is unknown must not keep running - it would turn one bug into a
-    /// stream of them - but the frontend has no way to be told "stop", so the core keeps handing
-    /// back black frames and silence until the game is unloaded.
+    /// stream of them - but the frontend has no way to be told "stop", so `retro_run` becomes a
+    /// no-op. It hands back neither video nor audio, which a frontend reads as a duplicated frame
+    /// and an empty audio buffer: the picture freezes and the sound stops.
+    ///
+    /// Cleared by resetting the console or changing the cart, which is why those go through
+    /// [`with_recovering_core`] rather than [`with_core`] - the latter refuses to run precisely
+    /// when they are needed.
     pub wedged: bool,
 }
 
@@ -184,6 +189,19 @@ pub fn with_core<T>(default: T, f: impl FnOnce(&mut Core) -> T) -> T {
             Some(core) if !core.wedged => Some(f(core)),
             _ => None,
         }
+    })
+    .unwrap_or(default)
+}
+
+/// Runs `f` against the core even if a panic has wedged it.
+///
+/// For the exports that *undo* a wedge - resetting the console, and changing the cart. Through
+/// [`with_core`] they could never run: it refuses a wedged core, and clearing the flag is the
+/// whole point of the call. A panic in `f` still wedges it again.
+pub fn with_recovering_core<T>(default: T, f: impl FnOnce(&mut Core) -> T) -> T {
+    guard(None, || {
+        // SAFETY: as [`with_core`].
+        unsafe { try_core() }.map(f)
     })
     .unwrap_or(default)
 }

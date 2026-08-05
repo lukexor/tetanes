@@ -5,8 +5,9 @@
 //! [`tetanes_core`].
 //!
 //! Everything here runs on the frontend's thread, against the single `Core` the `core` module
-//! owns. Nothing may unwind across the boundary, so every export body goes through
-//! `core::with_core`.
+//! owns. Nothing may unwind across the boundary, so every export that can panic goes through
+//! `core::guard` or one of the `with_*_core` wrappers built on it. The exceptions are the three
+//! that cannot: `retro_api_version`, `retro_get_system_info` and `retro_load_game_special`.
 //!
 //! Build it with `cargo make build-libretro`, which selects the `libretro` profile - a plain
 //! `--release` build sets `panic = "abort"` and would turn a recoverable panic into a dead
@@ -31,7 +32,7 @@ pub mod sys;
 mod tests;
 mod video;
 
-use crate::core::with_core;
+use crate::core::{with_core, with_recovering_core};
 use std::{
     ffi::{CStr, c_char, c_uint, c_void},
     slice,
@@ -200,7 +201,14 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_set_controller_port_device(port: c_uint, device: c_uint) {
     with_core((), |core| {
-        core.pads.set_device(port as usize, device);
+        if core.pads.set_device(port as usize, device)
+            && let Some(&player) = input::PORTS.get(port as usize)
+        {
+            // A button held as the device is swapped would stay pressed for good: the port either
+            // reports a different device now or is not polled at all, so nothing is left to
+            // release it.
+            core.deck.joypad_mut(player).clear();
+        }
         // The console needs telling separately, because the Zapper shares $4017 with port two and
         // reads as nothing at all when unplugged.
         core.deck.connect_zapper(core.pads.zapper_connected());
@@ -210,7 +218,7 @@ pub extern "C" fn retro_set_controller_port_device(port: c_uint, device: c_uint)
 /// Soft-resets the console, as the front-panel button does.
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_reset() {
-    with_core((), |core| {
+    with_recovering_core((), |core| {
         core.wedged = false;
         core.pads.forget();
         core.deck.reset(ResetKind::Soft);
@@ -299,7 +307,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
         })
         .unwrap_or_else(|| "unnamed".to_string());
 
-    with_core(false, |core| {
+    with_recovering_core(false, |core| {
         core.wedged = false;
         core.pads.forget();
         // Before the cart, since the power-on RAM state and the region decide how it starts.
@@ -342,7 +350,7 @@ pub const extern "C" fn retro_load_game_special(
 /// Ejects the cart.
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_unload_game() {
-    with_core((), |core| {
+    with_recovering_core((), |core| {
         core.wedged = false;
         core.pads.forget();
         core.memory.detach();
@@ -366,7 +374,7 @@ pub extern "C" fn retro_get_region() -> c_uint {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Save states, memory and cheats. Filled in as the remaining phases land.
+// Save states, memory and cheats.
 // ---------------------------------------------------------------------------------------------
 
 /// Bytes a save state occupies, or zero when no cart is loaded.

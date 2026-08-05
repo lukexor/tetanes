@@ -5,8 +5,9 @@
 //! ([`RETRO_API_VERSION`]) and grows by adding environment numbers rather than by changing what is
 //! here, so the transcription is a one-time cost.
 //!
-//! What keeps it honest is `tests::layout`: every `#[repr(C)]` struct below asserts its size and
-//! alignment, so a mistranscribed field is a failing test rather than a frontend reading garbage.
+//! What keeps it honest is `tests::field_offsets_match_the_c_header`: every `#[repr(C)]` struct
+//! below asserts the offset of each field and its own size, so a mistranscribed field is a failing
+//! test rather than a frontend reading garbage.
 //!
 //! `RETRO_CALLCONV` is empty everywhere this core builds, so every function pointer is plain
 //! `extern "C"`.
