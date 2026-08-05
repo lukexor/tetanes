@@ -41,13 +41,11 @@ use crate::{
     input::{Input, Player},
     mapper::{Mapper, MapperOps},
     memory::{ConstArray, Memory, RamState},
+    patch::{Patch, Patches},
     ppu::Ppu,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-};
+use std::io::{Read, Write};
 use tracing::trace;
 
 /// NES Bus
@@ -115,8 +113,6 @@ pub struct Bus {
     // faster, despite removing a pointer chase - inlining it grows `Bus`'s footprint enough to
     // outweigh that. Keep it boxed.
     pub wram: Box<ConstArray<u8, { size::WRAM }>>,
-    /// Game GENIE codes.
-    pub genie_codes: HashMap<u16, GenieCode>,
     /// Whatever was last read or written to to the Bus.
     pub open_bus: u8,
     /// RAM initialization state.
@@ -138,6 +134,19 @@ pub struct Bus {
     // stays a register file.
     #[serde(skip)]
     pub disasm: String,
+    /// Cheats: values substituted for what a read would otherwise return.
+    ///
+    /// Not serialized. A cheat is the player's current choice rather than the machine's - the same
+    /// argument [`ControlDeck::load_bus`](crate::control_deck::ControlDeck::load_bus) makes for
+    /// mapper revisions - and `keep_session_settings` swaps the running table back in over
+    /// whatever a restore brought, so a serialized copy would be written and then discarded.
+    //
+    // Last, with the other cold fields, even though the WRAM read path consults its page mask:
+    // measured beside `wram` instead, so that the mask shares a line with it, at 1.946 ms/frame
+    // against 1.896 here and 1.881 with no patch table at all. Fifty-six bytes displacing
+    // `open_bus` costs more than the mask's own load saves.
+    #[serde(skip)]
+    pub patches: Patches,
 }
 
 impl Default for Bus {
@@ -165,7 +174,7 @@ impl Bus {
             mapper_ops: MapperOps::empty(),
             apu: Apu::new(region),
             input: Input::new(region),
-            genie_codes: HashMap::new(),
+            patches: Patches::default(),
             open_bus: 0x00,
             ram_state,
             region,
@@ -207,7 +216,7 @@ impl Bus {
             apu,
             input,
             wram,
-            genie_codes,
+            patches,
             open_bus,
             ram_state,
             region,
@@ -227,7 +236,7 @@ impl Bus {
         self.apu.clone_from(apu);
         self.input.clone_from(input);
         self.wram.clone_from(wram);
-        self.genie_codes.clone_from(genie_codes);
+        self.patches.clone_from(patches);
         self.open_bus = *open_bus;
         self.ram_state = *ram_state;
         self.region = *region;
@@ -254,35 +263,21 @@ impl Bus {
         &self.wram
     }
 
-    /// Add a Game Genie code to override memory reads/writes.
-    ///
-    /// # Errors
-    ///
-    /// Errors if genie code is invalid.
+    /// Apply a Game Genie code, replacing any patch already at its address.
     pub fn add_genie_code(&mut self, genie_code: GenieCode) {
-        let addr = genie_code.addr();
-        self.genie_codes.insert(addr, genie_code);
+        self.patches.insert(Patch::from(&genie_code));
     }
 
-    /// Remove a Game Genie code.
+    /// Remove the patch a Game Genie code applies, if the code is one this build can read.
     pub fn remove_genie_code(&mut self, code: &str) {
-        self.genie_codes.retain(|_, gc| gc.code() != code);
-    }
-
-    /// Remove all Game Genie codes.
-    pub fn clear_genie_codes(&mut self) {
-        self.genie_codes.clear();
-    }
-
-    fn genie_read(&self, addr: u16, val: u8) -> u8 {
-        // This runs on every PRG read, so skip hashing the address entirely in the overwhelmingly
-        // common case of no codes being loaded.
-        if self.genie_codes.is_empty() {
-            return val;
+        if let Ok(genie_code) = GenieCode::new(code.to_string()) {
+            self.patches.remove(genie_code.addr());
         }
-        self.genie_codes
-            .get(&addr)
-            .map_or(val, |genie_code| genie_code.read(val))
+    }
+
+    /// Remove every patch.
+    pub fn clear_genie_codes(&mut self) {
+        self.patches.clear();
     }
 
     /// Samples the APU has mixed since the last clear.
@@ -329,7 +324,7 @@ impl Bus {
             _ => addr,
         };
         self.open_bus = match addr {
-            0x0000..=0x07FF => self.wram[usize::from(addr)],
+            0x0000..=0x07FF => self.patches.read(addr, self.wram[usize::from(addr)]),
             0x4100..=0xFFFF => {
                 let val = self
                     .mapper_ops
@@ -337,7 +332,7 @@ impl Bus {
                     .then(|| self.mapper.prg_read(addr))
                     .flatten()
                     .unwrap_or_else(|| self.memory.prg_peek(addr));
-                self.genie_read(addr, val)
+                self.patches.read(addr, val)
             }
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oamdata(),
@@ -360,7 +355,7 @@ impl Bus {
             _ => addr,
         };
         match addr {
-            0x0000..=0x07FF => self.wram[usize::from(addr)],
+            0x0000..=0x07FF => self.patches.read(addr, self.wram[usize::from(addr)]),
             0x4100..=0xFFFF => {
                 let val = self
                     .mapper_ops
@@ -368,7 +363,7 @@ impl Bus {
                     .then(|| self.mapper.prg_peek(addr))
                     .flatten()
                     .unwrap_or_else(|| self.memory.prg_peek(addr));
-                self.genie_read(addr, val)
+                self.patches.read(addr, val)
             }
             0x2002 => self.ppu.peek_status(),
             0x2004 => self.ppu.peek_oamdata(),
@@ -652,6 +647,35 @@ mod test {
         bus.remove_genie_code(code);
         assert_eq!(bus.cpu_bus_peek(addr), orig_value, "peek orig value");
         assert_eq!(bus.cpu_bus_read(addr), orig_value, "read orig value");
+    }
+
+    /// The reason patches are not just Game Genie codes: a frontend's cheat is usually a RAM
+    /// address, which the Genie's 15-bit field over `$8000` cannot name.
+    #[test]
+    fn a_patch_substitutes_wram_reads_the_genie_cannot_reach() {
+        let mut bus = Bus::default();
+        bus.wram[0x10] = 0x03;
+        bus.wram[0x11] = 0x03;
+
+        bus.patches.insert(Patch::new(0x0010, 0x63, None));
+        assert_eq!(bus.cpu_bus_read(0x0010), 0x63, "read is substituted");
+        assert_eq!(bus.cpu_bus_peek(0x0010), 0x63, "and so is peek");
+        assert_eq!(bus.cpu_bus_peek(0x0011), 0x03, "the next byte is not");
+        // The mirrors fold onto the same address, so they are patched with it.
+        assert_eq!(bus.cpu_bus_peek(0x0810), 0x63, "and its mirror");
+
+        // Substitution is on the way out, so the game's own writes still land - which is what
+        // makes a cheat hold rather than flicker the way a once-a-frame poke would.
+        bus.cpu_bus_write(0x0010, 0x01);
+        assert_eq!(bus.wram[0x10], 0x01, "the write reaches memory");
+        assert_eq!(
+            bus.cpu_bus_peek(0x0010),
+            0x63,
+            "and the read still does not"
+        );
+
+        bus.patches.remove(0x0010);
+        assert_eq!(bus.cpu_bus_peek(0x0010), 0x01);
     }
 
     #[test]
