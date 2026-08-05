@@ -33,18 +33,24 @@ install_crate = { crate_name = "typos-cli", binary = "typos", test_arg = "--vers
 command = "typos"
 args = ["${@}"]
 
+# `--lib --bin tetanes` rather than `--all-targets`, as CI does: the tests do not build for wasm,
+# and what this leg is for is the code that ships there.
 [tasks.lint-web]
 description = "Lint TetaNES Web"
 category = "Development"
 command = "cargo"
-args = ["clippy", "--locked", "-p", "tetanes", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+args = ["clippy", "--locked", "-p", "tetanes", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going", "--", "-D", "warnings"]
 dependencies = ["add-wasm-target"]
 
+# `--all-targets` and `-D warnings`, both of which CI applies: without them this passed while CI
+# failed, which is the wrong way round for the check a change is run through first. Tests, benches
+# and examples are code too - a `#[must_use]` added to a function only test code calls is invisible
+# without it.
 [tasks.lint]
 description = "Lint TetaNES"
 category = "Development"
 command = "cargo"
-args = ["clippy", "--locked", "--all-features", "--keep-going"]
+args = ["clippy", "--locked", "--all-features", "--all-targets", "--keep-going", "--", "-D", "warnings"]
 dependencies = ["typos", "lint-web"]
 
 [tasks.pgo-profile]
