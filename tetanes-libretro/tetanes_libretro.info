@@ -1,0 +1,36 @@
+# Core metadata, which a frontend reads to name the core and describe what it can do.
+#
+# The filename has to match the library's - `tetanes_libretro.info` beside `tetanes_libretro.so` -
+# or the frontend shows a bare filename instead of any of this.
+
+display_name = "Nintendo - NES / Famicom (TetaNES)"
+categories = "Emulator"
+authors = "Luke Petherbridge"
+corename = "TetaNES"
+supported_extensions = "nes"
+license = "MIT OR Apache-2.0"
+permissions = ""
+display_version = "0.14.2"
+
+# Content this core plays, and the database the frontend matches ROMs against.
+manufacturer = "Nintendo"
+systemname = "Nintendo Entertainment System"
+systemid = "nes"
+database = "Nintendo - Nintendo Entertainment System"
+
+# No BIOS or firmware: a NES cartridge is self-contained.
+firmware_count = 0
+notes = "Written in Rust. Save states, rewind and cheats are provided by the frontend."
+
+# Capabilities, which decide what the frontend offers in its menus. Kept honest as the phases land -
+# a frontend that is told a core supports save states and finds it does not will simply fail.
+savestate = "false"
+savestate_features = "null"
+cheats = "true"
+input_descriptors = "false"
+memory_descriptors = "false"
+libretro_saves = "false"
+core_options = "false"
+supports_no_game = "false"
+hw_render = "false"
+required_hw_api = ""

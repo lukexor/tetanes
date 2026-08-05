@@ -3,7 +3,7 @@
 
 [workspace]
 resolver = "2"
-members = ["tetanes", "tetanes-core", "tetanes-utils"]
+members = ["tetanes", "tetanes-core", "tetanes-libretro", "tetanes-utils"]
 
 [workspace.package]
 version = "0.14.2"
@@ -85,6 +85,15 @@ lto = true
 # See: https://smallcultfollowing.com/babysteps/blog/2024/05/02/unwind-considered-harmful/
 panic = "abort"
 strip = true
+
+# Profile the libretro core ships in.
+#
+# `panic` cannot be set per-crate, only per-profile, and the core needs `unwind`: a panic has to
+# become a logged message and a black frame rather than taking the frontend's whole process down
+# with it, and `catch_unwind` does nothing under `panic = "abort"`.
+[profile.libretro]
+inherits = "release"
+panic = "unwind"
 
 # Profile to run performance profiling with debug symbols
 [profile.perf]

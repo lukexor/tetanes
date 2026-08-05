@@ -37,7 +37,7 @@ args = ["${@}"]
 description = "Lint TetaNES Web"
 category = "Development"
 command = "cargo"
-args = ["clippy", "--locked", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+args = ["clippy", "--locked", "-p", "tetanes", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
 dependencies = ["add-wasm-target"]
 
 [tasks.lint]
@@ -69,6 +69,38 @@ description = "Build TetaNES Artifacts for a given target_arch"
 category = "Build"
 command = "cargo"
 args = ["run", "--bin", "build_artifacts", "${@}"]
+
+# The `libretro` profile, not `release`: the latter sets `panic = "abort"`, which the crate rejects
+# with a `compile_error!` because a panic would then take the frontend's process down.
+[tasks.build-libretro]
+description = "Build the libretro core"
+category = "Build"
+command = "cargo"
+args = ["build", "--locked", "-p", "tetanes-libretro", "--profile", "libretro", "${@}"]
+
+[tasks.test-libretro]
+description = "Test the libretro core"
+category = "Test"
+command = "cargo"
+args = ["nextest", "run", "--locked", "-p", "tetanes-libretro", "${@}"]
+
+# A frontend resolves all twenty-five symbols and refuses the core if one is missing, so a typo in
+# a `#[unsafe(no_mangle)]` name is a core that silently will not load.
+[tasks.libretro-symbols]
+description = "Check the libretro core exports all 25 entry points"
+category = "Test"
+dependencies = ["build-libretro"]
+script_runner = "@shell"
+script = '''
+target="${CARGO_TARGET_DIR:-$HOME/.cache/cargo-target}/libretro"
+case "$(uname -s)" in
+  Darwin) lib="$target/libtetanes_libretro.dylib"; symbols=$(nm -gU "$lib") ;;
+  *)      lib="$target/libtetanes_libretro.so";    symbols=$(nm -D --defined-only "$lib") ;;
+esac
+count=$(printf '%s\n' "$symbols" | grep -c ' T _\{0,1\}retro_')
+printf '%s: %s exported entry points\n' "$lib" "$count"
+[ "$count" -eq 25 ] || { echo "expected 25"; exit 1; }
+'''
 
 [tasks.build-cross]
 description = "Cross-Build TetaNES for a given target_arch"
@@ -166,7 +198,7 @@ dependencies = ["add-wasm-target"]
 description = "Document TetaNES Web"
 category = "Documentation"
 command = "cargo"
-args = ["doc", "--locked", "--no-deps", "--document-private-items", "--lib", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+args = ["doc", "--locked", "-p", "tetanes", "--no-deps", "--document-private-items", "--lib", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
 dependencies = ["add-wasm-target"]
 
 [tasks.docs]

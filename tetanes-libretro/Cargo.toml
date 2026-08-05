@@ -1,0 +1,26 @@
+[package]
+name = "tetanes-libretro"
+version.workspace = true
+# Matches `tetanes-core`, and nothing here needs nightly: a source build of the core should not
+# require a nightly toolchain just because the workspace pins one.
+rust-version = "1.88.0"
+edition.workspace = true
+license.workspace = true
+description = "A libretro core for TetaNES, a NES emulator"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+# Cargo rejects a hyphen in a library target name, so it emits `libtetanes_libretro.<ext>` and
+# packaging renames it to `tetanes_libretro.<ext>` - no `lib` prefix, underscore before `libretro`,
+# which is what a frontend looks for and what the `.info` file has to be named after.
+name = "tetanes_libretro"
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+tetanes-core.workspace = true
