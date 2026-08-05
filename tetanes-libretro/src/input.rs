@@ -102,12 +102,72 @@ impl Device {
     }
 }
 
-/// Devices each port accepts, for the frontend's controller menu.
-const JOYPAD_ONLY: [(&CStr, c_uint); 1] = [(c"Controller", sys::RETRO_DEVICE_JOYPAD)];
-const JOYPAD_OR_ZAPPER: [(&CStr, c_uint); 2] = [
-    (c"Controller", sys::RETRO_DEVICE_JOYPAD),
-    (c"Zapper", sys::RETRO_DEVICE_LIGHTGUN),
-];
+/// Lets a table of C structs holding pointers live in a `static`.
+///
+/// What `Sync` objects to is the raw pointer, not what it points at: every one below is a string
+/// literal or another `static` here, so all of them are valid for the life of the process.
+struct Table<T>(T);
+
+// SAFETY: immutable, and every pointer inside is to `'static` data.
+unsafe impl<T> Sync for Table<T> {}
+
+/// Devices each port accepts, terminated by a zeroed entry.
+///
+/// **`static`, not a local.** `SET_CONTROLLER_INFO` is the one call in this crate whose data the
+/// frontend does not copy: RetroArch memcpy's the `retro_controller_info` array and keeps the
+/// `types` pointer inside it as-is, so a list built on the stack or the heap dangles the moment
+/// this returns and its controls menu reads freed memory. C cores write these as `static const`
+/// for exactly this reason.
+static JOYPAD_ONLY: Table<[sys::retro_controller_description; 2]> = Table([
+    sys::retro_controller_description {
+        desc: c"Controller".as_ptr(),
+        id: sys::RETRO_DEVICE_JOYPAD,
+    },
+    sys::retro_controller_description {
+        desc: std::ptr::null(),
+        id: 0,
+    },
+]);
+
+static JOYPAD_OR_ZAPPER: Table<[sys::retro_controller_description; 3]> = Table([
+    sys::retro_controller_description {
+        desc: c"Controller".as_ptr(),
+        id: sys::RETRO_DEVICE_JOYPAD,
+    },
+    sys::retro_controller_description {
+        desc: c"Zapper".as_ptr(),
+        id: sys::RETRO_DEVICE_LIGHTGUN,
+    },
+    sys::retro_controller_description {
+        desc: std::ptr::null(),
+        id: 0,
+    },
+]);
+
+/// One entry per port, in port order, terminated by a zeroed entry.
+static PORT_DEVICES: Table<[sys::retro_controller_info; PORTS.len() + 1]> = Table([
+    sys::retro_controller_info {
+        types: JOYPAD_ONLY.0.as_ptr(),
+        num_types: 1,
+    },
+    // Port two, the one with the Zapper's socket.
+    sys::retro_controller_info {
+        types: JOYPAD_OR_ZAPPER.0.as_ptr(),
+        num_types: 2,
+    },
+    sys::retro_controller_info {
+        types: JOYPAD_ONLY.0.as_ptr(),
+        num_types: 1,
+    },
+    sys::retro_controller_info {
+        types: JOYPAD_ONLY.0.as_ptr(),
+        num_types: 1,
+    },
+    sys::retro_controller_info {
+        types: std::ptr::null(),
+        num_types: 0,
+    },
+]);
 
 /// Tells the frontend what each port accepts, so its controller menu offers the Zapper on the port
 /// that has one and nothing on the ports that do not.
@@ -116,49 +176,12 @@ const JOYPAD_OR_ZAPPER: [(&CStr, c_uint); 2] = [
 ///
 /// The environment callback must be valid.
 pub unsafe fn declare_ports(environment: sys::retro_environment_t) {
-    // Each port's list, then the array of lists, all terminated by a zeroed entry. Held in locals
-    // because the frontend copies during the call; the strings are `'static` regardless.
-    let mut types: Vec<Vec<sys::retro_controller_description>> = PORTS
-        .iter()
-        .enumerate()
-        .map(|(port, _)| {
-            let accepted: &[(&CStr, c_uint)] = if port == ZAPPER_PORT {
-                &JOYPAD_OR_ZAPPER
-            } else {
-                &JOYPAD_ONLY
-            };
-            let mut list: Vec<_> = accepted
-                .iter()
-                .map(|&(desc, id)| sys::retro_controller_description {
-                    desc: desc.as_ptr(),
-                    id,
-                })
-                .collect();
-            list.push(sys::retro_controller_description {
-                desc: std::ptr::null(),
-                id: 0,
-            });
-            list
-        })
-        .collect();
-    let mut ports: Vec<sys::retro_controller_info> = types
-        .iter_mut()
-        .map(|list| sys::retro_controller_info {
-            types: list.as_ptr(),
-            // The terminator is not one of them.
-            num_types: list.len() as c_uint - 1,
-        })
-        .collect();
-    ports.push(sys::retro_controller_info {
-        types: std::ptr::null(),
-        num_types: 0,
-    });
-    // SAFETY: the frontend reads until the null `types`, and everything it points at outlives the
-    // call.
+    // SAFETY: the frontend reads until the null `types` and keeps the pointers it finds, which is
+    // why what they point at is `static`.
     let ok = unsafe {
         environment(
             sys::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,
-            ports.as_mut_ptr().cast::<c_void>(),
+            PORT_DEVICES.0.as_ptr().cast_mut().cast::<c_void>(),
         )
     };
     if !ok {
@@ -333,6 +356,47 @@ mod tests {
             JoypadBtnState::all() - JoypadBtnState::TURBO_A - JoypadBtnState::TURBO_B,
             "every real NES button is reachable"
         );
+    }
+
+    /// What `SET_CONTROLLER_INFO` hands over has to outlive the call: RetroArch copies the outer
+    /// array and keeps the `types` pointer inside it, so a list built on the heap dangles the
+    /// moment `declare_ports` returns, and its controls menu reads freed memory - which is a crash,
+    /// and was.
+    ///
+    /// A `static` has the same address every time; anything allocated per call does not.
+    #[test]
+    fn the_port_devices_outlive_the_call_that_hands_them_over() {
+        let first: Vec<_> = PORT_DEVICES.0.iter().map(|info| info.types).collect();
+        let second: Vec<_> = PORT_DEVICES.0.iter().map(|info| info.types).collect();
+        assert_eq!(first, second, "not the same memory twice");
+
+        assert_eq!(
+            PORT_DEVICES.0.len(),
+            PORTS.len() + 1,
+            "one per port, plus the terminator"
+        );
+        let last = PORT_DEVICES.0.last().expect("a terminator");
+        assert!(last.types.is_null(), "the array has to end somewhere");
+
+        for (port, info) in PORT_DEVICES.0.iter().enumerate().take(PORTS.len()) {
+            assert!(!info.types.is_null(), "port {port}");
+            // SAFETY: each list is a `static` of `num_types` entries plus a null terminator.
+            let types = unsafe { std::slice::from_raw_parts(info.types, info.num_types as usize) };
+            assert!(
+                types.iter().all(|ty| !ty.desc.is_null()),
+                "port {port} counts its own terminator"
+            );
+            // SAFETY: as above; the entry past the counted ones is the terminator.
+            let terminator = unsafe { (*info.types.add(info.num_types as usize)).desc };
+            assert!(terminator.is_null(), "port {port} is not terminated");
+
+            let offers_zapper = types.iter().any(|ty| ty.id == sys::RETRO_DEVICE_LIGHTGUN);
+            assert_eq!(
+                offers_zapper,
+                port == ZAPPER_PORT,
+                "port {port} offers the Zapper"
+            );
+        }
     }
 
     /// The Zapper has one socket on the console, and a frontend that asks for it elsewhere has to
