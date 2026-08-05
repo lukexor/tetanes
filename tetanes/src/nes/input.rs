@@ -394,7 +394,9 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::Left) => ArrowLeft },
                 { (Player::One, JoypadBtn::Right) => ArrowRight },
                 { (Player::One, JoypadBtn::Select) => KeyQ },
+                { (Player::One, JoypadBtn::Select) => ShiftRight },
                 { (Player::One, JoypadBtn::Start) => KeyW },
+                { (Player::One, JoypadBtn::Start) => Enter },
             ),
             _ => Vec::new(),
         };
