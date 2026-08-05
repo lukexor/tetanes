@@ -600,6 +600,18 @@ impl ApplicationHandler<NesEvent> for Running {
                     self.cfg.renderer.fullscreen = self.renderer.fullscreen();
                 }
                 WindowEvent::Focused(focused) => {
+                    // Winit stops reporting a key once the window loses focus, so a joypad button
+                    // held through an alt-tab would never see its release and would stay down.
+                    if !focused {
+                        for (key, modifiers) in std::mem::take(&mut self.pressed_keys) {
+                            self.on_input(
+                                window_id,
+                                Input::Key(key, modifiers),
+                                ElementState::Released,
+                                false,
+                            );
+                        }
+                    }
                     if focused && !self.occluded {
                         self.repaint_times.insert(window_id, Instant::now());
                         if self.renderer.rom_loaded() && self.run_state().auto_paused() {
@@ -662,6 +674,9 @@ impl ApplicationHandler<NesEvent> for Running {
                         // Resolving a release against the modifiers its press saw keeps the
                         // pair matched.
                         let held = self.modifiers.state();
+                        // No record means the press never reached us — egui had focus, or it was a
+                        // synthetic one discarded above. Dispatching anyway would fire a release
+                        // for a binding whose press never fired.
                         let modifiers = match event.state {
                             // A repeat is the same physical press, so it keeps those modifiers.
                             ElementState::Pressed if event.repeat => {
@@ -672,15 +687,16 @@ impl ApplicationHandler<NesEvent> for Running {
                                 Some(held)
                             }
                             ElementState::Released => self.pressed_keys.remove(&key),
-                        }
-                        .unwrap_or(held);
+                        };
 
-                        self.on_input(
-                            window_id,
-                            Input::Key(key, modifiers),
-                            event.state,
-                            event.repeat,
-                        );
+                        if let Some(modifiers) = modifiers {
+                            self.on_input(
+                                window_id,
+                                Input::Key(key, modifiers),
+                                event.state,
+                                event.repeat,
+                            );
+                        }
                     }
                 }
                 WindowEvent::ModifiersChanged(modifiers) => {
@@ -714,7 +730,6 @@ impl ApplicationHandler<NesEvent> for Running {
         self.gamepads.update_events();
         if let Some(window_id) = self.renderer.root_window_id() {
             let res = self.renderer.on_gamepad_update(&self.gamepads);
-            self.gamepads.set_ui_consumes(res.consumed);
             if res.repaint {
                 self.repaint_times.insert(window_id, Instant::now());
             }
@@ -1080,6 +1095,11 @@ impl Running {
                             self.rewinding = false;
                             self.event(EmulationEvent::Rewinding(self.rewinding));
                         }
+                    }
+                    // Unbound by default, since `VisualRewind`'s tap already does this. It is still
+                    // bindable, so it needs an arm of its own to do anything when someone binds it.
+                    Feature::InstantRewind if activated => {
+                        self.event(EmulationEvent::InstantRewind);
                     }
                     _ => (),
                 },

@@ -219,12 +219,12 @@ impl InputConfig {
 
     pub fn clear_binding(&mut self, input: Input) {
         for bind in &mut self.action_bindings {
-            if let Some((binding, existing_input)) = bind
-                .bindings
-                .iter_mut()
-                .enumerate()
-                .find(|(_, i)| **i == Some(input))
-            {
+            // Every matching slot, not just the first. A slot left behind keeps a stale entry in
+            // the `Input`-keyed lookup map, which silently reverts the rebind that cleared it.
+            for (binding, existing_input) in bind.bindings.iter_mut().enumerate() {
+                if *existing_input != Some(input) {
+                    continue;
+                }
                 let keybinds = if let Action::Deck(DeckAction::Joypad((player, _))) = bind.action {
                     &mut self.joypads[player as usize]
                 } else {

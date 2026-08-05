@@ -329,13 +329,14 @@ impl ActionBindings {
             { DeckAction::ToggleApuChannel(Channel::Pulse1) => :SHIFT, Digit1 },
             { DeckAction::ToggleApuChannel(Channel::Pulse2) => :SHIFT, Digit2 },
             { DeckAction::ToggleApuChannel(Channel::Triangle) => :SHIFT, Digit3 },
-            { Feature::InstantRewind => KeyR },
             { Feature::TakeScreenshot => F10 },
             { Feature::ToggleAudioRecording => :SHIFT, KeyR },
             { Feature::ToggleReplayRecording => :SHIFT, KeyV },
+            // Covers `Feature::InstantRewind` too — its handler rewinds instantly on a tap and
+            // visually on a hold, so binding both actions to `R` would only make one of them win.
             { Feature::VisualRewind => KeyR },
             { Menu::About => F1 },
-            { Menu::Keybinds => :CONTROL, KeyK; F3 },
+            { Menu::Keybinds => :CONTROL, KeyK },
             { Menu::Preferences => :CONTROL, KeyP; F2 },
             { Menu::PerfStats => :CONTROL, KeyF },
             { Setting::DecrementScale => :SHIFT, Minus },
@@ -388,8 +389,6 @@ impl ActionBindings {
                 { (Player::One, JoypadBtn::TurboA) => KeyA },
                 { (Player::One, JoypadBtn::B) => KeyX },
                 { (Player::One, JoypadBtn::TurboB) => KeyS },
-                // FIXME: These overwrite Axis bindings above because there are only two binding
-                // slots available at present
                 { (Player::One, JoypadBtn::Up) => ArrowUp },
                 { (Player::One, JoypadBtn::Down) => ArrowDown },
                 { (Player::One, JoypadBtn::Left) => ArrowLeft },
@@ -405,10 +404,13 @@ impl ActionBindings {
                 .iter_mut()
                 .find(|(existing_action, _)| **existing_action == action)
             {
-                for binding in &mut existing_bindings.bindings {
-                    if binding.is_none() {
-                        *binding = addtl_binding.bindings[0];
-                    }
+                // The first free slot only, so the key never lands in two slots of one action.
+                if let Some(binding) = existing_bindings
+                    .bindings
+                    .iter_mut()
+                    .find(|binding| binding.is_none())
+                {
+                    *binding = addtl_binding.bindings[0];
                 }
             } else {
                 bindings.insert(action, addtl_binding);
@@ -457,7 +459,6 @@ pub struct Gamepads {
     connected: HashMap<gilrs::GamepadId, Uuid>,
     inner: Option<gilrs::Gilrs>,
     events: VecDeque<gilrs::Event>,
-    ui_consumes: bool,
 }
 
 impl Gamepads {
@@ -483,11 +484,17 @@ impl Gamepads {
             connected,
             inner: gilrs.ok(),
             events,
-            ui_consumes: false,
         }
     }
 
+    /// Replaces the queue with everything gilrs has buffered since the last poll.
+    ///
+    /// The queue holds one poll's worth: the game path drains it every frame, and while the UI is
+    /// consuming input nothing drains it, so without the clear it would grow for as long as a menu
+    /// stays open and [`Gamepads::events`] would hand the keybind UI a backlog instead of what was
+    /// just pressed.
     pub fn update_events(&mut self) {
+        self.events.clear();
         if let Some(inner) = self.inner.as_mut() {
             while let Some(event) = inner.next_event() {
                 self.events.push_back(event);
@@ -593,19 +600,10 @@ impl Gamepads {
         self.events.iter()
     }
 
+    // Front, not back: a press and its release can land in the same poll, and dispatching them in
+    // reverse leaves the button stuck down.
     pub fn next_event(&mut self) -> Option<gilrs::Event> {
-        self.events.pop_back()
-    }
-
-    pub fn clear_events(&mut self) {
-        self.events.clear();
-    }
-
-    pub fn set_ui_consumes(&mut self, consumes: bool) {
-        if self.ui_consumes && !consumes {
-            self.events.clear();
-        }
-        self.ui_consumes = consumes;
+        self.events.pop_front()
     }
 
     pub fn connect(&mut self, gamepad_id: gilrs::GamepadId) {
@@ -659,5 +657,87 @@ impl Gamepads {
                 ],
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const JOYPAD_A: Action = Action::Deck(DeckAction::Joypad((Player::One, JoypadBtn::A)));
+
+    #[test]
+    fn default_bindings_have_no_duplicate_slots() {
+        for bind in &InputConfig::default().action_bindings {
+            let mut seen = Vec::new();
+            for input in bind.bindings.iter().flatten() {
+                assert!(
+                    !seen.contains(input),
+                    "{:?} is bound to {:?} in two slots",
+                    bind.action,
+                    input
+                );
+                seen.push(*input);
+            }
+        }
+    }
+
+    #[test]
+    fn default_bindings_give_each_input_one_action() {
+        // `InputBindings` is keyed by `Input`, so two actions sharing one means whichever is
+        // collected last silently wins and the other never fires.
+        let mut owner = HashMap::default();
+        for bind in &InputConfig::default().action_bindings {
+            for input in bind.bindings.iter().flatten() {
+                if let Some(existing) = owner.insert(*input, bind.action) {
+                    panic!(
+                        "{input:?} is bound to both {:?} and {:?}",
+                        existing, bind.action
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clear_binding_clears_every_slot() {
+        let mut cfg = InputConfig::default();
+        let input = Input::Key(KeyCode::KeyZ, ModifiersState::empty());
+
+        // A config on disk can carry the same input in more than one of an action's slots.
+        for bindings in [
+            &mut cfg
+                .action_bindings
+                .iter_mut()
+                .find(|bind| bind.action == JOYPAD_A)
+                .expect("joypad A is bound by default")
+                .bindings,
+            &mut cfg.joypads[Player::One as usize]
+                .get_mut(&JOYPAD_A)
+                .expect("joypad A is bound by default")
+                .bindings,
+        ] {
+            bindings.fill(Some(input));
+        }
+
+        cfg.clear_binding(input);
+
+        let bind = cfg
+            .action_bindings
+            .iter()
+            .find(|bind| bind.action == JOYPAD_A)
+            .expect("joypad A is still present");
+        assert!(
+            bind.bindings.iter().all(Option::is_none),
+            "left behind {:?}",
+            bind.bindings
+        );
+        assert!(
+            cfg.joypads[Player::One as usize][&JOYPAD_A]
+                .bindings
+                .iter()
+                .all(Option::is_none),
+            "the joypad mirror kept a stale slot"
+        );
     }
 }

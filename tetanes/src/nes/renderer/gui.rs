@@ -850,8 +850,10 @@ impl Gui {
 
         ui.add_enabled_ui(self.loaded_rom.is_some(), |ui| {
             ui.add_enabled_ui(cfg.emulation.rewind, |ui| {
+                // `VisualRewind`'s key, because tapping it is what rewinds instantly;
+                // `InstantRewind` is unbound by default and would leave this label blank.
                 let button = Button::new("⟲ Instant Rewind")
-                    .shortcut_text(cfg.shortcut(Feature::InstantRewind));
+                    .shortcut_text(cfg.shortcut(Feature::VisualRewind));
                 let disabled_hover_text = if self.loaded_rom.is_none() {
                     Self::NO_ROM_LOADED
                 } else {
