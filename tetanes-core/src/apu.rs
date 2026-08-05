@@ -151,7 +151,13 @@ impl Default for Apu {
 
 impl Apu {
     /// Sample rate used unless the embedder sets another.
-    pub const DEFAULT_SAMPLE_RATE: f32 = 44_100.0;
+    //
+    // 48 kHz because that is what audio devices and libretro frontends run at, so the default
+    // costs no resampling downstream. It is the dearer of the two here - 8.8% more samples per
+    // frame through the filter chain and the band-limited synth - but turning mixing off entirely
+    // measured 0.029 ms of a 1.883 ms frame on spritecans, so 8.8% of that is ~0.1%, and the
+    // 44.1-to-48 A/B was inside run-to-run noise.
+    pub const DEFAULT_SAMPLE_RATE: f32 = 48_000.0;
     /// The 5 APU channels plus one for cartridge expansion audio.
     pub const MAX_CHANNEL_COUNT: usize = 6;
     /// How many CPU cycles a mixing block spans before every cycle counter rolls back to zero.
