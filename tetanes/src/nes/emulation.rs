@@ -784,7 +784,23 @@ impl State {
         }
     }
 
-    fn on_load_rom(&mut self, rom: LoadedRom) {
+    fn on_load_rom(&mut self, rom: LoadedRom, previous: Option<String>) {
+        // A cheat belongs to the cart it was entered for: the same address in another game holds
+        // something else entirely, so the codes come out with the cartridge. Only on a *change* -
+        // a first load has to keep what `--genie-code` and the config put there for the game about
+        // to start, and quitting must not wipe the saved list, which both a plain unload hook and
+        // a plain load hook would do.
+        if previous.is_some_and(|name| name != rom.name) && self.control_deck.patches().count() > 0
+        {
+            // Cleared here as well as through the event, so the new game does not run its opening
+            // frames under the last one's codes while the event travels to the config and back.
+            self.control_deck.clear_genie_codes();
+            self.tx.event(ConfigEvent::GenieCodeClear);
+            self.add_message(
+                MessageType::Info,
+                "Cleared Game Genie codes entered for the previous game",
+            );
+        }
         if self.auto_load {
             let save_path = Config::save_path(&rom.name, self.save_slot);
             if let Err(err) = self.control_deck.load_state_path(save_path)
@@ -810,19 +826,27 @@ impl State {
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
         let path = path.as_ref();
+        // Taken before the unload, which is what forgets it.
+        let previous = self.loaded_rom_name();
         self.unload_rom();
         match self.control_deck.load_rom_path(path) {
-            Ok(rom) => self.on_load_rom(rom),
+            Ok(rom) => self.on_load_rom(rom, previous),
             Err(err) => self.on_error(err),
         }
     }
 
     fn load_rom(&mut self, name: &str, rom: &mut impl Read) {
+        let previous = self.loaded_rom_name();
         self.unload_rom();
         match self.control_deck.load_rom(name, rom) {
-            Ok(rom) => self.on_load_rom(rom),
+            Ok(rom) => self.on_load_rom(rom, previous),
             Err(err) => self.on_error(err),
         }
+    }
+
+    /// The cart currently in the machine, which tells a swap from a first load.
+    fn loaded_rom_name(&self) -> Option<String> {
+        self.control_deck.loaded_rom().map(|rom| rom.name.clone())
     }
 
     fn on_load_replay(&mut self, start: Bus, name: impl AsRef<str>) {

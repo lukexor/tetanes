@@ -507,6 +507,17 @@ impl ControlDeck {
 
     /// Unloads the currently loaded ROM and saves SRAM to disk if the Cart is battery-backed.
     ///
+    /// Cheats are **not** cleared, here or in [`ControlDeck::load_rom`]. A [`Patch`] belongs to the
+    /// session rather than to the machine - the same reason it survives a state restore, see
+    /// [`ControlDeck::add_patch`] - so a caller that treats its cheat list as per-game has to call
+    /// [`ControlDeck::clear_genie_codes`] itself when the cart changes. Left applied, a code
+    /// substitutes at the same address in the next game, where it means something else entirely.
+    ///
+    /// Note that codes reach a deck by two routes with different lifetimes:
+    /// [`Config::genie_codes`] is applied once when the deck is built, while
+    /// [`ControlDeck::add_genie_code`] and [`ControlDeck::add_patch`] apply to the running console.
+    /// Neither is re-applied by a load.
+    ///
     /// # Errors
     ///
     /// If the loaded [`Cart`] is battery-backed and saving fails, then an error is returned.
