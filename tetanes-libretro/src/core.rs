@@ -127,29 +127,40 @@ pub unsafe fn try_core<'a>() -> Option<&'a mut Core> {
     unsafe { (*CORE.0.get()).as_mut() }
 }
 
+/// Runs `f`, containing any panic.
+///
+/// Nothing may unwind out of an `extern "C"` function: the process aborts, taking the frontend
+/// with it. Every export therefore goes through this or [`with_core`], including the ones that run
+/// before there is a core to talk about.
+pub fn guard<T>(default: T, f: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => value,
+        Err(panic) => {
+            // The hook has already reported where; this says what it cost.
+            log::error(&format!(
+                "the core has stopped: {}. Unload the game to reset it.",
+                log::payload(&*panic)
+            ));
+            // SAFETY: the panic unwound out of `f`, so any borrow it held is gone.
+            if let Some(core) = unsafe { try_core() } {
+                core.wedged = true;
+            }
+            default
+        }
+    }
+}
+
 /// Runs `f` against the core, containing any panic.
 ///
-/// Every exported symbol goes through here: a panic must not cross the FFI boundary, and the
-/// frontend has no way to hear about one except through the log. On a panic the core wedges and
-/// `default` is returned, which is the "this did not work" answer for whichever export it was.
+/// `default` is returned when there is no core, when a previous panic wedged it, or when this call
+/// panics - whichever "this did not work" answer the export in question has.
 pub fn with_core<T>(default: T, f: impl FnOnce(&mut Core) -> T) -> T {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    guard(None, || {
         // SAFETY: a libretro entry point, on the frontend's thread. Nothing below re-enters.
         match unsafe { try_core() } {
             Some(core) if !core.wedged => Some(f(core)),
             _ => None,
         }
-    }));
-    match result {
-        Ok(Some(value)) => value,
-        Ok(None) => default,
-        Err(_) => {
-            // SAFETY: as above. The panic unwound out of `f`, so its borrow is gone.
-            if let Some(core) = unsafe { try_core() } {
-                core.wedged = true;
-            }
-            log::error("emulation panicked; the core has stopped. Unload the game to reset it.");
-            default
-        }
-    }
+    })
+    .unwrap_or(default)
 }

@@ -56,17 +56,20 @@ compile_error!("build with `--profile libretro`, which sets `panic = \"unwind\"`
 /// `cb` must be callable for the life of the core.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
-    // Before `retro_init`, so there may be no core yet to hang this on.
-    // SAFETY: a libretro entry point, on the frontend's thread.
-    unsafe {
-        if core::try_core().is_none() {
-            core::init();
+    core::guard((), || {
+        // Before `retro_init`, so there may be no core yet to hang this on.
+        // SAFETY: a libretro entry point, on the frontend's thread.
+        unsafe {
+            // The logger first, so that anything the console's construction has to say can be said.
+            log::init(cb);
+            if core::try_core().is_none() {
+                core::init();
+            }
+            if let Some(core) = core::try_core() {
+                core.callbacks.environment = Some(cb);
+            }
         }
-        log::init(cb);
-        if let Some(core) = core::try_core() {
-            core.callbacks.environment = Some(cb);
-        }
-    }
+    });
 }
 
 macro_rules! setter {
@@ -115,12 +118,14 @@ setter!(
 /// Must be called from a libretro entry point on the frontend's thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn retro_init() {
-    // SAFETY: as above.
-    unsafe {
-        if core::try_core().is_none() {
-            core::init();
+    core::guard((), || {
+        // SAFETY: as above.
+        unsafe {
+            if core::try_core().is_none() {
+                core::init();
+            }
         }
-    }
+    });
 }
 
 /// Destroys the console.
@@ -130,9 +135,11 @@ pub unsafe extern "C" fn retro_init() {
 /// As [`retro_init`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn retro_deinit() {
+    core::guard((), || {
+        // SAFETY: as above.
+        unsafe { core::deinit() };
+    });
     log::deinit();
-    // SAFETY: as above.
-    unsafe { core::deinit() };
 }
 
 /// The ABI revision this core implements.
@@ -171,9 +178,9 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
     let Some(out) = (unsafe { info.as_mut() }) else {
         return;
     };
-    *out = with_core(retro_system_av_info::default(), |core| {
-        av_info(core.deck.region())
-    });
+    // Never a zeroed struct: a frontend divides by `fps` and `sample_rate` while setting itself
+    // up, so answering with zeroes is worse than answering with the wrong region.
+    *out = with_core(av_info(NesRegion::Ntsc), |core| av_info(core.deck.region()));
 }
 
 /// Selects what is plugged into a port. Unused until four-player and the zapper land.
