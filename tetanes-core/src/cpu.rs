@@ -432,7 +432,7 @@ impl Bus {
         self.ppu.emulate_warmup = session.ppu.emulate_warmup;
 
         // Cheats: a code entered after the state was recorded stays entered.
-        std::mem::swap(&mut self.genie_codes, &mut session.genie_codes);
+        std::mem::swap(&mut self.patches, &mut session.patches);
 
         // How RAM is filled at power-on, which only shows on the next hard reset.
         self.ram_state = session.ram_state;

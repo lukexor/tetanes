@@ -6,6 +6,9 @@ use thiserror::Error;
 
 static GENIE_MAP: OnceLock<HashMap<char, u8>> = OnceLock::new();
 
+/// The Game Genie alphabet, indexed by the nibble it stands for - the inverse of [`GENIE_MAP`].
+const GENIE_LETTERS: [u8; 16] = *b"APZLGITYEOXUKSVN";
+
 /// A `Result` from parsing a Game Genie code.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -110,6 +113,58 @@ impl GenieCode {
         }
     }
 
+    /// Builds the code that patches `addr` to `data`, or only when the byte already there is
+    /// `compare`.
+    ///
+    /// `None` below `$8000`: the Game Genie's address field is 15 bits over a forced `0x8000`
+    /// base, so a RAM address has no code. Use [`Patch`](crate::patch::Patch) directly for those.
+    ///
+    /// The letters are canonical rather than unique. A 6-letter code is 24 bits carrying a 15-bit
+    /// address and an 8-bit value, so one bit is spare - encoding a code that set it gives back a
+    /// code that means the same thing and reads differently.
+    ///
+    /// ```
+    /// use tetanes_core::genie::GenieCode;
+    ///
+    /// // Infinite lives in Super Mario Bros., the other way round.
+    /// let code = GenieCode::new("SXIOPO".to_string())?;
+    /// assert_eq!(GenieCode::encode(code.addr(), code.read(0), None).as_ref(), Some(&code));
+    /// assert!(GenieCode::encode(0x0300, 0xFF, None).is_none(), "RAM has no code");
+    /// # Ok::<(), tetanes_core::genie::Error>(())
+    /// ```
+    #[must_use]
+    pub fn encode(addr: u16, data: u8, compare: Option<u8>) -> Option<Self> {
+        let a = addr.checked_sub(0x8000)?;
+        let (a, d) = (usize::from(a), usize::from(data));
+        // The inverse of the permutation `from_raw` reads, nibble by nibble.
+        let mut hex = vec![
+            (d & 7) | ((d >> 4) & 8),
+            ((d >> 4) & 7) | ((a >> 4) & 8),
+            (a >> 4) & 7,
+            ((a >> 12) & 7) | (a & 8),
+            (a & 7) | ((a >> 8) & 8),
+            ((a >> 8) & 7),
+        ];
+        if let Some(compare) = compare {
+            let c = usize::from(compare);
+            // An 8-letter code moves data's bit 3 to the last nibble to make room for `compare`.
+            hex[5] |= c & 8;
+            hex.push((c & 7) | ((c >> 4) & 8));
+            hex.push(((c >> 4) & 7) | (d & 8));
+        } else {
+            hex[5] |= d & 8;
+        }
+        let code = hex
+            .iter()
+            .map(|&nibble| char::from(GENIE_LETTERS[nibble]))
+            .collect::<String>();
+        let hex = hex
+            .into_iter()
+            .map(|nibble| nibble as u8)
+            .collect::<Vec<_>>();
+        Some(Self::from_raw(code, &hex))
+    }
+
     fn generate_genie_map() -> HashMap<char, u8> {
         // Game genie maps these letters to binary representations as a form of code obfuscation
         HashMap::from([
@@ -168,6 +223,18 @@ impl GenieCode {
         self.addr
     }
 
+    /// The value the code substitutes.
+    #[must_use]
+    pub const fn data(&self) -> u8 {
+        self.data
+    }
+
+    /// The byte the code requires to be there already, if it is an 8-letter code.
+    #[must_use]
+    pub const fn compare(&self) -> Option<u8> {
+        self.compare
+    }
+
     /// Applies the code to a value read from that address, honouring the compare byte if the
     /// code has one.
     #[must_use]
@@ -183,5 +250,94 @@ impl GenieCode {
 impl std::fmt::Display for GenieCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.code)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The alphabet and the map are two spellings of one table, and only the map is exercised by
+    /// decoding.
+    #[test]
+    fn the_alphabet_is_the_inverse_of_the_map() {
+        let map = GENIE_MAP.get_or_init(GenieCode::generate_genie_map);
+        assert_eq!(map.len(), GENIE_LETTERS.len());
+        for (nibble, &letter) in GENIE_LETTERS.iter().enumerate() {
+            assert_eq!(map[&char::from(letter)], nibble as u8, "letter {letter:?}");
+        }
+    }
+
+    /// `encode` is `from_raw`'s bit permutation run backwards, and a permutation is only right if
+    /// it round-trips - so drive every address bit, both code lengths, and some real codes.
+    ///
+    /// What round-trips is the *meaning*, not the letters: a 6-letter code is 24 bits carrying a
+    /// 15-bit address and an 8-bit value, so one bit is spare, and this format leaves it in the
+    /// third letter. `ZEXPYGLA` and `ZEZPYGLA` are the same code.
+    #[test]
+    fn a_code_survives_a_decode_and_encode_round_trip() {
+        let mut codes = vec![
+            // Super Mario Bros.: infinite lives, and start with a mushroom.
+            "SXIOPO".to_string(),
+            "AATOZA".to_string(),
+            // Eight-letter codes, which carry a compare byte.
+            "ZEXPYGLA".to_string(),
+            "GXXZZLVI".to_string(),
+        ];
+        // One code per address bit, so a permutation that transposes two of them cannot pass.
+        for bit in 0..15 {
+            let code = GenieCode::encode(0x8000 | (1 << bit), 0x5A, None).expect("in ROM space");
+            codes.push(code.code().to_string());
+        }
+
+        for code in codes {
+            let decoded = GenieCode::new(code.clone()).expect("valid code");
+            let encoded = GenieCode::encode(decoded.addr(), decoded.data(), decoded.compare())
+                .expect("addr is in ROM space");
+            assert_eq!(encoded.addr(), decoded.addr(), "{code} address");
+            assert_eq!(encoded.data(), decoded.data(), "{code} data");
+            assert_eq!(encoded.compare(), decoded.compare(), "{code} compare");
+            assert_eq!(encoded.code().len(), code.len(), "{code} keeps its length");
+            // Re-decoding the emitted letters must land in the same place, which the spare bit
+            // cannot affect.
+            let round_tripped = GenieCode::new(encoded.code().to_string()).expect("valid code");
+            assert_eq!(round_tripped, encoded, "{code} re-decodes to itself");
+        }
+    }
+
+    /// The spare bit is why re-encoding a real code can change a letter without changing what the
+    /// code does. Anything that compares codes as strings needs to know.
+    #[test]
+    fn the_third_letters_high_bit_carries_nothing() {
+        let with = GenieCode::new("ZEXPYGLA".to_string()).expect("valid code");
+        let without = GenieCode::new("ZEZPYGLA".to_string()).expect("valid code");
+        assert_eq!(
+            (with.addr(), with.data(), with.compare()),
+            (without.addr(), without.data(), without.compare()),
+        );
+    }
+
+    /// Every data and compare bit has to survive too, not just the address.
+    #[test]
+    fn encoding_round_trips_every_data_and_compare_byte() {
+        for data in 0..=u8::MAX {
+            let code = GenieCode::encode(0x9ABC, data, None).expect("in ROM space");
+            let decoded = GenieCode::new(code.code().to_string()).expect("valid code");
+            assert_eq!(decoded.addr(), 0x9ABC, "data {data:#04X}");
+            assert_eq!(decoded.data(), data);
+            assert_eq!(decoded.compare(), None);
+
+            let code = GenieCode::encode(0x9ABC, 0x5A, Some(data)).expect("in ROM space");
+            let decoded = GenieCode::new(code.code().to_string()).expect("valid code");
+            assert_eq!(decoded.addr(), 0x9ABC, "compare {data:#04X}");
+            assert_eq!(decoded.data(), 0x5A);
+            assert_eq!(decoded.compare(), Some(data));
+        }
+    }
+
+    #[test]
+    fn an_address_below_rom_has_no_code() {
+        assert!(GenieCode::encode(0x7FFF, 0xAA, None).is_none());
+        assert!(GenieCode::encode(0x0000, 0xAA, None).is_none());
     }
 }

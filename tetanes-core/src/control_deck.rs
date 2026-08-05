@@ -45,6 +45,7 @@ use crate::{
     input::{FourPlayer, Input, Joypad, Player},
     mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
     memory::{Memory, RamState},
+    patch::Patch,
     ppu::{self, Ppu},
     video::{Frame, Video, VideoFilter},
 };
@@ -1509,6 +1510,28 @@ impl ControlDeck {
         self.bus.clear_genie_codes();
     }
 
+    /// Apply a [`Patch`], replacing any already at its address.
+    ///
+    /// A Game Genie code is one of these, and [`ControlDeck::add_genie_code`] is the way in for
+    /// those. This is for a cheat the Game Genie cannot express - one below `$8000`, which is
+    /// where a frontend's raw address/value cheats overwhelmingly point.
+    #[inline]
+    pub fn add_patch(&mut self, patch: Patch) {
+        self.bus.patches.insert(patch);
+    }
+
+    /// Remove the patch at `addr`, if any.
+    #[inline]
+    pub fn remove_patch(&mut self, addr: u16) {
+        self.bus.patches.remove(addr);
+    }
+
+    /// Every patch currently applied, in no particular order.
+    #[inline]
+    pub fn patches(&self) -> impl Iterator<Item = &Patch> {
+        self.bus.patches.iter()
+    }
+
     /// Returns whether a given [`Apu`] [`Channel`] is enabled.
     #[inline]
     #[must_use]
@@ -1862,12 +1885,7 @@ mod tests {
         restored
             .add_genie_code("ZEXPYGLA".to_string())
             .expect("valid code");
-        let session_codes = restored
-            .bus()
-            .genie_codes
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
+        let session_codes = restored.patches().map(|p| p.addr).collect::<Vec<_>>();
         run(&mut restored, 5);
         restored.load_state(state.as_slice()).expect("loads");
 
@@ -1898,12 +1916,7 @@ mod tests {
              skipped field arrives as `Default` rather than keeping the running value"
         );
         assert_eq!(
-            restored
-                .bus()
-                .genie_codes
-                .keys()
-                .copied()
-                .collect::<Vec<_>>(),
+            restored.patches().map(|p| p.addr).collect::<Vec<_>>(),
             session_codes,
             "the session's cheats survive, and the recorded state's do not come back with it"
         );

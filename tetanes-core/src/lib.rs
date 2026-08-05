@@ -23,6 +23,7 @@ pub mod genie;
 pub mod input;
 pub mod mapper;
 pub mod memory;
+pub mod patch;
 pub mod ppu;
 pub mod sys;
 pub mod video;
@@ -60,9 +61,9 @@ mod tests {
         mapper::{BOARD_LAYOUTS, MapperOps},
         memory::ConstArray,
         memory::Memory,
+        patch::Patches,
         ppu::{PaletteRam, frame::Frame as PpuFrame, mask, scroll::Scroll, sprite::Sprite},
     };
-    use std::collections::HashMap;
 
     /// Utility to aid in struct field layout size and alignment.
     macro_rules! print_struct_layout {
@@ -153,7 +154,7 @@ mod tests {
             ppu: Ppu,
             apu: Apu,
             input: Input,
-            genie_codes: HashMap<u16, GenieCode>,
+            patches: Patches,
         );
 
         print_struct_layout!(

@@ -641,6 +641,9 @@ impl State {
             ConfigEvent::GenieCodeRemoved(code) => {
                 self.control_deck.remove_genie_code(code);
             }
+            ConfigEvent::GenieCodeClear => {
+                self.control_deck.clear_genie_codes();
+            }
             ConfigEvent::RamState(ram_state) => {
                 self.control_deck.set_ram_state(*ram_state);
             }
