@@ -92,7 +92,7 @@ category = "Test"
 dependencies = ["build-libretro"]
 script_runner = "@shell"
 script = '''
-target="${CARGO_TARGET_DIR:-$HOME/.cache/cargo-target}/libretro"
+target="${CARGO_TARGET_DIR:-${CARGO_MAKE_CRATE_TARGET_DIRECTORY:-target}}/libretro"
 case "$(uname -s)" in
   Darwin) lib="$target/libtetanes_libretro.dylib"; symbols=$(nm -gU "$lib") ;;
   *)      lib="$target/libtetanes_libretro.so";    symbols=$(nm -D --defined-only "$lib") ;;
@@ -108,11 +108,13 @@ printf '%s: %s exported entry points\n' "$lib" "$count"
 [tasks.libretro-artifacts]
 description = "Package the libretro core for release. Takes an optional target triple"
 category = "Build"
-script_runner = "@shell"
+# `bash` rather than `@shell`: on Windows the latter converts the script to a batch file, which
+# `case`, `command -v` and the subshells below would not survive. The Windows runners have bash.
+script_runner = "bash"
 script = '''
 set -e
 triple="${@}"
-out="${CARGO_TARGET_DIR:-$HOME/.cache/cargo-target}"
+out="${CARGO_TARGET_DIR:-${CARGO_MAKE_CRATE_TARGET_DIRECTORY:-target}}"
 if [ -n "$triple" ]; then
   cargo build --locked -p tetanes-libretro --profile libretro --target "$triple"
   out="$out/$triple/libretro"
