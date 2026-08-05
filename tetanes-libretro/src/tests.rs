@@ -576,6 +576,29 @@ fn an_empty_port_is_not_polled() {
     assert!(!read(0), "and unplugging port one stops it too");
 }
 
+/// A frontend assigns devices before it loads content, and loading hard-resets the console - so
+/// the Zapper has to still be plugged in on the other side of it.
+#[test]
+fn the_zapper_survives_the_load_that_follows_it() {
+    let session = Session::start();
+    retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_LIGHTGUN);
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let connected = || {
+        unsafe { core::try_core() }
+            .expect("a core")
+            .deck
+            .zapper_connected()
+    };
+    assert!(connected(), "plugged in before any content");
+
+    assert!(session.load());
+    assert!(connected(), "and still in after the cart's hard reset");
+
+    retro_reset();
+    assert!(connected(), "and after the front-panel button");
+}
+
 /// The Zapper is a light gun on the port that has the socket, aimed in absolute screen
 /// coordinates, whose trigger is a pull rather than a hold.
 #[test]
@@ -598,6 +621,13 @@ fn the_zapper_aims_and_fires() {
     });
     session.run(1);
     assert_eq!(deck().zapper_pos(), (128, 120));
+
+    // The trigger, which is the half that actually shoots.
+    let armed = || deck().input().zapper.triggered > 0.0;
+    assert!(!armed(), "nothing pulled it yet");
+    FRONTEND.with_borrow_mut(|f| f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, 1));
+    session.run(1);
+    assert!(armed(), "the pull reached the console");
 
     // Off-screen aims where nothing is sampled, so a shot there can never see light.
     FRONTEND.with_borrow_mut(|f| f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN, 1));
