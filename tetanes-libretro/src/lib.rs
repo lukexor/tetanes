@@ -36,7 +36,7 @@ use sys::*;
 use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::Clocked,
-    input::Player,
+    input::JoypadBtnState,
     ppu::size,
 };
 
@@ -196,6 +196,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uin
 pub extern "C" fn retro_reset() {
     with_core((), |core| {
         core.wedged = false;
+        core.pads.forget();
         core.deck.reset(ResetKind::Soft);
     });
 }
@@ -278,6 +279,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
 
     with_core(false, |core| {
         core.wedged = false;
+        core.pads.forget();
         match core.deck.load_rom(&name, &mut &rom[..]) {
             Ok(loaded) => {
                 core.deck.set_sample_rate(audio::SAMPLE_RATE as f32);
@@ -307,6 +309,7 @@ pub const extern "C" fn retro_load_game_special(
 pub extern "C" fn retro_unload_game() {
     with_core((), |core| {
         core.wedged = false;
+        core.pads.forget();
         // Infallible now that the deck performs no battery I/O of its own.
         let _ = core.deck.unload_rom();
     });
@@ -477,14 +480,14 @@ unsafe fn poll_input(core: &mut core::Core) {
     // SAFETY: both came from the frontend; `poll` must precede any `state` read.
     unsafe {
         poll();
-        for (port, player) in [Player::One, Player::Two].into_iter().enumerate() {
-            let joypad = core.deck.joypad_mut(player);
+        for (port, player) in input::PORTS.into_iter().enumerate() {
+            let mut held = JoypadBtnState::empty();
             for (id, button) in input::BUTTONS {
-                let pressed = state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0;
-                // Through `set_button` rather than assigning the bits, so that SOCD filtering and
-                // the turbo-release rule keep applying.
-                joypad.set_button(button, pressed);
+                if state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0 {
+                    held.insert(button);
+                }
             }
+            core.pads.apply(port, core.deck.joypad_mut(player), held);
         }
     }
 }

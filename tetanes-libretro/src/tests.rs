@@ -13,6 +13,7 @@ use std::{
     cell::RefCell,
     sync::{Mutex, MutexGuard},
 };
+use tetanes_core::input::Player;
 
 /// A ROM that draws something busy enough that a blank frame is obviously wrong.
 const ROM: &[u8] = include_bytes!("../../tetanes-core/test_roms/spritecans.nes");
@@ -235,32 +236,43 @@ fn a_loaded_rom_produces_frames_and_audio() {
     });
 }
 
-/// Input has to reach the console, and stop reaching it when released - a stuck button is the
-/// failure this catches.
+/// Input has to reach the console and stop reaching it when released.
+///
+/// The face buttons are the ones that broke: a frontend reports every button every frame, and
+/// replaying "turbo is not held" each time cleared A and B, because `set_button` treats a turbo
+/// release as a release of the button it fires. The D-pad, START and SELECT have no such rule and
+/// kept working, which is what the bug looked like from outside.
 #[test]
 fn a_held_button_reaches_the_joypad_and_a_released_one_stops() {
     let session = Session::start();
     assert!(session.load());
 
-    FRONTEND.with_borrow_mut(|f| f.held.push((0, RETRO_DEVICE_ID_JOYPAD_START)));
-    session.run(1);
-    // SAFETY: the core is initialised and this thread is the frontend's.
-    let held = unsafe { core::try_core() }
-        .expect("a core")
-        .deck
-        .joypad(Player::One)
-        .button(tetanes_core::input::JoypadBtnState::START);
-    assert!(held, "RetroPad START is the NES START");
+    let pressed = |button| {
+        // SAFETY: the core is initialised and this thread is the frontend's.
+        unsafe { core::try_core() }
+            .expect("a core")
+            .deck
+            .joypad(Player::One)
+            .button(button)
+    };
 
-    FRONTEND.with_borrow_mut(|f| f.held.clear());
-    session.run(1);
-    // SAFETY: as above.
-    let held = unsafe { core::try_core() }
-        .expect("a core")
-        .deck
-        .joypad(Player::One)
-        .button(tetanes_core::input::JoypadBtnState::START);
-    assert!(!held, "and releasing it has to reach the console too");
+    for (id, button, name) in [
+        (RETRO_DEVICE_ID_JOYPAD_B, JoypadBtnState::A, "B -> A"),
+        (RETRO_DEVICE_ID_JOYPAD_A, JoypadBtnState::B, "A -> B"),
+        (RETRO_DEVICE_ID_JOYPAD_START, JoypadBtnState::START, "START"),
+        (RETRO_DEVICE_ID_JOYPAD_LEFT, JoypadBtnState::LEFT, "LEFT"),
+    ] {
+        FRONTEND.with_borrow_mut(|f| f.held = vec![(0, id)]);
+        // Several frames, because holding across frames is what broke: one frame passed either way.
+        for frame in 0..5 {
+            session.run(1);
+            assert!(pressed(button), "{name} still held on frame {frame}");
+        }
+
+        FRONTEND.with_borrow_mut(|f| f.held.clear());
+        session.run(1);
+        assert!(!pressed(button), "{name} released");
+    }
 }
 
 /// A frontend will hand over rubbish - a truncated download, the wrong file - and the core has to
@@ -293,4 +305,50 @@ fn bad_content_is_refused() {
 
     // SAFETY: the core is initialised; running without content must not fault.
     unsafe { retro_run() };
+}
+
+/// Runs a ROM off the local filesystem through the whole lifecycle.
+///
+/// Skipped unless `TETANES_LIBRETRO_ROM` names one, since the committed test ROMs are small and
+/// synthetic - a board with expansion audio or an unusual mapper only turns up in a real cart.
+#[test]
+fn a_local_rom_runs() {
+    let Ok(path) = std::env::var("TETANES_LIBRETRO_ROM") else {
+        return;
+    };
+    let rom = std::fs::read(&path).expect("the ROM named by TETANES_LIBRETRO_ROM");
+    let session = Session::start();
+    let name = std::ffi::CString::new(path.clone()).expect("a path without a NUL");
+    let info = retro_game_info {
+        path: name.as_ptr(),
+        data: rom.as_ptr().cast::<c_void>(),
+        size: rom.len(),
+        meta: std::ptr::null(),
+    };
+    // SAFETY: `info` outlives the call and `data` covers `size`.
+    assert!(unsafe { retro_load_game(&raw const info) }, "{path} loads");
+    // Long enough for a slow boot: Punch-Out!! is still a black screen at 120 frames on hardware
+    // too, so a shorter run would be asserting about a logo rather than about the core.
+    const FRAMES: usize = 300;
+    session.run(FRAMES);
+
+    FRONTEND.with_borrow(|f| {
+        assert_eq!(f.frames.len(), FRAMES);
+        assert!(
+            f.audio_frames > 200_000,
+            "audio kept flowing: {}",
+            f.audio_frames
+        );
+        // *Some* frame, not the last one: plenty of games sit on a black transition at any given
+        // instant, and asserting about one arbitrary frame tests the game rather than the core.
+        let drew = f.frames.iter().any(|frame| {
+            frame
+                .pixels
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                > 1
+        });
+        assert!(drew, "{path} drew nothing in {FRAMES} frames");
+    });
 }
