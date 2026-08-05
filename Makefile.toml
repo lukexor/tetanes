@@ -102,6 +102,67 @@ printf '%s: %s exported entry points\n' "$lib" "$count"
 [ "$count" -eq 25 ] || { echo "expected 25"; exit 1; }
 '''
 
+# The layout a frontend expects: the library named after the core with no `lib` prefix, and the
+# `.info` beside it under the same name. Cargo cannot emit that name directly - it rejects a hyphen
+# in a library target - so the rename happens here.
+[tasks.libretro-artifacts]
+description = "Package the libretro core for release. Takes an optional target triple"
+category = "Build"
+script_runner = "@shell"
+script = '''
+set -e
+triple="${@}"
+out="${CARGO_TARGET_DIR:-$HOME/.cache/cargo-target}"
+if [ -n "$triple" ]; then
+  cargo build --locked -p tetanes-libretro --profile libretro --target "$triple"
+  out="$out/$triple/libretro"
+else
+  cargo build --locked -p tetanes-libretro --profile libretro
+  triple=$(rustc -vV | awk '/^host:/ { print $2 }')
+  out="$out/libretro"
+fi
+
+# `cdylib` is `libtetanes_libretro.so` on Linux, `.dylib` on macOS, and `tetanes_libretro.dll` on
+# Windows, which is already the wanted name.
+case "$triple" in
+  *windows*) built="$out/tetanes_libretro.dll"; name="tetanes_libretro.dll" ;;
+  *apple*)   built="$out/libtetanes_libretro.dylib"; name="tetanes_libretro.dylib" ;;
+  *)         built="$out/libtetanes_libretro.so"; name="tetanes_libretro.so" ;;
+esac
+[ -f "$built" ] || { echo "no library at $built"; exit 1; }
+
+stage="$out/package"
+dist="tetanes-libretro/dist"
+rm -rf "$stage"
+mkdir -p "$stage" "$dist"
+cp "$built" "$stage/$name"
+cp LICENSE-MIT LICENSE-APACHE "$stage/"
+# `display_version` is stamped from the crate version rather than trusted from the file, so a
+# release cannot ship a `.info` announcing the version before it.
+sed "s/^display_version = .*/display_version = \"${CARGO_MAKE_PROJECT_VERSION}\"/" \
+  tetanes-libretro/tetanes_libretro.info > "$stage/tetanes_libretro.info"
+
+# A zip rather than a tarball, because that is what libretro frontends and the buildbot distribute.
+# The Windows runners have no `zip`, so 7-Zip stands in for it there.
+archive="tetanes_libretro-${CARGO_MAKE_PROJECT_VERSION}-${triple}.zip"
+abs_dist=$(cd "$dist" && pwd)
+if command -v zip >/dev/null 2>&1; then
+  (cd "$stage" && zip -q -r "$abs_dist/$archive" .)
+elif command -v 7z >/dev/null 2>&1; then
+  (cd "$stage" && 7z a -tzip -bso0 "$abs_dist/$archive" .)
+else
+  echo "neither zip nor 7z is available to package the core"
+  exit 1
+fi
+
+# Alongside the archive and named after it, as the other release artifacts are.
+case "$(uname -s)" in
+  Darwin) shasum -a 256 "$dist/$archive" ;;
+  *)      sha256sum "$dist/$archive" ;;
+esac | awk -v n="$archive" '{ print $1 "  " n }' > "$dist/$archive-sha256.txt"
+printf 'packaged %s\n' "$dist/$archive"
+'''
+
 [tasks.build-cross]
 description = "Cross-Build TetaNES for a given target_arch"
 category = "Build"

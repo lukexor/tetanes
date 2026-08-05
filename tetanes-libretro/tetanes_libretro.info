@@ -10,6 +10,8 @@ corename = "TetaNES"
 supported_extensions = "nes"
 license = "MIT OR Apache-2.0"
 permissions = ""
+# Stamped from the crate version by `cargo make libretro-artifacts`, so a release cannot ship a
+# `.info` announcing the version before it. The value here is what a hand-installed build shows.
 display_version = "0.14.2"
 
 # Content this core plays, and the database the frontend matches ROMs against.

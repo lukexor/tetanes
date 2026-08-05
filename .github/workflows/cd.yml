@@ -119,7 +119,7 @@ jobs:
         include:
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-pc-windows-msvc
             runner: windows-11-arm
     defaults:
       run:
@@ -174,10 +174,55 @@ jobs:
         with:
           name: wasm32-unknown-unknown-artifacts
           path: tetanes/dist/
+  build-libretro:
+    name: Build libretro Core (${{ matrix.target }})
+    if: >
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux'
+          || inputs.os == 'macos' || inputs.os == 'windows')))
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      # No system libraries: the core is the emulation and nothing else - no window, no audio
+      # device, no input device - which is what makes it the cheapest of these to build.
+      - run: |
+          time cargo make libretro-artifacts ${{ matrix.target }}
+      - if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-libretro
+          path: tetanes-libretro/dist/
+
   upload-artifacts:
     name: Attach Release Artifacts
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows, build-web]
+    needs: [build-linux, build-macos, build-windows, build-web, build-libretro]
     if: |
       always() && contains(needs.*.result, 'success')
     steps:

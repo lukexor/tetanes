@@ -107,6 +107,71 @@ jobs:
         run: |
           cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --keep-going -- -D warnings
 
+  lint-tetanes-libretro:
+    name: Lint TetaNES libretro (${{ matrix.os }}, ${{ matrix.toolchain }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        # As tetanes-core: a source build of the core must not need a nightly toolchain.
+        toolchain: [nightly, stable, 1.88]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
+          CARGO_ENCODED_RUSTFLAGS: ""
+        run: |
+          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-libretro --all-targets --keep-going -- -D warnings
+
+  test-tetanes-libretro:
+    name: Test TetaNES libretro
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo nextest run --locked -p tetanes-libretro --all-features --profile ci
+
+  libretro-symbols:
+    name: Check libretro Exports (${{ matrix.os }})
+    # A frontend resolves all twenty-five symbols and refuses the core if one is missing, so a
+    # renamed export is a core that silently will not load. Linux and macOS only: the check reads
+    # them with `nm`, which the Windows runners have no equivalent of in this shell.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+      - run: |
+          cargo make libretro-symbols
+
   test-tetanes:
     name: Test TetaNES
     runs-on: ubuntu-latest
@@ -180,3 +245,19 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: |
           cargo doc --locked --no-deps --document-private-items --all-features --workspace --keep-going
+
+  # The `.info` is what a frontend reads to name the core and decide which of its menus to offer, so
+  # a capability claimed there and missing from the core is a feature that silently fails in use.
+  libretro-info:
+    name: Check libretro Info
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          info=tetanes-libretro/tetanes_libretro.info
+          # Named after the library, or the frontend shows a bare filename instead of any of this.
+          test -f "$info"
+          for key in display_name corename supported_extensions savestate savestate_features \
+                     cheats input_descriptors memory_descriptors core_options display_version; do
+            grep -qE "^${key} = " "$info" || { echo "$info is missing ${key}"; exit 1; }
+          done
