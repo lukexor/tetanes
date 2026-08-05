@@ -60,6 +60,7 @@ struct Frontend {
     av_infos: Vec<retro_system_av_info>,
     /// Buttons the core described, as `(port, id, description)`.
     input_descriptors: Vec<(c_uint, c_uint, String)>,
+    fast_forwarding: bool,
 }
 
 thread_local! {
@@ -136,6 +137,12 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
                 // No setting for this key, which a core has to read as "use the default".
                 None => false,
             }
+        }
+        RETRO_ENVIRONMENT_GET_FASTFORWARDING => {
+            let fast = FRONTEND.with_borrow(|f| f.fast_forwarding);
+            // SAFETY: the core passes one `bool`.
+            unsafe { *data.cast::<bool>() = fast };
+            true
         }
         RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE => {
             let updated = FRONTEND.with_borrow_mut(|f| std::mem::take(&mut f.variable_update));
@@ -518,8 +525,11 @@ fn a_changed_option_reaches_the_console() {
     // SAFETY: the core is initialised and this thread is the frontend's.
     let core = || unsafe { core::try_core() }.expect("a core");
     assert_eq!(core().filter(), VideoFilter::Ntsc, "applied at load");
-    assert_eq!(core().deck.run_ahead(), 2);
     assert!(!core().deck.apu_channel_enabled(Channel::Triangle));
+    // Run-ahead reaches the deck from `retro_run` rather than from the load, because what it is
+    // set to depends on whether the frontend is fast-forwarding.
+    session.run(1);
+    assert_eq!(core().deck.run_ahead(), 2);
 
     // And again mid-game, which is the path `GET_VARIABLE_UPDATE` drives.
     set_option("tetanes_filter", "pixellate");
@@ -527,6 +537,34 @@ fn a_changed_option_reaches_the_console() {
     session.run(1);
     assert_eq!(core().filter(), VideoFilter::Pixellate);
     assert!(core().deck.apu_channel_enabled(Channel::Triangle));
+}
+
+/// Run-ahead does nothing above 1x - the deck ignores it - but the cost is paid regardless, since
+/// each display frame still clocks the console `frames + 1` times. Left on while fast-forwarding it
+/// divides the ceiling by that much, which reads as fast-forward being broken.
+#[test]
+fn fast_forwarding_suppresses_run_ahead() {
+    let session = Session::start();
+    set_option("tetanes_run_ahead", "2");
+    assert!(session.load());
+    session.run(1);
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let deck_run_ahead = || {
+        unsafe { core::try_core() }
+            .expect("a core")
+            .deck
+            .run_ahead()
+    };
+    assert_eq!(deck_run_ahead(), 2, "what the player asked for");
+
+    FRONTEND.with_borrow_mut(|f| f.fast_forwarding = true);
+    session.run(1);
+    assert_eq!(deck_run_ahead(), 0, "suppressed while fast-forwarding");
+
+    FRONTEND.with_borrow_mut(|f| f.fast_forwarding = false);
+    session.run(1);
+    assert_eq!(deck_run_ahead(), 2, "and restored when it stops");
 }
 
 /// The region decides the frame rate and the pixel aspect, so changing it has to re-declare the AV

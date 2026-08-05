@@ -20,7 +20,7 @@ database = "Nintendo - Nintendo Entertainment System"
 
 # No BIOS or firmware: a NES cartridge is self-contained.
 firmware_count = 0
-notes = "Written in Rust. Save states, rewind and cheats are provided by the frontend."
+notes = "Written in Rust. Save states, rewind and cheats are provided by the frontend.|If video stutters, check that Vertical Sync is on and that the Estimated Screen Refresh Rate matches your display: with V-Sync off, pacing falls to the audio driver alone and frames are dropped.|For faster fast-forward, enable Fast-Forward Frameskip - otherwise every skipped frame is still presented, which caps the speed at your refresh rate."
 
 # Capabilities, which decide what the frontend offers in its menus. Kept honest as the phases land -
 # a frontend that is told a core supports save states and finds it does not will simply fail.

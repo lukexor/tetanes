@@ -14,12 +14,12 @@ use crate::{
     core::Core,
     log,
     sys::{
-        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, RETRO_ENVIRONMENT_GET_VARIABLE,
-        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2,
-        RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, RETRO_ENVIRONMENT_SET_VARIABLES,
-        RETRO_NUM_CORE_OPTION_VALUES_MAX, retro_core_option_v2_category,
-        retro_core_option_v2_definition, retro_core_option_value, retro_core_options_v2,
-        retro_environment_t, retro_variable,
+        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, RETRO_ENVIRONMENT_GET_FASTFORWARDING,
+        RETRO_ENVIRONMENT_GET_VARIABLE, RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE,
+        RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
+        RETRO_ENVIRONMENT_SET_VARIABLES, RETRO_NUM_CORE_OPTION_VALUES_MAX,
+        retro_core_option_v2_category, retro_core_option_v2_definition, retro_core_option_value,
+        retro_core_options_v2, retro_environment_t, retro_variable,
     },
 };
 use std::ffi::{CStr, CString, c_uint, c_void};
@@ -452,9 +452,8 @@ pub unsafe fn apply(core: &mut Core) {
     if first || next.concurrent_dpad != previous.concurrent_dpad {
         core.deck.set_concurrent_dpad(next.concurrent_dpad);
     }
-    if first || next.run_ahead != previous.run_ahead {
-        core.deck.set_run_ahead(next.run_ahead);
-    }
+    // Run-ahead is deliberately absent here: `sync_run_ahead` is its single writer, because what
+    // the deck should be set to depends on the frontend's speed as well as this option.
     if first || next.mmc3 != previous.mmc3 {
         core.deck
             .set_mapper_revision(MapperRevision::Mmc3(next.mmc3));
@@ -484,6 +483,41 @@ pub unsafe fn apply(core: &mut Core) {
             log::info("the frontend kept the old timings; the region applies on the next reload");
         }
     }
+}
+
+/// Pushes run-ahead down to the console, suppressed while the frontend is fast-forwarding.
+///
+/// Run-ahead only does anything at 1x - above it the speculated frames cost more than the latency
+/// they hide, and the deck ignores the setting anyway - but the *cost* is paid regardless: each
+/// display frame clocks the console `frames + 1` times. Left on, it divides the fast-forward
+/// ceiling by that much, which reads as fast-forward being broken rather than as run-ahead being
+/// expensive.
+///
+/// The single writer of the deck's run-ahead, since the value depends on the frontend's speed as
+/// well as the option.
+///
+/// # Safety
+///
+/// The environment callback must be valid.
+pub unsafe fn sync_run_ahead(core: &mut Core) {
+    let Some(environment) = core.callbacks.environment else {
+        return;
+    };
+    let mut fast_forwarding = false;
+    // SAFETY: the callback writes one `bool`. A frontend that does not know the call leaves it
+    // false, which is the answer that changes nothing.
+    let known = unsafe {
+        environment(
+            RETRO_ENVIRONMENT_GET_FASTFORWARDING,
+            std::ptr::from_mut(&mut fast_forwarding).cast::<c_void>(),
+        )
+    };
+    let frames = if known && fast_forwarding {
+        0
+    } else {
+        core.options.run_ahead
+    };
+    core.deck.set_run_ahead(frames);
 }
 
 /// Reads one option's current value, or `None` where the frontend has no setting for it.

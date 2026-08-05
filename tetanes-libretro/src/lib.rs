@@ -220,6 +220,7 @@ pub unsafe extern "C" fn retro_run() {
         // SAFETY: callbacks come from the frontend and are valid until it unloads the core.
         unsafe {
             options::poll(core);
+            options::sync_run_ahead(core);
             poll_input(core);
             core.memory.commit(&mut core.deck);
 
