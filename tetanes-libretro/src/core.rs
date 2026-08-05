@@ -6,6 +6,7 @@ use crate::{
     input::Pads,
     log,
     memory::Memory,
+    options::Options,
     state::State,
     sys::{
         retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_input_poll_t,
@@ -43,6 +44,7 @@ pub struct Core {
     pub memory: Memory,
     pub state: State,
     pub cheats: Cheats,
+    pub options: Options,
     /// Which filter the deck renders with.
     ///
     /// Tracked here because `ControlDeck` takes one but does not hand it back, and the two video
@@ -75,6 +77,7 @@ impl Core {
             memory: Memory::default(),
             state: State::default(),
             cheats: Cheats::default(),
+            options: Options::default(),
             filter: VideoFilter::Pixellate,
             wedged: false,
         }
@@ -83,6 +86,14 @@ impl Core {
     /// Which filter the deck is rendering with.
     pub const fn filter(&self) -> VideoFilter {
         self.filter
+    }
+
+    /// Changes the filter, on both the deck and the copy the video path reads.
+    ///
+    /// The single way in, so the two cannot drift.
+    pub const fn set_filter(&mut self, filter: VideoFilter) {
+        self.filter = filter;
+        self.deck.set_filter(filter);
     }
 }
 

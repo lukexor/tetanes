@@ -13,7 +13,7 @@ use std::{
     cell::RefCell,
     sync::{Mutex, MutexGuard},
 };
-use tetanes_core::input::Player;
+use tetanes_core::{apu::Channel, input::Player, video::VideoFilter};
 
 /// A ROM that draws something busy enough that a blank frame is obviously wrong.
 const ROM: &[u8] = include_bytes!("../../tetanes-core/test_roms/spritecans.nes");
@@ -49,6 +49,14 @@ struct Frontend {
     /// Buttons the frontend reports as held, as `(port, id)`.
     held: Vec<(c_uint, c_uint)>,
     polls: usize,
+    /// Option keys the core declared, in the order it declared them.
+    declared_options: Vec<String>,
+    /// What the player has set, as the frontend stores it.
+    variables: std::collections::HashMap<String, std::ffi::CString>,
+    /// Set when `variables` changed, and cleared by the core's next poll - the frontend's own
+    /// contract, since `GET_VARIABLE_UPDATE` says only that something changed.
+    variable_update: bool,
+    av_infos: Vec<retro_system_av_info>,
 }
 
 thread_local! {
@@ -88,9 +96,68 @@ unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
             });
             true
         }
+        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION => {
+            // SAFETY: the core passes one `unsigned` to be filled in.
+            unsafe { *data.cast::<c_uint>() = 2 };
+            true
+        }
+        RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 => {
+            // SAFETY: the core passes one `retro_core_options_v2` whose `definitions` array runs
+            // until an entry with a null key.
+            let keys = unsafe {
+                let options = &*data.cast::<retro_core_options_v2>();
+                let mut keys = Vec::new();
+                let mut def = options.definitions;
+                while !(*def).key.is_null() {
+                    keys.push(CStr::from_ptr((*def).key).to_string_lossy().into_owned());
+                    def = def.add(1);
+                }
+                keys
+            };
+            FRONTEND.with_borrow_mut(|f| f.declared_options = keys);
+            true
+        }
+        RETRO_ENVIRONMENT_GET_VARIABLE => {
+            // SAFETY: the core passes one `retro_variable` with `key` set, for `value` to be
+            // filled in with a pointer the frontend owns.
+            let variable = unsafe { &mut *data.cast::<retro_variable>() };
+            let key = unsafe { CStr::from_ptr(variable.key) }
+                .to_string_lossy()
+                .into_owned();
+            // The `CString` stays in the map, so the pointer outlives this call as the API wants.
+            match FRONTEND.with_borrow(|f| f.variables.get(&key).map(|value| value.as_ptr())) {
+                Some(value) => {
+                    variable.value = value;
+                    true
+                }
+                // No setting for this key, which a core has to read as "use the default".
+                None => false,
+            }
+        }
+        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE => {
+            let updated = FRONTEND.with_borrow_mut(|f| std::mem::take(&mut f.variable_update));
+            // SAFETY: the core passes one `bool`.
+            unsafe { *data.cast::<bool>() = updated };
+            true
+        }
+        RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO => {
+            // SAFETY: the core passes one `retro_system_av_info`.
+            let info = unsafe { *data.cast::<retro_system_av_info>() };
+            FRONTEND.with_borrow_mut(|f| f.av_infos.push(info));
+            true
+        }
         // Anything else is a feature this frontend does not have, which a core must cope with.
         _ => false,
     }
+}
+
+/// Sets an option the way a frontend's menu does, and says something changed.
+fn set_option(key: &str, value: &str) {
+    let value = std::ffi::CString::new(value).expect("a value without a NUL");
+    FRONTEND.with_borrow_mut(|f| {
+        f.variables.insert(key.to_string(), value);
+        f.variable_update = true;
+    });
 }
 
 unsafe extern "C" fn video_refresh(
@@ -359,6 +426,79 @@ fn the_state_size_is_promised_once_and_only_while_a_cart_is_in() {
     assert_eq!(retro_serialize_size(), 0, "the cart is out again");
     // SAFETY: a state must be refused rather than written with nothing to write about.
     assert!(!unsafe { retro_serialize(vec![0u8; size].as_mut_ptr().cast::<c_void>(), size) });
+}
+
+/// The options have to be declared before content is chosen, since that is when a player opens the
+/// menu looking for them.
+#[test]
+fn the_options_are_declared_before_any_content() {
+    let _session = Session::start();
+
+    let declared = FRONTEND.with_borrow(|f| f.declared_options.clone());
+    assert!(
+        declared.contains(&"tetanes_filter".to_string()),
+        "declared: {declared:?}"
+    );
+    assert!(declared.contains(&"tetanes_region".to_string()));
+    assert!(declared.contains(&"tetanes_apu_triangle".to_string()));
+    assert!(
+        declared.iter().all(|key| key.starts_with("tetanes_")),
+        "an unprefixed key would collide with another core's"
+    );
+}
+
+/// What the player picks has to reach the console. This is the failure the whole module is prone
+/// to - a key that is declared, shown in the menu, and never read.
+#[test]
+fn a_changed_option_reaches_the_console() {
+    let session = Session::start();
+    set_option("tetanes_filter", "ntsc");
+    set_option("tetanes_run_ahead", "2");
+    set_option("tetanes_apu_triangle", "disabled");
+    assert!(session.load());
+
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let core = || unsafe { core::try_core() }.expect("a core");
+    assert_eq!(core().filter(), VideoFilter::Ntsc, "applied at load");
+    assert_eq!(core().deck.run_ahead(), 2);
+    assert!(!core().deck.apu_channel_enabled(Channel::Triangle));
+
+    // And again mid-game, which is the path `GET_VARIABLE_UPDATE` drives.
+    set_option("tetanes_filter", "pixellate");
+    set_option("tetanes_apu_triangle", "enabled");
+    session.run(1);
+    assert_eq!(core().filter(), VideoFilter::Pixellate);
+    assert!(core().deck.apu_channel_enabled(Channel::Triangle));
+}
+
+/// The region decides the frame rate and the pixel aspect, so changing it has to re-declare the AV
+/// info - a frontend that was not told would keep pacing the console at the old rate.
+#[test]
+fn changing_the_region_re_declares_the_av_info() {
+    let session = Session::start();
+    assert!(session.load());
+    FRONTEND.with_borrow_mut(|f| f.av_infos.clear());
+
+    set_option("tetanes_region", "pal");
+    session.run(1);
+
+    // SAFETY: as above.
+    assert_eq!(
+        unsafe { core::try_core() }.expect("a core").deck.region(),
+        NesRegion::Pal
+    );
+    let infos = FRONTEND.with_borrow(|f| f.av_infos.clone());
+    assert_eq!(infos.len(), 1, "told exactly once, not once a frame");
+    assert!(
+        (infos[0].timing.fps - 50.006_98).abs() < 1e-6,
+        "the PAL rate, got {}",
+        infos[0].timing.fps
+    );
+
+    // A poll that changes nothing must not re-declare it: a frontend rebuilds audio and video on
+    // this, so doing it per frame would be audible.
+    session.run(5);
+    assert_eq!(FRONTEND.with_borrow(|f| f.av_infos.len()), 1);
 }
 
 /// A minimal battery-backed NROM cart.

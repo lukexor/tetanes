@@ -21,6 +21,7 @@ mod core;
 mod input;
 mod log;
 mod memory;
+mod options;
 mod state;
 /// The C API this core implements.
 ///
@@ -71,6 +72,9 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
             if let Some(core) = core::try_core() {
                 core.callbacks.environment = Some(cb);
             }
+            // Declared here rather than at load, so the options are in the frontend's menu before
+            // any content is chosen - which is where a player looks for them.
+            options::declare(cb);
         }
     });
 }
@@ -215,6 +219,7 @@ pub unsafe extern "C" fn retro_run() {
     with_core((), |core| {
         // SAFETY: callbacks come from the frontend and are valid until it unloads the core.
         unsafe {
+            options::poll(core);
             poll_input(core);
             core.memory.commit(&mut core.deck);
 
@@ -287,6 +292,8 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
     with_core(false, |core| {
         core.wedged = false;
         core.pads.forget();
+        // Before the cart, since the power-on RAM state and the region decide how it starts.
+        unsafe { options::apply(core) };
         match core.deck.load_rom(&name, &mut &rom[..]) {
             Ok(loaded) => {
                 core.deck.set_sample_rate(audio::SAMPLE_RATE as f32);

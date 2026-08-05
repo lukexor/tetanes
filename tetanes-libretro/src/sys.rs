@@ -203,6 +203,61 @@ pub struct retro_controller_info {
     pub num_types: c_uint,
 }
 
+/// Values one core option may take. The array is fixed by the C API and NUL-terminated in use, so
+/// most of it is null for any real option.
+pub const RETRO_NUM_CORE_OPTION_VALUES_MAX: usize = 128;
+
+/// One selectable value, and what the menu calls it.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct retro_core_option_value {
+    pub value: *const c_char,
+    /// Shown instead of `value`, which is the string the core reads back.
+    pub label: *const c_char,
+}
+
+impl retro_core_option_value {
+    /// The terminator, and what the unused tail of a `values` array is filled with.
+    pub const NONE: Self = Self {
+        value: std::ptr::null(),
+        label: std::ptr::null(),
+    };
+}
+
+/// A submenu options are grouped under.
+#[repr(C)]
+#[derive(Debug)]
+pub struct retro_core_option_v2_category {
+    pub key: *const c_char,
+    pub desc: *const c_char,
+    pub info: *const c_char,
+}
+
+/// One core option: its key, how it is described, and what it may be set to.
+///
+/// The `_categorized` strings are the shorter forms shown once a category already names the
+/// context; a frontend without categories uses the plain ones.
+#[repr(C)]
+#[derive(Debug)]
+pub struct retro_core_option_v2_definition {
+    pub key: *const c_char,
+    pub desc: *const c_char,
+    pub desc_categorized: *const c_char,
+    pub info: *const c_char,
+    pub info_categorized: *const c_char,
+    pub category_key: *const c_char,
+    pub values: [retro_core_option_value; RETRO_NUM_CORE_OPTION_VALUES_MAX],
+    pub default_value: *const c_char,
+}
+
+/// The options handed to `SET_CORE_OPTIONS_V2`. Both arrays end with a zeroed entry.
+#[repr(C)]
+#[derive(Debug)]
+pub struct retro_core_options_v2 {
+    pub categories: *mut retro_core_option_v2_category,
+    pub definitions: *mut retro_core_option_v2_definition,
+}
+
 /// One region of the emulated address space, for `SET_MEMORY_MAPS`.
 ///
 /// The mapping is `(addr & select) == start`, and the byte reached is `addr` masked down to
@@ -302,6 +357,42 @@ mod tests {
         assert_eq!(offset_of!(retro_controller_info, types), 0);
         assert_eq!(offset_of!(retro_controller_info, num_types), 8);
         assert_eq!(size_of::<retro_controller_info>(), 16);
+
+        assert_eq!(offset_of!(retro_core_option_value, value), 0);
+        assert_eq!(offset_of!(retro_core_option_value, label), 8);
+        assert_eq!(size_of::<retro_core_option_value>(), 16);
+
+        assert_eq!(offset_of!(retro_core_option_v2_category, key), 0);
+        assert_eq!(offset_of!(retro_core_option_v2_category, desc), 8);
+        assert_eq!(offset_of!(retro_core_option_v2_category, info), 16);
+        assert_eq!(size_of::<retro_core_option_v2_category>(), 24);
+
+        assert_eq!(offset_of!(retro_core_option_v2_definition, key), 0);
+        assert_eq!(offset_of!(retro_core_option_v2_definition, desc), 8);
+        assert_eq!(
+            offset_of!(retro_core_option_v2_definition, desc_categorized),
+            16
+        );
+        assert_eq!(offset_of!(retro_core_option_v2_definition, info), 24);
+        assert_eq!(
+            offset_of!(retro_core_option_v2_definition, info_categorized),
+            32
+        );
+        assert_eq!(
+            offset_of!(retro_core_option_v2_definition, category_key),
+            40
+        );
+        assert_eq!(offset_of!(retro_core_option_v2_definition, values), 48);
+        // 48 + 128 values of 16 bytes each.
+        assert_eq!(
+            offset_of!(retro_core_option_v2_definition, default_value),
+            2096
+        );
+        assert_eq!(size_of::<retro_core_option_v2_definition>(), 2104);
+
+        assert_eq!(offset_of!(retro_core_options_v2, categories), 0);
+        assert_eq!(offset_of!(retro_core_options_v2, definitions), 8);
+        assert_eq!(size_of::<retro_core_options_v2>(), 16);
 
         assert_eq!(offset_of!(retro_memory_descriptor, flags), 0);
         assert_eq!(offset_of!(retro_memory_descriptor, ptr), 8);
