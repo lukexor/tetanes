@@ -46,6 +46,7 @@ struct Frontend {
     env_calls: Vec<c_uint>,
     frames: Vec<Frame>,
     audio_frames: usize,
+    audio_per_call: Vec<usize>,
     /// Buttons the frontend reports as held, as `(port, id)`.
     held: Vec<(c_uint, c_uint)>,
     polls: usize,
@@ -214,7 +215,10 @@ unsafe extern "C" fn audio_batch(data: *const i16, frames: usize) -> usize {
             .all(|pair| pair[0] == pair[1]),
         "the NES is mono, so both channels carry the same sample"
     );
-    FRONTEND.with_borrow_mut(|f| f.audio_frames += frames);
+    FRONTEND.with_borrow_mut(|f| {
+        f.audio_frames += frames;
+        f.audio_per_call.push(frames);
+    });
     frames
 }
 
@@ -806,4 +810,53 @@ fn a_local_rom_runs() {
 
     assert_eq!(straight, replayed, "{path} replayed the run differently");
     assert_eq!(retro_serialize_size(), size, "{path} grew its state");
+}
+
+/// Audio has to arrive at a steady rate, because a frontend paces itself by it: `audio_sync` is on
+/// by default, so a frame that hands over no samples is a frame the frontend waits through, and
+/// one that hands over double overruns its buffer. Either is audible as a hitch.
+///
+/// Run-ahead is the case worth pinning. It clocks the console several frames past the one it shows
+/// and rewinds, and the audio it keeps is the *displayed* frame's - so the stream must come out
+/// unchanged, however many frames are speculated. Measured at 798.62 samples a frame against the
+/// 798.7 the NTSC rate asks for, identical at 0, 1 and 2 frames of run-ahead.
+#[test]
+fn audio_arrives_at_a_steady_rate_whatever_run_ahead_is_set_to() {
+    /// One display frame at 48 kHz and 60.098814 fps.
+    const EXPECTED: f64 = 798.7;
+    const FRAMES: usize = 600;
+    let mut streams = Vec::new();
+
+    for run_ahead in ["0", "1", "2"] {
+        let session = Session::start();
+        set_option("tetanes_run_ahead", run_ahead);
+        assert!(session.load());
+        session.run(FRAMES);
+
+        FRONTEND.with_borrow(|f| {
+            let calls = &f.audio_per_call;
+            assert_eq!(calls.len(), FRAMES, "one batch per frame, at {run_ahead}");
+            // The first frame is short - the console starts mid-period - and only the first.
+            assert!(
+                calls[1..].iter().all(|&n| (795..=805).contains(&n)),
+                "a frame delivered {:?} samples at run_ahead={run_ahead}",
+                calls[1..]
+                    .iter()
+                    .filter(|&&n| !(795..=805).contains(&n))
+                    .collect::<Vec<_>>()
+            );
+            let mean = calls.iter().sum::<usize>() as f64 / calls.len() as f64;
+            assert!(
+                (mean - EXPECTED).abs() < 1.0,
+                "mean {mean} at run_ahead={run_ahead}"
+            );
+            streams.push(calls.clone());
+        });
+    }
+
+    assert_eq!(
+        streams[0], streams[1],
+        "run-ahead must not alter the stream"
+    );
+    assert_eq!(streams[0], streams[2]);
 }
