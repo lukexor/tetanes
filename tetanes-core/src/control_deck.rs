@@ -342,6 +342,16 @@ impl Default for ControlDeck {
 }
 
 impl ControlDeck {
+    /// Byte layout every console state is written in, whichever entry point writes it.
+    //
+    // Here rather than at each call site so an embedder cannot pick a different one and get a
+    // state this crate will not read back. Fixint, so a state's size depends on the cart's layout
+    // and not on the values in it - which is what lets `serialized_state_len` be asked once.
+    const STATE_CONFIG: bincode::config::Configuration<
+        bincode::config::LittleEndian,
+        bincode::config::Fixint,
+    > = bincode::config::legacy();
+
     /// Creates a NES `ControlDeck` with the default configuration.
     ///
     /// It has no cartridge yet, so [`ControlDeck::is_running`] is `false` until a ROM is loaded
@@ -775,6 +785,59 @@ impl ControlDeck {
                 bus.input.clear(); // Discard inputs from save states
                 self.load_bus(bus)
             })
+    }
+
+    /// Bytes [`ControlDeck::serialize_state_into`] needs for the console as it stands.
+    ///
+    /// Fixed for the life of a loaded cart, so a frontend that must size a buffer once - libretro
+    /// asks for a state size before it will ever call for a state - can ask here and keep the
+    /// answer.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded or the state cannot be encoded.
+    pub fn serialized_state_len(&self) -> Result<usize> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        let mut size = bincode::enc::write::SizeWriter::default();
+        bincode::serde::encode_into_writer(&self.bus, &mut size, Self::STATE_CONFIG)
+            .map_err(|err| Error::SaveState(fs::Error::SerializationFailed(err.to_string())))?;
+        Ok(size.bytes_written)
+    }
+
+    /// Writes the console's state into `dst`, returning how many bytes it took.
+    ///
+    /// Uncompressed and unframed, for a frontend that has its own container and its own idea of
+    /// when to write one. [`ControlDeck::save_state`] is the form that stamps a header and
+    /// compresses, which is what a `.sav` file holds.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded, or `dst` is shorter than [`ControlDeck::serialized_state_len`].
+    pub fn serialize_state_into(&self, dst: &mut [u8]) -> Result<usize> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        bincode::serde::encode_into_slice(&self.bus, dst, Self::STATE_CONFIG)
+            .map_err(|err| Error::SaveState(fs::Error::SerializationFailed(err.to_string())))
+    }
+
+    /// Restores a console state written by [`ControlDeck::serialize_state_into`].
+    ///
+    /// Trailing bytes past the state are ignored, so a frontend may hand back a buffer it padded.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded, the bytes are not a state, or the state belongs to a different cart.
+    pub fn deserialize_state(&mut self, src: &[u8]) -> Result<()> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        let (mut bus, _) = bincode::serde::decode_from_slice::<Bus, _>(src, Self::STATE_CONFIG)
+            .map_err(|err| Error::SaveState(fs::Error::DeserializationFailed(err.to_string())))?;
+        bus.input.clear(); // Discard inputs from save states
+        self.load_bus(bus)
     }
 
     /// Save the current state of the console into a save file.
@@ -1652,6 +1715,7 @@ impl ControlDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::JoypadBtnState;
     use std::{
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
@@ -1709,6 +1773,60 @@ mod tests {
         run(&mut restored, 5); // somewhere else entirely
         restored.load_state(state.as_slice()).expect("loads");
         assert_eq!(run(&mut restored, 30), expected);
+    }
+
+    /// The unframed form has to resume identically too, and round-trip through a buffer sized from
+    /// [`ControlDeck::serialized_state_len`] with room to spare - a frontend that pads is the case
+    /// this exists for.
+    #[test]
+    fn a_serialized_state_resumes_identically() {
+        let mut deck = spritecans();
+        run(&mut deck, 30);
+
+        let len = deck.serialized_state_len().expect("sizes");
+        let mut state = vec![0xAA; len + 4096];
+        assert_eq!(
+            deck.serialize_state_into(&mut state).expect("serializes"),
+            len,
+            "the size asked for is the size written"
+        );
+        let expected = run(&mut deck, 30);
+
+        let mut restored = spritecans();
+        run(&mut restored, 5); // somewhere else entirely
+        // Padding and all: trailing bytes past the state are not the state's problem.
+        restored.deserialize_state(&state).expect("deserializes");
+        assert_eq!(run(&mut restored, 30), expected);
+    }
+
+    /// A frontend asks for a state size once and reuses the answer for the life of the cart, so a
+    /// state must never outgrow it. Nothing serialized in a [`Bus`] is variable-length today, and
+    /// this is what says so when a future field is.
+    #[test]
+    fn a_serialized_state_is_the_same_size_every_frame() {
+        let mut deck = spritecans();
+        let expected = deck.serialized_state_len().expect("sizes");
+
+        for frame in 0..300 {
+            let _ = deck.clock_frame().expect("clocks");
+            // Every joypad bit set, so input state cannot be what holds the size still.
+            deck.joypad_mut(Player::One).buttons = JoypadBtnState::all();
+            assert_eq!(
+                deck.serialized_state_len().expect("sizes"),
+                expected,
+                "frame {frame}"
+            );
+        }
+    }
+
+    /// A buffer that cannot hold the state is an error, not a truncated state a later load would
+    /// read back as garbage.
+    #[test]
+    fn serializing_into_too_small_a_buffer_fails() {
+        let deck = spritecans();
+        let len = deck.serialized_state_len().expect("sizes");
+        let mut small = vec![0; len - 1];
+        assert!(deck.serialize_state_into(&mut small).is_err());
     }
 
     /// Restoring a state must not restore the *player's* settings with it.
