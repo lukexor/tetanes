@@ -20,6 +20,7 @@ mod core;
 mod input;
 mod log;
 mod memory;
+mod state;
 /// The C API this core implements.
 ///
 /// Public because the exported functions' signatures are written in these types.
@@ -289,6 +290,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const retro_game_info) -> bool {
             Ok(loaded) => {
                 core.deck.set_sample_rate(audio::SAMPLE_RATE as f32);
                 core.memory.attach(&mut core.deck);
+                core.state.attach(&core.deck);
                 log::info(&format!("loaded {} ({:?})", loaded.name, loaded.region));
                 unsafe { set_pixel_format(core) }
             }
@@ -317,6 +319,7 @@ pub extern "C" fn retro_unload_game() {
         core.wedged = false;
         core.pads.forget();
         core.memory.detach();
+        core.state.detach();
         // Infallible now that the deck performs no battery I/O of its own.
         let _ = core.deck.unload_rom();
     });
@@ -338,14 +341,14 @@ pub extern "C" fn retro_get_region() -> c_uint {
 // Save states, memory and cheats. Filled in as the remaining phases land.
 // ---------------------------------------------------------------------------------------------
 
-/// Bytes a save state occupies. Zero until save states land.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
+/// Bytes a save state occupies, or zero when no cart is loaded.
+///
+/// Measured once per cart and never revised: a frontend asks this before it takes its first state
+/// and sizes everything - rewind's ring, netplay's buffers - from the answer, so a later, larger
+/// one would be a state that no longer fits where it was promised to.
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_serialize_size() -> usize {
-    0
+    with_core(0, |core| core.state.size())
 }
 
 /// Writes a save state.
@@ -353,13 +356,16 @@ pub extern "C" fn retro_serialize_size() -> usize {
 /// # Safety
 ///
 /// `data` must cover `size` bytes.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn retro_serialize(_data: *mut c_void, _size: usize) -> bool {
-    false
+pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
+    with_core(false, |core| {
+        if data.is_null() {
+            return false;
+        }
+        // SAFETY: the frontend guarantees `data` covers `size` bytes for this call.
+        let dst = unsafe { slice::from_raw_parts_mut(data.cast::<u8>(), size) };
+        core.state.serialize(&core.deck, dst)
+    })
 }
 
 /// Restores a save state.
@@ -367,13 +373,27 @@ pub unsafe extern "C" fn retro_serialize(_data: *mut c_void, _size: usize) -> bo
 /// # Safety
 ///
 /// `data` must cover `size` bytes.
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "a stub until the phase that fills it in"
-)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn retro_unserialize(_data: *const c_void, _size: usize) -> bool {
-    false
+pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> bool {
+    with_core(false, |core| {
+        if data.is_null() {
+            return false;
+        }
+        // SAFETY: as above.
+        let src = unsafe { slice::from_raw_parts(data.cast::<u8>(), size) };
+        if !state::State::unserialize(&mut core.deck, src) {
+            return false;
+        }
+        // The restore replaced the console's memory wholesale, and the frontend reads its cheat and
+        // achievement views out of this core's buffers rather than the console's.
+        core.memory.refresh(&mut core.deck);
+        // The deck clears the joypads as it restores - inputs are the player's, not the state's -
+        // so a button still physically held has to look changed again or it is never sent back
+        // down. Run-ahead restores every frame, which makes this the difference between a working
+        // controller and a dead one.
+        core.pads.forget();
+        true
+    })
 }
 
 /// Removes every cheat.

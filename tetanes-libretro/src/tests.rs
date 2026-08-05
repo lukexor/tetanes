@@ -275,6 +275,59 @@ fn a_held_button_reaches_the_joypad_and_a_released_one_stops() {
     }
 }
 
+/// The property a frontend's save states, rewind, netplay and run-ahead all rest on: restoring a
+/// state and running on has to reproduce the run the state was taken from, frame for frame.
+///
+/// Run through the exports rather than the `state` module, because the container is only half of
+/// it - the rest is the frontend's own buffer, which it sizes once from `retro_serialize_size` and
+/// hands back untouched.
+#[test]
+fn a_restored_state_replays_the_run_it_was_taken_from() {
+    let session = Session::start();
+    assert!(session.load());
+
+    let size = retro_serialize_size();
+    assert!(size > 0, "a loaded cart has a state to take");
+
+    session.run(100);
+    let mut buffer = vec![0xAA; size];
+    // SAFETY: the buffer is the size the core asked for, and outlives the call.
+    assert!(unsafe { retro_serialize(buffer.as_mut_ptr().cast::<c_void>(), size) });
+
+    session.run(100);
+    let straight = FRONTEND.with_borrow(|f| f.frames[100..200].to_vec());
+
+    // SAFETY: the same buffer, unmodified since the core wrote it.
+    assert!(unsafe { retro_unserialize(buffer.as_ptr().cast::<c_void>(), size) });
+    session.run(100);
+    let replayed = FRONTEND.with_borrow(|f| f.frames[200..300].to_vec());
+
+    assert_eq!(
+        straight, replayed,
+        "the hundred frames after the restore are the hundred that followed the state"
+    );
+}
+
+/// A frontend asks for the size once and sizes its rewind ring and netplay buffers from it, so an
+/// answer that grew later would be a state with nowhere to go.
+#[test]
+fn the_state_size_is_promised_once_and_only_while_a_cart_is_in() {
+    let session = Session::start();
+    assert_eq!(retro_serialize_size(), 0, "no cart, no state");
+
+    assert!(session.load());
+    let size = retro_serialize_size();
+    assert!(size > 0);
+
+    session.run(120);
+    assert_eq!(retro_serialize_size(), size, "and it has not moved");
+
+    retro_unload_game();
+    assert_eq!(retro_serialize_size(), 0, "the cart is out again");
+    // SAFETY: a state must be refused rather than written with nothing to write about.
+    assert!(!unsafe { retro_serialize(vec![0u8; size].as_mut_ptr().cast::<c_void>(), size) });
+}
+
 /// A frontend will hand over rubbish - a truncated download, the wrong file - and the core has to
 /// say no rather than take the process down.
 #[test]
@@ -351,4 +404,30 @@ fn a_local_rom_runs() {
         });
         assert!(drew, "{path} drew nothing in {FRAMES} frames");
     });
+
+    // And the same round trip, on this cart's board. The committed ROMs are all small mappers;
+    // what a sweep of real carts catches is a board whose state is a different size once its
+    // registers have been written to, which is the way the promised size gets broken.
+    let size = retro_serialize_size();
+    assert!(size > 0, "{path} has a state to take");
+    let mut buffer = vec![0xAA; size];
+    // SAFETY: the buffer is the size the core asked for.
+    assert!(
+        unsafe { retro_serialize(buffer.as_mut_ptr().cast::<c_void>(), size) },
+        "{path} serializes {FRAMES} frames in"
+    );
+
+    session.run(100);
+    let straight = FRONTEND.with_borrow(|f| f.frames[FRAMES..FRAMES + 100].to_vec());
+
+    // SAFETY: the same buffer, as the core wrote it.
+    assert!(
+        unsafe { retro_unserialize(buffer.as_ptr().cast::<c_void>(), size) },
+        "{path} restores"
+    );
+    session.run(100);
+    let replayed = FRONTEND.with_borrow(|f| f.frames[FRAMES + 100..].to_vec());
+
+    assert_eq!(straight, replayed, "{path} replayed the run differently");
+    assert_eq!(retro_serialize_size(), size, "{path} grew its state");
 }

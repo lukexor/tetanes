@@ -24,8 +24,11 @@ notes = "Written in Rust. Save states, rewind and cheats are provided by the fro
 
 # Capabilities, which decide what the frontend offers in its menus. Kept honest as the phases land -
 # a frontend that is told a core supports save states and finds it does not will simply fail.
-savestate = "false"
-savestate_features = "null"
+savestate = "true"
+# "deterministic", the strongest of the three, is what unlocks run-ahead and netplay: it claims a
+# restored state replays the run it was taken from exactly, which is what
+# `a_restored_state_replays_the_run_it_was_taken_from` checks.
+savestate_features = "deterministic"
 cheats = "true"
 input_descriptors = "false"
 memory_descriptors = "false"
