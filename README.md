@@ -193,6 +193,31 @@ This will try to find the target binary for your platform from the latest
 You can also play directly in your web browser without installing by visiting
 <https://lukeworks.tech/tetanes-web>.
 
+#### RetroArch
+
+A [libretro](https://www.libretro.com) core is provided, so `TetaNES` can be run
+inside RetroArch and other libretro frontends alongside your other cores. Its
+save states are deterministic, which is what lets the frontend's rewind,
+run-ahead and netplay work. It also supports Game Genie and raw cheat codes,
+four controller ports and the Zapper, and exposes its memory map for
+RetroAchievements. Region, video filter, power-on RAM state, run-ahead and the
+individual APU channels are available as core options.
+
+It is not yet in RetroArch's Online Updater, so install it by hand: download the
+`tetanes_libretro-<version>-<target>.zip` for your platform under `Assets` on
+the latest [Release][] and unzip it into RetroArch's `cores` directory. The
+`.info` file in the zip goes in RetroArch's `info` directory — without it the
+core shows up as a bare filename and none of its capabilities are offered.
+
+To build it from source instead:
+
+```sh
+cargo make build-libretro
+```
+
+Note the `libretro` profile rather than `release`: a libretro core has to be
+able to catch a panic, and the release profile aborts on one.
+
 ### Usage
 
 ```text
