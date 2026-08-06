@@ -6,6 +6,7 @@ on:
   schedule:
     # At 06:00 on day-of-month 2 and 16
     - cron: "0 6 2,16 * *"
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -5,6 +5,9 @@ name: Release PR
 on:
   push:
     branches: [main]
+  # release-plz opens or updates the same PR whichever way it is run, so dispatching it by hand
+  # after a dropped push event is safe.
+  workflow_dispatch:
 
 permissions:
   pull-requests: write

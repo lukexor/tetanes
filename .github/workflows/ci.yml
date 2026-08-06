@@ -10,6 +10,9 @@ on:
   pull_request:
     paths-ignore:
       - "**.md"
+  # GitHub occasionally drops a push event without creating a run, and there is then nothing to
+  # re-run. This is how a commit already on `main` gets its checks.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
