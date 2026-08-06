@@ -59,4 +59,8 @@ disk_control = "false"
 
 # Shown in the Core Downloader and as a tooltip. 512 characters at most, and one unbroken line - a
 # manual line break truncates it at the break.
-description = "TetaNES is a NES / Famicom emulator written in Rust, focused on accuracy. Supports deterministic save states - enabling run-ahead, rewind and netplay - Game Genie and raw cheat codes, four controller ports, the Zapper, and per-board mapper revision overrides. Region, NTSC video filter, power-on RAM state, run-ahead and individual APU channels are exposed as core options."
+#
+# What this is for is choosing between NES cores, which is how every other core's description reads,
+# so it says what the core is good at rather than listing features. The capabilities above and the
+# options menu already enumerate those, and repeating them here only makes the menu scroll.
+description = "TetaNES is a NES / Famicom emulator written in Rust. It supports over 30 mappers covering more than 90% of licensed games, and its save states are deterministic, making it a good choice for advanced frontend features like run-ahead latency reduction and rollback netplay."
