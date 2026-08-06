@@ -59,7 +59,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: |
-          time cargo clippy --locked --lib --bin tetanes --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+          time cargo clippy --locked --lib --workspace --exclude tetanes-libretro --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
 
   lint-tetanes:
     name: Lint TetaNES (${{ matrix.os }})
@@ -222,7 +222,7 @@ jobs:
       - env:
           RUSTDOCFLAGS: -D warnings
         run: |
-          time cargo doc --locked --no-deps --document-private-items --lib --target wasm32-unknown-unknown --all-features --keep-going
+          time cargo doc --locked --no-deps --document-private-items --lib --workspace --exclude tetanes-libretro --target wasm32-unknown-unknown --all-features --keep-going
 
   docs-tetanes:
     name: Docs TetaNES
