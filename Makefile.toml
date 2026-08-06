@@ -33,19 +33,18 @@ install_crate = { crate_name = "typos-cli", binary = "typos", test_arg = "--vers
 command = "typos"
 args = ["${@}"]
 
-# `--lib --bin tetanes` rather than `--all-targets`, as CI does: the tests do not build for wasm,
-# and what this leg is for is the code that ships there.
+# Keep in sync with CI's `lint-web` job
+#
+# `--lib --bin tetanes` rather than `--all-targets`: the tests do not build for wasm.
+# `tetanes-libretro` is excluded because wasm implies `panic = "abort"`, which it rejects.
 [tasks.lint-web]
 description = "Lint TetaNES Web"
 category = "Development"
 command = "cargo"
-args = ["clippy", "--locked", "-p", "tetanes", "--lib", "--bin", "tetanes", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going", "--", "-D", "warnings"]
+args = ["clippy", "--locked", "--lib", "--bin", "tetanes", "--workspace", "--exclude", "tetanes-libretro", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going", "--", "-D", "warnings"]
 dependencies = ["add-wasm-target"]
 
-# `--all-targets` and `-D warnings`, both of which CI applies: without them this passed while CI
-# failed, which is the wrong way round for the check a change is run through first. Tests, benches
-# and examples are code too - a `#[must_use]` added to a function only test code calls is invisible
-# without it.
+# `--all-targets` and `-D warnings`, both of which CI applies.
 [tasks.lint]
 description = "Lint TetaNES"
 category = "Development"
@@ -263,12 +262,16 @@ command = "trunk"
 args = ["build", "--config", "tetanes/Cargo.toml", "--release", "--dist", "dist/web", "--public-url", "./"]
 dependencies = ["add-wasm-target"]
 
+# `RUSTDOCFLAGS` and the crate selection are CI's, for the same reason `lint-web` matches its job:
+# without `-D warnings` this passed on exactly the warnings CI fails on.
 [tasks.docs-web]
 description = "Document TetaNES Web"
 category = "Documentation"
 command = "cargo"
-args = ["doc", "--locked", "-p", "tetanes", "--no-deps", "--document-private-items", "--lib", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
+args = ["doc", "--locked", "--no-deps", "--document-private-items", "--lib", "--workspace", "--exclude", "tetanes-libretro", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going"]
 dependencies = ["add-wasm-target"]
+[tasks.docs-web.env]
+RUSTDOCFLAGS = "-D warnings"
 
 [tasks.docs]
 description = "Document TetaNES"
@@ -276,6 +279,8 @@ category = "Documentation"
 command = "cargo"
 args = ["doc", "--locked", "--no-deps", "--document-private-items", "--all-features", "--workspace", "--keep-going"]
 dependencies = ["docs-web"]
+[tasks.docs.env]
+RUSTDOCFLAGS = "-D warnings"
 
 [tasks.run-web]
 description = "Run TetaNES Web in release mode"

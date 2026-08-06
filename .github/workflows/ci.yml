@@ -61,8 +61,10 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # `--lib --bin tetanes` rather than `--all-targets`: the tests do not build for wasm
+      # `tetanes-libretro` is excluded because wasm implies `panic = "abort"`, which it rejects.
       - run: |
-          time cargo clippy --locked --lib --workspace --exclude tetanes-libretro --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
+          time cargo clippy --locked --lib --bin tetanes --workspace --exclude tetanes-libretro --target wasm32-unknown-unknown --all-features --keep-going -- -D warnings
 
   lint-tetanes:
     name: Lint TetaNES (${{ matrix.os }})
