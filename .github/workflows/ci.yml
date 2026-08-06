@@ -258,6 +258,11 @@ jobs:
           # Named after the library, or the frontend shows a bare filename instead of any of this.
           test -f "$info"
           for key in display_name corename supported_extensions savestate savestate_features \
-                     cheats input_descriptors memory_descriptors core_options display_version; do
+                     cheats input_descriptors memory_descriptors core_options display_version \
+                     core_options_version description; do
             grep -qE "^${key} = " "$info" || { echo "$info is missing ${key}"; exit 1; }
           done
+          # The Core Downloader truncates a description past 512 characters, and a manual line
+          # break truncates it at the break, so both have to hold on one line.
+          desc=$(grep -E '^description = ' "$info" | sed -E 's/^description = "(.*)"$/\1/')
+          test "${#desc}" -le 512 || { echo "description is ${#desc} chars, max 512"; exit 1; }

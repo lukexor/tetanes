@@ -24,8 +24,9 @@ database = "Nintendo - Nintendo Entertainment System"
 firmware_count = 0
 notes = "Written in Rust. Save states, rewind and cheats are provided by the frontend.|If video stutters, check that Vertical Sync is on and that the Estimated Screen Refresh Rate matches your display: with V-Sync off, pacing falls to the audio driver alone and frames are dropped.|For faster fast-forward, enable Fast-Forward Frameskip - otherwise every skipped frame is still presented, which caps the speed at your refresh rate."
 
-# Capabilities, which decide what the frontend offers in its menus. Kept honest as the phases land -
-# a frontend that is told a core supports save states and finds it does not will simply fail.
+# Capabilities, which decide what the frontend offers in its menus. A frontend told a core supports
+# save states and finding it does not will simply fail, so each line here is a claim about the code
+# rather than an aspiration; the comments say which export settles the ones that are not obvious.
 savestate = "true"
 # "deterministic", the strongest of the three, is what unlocks run-ahead and netplay: it claims a
 # restored state replays the run it was taken from exactly, which is what
@@ -36,6 +37,26 @@ input_descriptors = "true"
 memory_descriptors = "true"
 libretro_saves = "true"
 core_options = "true"
+# `options.rs` builds its definitions for `SET_CORE_OPTIONS_V2`, which is what carries the
+# categories and the per-option help text the older versions have nowhere to put.
+core_options_version = "2.0"
+# `retro_load_game_special` returns false: there is no second content slot to chain, the way a
+# Super Game Boy core takes a cartridge and a BIOS together.
+load_subsystem = "false"
 supports_no_game = "false"
+# The core runs any NES ROM, rather than being built around one game and its support files.
+single_purpose = "false"
+# Archives are the frontend's to unpack; the core is handed bytes either way.
+database_match_archive_member = "false"
 hw_render = "false"
 required_hw_api = ""
+# `retro_load_game` copies the ROM out of the buffer it is given and keeps nothing pointing at the
+# file, so the frontend is free to load from an archive or over netplay.
+needs_fullpath = "false"
+# The core never asks for `SET_DISK_CONTROL_INTERFACE`: a NES cartridge is not swappable mid-run,
+# and the Famicom Disk System is not among the supported boards.
+disk_control = "false"
+
+# Shown in the Core Downloader and as a tooltip. 512 characters at most, and one unbroken line - a
+# manual line break truncates it at the break.
+description = "TetaNES is a NES / Famicom emulator written in Rust, focused on accuracy. Supports deterministic save states - enabling run-ahead, rewind and netplay - Game Genie and raw cheat codes, four controller ports, the Zapper, and per-board mapper revision overrides. Region, NTSC video filter, power-on RAM state, run-ahead and individual APU channels are exposed as core options."
