@@ -1,0 +1,118 @@
+# Build recipe for libretro's GitLab buildbot, which mirrors this repo and runs this file from the
+# repo root. What it produces is what RetroArch's Online Updater -> Core Downloader installs. The
+# metadata beside it is `tetanes-libretro/tetanes_libretro.info`, submitted separately to
+# `libretro/libretro-super`; neither feed alone puts the core in front of a user.
+#
+# The stock `ci-templates` Rust jobs run `cargo build --release` at the workspace root, which is
+# wrong here in four ways. Each override below says which one it answers.
+
+.core-defs:
+  variables:
+    # The library and the `.info` are both named `tetanes_libretro`, and the templates append
+    # `_libretro` themselves, so the name they interpolate is the bare `tetanes`. Left as
+    # `tetanes_libretro` they would emit `tetanes_libretro_libretro.so`.
+    CORENAME: tetanes
+    # The workspace pins nightly and sets nightly-only `-Z` flags; the core needs neither
+    # (`tetanes-libretro` declares `rust-version = "1.88.0"`). Neutralising them here rather than
+    # in-tree leaves a local build on the workspace's toolchain. `RUSTUP_TOOLCHAIN` bypasses
+    # `rust-toolchain.toml` outright, including its wasm32 target. `RUSTFLAGS` set-but-empty is what
+    # displaces `build.rustflags` from `.cargo/config.toml`: cargo tests for the variable's
+    # presence, not its contents, so an empty value still wins.
+    RUSTUP_TOOLCHAIN: stable
+    RUSTFLAGS: ""
+
+# Each fragment below opens with the same target guard: the image ships targets for whatever
+# toolchain it defaults to, which `RUSTUP_TOOLCHAIN` above may not be. It is repeated rather than
+# shared through a YAML anchor because an anchored sequence spliced into `script` nests a list
+# inside a list, and it is guarded on `rustup` the way the templates guard `git-restore-mtime`.
+#
+# `-p tetanes-libretro`, because a bare workspace build also builds `tetanes`, whose winit/wgpu/
+# egui/cpal stack wants system libraries a Rust build image has no reason to carry.
+#
+# `--profile libretro`, not `--release`, because the release profile sets `panic = "abort"` and the
+# crate rejects that with a `compile_error!`: `catch_unwind` at every entry point is what keeps a
+# panic from taking the frontend down with it. Output then lands in `libretro/`, not `release/`.
+.cargo-so:
+  script:
+    - if command -v rustup >/dev/null 2>&1; then rustup target add "$TARGET_ARCH"; fi
+    - cargo build --locked -p tetanes-libretro --profile libretro --target $TARGET_ARCH
+  after_script:
+    - mv target/$TARGET_ARCH/libretro/libtetanes_libretro.so ${CORENAME}_libretro.so
+    - if [ $STRIP_CORE_LIB -eq 1 ]; then $STRIP --strip-unneeded ${CORENAME}_libretro.so; fi
+
+# Windows emits no `lib` prefix, matching what the template's own `after_script` moves.
+.cargo-dll:
+  script:
+    - if command -v rustup >/dev/null 2>&1; then rustup target add "$TARGET_ARCH"; fi
+    - cargo build --locked -p tetanes-libretro --profile libretro --target $TARGET_ARCH
+  after_script:
+    - mv target/$TARGET_ARCH/libretro/tetanes_libretro.dll ${CORENAME}_libretro.dll
+    - if [ $STRIP_CORE_LIB -eq 1 ]; then $STRIP --strip-unneeded ${CORENAME}_libretro.dll; fi
+
+# `rust-apple.yml` keeps its `mv` in `script` rather than `after_script`, so the whole sequence has
+# to be restated - overriding only `after_script` would leave its `--release` build running.
+# `DSYM_CORE_LIB` is 0 for both osx jobs, so the debug-symbol branches are inert; they are kept so
+# that turning it on still works, with the variable named for the profile actually in use.
+.cargo-dylib:
+  script:
+    - if [ "$DSYM_CORE_LIB" -eq 1 ]; then export CARGO_PROFILE_LIBRETRO_DEBUG=true; fi
+    - if command -v rustup >/dev/null 2>&1; then rustup target add "$TARGET_ARCH"; fi
+    - cargo build --locked -p tetanes-libretro --profile libretro --target $TARGET_ARCH
+    - mv target/$TARGET_ARCH/libretro/libtetanes_libretro.dylib ${CORENAME}_libretro.dylib
+    - if [ "$DSYM_CORE_LIB" -eq 1 ]; then dsymutil-18 ${CORENAME}_libretro.dylib -o ${CORENAME}_libretro.dylib.dSYM; fi
+    - if [ "$STRIP_CORE_LIB" -eq 1 ]; then $STRIP -S ${CORENAME}_libretro.dylib; fi
+    - if [ "$DSYM_CORE_LIB" -eq 1 ]; then zip -r ${CORENAME}_libretro.dylib.dSYM.zip ${CORENAME}_libretro.dylib.dSYM; fi
+
+include:
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/rust-linux-x64.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/rust-windows-x64.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/rust-apple.yml'
+
+stages:
+  - build-prepare
+  - build-shared
+  - build-static
+
+# Image, tags, stage, artifacts and `dependencies` all come from the templates unchanged; only the
+# build and rename are ours. Later entries in `extends` win, so the overrides must come last.
+libretro-build-linux-x64:
+  extends: [.libretro-rust-linux-x64-default, .core-defs, .cargo-so]
+
+libretro-build-windows-x64:
+  extends: [.libretro-rust-windows-x64-default, .core-defs, .cargo-dll]
+
+libretro-build-osx-x64:
+  extends: [.libretro-rust-osx-x86_64-default, .core-defs, .cargo-dylib]
+
+libretro-build-osx-arm64:
+  extends: [.libretro-rust-osx-arm64-default, .core-defs, .cargo-dylib]
+
+# There is no `rust-linux-aarch64.yml`; the Rust templates cover linux-x64, windows-x64, apple,
+# android-jni and webos only. `linux-aarch64.yml` shows the runner is native aarch64, so the job is
+# hand-writable - and being native, it takes no `--target`, which puts the output in
+# `target/libretro/` and makes the shared fragments above inapplicable.
+libretro-build-linux-aarch64:
+  extends: .core-defs
+  image: $CI_SERVER_HOST:5050/libretro-infrastructure/libretro-build-aarch64-ubuntu:latest
+  stage: build-shared
+  tags:
+    - aarch64
+  variables:
+    STRIP: strip
+  before_script:
+    # That image is the C build image and carries no Rust toolchain at all.
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs
+      | sh -s -- -y --profile minimal --default-toolchain stable
+    - export PATH="$HOME/.cargo/bin:$PATH"
+  script:
+    - cargo build --locked -p tetanes-libretro --profile libretro
+    - mv target/libretro/libtetanes_libretro.so ${CORENAME}_libretro.so
+    - $STRIP --strip-unneeded ${CORENAME}_libretro.so
+  artifacts:
+    paths:
+      - ${CORENAME}_libretro.so
+    expire_in: 10 min
+  dependencies: []
