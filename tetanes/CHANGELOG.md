@@ -7,6 +7,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0](https://github.com/lukexor/tetanes/compare/0.14.2..0.15.0) - 2026-08-06
+
+### ⛰️  Features
+
+- *(mapper)* Add Taito TC0190/TC0350 and TC0690 (Mappers 33, 48) - ([b127fe6](https://github.com/lukexor/tetanes/commit/b127fe62b37edcfd95ed9ed23cbb7822bb60779b))
+- *(mapper)* Serve tier 3a bank-switchers from page tables - ([9b63b40](https://github.com/lukexor/tetanes/commit/9b63b40efd92f8a48920b639107b3e306a2df0f2))
+
+
+### 🐛 Bug Fixes
+
+- *(audio)* Ramp the output in and out instead of cutting - ([5d25e83](https://github.com/lukexor/tetanes/commit/5d25e8367dd4b33abb6db405229cd512ea139fde))
+- *(audio)* Pace on a deadline and hold the buffer with rate control - ([8d27d27](https://github.com/lukexor/tetanes/commit/8d27d27bcb8572e6da5e9c2f46de52c045a6c437))
+- *(audio)* Prime the output stream before it starts consuming - ([e67a133](https://github.com/lukexor/tetanes/commit/e67a13383ad42293c240219cf564e96e62a86e08))
+- *(core)* [**breaking**] Hand out one nes frame per clock_frame call - ([7cca0af](https://github.com/lukexor/tetanes/commit/7cca0af3c7cc03a83bdf6ae6329a6b17c8a8c8b3))
+**BREAKING**: `ControlDeck::clock_frame` returns `Result<Clocked>` rather than `Result<()>` and clocks at most one NES frame per call; drive it with `while deck.clock_frame()? == Clocked::Continue {}` to clock a whole display frame as before.
+- *(input)* Add enter/shift defaults for start/select - ([68776d2](https://github.com/lukexor/tetanes/commit/68776d2ba8346c44a3ed91e34c1d554f23ae2cbe))
+- *(input)* Stop bindings colliding and buttons sticking - ([d2a6bf7](https://github.com/lukexor/tetanes/commit/d2a6bf7a475fbf0733fd4965a16b716e15998591))
+- *(input)* Fixed shortcuts to be on press instead of on release - ([099462f](https://github.com/lukexor/tetanes/commit/099462f1839a3ccc78de824780b0ccb52672613d))
+- *(input)* Fixed modifier rolling and stuck joypad keys - ([568023c](https://github.com/lukexor/tetanes/commit/568023cae3364a227238497b7d87906d216c1f7f))
+- *(libretro)* Six defects found in review, and the claims that hid them - ([28b97dd](https://github.com/lukexor/tetanes/commit/28b97dd8856f3d81ab25071df9d2d076f740a493))
+- *(ppu-viewer)* Fixed oam tab zoom - ([f150119](https://github.com/lukexor/tetanes/commit/f150119ab51fc413ea6e02b8e2edcd4ae9fc9a31))
+- *(preferences)* Fixed game-genie entry closing when focused in menu - ([2e4b9d6](https://github.com/lukexor/tetanes/commit/2e4b9d64e3222fc0baec1ed32c3dd3bb92dbe5b8))
+- *(renderer)* Sync wgpu surface to window size so menu clicks land - ([a39fede](https://github.com/lukexor/tetanes/commit/a39fede957b41be6e494bbeed5a446289dbc3dc6))
+- *(rewind)* Render every rewound frame below 1x - ([ae4d19b](https://github.com/lukexor/tetanes/commit/ae4d19b0c75e741c9bd9d1a97b36d987ce3c30c8))
+
+- Drop Game Genie codes when the cart is swapped - ([3ae10ff](https://github.com/lukexor/tetanes/commit/3ae10ff924781ca3d4dcb70704ae2fa3bcd49244))
+
+### 🚜 Refactor
+
+- *(core)* [**breaking**] Take readers and writers, not paths - ([04bc7ae](https://github.com/lukexor/tetanes/commit/04bc7aec2f2ad5a72d35c795b8144890dbdedd37))
+**BREAKING**: `fs` and `ControlDeck` save/load now take `Read`/`Write`, the path-taking forms are `*_path`, `fs::load_bytes` is gone since `&[u8]` is already a reader, and `Config::data_dir` is replaced by `Config::sram_dir: Option<PathBuf>`.
+- *(core)* [**breaking**] Flatten ownership so Bus holds the console - ([c34e8b8](https://github.com/lukexor/tetanes/commit/c34e8b883817bb2d882ec4dd26600d0dcabc45de))
+**BREAKING**: `ControlDeck::cpu()` returns registers only; the console is `ControlDeck::bus()`, and save states, rewind and replay are now `Bus` rather than `Cpu`. `ControlDeck::load_cpu` is `load_bus`. `Mapper` and `Memory` moved from `Ppu` to `Bus`, as did the debugger. `PpuDebugger` is `Debugger` and its callback takes `&Bus`. `Ppu::load_nametables`/`load_pattern_tables`/`load_oam` take the CHR window to read from. The `memory::Read` and `memory::Write` traits are removed in favor of inherent methods. Save states from earlier builds will not load.
+- *(core)* [**breaking**] Make video::Frame a fixed-size buffer - ([b79a2fe](https://github.com/lukexor/tetanes/commit/b79a2fefc16376587eb8c2f044f3583bcd43789b))
+**BREAKING**: `video::Frame` no longer derefs to `Vec<u8>`. Callers using it as a `Vec` should use `as_slice`, `as_array`, or indexing; callers that resized it have no replacement, as the size is now part of the type.
+- *(core)* [**breaking**] Collapse the clocking API and clean up public surface - ([2b4fd1e](https://github.com/lukexor/tetanes/commit/2b4fd1eb4e4b102c9342f4d42a75d6eff077e1e7))
+**BREAKING**: MSRV is now 1.88; 1.85 could not build the crate at all. `Map::sync` is `Map::update_banks`, `Ppu::sync_mapper` is `Ppu::rebuild_mapper_state`, and MMC5's colliding `update_chr_banks` is `select_chr_set`. Frame buffers are fixed-size: `Ppu::frame_buffer` and `ControlDeck::frame_buffer_raw` return `&[u16; ppu::size::FRAME]`, `ControlDeck::frame_buffer` returns `&[u8; Frame::SIZE]`, and `frame_buffer_into` takes `&mut [u8; Frame::SIZE]`. `ControlDeck::apu_mut` returns `&mut Apu`, `joypad` takes `&self`, and `wram` returns `&[u8; bus::size::WRAM]`. Clocking clears the previous call's audio samples instead of accumulating; opt out with `Config::clear_audio_on_clock = false`. The five older `clock_*` entry points are deprecated shims rather than removals.
+- *(core)* [**breaking**] Delete the convention-only traits from common.rs - ([61cedf4](https://github.com/lukexor/tetanes/commit/61cedf42a12cfc94537d523fb21d63e40ecba8ee))
+**BREAKING**: the `Clock`, `Reset`, `Regional`, `Sample` and `Sram` traits are gone, and the prelude drops them. `clock`, `reset`, `region`, `set_region`, `output`, `save` and `load` are inherent methods on each component and forward exactly as before, so a call like `deck.cpu_mut().clock()` is unchanged - only the trait import goes away.
+- *(core)* [**breaking**] Delete the pre-page-table memory path - ([9ca8ae6](https://github.com/lukexor/tetanes/commit/9ca8ae64e1c69b267a14621bb0cecb6a1a1ad85a))
+**BREAKING**: `mapper::Banks`, `mapper::BankAccess`, `ppu::CIRam` and the `mem` module are gone. `mem::Memory<D>` is now `memory::Buffer<D>`, and `memory::Memory` is the page-table address space. The `Cart::prg_rom` and `Cart::chr_rom` fields become the `Cart::memory` arena, with `prg_rom()` and `chr_rom()` accessors returning the unpadded bytes. `Ppu::ciram` is gone - nametables are page entries. `Map`'s read hooks lose their `_hook` suffix: `prg_read`, `prg_peek`, `chr_read`, `chr_peek`.
+- *(ppu)* [**breaking**] Hold the PPU registers as fields, not structs - ([145a954](https://github.com/lukexor/tetanes/commit/145a95453b8111839df58840df0ce0529385ea09))
+**BREAKING**: `ppu::ctrl::Ctrl`, `ppu::mask::Mask` and `ppu::status::Status` are gone; read the `ctrl_*`, `mask_*` and `status_*` fields on `Ppu` instead.
+- *(ui)* Follow the debugger accessors, and stop building one to discard it - ([2606f3e](https://github.com/lukexor/tetanes/commit/2606f3e33246a4e65c6f79606fcb1c02344a8758))
+
+
+### 📚 Documentation
+
+- *(core)* Describe the code as it stands, not its history - ([5a5b65b](https://github.com/lukexor/tetanes/commit/5a5b65bddb1a806d113bfa48683f4000a47d9176))
+
+- Correct the supported-mapper table's counts, VRC4f and percentages - ([ebcc66c](https://github.com/lukexor/tetanes/commit/ebcc66c4277ee9866dee457fcf1491804f38de8a))
+- Correct stale facts in CLAUDE.md, the mapper docs and the README table - ([b702137](https://github.com/lukexor/tetanes/commit/b70213730005ffcf5e91b3bc073a1cfe8869ec67))
+- Fix stale references and drop history from the branch's comments - ([97a2850](https://github.com/lukexor/tetanes/commit/97a2850fc67cdd2fdec4a43e16c7519cb1728b7d))
+
+### ⚡ Performance
+
+- *(core)* [**breaking**] Keep the cart's ROM out of save states - ([12156e5](https://github.com/lukexor/tetanes/commit/12156e56b69a12774b37e06ad45772cbf03ed1da))
+**BREAKING**: save states and rewind snapshots no longer carry the cart's ROM, so a state can only be applied to the game it came from. `Cpu::load` and `ControlDeck::load_cpu` are fallible, returning `cpu::StateMismatch` when the state does not belong to the loaded cart.
+- *(rewind)* Re-render rewound frames instead of storing them - ([1ba7f48](https://github.com/lukexor/tetanes/commit/1ba7f48a7f3b8a8f2dc567cab4c9809ef0cbe8a4))
+
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Clear the must_use, const fn and rustdoc warnings - ([5ef3404](https://github.com/lukexor/tetanes/commit/5ef3404c090e5ce564f5a08dd888bc4732060389))
+- Fixed cd - ([0022029](https://github.com/lukexor/tetanes/commit/002202939ed2ed381d8415040fdea4d113dbabc3))
+
+
 ## [0.14.2](https://github.com/lukexor/tetanes/compare/0.14.1..0.14.2) - 2026-06-11
 
 ### 🐛 Bug Fixes
