@@ -1,0 +1,100 @@
+---
+name: CD Build
+
+# Every release build is this same sequence with a different target list, tool set and cargo-make
+# task, so it lives here once and `cd.yml` calls it per platform. It stays a *called workflow*
+# rather than one job with a combined matrix because `jobs.<id>.if` cannot see `matrix`: a single
+# job could not be gated on the dispatched OS, and a single job result could not tell a failed
+# macOS build from a failed Windows one, which is what `update-homebrew-formula` and
+# `upload-artifacts` key off.
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: 'JSON array of {"target": triple, "runner": label} objects'
+        required: true
+        type: string
+      tools:
+        description: "Comma-separated tools for taiki-e/install-action"
+        required: true
+        type: string
+      task:
+        description: "cargo-make task that produces the artifacts"
+        required: false
+        default: build-artifacts
+        type: string
+      args:
+        description: "What separates the task from the target triple. Empty for a bare triple"
+        required: false
+        default: "-- --target"
+        type: string
+      path:
+        description: "Directory the task leaves its artifacts in"
+        required: false
+        default: tetanes/dist/
+        type: string
+      suffix:
+        description: "Trails the target triple in the uploaded artifact's name"
+        required: false
+        default: artifacts
+        type: string
+      apt:
+        description: "Install the system libraries the desktop UI links against"
+        required: false
+        default: false
+        type: boolean
+      cross:
+        description: "Set up a cross-compilation toolchain for the target"
+        required: false
+        default: false
+        type: boolean
+
+# A called workflow does not inherit the caller's workflow-level `env`, so these are repeated from
+# `cd.yml` rather than shared.
+env:
+  # Unnecessary for CI and just pollutes cache
+  CARGO_INCREMENTAL: 0
+  # Remove debug symbols, substantially reduces cache size
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.targets) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - if: inputs.cross
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ inputs.tools }}
+      - if: inputs.apt
+        run: |
+          sudo apt update
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
+      - run: |
+          time cargo make ${{ inputs.task }} ${{ inputs.args }} ${{ matrix.target }}
+      - if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-${{ inputs.suffix }}
+          path: ${{ inputs.path }}

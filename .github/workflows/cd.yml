@@ -25,204 +25,125 @@ on:
 permissions:
   contents: write
 
-env:
-  # Unnecessary for CI and just pollutes cache
-  CARGO_INCREMENTAL: 0
-  # Remove debug symbols, substantially reduces cache size
-  CARGO_PROFILE_DEV_DEBUG: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-
+# The steps every one of these runs are in `cd-build.yml`; what differs is the target list, the
+# tools and the cargo-make task. They stay one job per platform so that a dispatch can gate each on
+# `inputs.os` - `jobs.<id>.if` cannot see `matrix`, so legs of a combined matrix could not be
+# skipped individually - and so that a partial failure only stops the jobs downstream of the
+# platform that failed.
 jobs:
   build-linux:
-    name: Build Linux Artifacts (${{ matrix.target }})
+    name: Build Linux Artifacts
     if: >
       ((startsWith(github.event.release.tag_name, 'tetanes')
         && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux')))
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-make,cargo-deb,cargo-pgo
-      - run: |
-          sudo apt update
-          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
-      - run: |
-          time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.target }}-artifacts
-          path: tetanes/dist/
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: >-
+        [{"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest"},
+        {"target": "aarch64-unknown-linux-gnu", "runner": "ubuntu-24.04-arm"}]
+      tools: cargo-make,cargo-deb,cargo-pgo
+      apt: true
   build-macos:
-    name: Build macOS Artifacts (${{ matrix.target }})
+    name: Build macOS Artifacts
     if: >
       ((startsWith(github.event.release.tag_name, 'tetanes')
         && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'macos')))
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-apple-darwin
-          - target: aarch64-apple-darwin
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-make,cargo-pgo
-      - run: |
-          time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.target }}-artifacts
-          path: tetanes/dist/
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: >-
+        [{"target": "x86_64-apple-darwin", "runner": "macos-latest"},
+        {"target": "aarch64-apple-darwin", "runner": "macos-latest"}]
+      tools: cargo-make,cargo-pgo
+      cross: true
   build-windows:
-    name: Build Windows Artifacts (${{ matrix.target }})
+    name: Build Windows Artifacts
     if: >
       ((startsWith(github.event.release.tag_name, 'tetanes')
         && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'windows')))
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-          - target: aarch64-pc-windows-msvc
-            runner: windows-11-arm
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-make,cargo-wix,cargo-pgo
-      - if: startsWith(matrix.target, 'x86_64')
-        run: |
-          time cargo make build-artifacts -- --target ${{ matrix.target }}
-      - if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.target }}-artifacts
-          path: tetanes/dist/
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: >-
+        [{"target": "x86_64-pc-windows-msvc", "runner": "windows-latest"},
+        {"target": "aarch64-pc-windows-msvc", "runner": "windows-11-arm"}]
+      tools: cargo-make,cargo-wix,cargo-pgo
+      cross: true
   build-web:
-    name: Build Web Artifacts (wasm32-unknown-unknown)
+    name: Build Web Artifacts
     if: >
       ((startsWith(github.event.release.tag_name, 'tetanes')
         && !startsWith(github.event.release.tag_name, 'tetanes-core'))
       || (inputs.tag && (inputs.os == 'all' || inputs.os == 'web')))
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-make,trunk
-      - run: |
-          sudo apt update
-          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
-      - run: |
-          time cargo make build-artifacts -- --target wasm32-unknown-unknown
-      - if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: wasm32-unknown-unknown-artifacts
-          path: tetanes/dist/
-  build-libretro:
-    name: Build libretro Core (${{ matrix.target }})
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: '[{"target": "wasm32-unknown-unknown", "runner": "ubuntu-latest"}]'
+      tools: cargo-make,trunk
+      apt: true
+  # No system libraries and no PGO: the core is the emulation and nothing else - no window, no
+  # audio device, no input device - which is what makes it the cheapest of these to build.
+  # `libretro-artifacts` takes a bare triple rather than `-- --target`, hence the empty `args`.
+  build-libretro-linux:
+    name: Build libretro Core (Linux)
     if: >
       ((startsWith(github.event.release.tag_name, 'tetanes')
         && !startsWith(github.event.release.tag_name, 'tetanes-core'))
-      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux'
-          || inputs.os == 'macos' || inputs.os == 'windows')))
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-make
-      # No system libraries: the core is the emulation and nothing else - no window, no audio
-      # device, no input device - which is what makes it the cheapest of these to build.
-      - run: |
-          time cargo make libretro-artifacts ${{ matrix.target }}
-      - if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.target }}-libretro
-          path: tetanes-libretro/dist/
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'linux')))
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: >-
+        [{"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest"},
+        {"target": "aarch64-unknown-linux-gnu", "runner": "ubuntu-24.04-arm"}]
+      tools: cargo-make
+      task: libretro-artifacts
+      args: ""
+      path: tetanes-libretro/dist/
+      suffix: libretro
+  build-libretro-macos:
+    name: Build libretro Core (macOS)
+    if: >
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'macos')))
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: >-
+        [{"target": "x86_64-apple-darwin", "runner": "macos-latest"},
+        {"target": "aarch64-apple-darwin", "runner": "macos-latest"}]
+      tools: cargo-make
+      task: libretro-artifacts
+      args: ""
+      path: tetanes-libretro/dist/
+      suffix: libretro
+  build-libretro-windows:
+    name: Build libretro Core (Windows)
+    if: >
+      ((startsWith(github.event.release.tag_name, 'tetanes')
+        && !startsWith(github.event.release.tag_name, 'tetanes-core'))
+      || (inputs.tag && (inputs.os == 'all' || inputs.os == 'windows')))
+    uses: ./.github/workflows/cd-build.yml
+    with:
+      targets: '[{"target": "x86_64-pc-windows-msvc", "runner": "windows-latest"}]'
+      tools: cargo-make
+      task: libretro-artifacts
+      args: ""
+      path: tetanes-libretro/dist/
+      suffix: libretro
 
   upload-artifacts:
     name: Attach Release Artifacts
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows, build-web, build-libretro]
+    needs:
+      - build-linux
+      - build-macos
+      - build-windows
+      - build-web
+      - build-libretro-linux
+      - build-libretro-macos
+      - build-libretro-windows
+    # Whatever succeeded gets uploaded, so one platform failing costs only that platform's
+    # artifacts.
     if: |
       always() && contains(needs.*.result, 'success')
     steps:
