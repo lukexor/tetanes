@@ -170,6 +170,12 @@ esac | awk -v n="$archive" '{ print $1 "  " n }' > "$dist/$archive-sha256.txt"
 printf 'packaged %s\n' "$dist/$archive"
 '''
 
+# `bash` on a Windows `PATH` is `System32\bash.exe`, the WSL launcher, which exits non-zero telling
+# you to install a distribution. Git for Windows' bash is the one that can run the script, and only
+# its absolute path reaches it, since `System32` comes first on `PATH`.
+[tasks.libretro-artifacts.windows]
+script_runner = 'C:\Program Files\Git\bin\bash.exe'
+
 [tasks.build-cross]
 description = "Cross-Build TetaNES for a given target_arch"
 category = "Build"
