@@ -1,4 +1,7 @@
-use crate::sys::platform;
+use crate::{
+    nes::event::{NesEvent, NesEventProxy},
+    sys::platform,
+};
 use std::path::{Path, PathBuf};
 
 pub use platform::*;
@@ -16,13 +19,19 @@ pub trait BuilderExt {
 }
 
 /// Method for platforms supporting opening a file dialog.
+///
+/// This returns as soon as the dialog is up rather than when the user is done with it, so the
+/// event loop stays live. The outcome arrives later as the event `on_open` builds from the chosen
+/// path, or as [`crate::nes::event::UiEvent::FileDialogCancelled`] if the dialog was dismissed.
 pub fn open_file_dialog(
+    tx: &NesEventProxy,
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
     dir: Option<impl AsRef<Path>>,
-) -> anyhow::Result<Option<PathBuf>> {
-    platform::open_file_dialog_impl(title, name, extensions, dir)
+    on_open: impl FnOnce(PathBuf) -> NesEvent + Send + 'static,
+) -> anyhow::Result<()> {
+    platform::open_file_dialog_impl(tx, title, name, extensions, dir, on_open)
 }
 
 /// Speak the given text out loud for platforms that support it.

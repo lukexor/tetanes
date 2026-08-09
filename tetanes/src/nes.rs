@@ -120,6 +120,9 @@ pub(crate) struct Running {
     pub(crate) pressed_keys: HashMap<KeyCode, ModifiersState>,
     pub(crate) replay_recording: bool,
     pub(crate) audio_recording: bool,
+    /// Set while a file dialog is up, so the focus the dialog steals — and hands back under a
+    /// focus-follows-mouse window manager — doesn't resume the ROM out from under it.
+    pub(crate) file_dialog_open: bool,
     pub(crate) rewinding: bool,
     pub(crate) occluded: bool,
     pub(crate) repaint_times: HashMap<WindowId, Instant>,
@@ -250,6 +253,7 @@ impl Nes {
                     pressed_keys: HashMap::default(),
                     replay_recording: false,
                     audio_recording: false,
+                    file_dialog_open: false,
                     rewinding: false,
                     occluded: false,
                     repaint_times: HashMap::default(),

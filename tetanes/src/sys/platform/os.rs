@@ -1,25 +1,44 @@
 use crate::{
-    nes::{Running, event::EmulationEvent, renderer::Renderer},
+    nes::{
+        Running,
+        event::{EmulationEvent, NesEvent, NesEventProxy, UiEvent},
+        renderer::Renderer,
+    },
     platform::{BuilderExt, Initialize},
 };
+use anyhow::Context;
 use std::path::{Path, PathBuf};
 use tracing::error;
 use winit::window::WindowAttributes;
 
 /// Method for platforms supporting opening a file dialog.
 pub fn open_file_dialog_impl(
+    tx: &NesEventProxy,
     title: impl Into<String>,
     name: impl Into<String>,
     extensions: &[impl ToString],
     dir: Option<impl AsRef<Path>>,
-) -> anyhow::Result<Option<PathBuf>> {
-    let mut dialog = rfd::FileDialog::new()
+    on_open: impl FnOnce(PathBuf) -> NesEvent + Send + 'static,
+) -> anyhow::Result<()> {
+    let mut dialog = rfd::AsyncFileDialog::new()
         .set_title(title)
         .add_filter(name, extensions);
     if let Some(dir) = dir {
         dialog = dialog.set_directory(dir.as_ref());
     }
-    Ok(dialog.pick_file())
+
+    // The dialog gets its own thread because the event loop has to keep drawing and answering the
+    // window manager while it is open; a modal run on this thread reads as a hung application.
+    let tx = tx.clone();
+    std::thread::Builder::new()
+        .name("file-dialog".to_string())
+        .spawn(move || match pollster::block_on(dialog.pick_file()) {
+            Some(file) => tx.event(on_open(file.path().to_path_buf())),
+            None => tx.event(UiEvent::FileDialogCancelled),
+        })
+        .context("failed to spawn file dialog thread")?;
+
+    Ok(())
 }
 
 /// Speak the given text out loud.

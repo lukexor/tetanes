@@ -676,9 +676,6 @@ impl Gui {
                 self.run_state = RunState::AutoPaused;
                 self.tx.event(EmulationEvent::RunState(self.run_state));
             }
-            // NOTE: Due to some platforms file dialogs blocking the event loop,
-            // loading requires a round-trip in order for the above pause to
-            // get processed.
             self.tx.event(UiEvent::LoadRomDialog);
         }
 
@@ -703,9 +700,6 @@ impl Gui {
             if res.clicked() {
                 self.run_state = RunState::AutoPaused;
                 tx.event(EmulationEvent::RunState(self.run_state));
-                // NOTE: Due to some platforms file dialogs blocking the event loop,
-                // loading requires a round-trip in order for the above pause to
-                // get processed.
                 tx.event(UiEvent::LoadReplayDialog);
             }
         });

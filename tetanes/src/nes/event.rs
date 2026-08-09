@@ -418,6 +418,19 @@ impl ApplicationHandler<NesEvent> for Nes {
 
 impl ApplicationHandler<NesEvent> for Running {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: NesEvent) {
+        // A dialog reports itself finished as exactly one of these, whichever platform opened it.
+        if matches!(
+            event,
+            NesEvent::Emulation(
+                EmulationEvent::LoadRom(_)
+                    | EmulationEvent::LoadRomPath(_)
+                    | EmulationEvent::LoadReplay(_)
+                    | EmulationEvent::LoadReplayPath(_)
+            ) | NesEvent::Ui(UiEvent::FileDialogCancelled)
+        ) {
+            self.file_dialog_open = false;
+        }
+
         match event {
             NesEvent::Config(ref event) => {
                 let Config {
@@ -538,6 +551,11 @@ impl ApplicationHandler<NesEvent> for Running {
                 self.cfg
                     .add_recent_rom(RecentRom::Homebrew { name: name.clone() });
             }
+            NesEvent::Emulation(EmulationEvent::LoadRomPath(ref path)) => {
+                if let Ok(path) = path.canonicalize() {
+                    self.cfg.add_recent_rom(RecentRom::Path(path));
+                }
+            }
             NesEvent::Ui(ref event) => self.on_ui_event(event),
             _ => (),
         }
@@ -614,7 +632,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                     if focused && !self.occluded {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                        if self.renderer.rom_loaded()
+                            && self.run_state().auto_paused()
+                            && !self.file_dialog_open
+                        {
                             self.set_run_state(RunState::Running);
                         }
                     } else {
@@ -647,7 +668,10 @@ impl ApplicationHandler<NesEvent> for Running {
                         }
                     } else {
                         self.repaint_times.insert(window_id, Instant::now());
-                        if self.renderer.rom_loaded() && self.run_state().auto_paused() {
+                        if self.renderer.rom_loaded()
+                            && self.run_state().auto_paused()
+                            && !self.file_dialog_open
+                        {
                             self.set_run_state(RunState::Running);
                         }
                     }
@@ -823,42 +847,40 @@ impl Running {
         match event {
             UiEvent::Message((ty, msg)) => self.renderer.add_message(*ty, msg),
             UiEvent::Error(err) => self.renderer.on_error(anyhow!(err.clone())),
-            UiEvent::LoadRomDialog => {
-                match open_file_dialog(
+            // The event loop keeps running while a dialog is up, so the guards below — and the
+            // arm that swallows the request once one is open — keep a second shortcut or menu
+            // click from stacking another dialog on top of the first.
+            UiEvent::LoadRomDialog if !self.file_dialog_open => {
+                self.file_dialog_open = true;
+                if let Err(err) = open_file_dialog(
+                    &self.tx,
                     "Load ROM",
                     "NES ROMs",
                     &["nes"],
                     self.cfg.renderer.roms_path.as_ref(),
+                    |path| EmulationEvent::LoadRomPath(path).into(),
                 ) {
-                    Ok(maybe_path) => {
-                        if let Some(path) = maybe_path {
-                            self.event(EmulationEvent::LoadRomPath(path));
-                        }
-                    }
-                    Err(err) => {
-                        error!("failed to open rom dialog: {err:?}");
-                        self.event(UiEvent::Error("failed to open rom dialog".to_string()));
-                    }
+                    self.file_dialog_open = false;
+                    error!("failed to open rom dialog: {err:?}");
+                    self.event(UiEvent::Error("failed to open rom dialog".to_string()));
                 }
             }
-            UiEvent::LoadReplayDialog => {
-                match open_file_dialog(
+            UiEvent::LoadReplayDialog if !self.file_dialog_open => {
+                self.file_dialog_open = true;
+                if let Err(err) = open_file_dialog(
+                    &self.tx,
                     "Load Replay",
                     "Replay Recording",
                     &["replay"],
                     Some(Config::default_data_dir()),
+                    |path| EmulationEvent::LoadReplayPath(path).into(),
                 ) {
-                    Ok(maybe_path) => {
-                        if let Some(path) = maybe_path {
-                            self.event(EmulationEvent::LoadReplayPath(path));
-                        }
-                    }
-                    Err(err) => {
-                        error!("failed to open replay dialog: {err:?}");
-                        self.event(UiEvent::Error("failed to open replay dialog".to_string()));
-                    }
+                    self.file_dialog_open = false;
+                    error!("failed to open replay dialog: {err:?}");
+                    self.event(UiEvent::Error("failed to open replay dialog".to_string()));
                 }
             }
+            UiEvent::LoadRomDialog | UiEvent::LoadReplayDialog => (),
             UiEvent::FileDialogCancelled => {
                 if self.renderer.rom_loaded() && self.run_state().auto_paused() {
                     self.set_run_state(RunState::Running);
@@ -1019,9 +1041,6 @@ impl Running {
                         if self.renderer.rom_loaded() && !self.run_state().paused() {
                             self.set_run_state(RunState::AutoPaused);
                         }
-                        // NOTE: Due to some platforms file dialogs blocking the event loop,
-                        // loading requires a round-trip in order for the above pause to
-                        // get processed.
                         self.tx.event(UiEvent::LoadRomDialog);
                     }
                     Ui::UnloadRom => {
@@ -1034,9 +1053,6 @@ impl Running {
                             if !self.run_state().paused() {
                                 self.set_run_state(RunState::AutoPaused);
                             }
-                            // NOTE: Due to some platforms file dialogs blocking the event loop,
-                            // loading requires a round-trip in order for the above pause to
-                            // get processed.
                             self.tx.event(UiEvent::LoadReplayDialog);
                         }
                     }

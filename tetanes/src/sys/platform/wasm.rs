@@ -4,7 +4,7 @@
 use crate::{
     nes::{
         Running,
-        event::{EmulationEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
+        event::{EmulationEvent, NesEvent, NesEventProxy, RendererEvent, ReplayData, UiEvent},
         renderer::{Renderer, State, gui},
         rom::RomData,
     },
@@ -36,12 +36,17 @@ const OS_OPTIONS: [(Os, Arch, &str); 5] = [
 pub struct System;
 
 /// Method for platforms supporting opening a file dialog.
+///
+/// The result is delivered by the input element's `change`/`cancel` handlers, installed once at
+/// startup, so `on_open` goes unused here.
 pub fn open_file_dialog_impl(
+    _tx: &NesEventProxy,
     _title: impl Into<String>,
     _name: impl Into<String>,
     extensions: &[impl ToString],
     _dir: Option<impl AsRef<Path>>,
-) -> anyhow::Result<Option<PathBuf>> {
+    _on_open: impl FnOnce(PathBuf) -> NesEvent + Send + 'static,
+) -> anyhow::Result<()> {
     let input_id = match extensions[0].to_string().as_str() {
         "nes" => html_ids::ROM_INPUT,
         "replay" => html_ids::REPLAY_INPUT,
@@ -63,7 +68,7 @@ pub fn open_file_dialog_impl(
         None => bail!("failed to find file input element"),
     }
 
-    Ok(None)
+    Ok(())
 }
 
 /// Speak the given text out loud.
