@@ -145,23 +145,34 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
-    const NTSC_CPU_CLOCK_RATE: f32 = Self::NTSC_MASTER_CLOCK_RATE / 12.0;
-    const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
-    const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
-    const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
+    /// NTSC Master Clock Rate in Hz.
+    pub const NTSC_MASTER_CLOCK_RATE: f32 = 21_477_272.0;
+    /// NTSC CPU Clock Rate in Hz.
+    pub const NTSC_CPU_CLOCK_RATE: f32 = Self::NTSC_MASTER_CLOCK_RATE / 12.0;
+    /// PAL Master Clock Rate in Hz.
+    pub const PAL_MASTER_CLOCK_RATE: f32 = 26_601_712.0;
+    /// PAL CPU Clock Rate in Hz.
+    pub const PAL_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 16.0;
+    /// Dendy CPU Clock Rate in Hz.
+    pub const DENDY_CPU_CLOCK_RATE: f32 = Self::PAL_MASTER_CLOCK_RATE / 15.0;
 
     // Represents CPU/PPU alignment and would range from 1..=ppu.clock_divider-1
     // if random PPU alignment was emulated
     // See: https://www.nesdev.org/wiki/PPU_frame_timing#CPU-PPU_Clock_Alignment
     pub(crate) const PPU_OFFSET: u32 = 1;
 
-    pub(crate) const NMI_VECTOR: u16 = 0xFFFA; // NMI Vector address
-    pub(crate) const IRQ_VECTOR: u16 = 0xFFFE; // IRQ Vector address
-    pub(crate) const RESET_VECTOR: u16 = 0xFFFC; // Vector address at reset
-    const POWER_ON_STATUS: Status = Status::U.union(Status::I);
-    const POWER_ON_SP: u8 = 0xFD;
-    pub(crate) const SP_BASE: u16 = 0x0100; // Stack-pointer starting address
+    /// NMI vector Address.
+    pub const NMI_VECTOR: u16 = 0xFFFA;
+    /// IRQ vector address
+    pub const IRQ_VECTOR: u16 = 0xFFFE;
+    /// Reset vector address.
+    pub const RESET_VECTOR: u16 = 0xFFFC;
+    /// Power on status register values.
+    pub const POWER_ON_STATUS: Status = Status::U.union(Status::I);
+    /// Power on stack pointer value.
+    pub const POWER_ON_SP: u8 = 0xFD;
+    /// Stack Pointer base address.
+    pub const SP_BASE: u16 = 0x0100;
 
     /// Create a new CPU timed for `region`.
     pub fn new(region: NesRegion) -> Self {
@@ -836,11 +847,11 @@ impl Bus {
         u16::from_le_bytes([lo, hi])
     }
 
-    /// Disassemble the instruction at the given program counter.
-    pub fn disassemble(&mut self, pc: &mut u16) -> &str {
+    /// Disassemble the instruction at the given program counter into `out`, advancing `pc` past it.
+    pub fn disassemble_into(&self, pc: &mut u16, out: &mut String) {
         use fmt::Write;
 
-        self.disasm.clear();
+        out.clear();
 
         let addr = { *pc };
         let opcode = {
@@ -848,7 +859,7 @@ impl Bus {
             *pc = pc.wrapping_add(1);
             byte
         };
-        let _ = write!(self.disasm, "${addr:04X} ${opcode:02X} ");
+        let _ = write!(out, "${addr:04X} ${opcode:02X} ");
 
         let mut peek_byte = || {
             let byte = self.peek(*pc);
@@ -864,31 +875,28 @@ impl Bus {
         let instr_ref = Cpu::INSTR_REF[usize::from(opcode)];
         match instr_ref.addr_mode {
             AddrMode::ACC | AddrMode::IMP => {
-                let _ = write!(self.disasm, "        {instr_ref}");
+                let _ = write!(out, "        {instr_ref}");
             }
             AddrMode::IMM => {
                 let byte = peek_byte();
-                let _ = write!(self.disasm, "${byte:02X}     {instr_ref} #${byte:02X}");
+                let _ = write!(out, "${byte:02X}     {instr_ref} #${byte:02X}");
             }
             AddrMode::REL => {
                 let byte = peek_byte();
                 let addr = (*pc as i16).wrapping_add(i16::from(byte as i8)) as u16;
-                let _ = write!(self.disasm, "${byte:02X}     {instr_ref} ${addr:04X}");
+                let _ = write!(out, "${byte:02X}     {instr_ref} ${addr:04X}");
             }
             AddrMode::ZP0 => {
                 let byte = peek_byte();
                 let val = self.peek(byte.into());
-                let _ = write!(
-                    self.disasm,
-                    "${byte:02X}     {instr_ref} ${byte:02X} = #${val:02X}"
-                );
+                let _ = write!(out, "${byte:02X}     {instr_ref} ${byte:02X} = #${val:02X}");
             }
             AddrMode::ZPX => {
                 let byte = peek_byte();
                 let addr = byte.wrapping_add(self.cpu.x);
                 let val = self.peek(addr.into());
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte:02X}     {instr_ref} ${byte:02X},X @ ${addr:02X} = #${val:02X}"
                 );
             }
@@ -897,7 +905,7 @@ impl Bus {
                 let addr = byte.wrapping_add(self.cpu.y);
                 let val = self.peek(addr.into());
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte:02X}     {instr_ref} ${byte:02X},Y @ ${addr:02X} = #${val:02X}"
                 );
             }
@@ -911,7 +919,7 @@ impl Bus {
                     self.peek_word(base_addr)
                 };
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte1:02X} ${byte2:02X} {instr_ref} (${base_addr:04X}) = ${val:04X}"
                 );
             }
@@ -923,7 +931,7 @@ impl Bus {
                 let addr = u16::from_le_bytes([lo, hi]);
                 let val = self.peek(addr);
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte:02X}     {instr_ref} (${byte:02X},X) @ ${addr:04X} = #${val:02X}"
                 );
             }
@@ -937,21 +945,18 @@ impl Bus {
                 let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
                 let val = self.peek(addr);
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte:02X}     {instr_ref} (${byte:02X}),Y @ ${addr:04X} = #${val:02X}"
                 );
             }
             AddrMode::ABS => {
                 let (byte1, byte2, addr) = peek_word();
                 if instr_ref.instr == JMP {
-                    let _ = write!(
-                        self.disasm,
-                        "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}"
-                    );
+                    let _ = write!(out, "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}");
                 } else {
                     let val = self.peek(addr);
                     let _ = write!(
-                        self.disasm,
+                        out,
                         "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X} = #${val:02X}"
                     );
                 }
@@ -961,7 +966,7 @@ impl Bus {
                 let addr = base_addr.wrapping_add(self.cpu.x.into());
                 let val = self.peek(addr);
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte1:02X} ${byte2:02X} {instr_ref} ${base_addr:04X},X @ ${addr:04X} = #${val:02X}"
                 );
             }
@@ -970,26 +975,30 @@ impl Bus {
                 let addr = base_addr.wrapping_add(self.cpu.y.into());
                 let val = self.peek(addr);
                 let _ = write!(
-                    self.disasm,
+                    out,
                     "${byte1:02X} ${byte2:02X} {instr_ref} ${base_addr:04X},Y @ ${addr:04X} = #${val:02X}"
                 );
             }
             AddrMode::OTH => {
                 let (byte1, byte2, addr) = peek_word();
                 if instr_ref.instr == JSR {
-                    let _ = write!(
-                        self.disasm,
-                        "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}"
-                    );
+                    let _ = write!(out, "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}");
                 } else {
                     let val = self.peek(addr);
                     let _ = write!(
-                        self.disasm,
+                        out,
                         "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X} = #${val:02X}"
                     );
                 }
             }
         };
+    }
+
+    /// Disassemble the instruction at the given program counter.
+    pub fn disassemble(&mut self, pc: &mut u16) -> &str {
+        let mut out = std::mem::take(&mut self.disasm);
+        self.disassemble_into(pc, &mut out);
+        self.disasm = out;
         &self.disasm
     }
 

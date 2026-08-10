@@ -12,6 +12,7 @@ use crate::{
         input::Gamepads,
         renderer::{
             gui::{
+                debugger::CpuDebugger,
                 keybinds::Keybinds,
                 lib::{
                     ShortcutText, ShowShortcut, ToggleValue, ViewportOptions, cursor_to_zapper,
@@ -59,6 +60,7 @@ use tetanes_core::{
 use tracing::{error, info, warn};
 use winit::event::WindowEvent;
 
+pub mod debugger;
 mod keybinds;
 pub mod lib;
 pub mod ppu_viewer;
@@ -73,6 +75,7 @@ const UI_MEMORY_TITLE: &str = "📝 UI Memory";
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Menu {
     About,
+    Debugger,
     Keybinds,
     PerfStats,
     PpuViewer,
@@ -116,7 +119,7 @@ pub struct Gui {
     version: Version,
     pub keybinds: Keybinds,
     preferences: Preferences,
-    debugger_open: bool,
+    debugger: CpuDebugger,
     ppu_viewer: PpuViewer,
     apu_mixer_open: bool,
     viewport_info_open: bool,
@@ -186,7 +189,7 @@ impl Gui {
             version: Version::new(),
             keybinds: Keybinds::new(tx.clone()),
             preferences: Preferences::new(tx.clone()),
-            debugger_open: false,
+            debugger: CpuDebugger::new(tx.clone()),
             ppu_viewer: PpuViewer::new(tx, render_state),
             apu_mixer_open: false,
             viewport_info_open: false,
@@ -278,6 +281,12 @@ impl Gui {
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.about_open = !self.about_open,
+                    Menu::Debugger => {
+                        self.debugger.toggle_open(&self.ctx);
+                        if self.debugger.open() {
+                            self.pause_for_debugger();
+                        }
+                    }
                     Menu::Keybinds => self.keybinds.toggle_open(&self.ctx),
                     Menu::PerfStats => {
                         self.perf_stats_open = !self.perf_stats_open;
@@ -289,11 +298,25 @@ impl Gui {
                 },
                 _ => (),
             },
+            NesEvent::Debug(DebugEvent::Cpu(snapshot)) => {
+                self.debugger.update_snapshot(std::mem::take(snapshot));
+                self.ctx.request_repaint_of(self.debugger.id());
+            }
             NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());
             }
             _ => (),
+        }
+    }
+
+    /// Pause emulation when the debugger opens.
+    fn pause_for_debugger(&mut self) {
+        if self.loaded_rom.is_some() && !self.run_state.paused() {
+            // `ManuallyPaused`. `AutoPaused` resumes when the main window regains focus which
+            // usually isn't desired.
+            self.run_state = RunState::ManuallyPaused;
+            self.tx.event(EmulationEvent::RunState(self.run_state));
         }
     }
 
@@ -349,6 +372,7 @@ impl Gui {
 
         self.preferences.show(ui, viewport_opts, cfg.clone());
         self.keybinds.show(ui, viewport_opts, cfg.clone(), gamepads);
+        self.debugger.show(ui, viewport_opts);
         self.ppu_viewer.show(ui, viewport_opts);
 
         self.show_about_window(ui, viewport_opts.enabled);
@@ -532,6 +556,7 @@ impl Gui {
 
     pub(super) fn close_viewport(&self, viewport_id: ViewportId) {
         match viewport_id {
+            id if id == self.debugger.id => self.debugger.set_open(false, &self.ctx),
             id if id == self.keybinds.id => self.keybinds.set_open(false, &self.ctx),
             id if id == self.ppu_viewer.id => self.ppu_viewer.set_open(false, &self.ctx),
             id if id == self.preferences.id => self.preferences.set_open(false, &self.ctx),
@@ -1128,7 +1153,7 @@ impl Gui {
     }
 
     fn debug_menu(&mut self, ui: &mut Ui, cfg: &Config) {
-        let tx = &self.tx;
+        let tx = self.tx.clone();
 
         let mut perf_stats_open = self.perf_stats_open;
         let toggle = ToggleValue::new(&mut perf_stats_open, "🛠 Performance Stats")
@@ -1179,14 +1204,17 @@ impl Gui {
 
         ui.separator();
 
-        ui.add_enabled_ui(false, |ui| {
-            let debugger_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Cpu));
-            let toggle = ToggleValue::new(&mut self.debugger_open, "🚧 Debugger")
-                .shortcut_text(debugger_shortcut);
-            ui.add(toggle)
-                .on_hover_text("Toggle the Debugger.")
-                .on_disabled_hover_text("Not yet implemented.");
-        });
+        let debugger_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Cpu));
+        let mut debugger_open = self.debugger.open();
+        let toggle =
+            ToggleValue::new(&mut debugger_open, "🐛 Debugger").shortcut_text(debugger_shortcut);
+        let res = ui.add(toggle).on_hover_text("Toggle the Debugger.");
+        if res.clicked() {
+            self.debugger.set_open(debugger_open, &self.ctx);
+            if debugger_open {
+                self.pause_for_debugger();
+            }
+        }
 
         let ppu_viewer_shortcut = cfg.shortcut(Debug::Toggle(DebugKind::Ppu));
         let mut open = self.ppu_viewer.open();

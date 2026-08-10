@@ -191,6 +191,7 @@ impl AsRef<str> for Action {
             },
             Action::Menu(menu) => match menu {
                 Menu::About => "Toggle About",
+                Menu::Debugger => "Toggle Debugger",
                 Menu::Keybinds => "Toggle Keybinds",
                 Menu::PerfStats => "Toggle Performance Stats",
                 Menu::PpuViewer => "Toggle PPU Viewer",
@@ -322,6 +323,7 @@ impl TryFrom<&str> for Action {
             "Unload ROM" => Self::Ui(Ui::UnloadRom),
             "Load Replay" => Self::Ui(Ui::LoadReplay),
             "Toggle About Window" => Self::Menu(Menu::About),
+            "Toggle Debugger" => Self::Menu(Menu::Debugger),
             "Toggle Keybinds Menu" => Self::Menu(Menu::Keybinds),
             "Toggle Performance Stats Window" => Self::Menu(Menu::PerfStats),
             "Toggle PPU Viewer" => Self::Menu(Menu::PpuViewer),

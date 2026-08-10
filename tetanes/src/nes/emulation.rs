@@ -4,8 +4,14 @@ use crate::nes::{
     audio::{Audio, State as AudioState},
     config::{Config, FrameRate},
     emulation::{replay::Record, rewind::Rewind},
-    event::{ConfigEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent, UiEvent},
-    renderer::{FrameRecycle, gui::MessageType},
+    event::{
+        ConfigEvent, DebugEvent, DebugRequest, EmulationEvent, NesEvent, NesEventProxy,
+        RendererEvent, UiEvent,
+    },
+    renderer::{
+        FrameRecycle,
+        gui::{MessageType, debugger::CpuSnapshot},
+    },
 };
 use anyhow::{Context, anyhow};
 use chrono::Local;
@@ -320,6 +326,8 @@ pub struct State {
     audio_rate_bias: f32,
     frame_time_diag: FrameTimeDiag,
     run_state: RunState,
+    /// What the Debugger wants each frame, if it is open.
+    debug_request: Option<DebugRequest>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -490,6 +498,7 @@ impl State {
             audio_rate_bias: 1.0,
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::AutoPaused,
+            debug_request: None,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -571,6 +580,10 @@ impl State {
     /// Handle emulation event.
     fn on_emulation_event(&mut self, event: &EmulationEvent) {
         match event {
+            EmulationEvent::DebugSubscribe(request) => {
+                self.debug_request = *request;
+                self.send_debug_snapshot();
+            }
             EmulationEvent::AddDebugger(debugger) => {
                 self.control_deck.set_debugger(debugger.clone());
             }
@@ -862,6 +875,15 @@ impl State {
                 self.frame_time_diag.drop_frame();
             }
             Err(_) => shutdown(&self.tx, "failed to get frame"),
+        }
+        self.send_debug_snapshot();
+    }
+
+    /// Send the Debugger a snapshot, if its open.
+    fn send_debug_snapshot(&self) {
+        if let Some(request) = &self.debug_request {
+            let snapshot = CpuSnapshot::capture(self.control_deck.bus(), request);
+            self.tx.event(DebugEvent::Cpu(Box::new(snapshot)));
         }
     }
 

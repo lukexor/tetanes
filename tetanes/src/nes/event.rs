@@ -7,7 +7,7 @@ use crate::{
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
-            gui::{Menu, MessageType, ppu_viewer::PpuSnapshot},
+            gui::{Menu, MessageType, debugger::CpuSnapshot, ppu_viewer::PpuSnapshot},
             shader::Shader,
         },
         rom::RomData,
@@ -166,9 +166,20 @@ impl From<ConfigEvent> for NesEvent {
     }
 }
 
+/// What the Debugger wants from the control deck.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct DebugRequest {
+    /// How many instructions to disassemble forward from PC.
+    pub disasm_lines: u16,
+    /// A CPU-bus address range to copy, as `(start, len)`.
+    pub memory: Option<(u16, u16)>,
+}
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
+    Cpu(Box<CpuSnapshot>),
     Ppu(Box<PpuSnapshot>),
 }
 
@@ -184,7 +195,11 @@ pub enum EmulationEvent {
     AddDebugger(Debugger),
     RemoveDebugger,
     AudioRecord(bool),
-    CpuCorrupted { instr: InstrRef },
+    CpuCorrupted {
+        instr: InstrRef,
+    },
+    /// Subscribe on `Some`, unsubscribe on `None`.
+    DebugSubscribe(Option<DebugRequest>),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
@@ -1297,16 +1312,14 @@ impl Running {
                     _ => (),
                 },
                 Action::Debug(action) => match action {
-                    Debug::Toggle(kind) if activated => {
-                        if matches!(kind, DebugKind::Ppu) {
-                            self.event(RendererEvent::Menu(Menu::PpuViewer));
-                        } else {
-                            self.renderer.add_message(
-                                MessageType::Warn,
-                                format!("{kind:?} is not implemented yet"),
-                            );
-                        }
-                    }
+                    Debug::Toggle(kind) if activated => match kind {
+                        DebugKind::Cpu => self.event(RendererEvent::Menu(Menu::Debugger)),
+                        DebugKind::Ppu => self.event(RendererEvent::Menu(Menu::PpuViewer)),
+                        DebugKind::Apu => self.renderer.add_message(
+                            MessageType::Warn,
+                            format!("{kind:?} is not implemented yet"),
+                        ),
+                    },
                     // Unlike the other one-shots, stepping takes auto-repeat: holding the key
                     // walks the debugger forward.
                     Debug::Step(step) if !released && is_root_window => {
