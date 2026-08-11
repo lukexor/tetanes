@@ -33,6 +33,9 @@ pub struct CpuSnapshot {
     pub cpu: Cpu,
     /// CPU stack.
     pub stack: Vec<u8>,
+    /// Previously executed instructions, oldest first, ending just before PC from
+    /// [`DebugRequest::history_lines`].
+    pub history: Vec<DisasmLine>,
     /// Disassembled instructions from the current PC from [`DebugRequest::disasm_lines`].
     pub disasm: Vec<DisasmLine>,
     /// The range requested from [`DebugRequest::memory`], if any.
@@ -54,11 +57,33 @@ impl CpuSnapshot {
             });
         }
 
+        // Disassembled from memory as it is banked *now*, not as it was when these ran, so a line
+        // whose bank has since been swapped shows what currently lives at that address. Recording
+        // the bytes as well as the address is what a code/data log would fix.
+        let history = bus.pc_history.as_ref().map_or_else(Vec::new, |history| {
+            let skip = history
+                .len()
+                .saturating_sub(usize::from(request.history_lines));
+            history
+                .iter()
+                .skip(skip)
+                .map(|addr| {
+                    let mut pc = addr;
+                    bus.disassemble_into(&mut pc, &mut text);
+                    DisasmLine {
+                        addr,
+                        text: text.clone(),
+                    }
+                })
+                .collect()
+        });
+
         Self {
             cpu: bus.cpu.clone(),
             stack: (0..0x0100u16)
                 .map(|offset| bus.peek(Cpu::SP_BASE + offset))
                 .collect(),
+            history,
             disasm,
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
                 (0..len).map(|i| bus.peek(start.wrapping_add(i))).collect()
@@ -73,6 +98,7 @@ struct State {
     tx: NesEventProxy,
     snapshot: CpuSnapshot,
     disasm_lines: u16,
+    history_lines: u16,
 }
 
 #[derive(Debug)]
@@ -86,7 +112,9 @@ pub struct CpuDebugger {
 impl CpuDebugger {
     const TITLE: &'static str = "TetaNES - Debugger";
     /// Enough to fill the disassembly pane without scrolling at the default window size.
-    const DISASM_LINES: u16 = 30;
+    const DISASM_LINES: u16 = 24;
+    /// Enough context to see how the current instruction was reached without pushing it off-screen.
+    const HISTORY_LINES: u16 = 8;
 
     pub fn new(tx: NesEventProxy) -> Self {
         Self {
@@ -96,6 +124,7 @@ impl CpuDebugger {
                 tx,
                 snapshot: CpuSnapshot::default(),
                 disasm_lines: Self::DISASM_LINES,
+                history_lines: Self::HISTORY_LINES,
             })),
         }
     }
@@ -171,6 +200,7 @@ impl State {
         self.tx.event(EmulationEvent::DebugSubscribe(open.then_some(
             DebugRequest {
                 disasm_lines: self.disasm_lines,
+                history_lines: self.history_lines,
                 memory: None,
             },
         )));
@@ -245,6 +275,16 @@ impl State {
                 if self.snapshot.disasm.is_empty() {
                     ui.weak("No ROM is loaded.");
                     return;
+                }
+                // What already ran, dimmed to separate it from what is about to.
+                // The newest recorded instruction is the one that advanced PC to the line
+                // highlighted below it.
+                for line in &self.snapshot.history {
+                    ui.label(
+                        RichText::new(&line.text)
+                            .monospace()
+                            .color(Color32::DARK_GRAY),
+                    );
                 }
                 let pc = self.snapshot.cpu.pc;
                 for line in &self.snapshot.disasm {

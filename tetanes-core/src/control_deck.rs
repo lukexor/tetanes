@@ -46,7 +46,7 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::Debugger,
+    debug::{Debugger, PcHistory},
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -749,15 +749,30 @@ impl ControlDeck {
 
     /// Attaches a debugger callback, to be executed any time the debugger conditions match.
     ///
-    /// The console holds one, so this replaces whatever was attached before. The callback is
-    /// handed the whole [`Bus`]; see [`Debugger`].
+    /// This replaces whatever was attached before.
     pub fn set_debugger(&mut self, debugger: Debugger) {
-        self.bus.set_debugger(debugger);
+        self.bus.set_debugger(Some(debugger));
     }
 
     /// Detaches the debugger callback.
     pub fn clear_debugger(&mut self) {
-        self.bus.set_debugger(Debugger::default());
+        self.bus.set_debugger(None);
+    }
+
+    /// Start recording the last `capacity` executed program counters, or stop with `None`.
+    ///
+    /// See [`PcHistory`]. Executed instructions cannot be recovered afterwards by disassembling
+    /// backwards without a known starting address to disassemble from from, so a debugger that
+    /// wants to show them has to start recording before the instructions run.
+    pub fn set_pc_history(&mut self, capacity: Option<usize>) {
+        self.bus.pc_history = capacity.map(PcHistory::new);
+    }
+
+    /// The recorded program counters, if [`ControlDeck::set_pc_history`] asked for any.
+    #[inline]
+    #[must_use]
+    pub const fn pc_history(&self) -> Option<&PcHistory> {
+        self.bus.pc_history.as_ref()
     }
 
     /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.

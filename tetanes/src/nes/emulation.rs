@@ -582,6 +582,13 @@ impl State {
         match event {
             EmulationEvent::DebugSubscribe(request) => {
                 self.debug_request = *request;
+                // Executed instructions can only be collected as they run, so start recording when
+                // subscriptions starts, if history is requested.
+                self.control_deck.set_pc_history(
+                    request
+                        .filter(|request| request.history_lines > 0)
+                        .map(|request| usize::from(request.history_lines)),
+                );
                 self.send_debug_snapshot();
             }
             EmulationEvent::AddDebugger(debugger) => {

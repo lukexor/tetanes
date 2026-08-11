@@ -38,7 +38,7 @@ use crate::{
     cart::Cart,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
-    debug::Debugger,
+    debug::{Debugger, PcHistory},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -131,10 +131,11 @@ pub struct Bus {
     // Don't save debug state
     #[serde(skip)]
     pub debugger: Debugger,
-    /// Scratch buffer for [`Bus::disassemble`], filled only while a debugger is attached.
-    //
-    // Here rather than on `Cpu` because the disassembler is: it reads through the bus, and `Cpu`
-    // stays a register file.
+    /// Ring buffer of executed program counters, recorded only while a debugger is open and asks
+    /// for history.
+    #[serde(skip)]
+    pub pc_history: Option<PcHistory>,
+    /// Scratch buffer for [`Bus::disassemble`].
     #[serde(skip)]
     pub disasm: String,
     /// Cheats: values substituted for what a read would otherwise return.
@@ -183,6 +184,7 @@ impl Bus {
             region,
             debugger: Debugger::default(),
             debugger_active: false,
+            pc_history: None,
             disasm: String::new(),
         }
     }
@@ -224,7 +226,9 @@ impl Bus {
             ram_state,
             region,
             debugger_active,
+            // These are all session-specific values and are not restored across snapshots.
             debugger: _,
+            pc_history: _,
             disasm: _,
         } = src;
 

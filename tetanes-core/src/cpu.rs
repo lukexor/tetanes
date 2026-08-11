@@ -1044,6 +1044,10 @@ impl Bus {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
+        if let Some(history) = &mut self.pc_history {
+            history.push(self.cpu.pc);
+        }
+
         let opcode = self.fetch_byte(); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];
         self.cpu.addr_mode = op.addr_mode();

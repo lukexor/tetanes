@@ -172,6 +172,8 @@ impl From<ConfigEvent> for NesEvent {
 pub struct DebugRequest {
     /// How many instructions to disassemble forward from PC.
     pub disasm_lines: u16,
+    /// How many previously executed instructions to keep.
+    pub history_lines: u16,
     /// A CPU-bus address range to copy, as `(start, len)`.
     pub memory: Option<(u16, u16)>,
 }
