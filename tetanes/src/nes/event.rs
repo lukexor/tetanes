@@ -7,7 +7,11 @@ use crate::{
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
-            gui::{Menu, MessageType, debugger::CpuSnapshot, ppu_viewer::PpuSnapshot},
+            gui::{
+                Menu, MessageType,
+                debugger::{AddressSpace, CpuSnapshot},
+                ppu_viewer::PpuSnapshot,
+            },
             shader::Shader,
         },
         rom::RomData,
@@ -181,7 +185,11 @@ pub struct DebugRequest {
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
+    /// A CPU snapshot of registers, CPU Bus memory, and disassembled instructions.
     Cpu(Box<CpuSnapshot>),
+    /// The disassembled address space, resent only when the board's PRG mapping changes.
+    AddressSpace(Box<AddressSpace>),
+    /// A PPU snapshot of registers, PPU and CHR memory.
     Ppu(Box<PpuSnapshot>),
 }
 

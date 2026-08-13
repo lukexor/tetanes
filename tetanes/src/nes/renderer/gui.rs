@@ -302,6 +302,11 @@ impl Gui {
                 self.debugger.update_snapshot(std::mem::take(snapshot));
                 self.ctx.request_repaint_of(self.debugger.id());
             }
+            NesEvent::Debug(DebugEvent::AddressSpace(address_space)) => {
+                self.debugger
+                    .update_address_space(std::mem::take(address_space));
+                self.ctx.request_repaint_of(self.debugger.id());
+            }
             NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());

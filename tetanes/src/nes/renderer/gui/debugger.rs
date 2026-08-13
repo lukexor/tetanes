@@ -3,7 +3,8 @@ use crate::nes::{
     renderer::gui::lib::ViewportOptions,
 };
 use egui::{
-    CentralPanel, Color32, Context, Grid, RichText, ScrollArea, Ui, Vec2, ViewportClass, ViewportId,
+    CentralPanel, Color32, Context, Grid, Panel, RichText, ScrollArea, Ui, Vec2, ViewportClass,
+    ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
@@ -14,6 +15,56 @@ use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Status},
 };
+
+/// A range of the address space shown collapsed and not disassembled.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum BlockKind {
+    /// Work RAM. Code can run from it, but nothing yet says which bytes are code.
+    Ram,
+    /// PPU, APU and IO registers.
+    Registers,
+    /// Cart RAM, usually save data.
+    SaveRam,
+    /// No cart window is mapped here.
+    Unmapped,
+}
+
+impl BlockKind {
+    /// The rendered label for a address block.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ram => "work ram",
+            Self::Registers => "registers",
+            Self::SaveRam => "save ram",
+            Self::Unmapped => "unmapped",
+        }
+    }
+}
+
+/// A line of the address space view.
+#[derive(Debug, Clone)]
+#[must_use]
+pub enum Row {
+    /// A disassembled instruction.
+    Instruction(DisasmLine),
+    /// A collapsed range, inclusive of both ends.
+    Block {
+        start: u16,
+        end: u16,
+        kind: BlockKind,
+    },
+}
+
+impl Row {
+    /// The address this row starts at.
+    pub const fn addr(&self) -> u16 {
+        match self {
+            Self::Instruction(line) => line.addr,
+            Self::Block { start, .. } => *start,
+        }
+    }
+}
 
 /// One disassembled instruction, with the address it was read from.
 #[derive(Debug, Clone)]
@@ -92,11 +143,86 @@ impl CpuSnapshot {
     }
 }
 
+/// The CPU address space as rows.
+///
+/// Rebuilt when the board's PRG mapping changes, since that is the only thing that can move
+/// an instruction. The rows represent the currently mapped banks, not where PC happens to be.
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct AddressSpace {
+    pub rows: Vec<Row>,
+}
+
+impl AddressSpace {
+    /// Capture the current address space into rows.
+    ///
+    /// Only mapped cart ROM is disassembled. Everything else is a collapsed block. Nothing yet
+    /// records which bytes are instructions.
+    pub fn capture(bus: &Bus) -> Self {
+        let mut rows = Vec::new();
+        let mut text = String::with_capacity(64);
+        let mut addr = 0u32;
+
+        while addr <= u32::from(u16::MAX) {
+            let start = addr as u16;
+            match Self::block_kind(bus, start) {
+                Some(kind) => {
+                    let mut end = start;
+                    while end < u16::MAX && Self::block_kind(bus, end + 1) == Some(kind) {
+                        end += 1;
+                    }
+                    rows.push(Row::Block { start, end, kind });
+                    addr = u32::from(end) + 1;
+                }
+                None => {
+                    let mut pc = start;
+                    bus.disassemble_into(&mut pc, &mut text);
+                    rows.push(Row::Instruction(DisasmLine {
+                        addr: start,
+                        text: text.clone(),
+                    }));
+                    // `disassemble_into` wraps past $FFFF, so take the length rather than the
+                    // address it landed on, and never advance by zero.
+                    addr += u32::from(pc.wrapping_sub(start).max(1));
+                }
+            }
+        }
+
+        Self { rows }
+    }
+
+    /// Whether `addr` collapses into a block. `None` means disassemble it.
+    const fn block_kind(bus: &Bus, addr: u16) -> Option<BlockKind> {
+        match addr {
+            0x0000..=0x1FFF => Some(BlockKind::Ram),
+            0x2000..=0x401F => Some(BlockKind::Registers),
+            _ => match bus.memory.prg_offset(addr) {
+                Some(_) if addr >= 0x8000 => None,
+                Some(_) => Some(BlockKind::SaveRam),
+                None => Some(BlockKind::Unmapped),
+            },
+        }
+    }
+
+    /// The row holding `addr`, or the one just before it when `addr` is mid-instruction.
+    pub fn row_at(&self, addr: u16) -> Option<usize> {
+        self.rows
+            .partition_point(|row| row.addr() <= addr)
+            .checked_sub(1)
+    }
+}
+
 #[derive(Debug)]
 #[must_use]
 struct State {
     tx: NesEventProxy,
     snapshot: CpuSnapshot,
+    address_space: AddressSpace,
+    /// Set when a new capture or a step should scroll PC back into view.
+    scroll_to_pc: bool,
+    goto: String,
+    /// An address the user asked to jump to, consumed by the next draw.
+    goto_addr: Option<u16>,
     disasm_lines: u16,
     history_lines: u16,
 }
@@ -123,6 +249,10 @@ impl CpuDebugger {
             state: Arc::new(Mutex::new(State {
                 tx,
                 snapshot: CpuSnapshot::default(),
+                address_space: AddressSpace::default(),
+                scroll_to_pc: true,
+                goto: String::new(),
+                goto_addr: None,
                 disasm_lines: Self::DISASM_LINES,
                 history_lines: Self::HISTORY_LINES,
             })),
@@ -159,7 +289,16 @@ impl CpuDebugger {
     }
 
     pub fn update_snapshot(&mut self, snapshot: CpuSnapshot) {
-        self.state.lock().snapshot = snapshot;
+        let mut state = self.state.lock();
+        // Follow PC only when it moved, so scrolling away stays put while the console is stopped.
+        state.scroll_to_pc |= state.snapshot.cpu.pc != snapshot.cpu.pc;
+        state.snapshot = snapshot;
+    }
+
+    pub fn update_address_space(&mut self, address_space: AddressSpace) {
+        let mut state = self.state.lock();
+        state.address_space = address_space;
+        state.scroll_to_pc = true;
     }
 
     pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions) {
@@ -172,7 +311,7 @@ impl CpuDebugger {
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)
-            .with_inner_size(Vec2::new(640.0, 720.0));
+            .with_inner_size(Vec2::new(760.0, 720.0));
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
@@ -209,11 +348,19 @@ impl State {
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
         ui.add_enabled_ui(enabled, |ui| {
             self.registers(ui);
+            // Its own section rather than inline above PC: the disassembly is ordered by address
+            // and this is ordered by time, so the two only coincide in straight-line code.
+            egui::CollapsingHeader::new("Recently executed")
+                .default_open(false)
+                .show(ui, |ui| self.history(ui));
             ui.separator();
-            ui.columns(2, |columns| {
-                self.disassembly(&mut columns[0]);
-                self.stack(&mut columns[1]);
-            });
+            // The stack is a fixed two columns of hex; the disassembly is the part that wants
+            // every pixel it can get, so it takes what is left rather than an even half.
+            Panel::right("stack")
+                .resizable(false)
+                .exact_size(110.0)
+                .show(ui, |ui| self.stack(ui));
+            CentralPanel::default().show(ui, |ui| self.disassembly(ui));
         });
     }
 
@@ -266,36 +413,103 @@ impl State {
         });
     }
 
+    /// The instructions that ran most recently, oldest first, ending just before PC.
+    fn history(&mut self, ui: &mut Ui) {
+        if self.snapshot.history.is_empty() {
+            ui.weak("Nothing recorded yet - step or resume to fill it.");
+            return;
+        }
+        // A run of one address collapses to a count. A CPU waiting on NMI spins on a single
+        // instruction, and eight identical lines say far less than one line and a repeat count.
+        let mut history = self.snapshot.history.iter().peekable();
+        while let Some(line) = history.next() {
+            let mut repeats = 1;
+            while history.peek().is_some_and(|next| next.addr == line.addr) {
+                history.next();
+                repeats += 1;
+            }
+            let text = if repeats > 1 {
+                format!("{}  ×{repeats}", line.text)
+            } else {
+                line.text.clone()
+            };
+            ui.label(RichText::new(text).monospace().color(Color32::DARK_GRAY));
+        }
+    }
+
     fn disassembly(&mut self, ui: &mut Ui) {
-        ui.strong("Disassembly");
-        ScrollArea::vertical()
+        ui.horizontal(|ui| {
+            ui.strong("Disassembly");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.goto)
+                    .hint_text("go to $addr")
+                    .desired_width(90.0),
+            );
+            let addr = u16::from_str_radix(self.goto.trim().trim_start_matches('$'), 16);
+            if let Ok(addr) = addr
+                && ui.button("Go").clicked()
+            {
+                self.goto_addr = Some(addr);
+            }
+        });
+
+        if self.address_space.rows.is_empty() {
+            ui.weak("No ROM is loaded.");
+            return;
+        }
+
+        let pc = self.snapshot.cpu.pc;
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+        // Rows have to stay exactly one line tall: `show_rows` maps scroll offset to row index by
+        // multiplying, so a row that wraps desynchronises both the virtual window and the jump.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        let pitch = row_height + ui.spacing().item_spacing.y;
+        let viewport_height = ui.available_height();
+        let mut scroll_area = ScrollArea::vertical()
             .id_salt("disassembly")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if self.snapshot.disasm.is_empty() {
-                    ui.weak("No ROM is loaded.");
-                    return;
-                }
-                // What already ran, dimmed to separate it from what is about to.
-                // The newest recorded instruction is the one that advanced PC to the line
-                // highlighted below it.
-                for line in &self.snapshot.history {
-                    ui.label(
-                        RichText::new(&line.text)
-                            .monospace()
-                            .color(Color32::DARK_GRAY),
-                    );
-                }
-                let pc = self.snapshot.cpu.pc;
-                for line in &self.snapshot.disasm {
-                    let text = RichText::new(&line.text).monospace();
-                    if line.addr == pc {
-                        ui.label(text.strong().background_color(Color32::DARK_BLUE));
-                    } else {
-                        ui.label(text);
+            .auto_shrink([false, false]);
+
+        // A row per instruction rather than per address, so the only way to scroll to an address
+        // is to look up which row covers it.
+        if let Some(target) = self
+            .goto_addr
+            .take()
+            .or_else(|| self.scroll_to_pc.then_some(pc))
+            && let Some(row) = self.address_space.row_at(target)
+        {
+            self.scroll_to_pc = false;
+            // Centred rather than at the top: egui fades the first and last rows of a scroll area,
+            // and the instructions either side of PC are the context worth having.
+            let centred = (row as f32).mul_add(pitch, -(viewport_height - pitch) / 2.0);
+            scroll_area = scroll_area.vertical_scroll_offset(centred.max(0.0));
+        }
+
+        scroll_area.show_rows(
+            ui,
+            row_height,
+            self.address_space.rows.len(),
+            |ui, range| {
+                for row in &self.address_space.rows[range] {
+                    match row {
+                        Row::Instruction(line) => {
+                            let text = RichText::new(&line.text).monospace();
+                            if line.addr == pc {
+                                ui.label(text.strong().background_color(Color32::DARK_BLUE));
+                            } else {
+                                ui.label(text);
+                            }
+                        }
+                        Row::Block { start, end, kind } => {
+                            ui.label(
+                                RichText::new(format!("${start:04X}-${end:04X}  {}", kind.label()))
+                                    .monospace()
+                                    .color(Color32::DARK_GRAY),
+                            );
+                        }
                     }
                 }
-            });
+            },
+        );
     }
 
     fn stack(&mut self, ui: &mut Ui) {
@@ -318,5 +532,60 @@ impl State {
                     ui.label(RichText::new(format!("$01{offset:02X}  ${value:02X}")).monospace());
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddressSpace, BlockKind, Row};
+    use tetanes_core::control_deck::ControlDeck;
+
+    /// With no cart loaded nothing is disassembled, which makes this a test of the sweep itself:
+    /// that it covers every address exactly once and terminates at `$FFFF` rather than wrapping.
+    #[test]
+    fn the_sweep_covers_the_whole_address_space_in_order() {
+        let deck = ControlDeck::new();
+        let address_space = AddressSpace::capture(deck.bus());
+
+        let mut next = 0u32;
+        for row in &address_space.rows {
+            assert_eq!(u32::from(row.addr()), next, "gap or overlap at ${next:04X}");
+            next = match row {
+                Row::Block { end, .. } => u32::from(*end) + 1,
+                Row::Instruction(_) => u32::from(row.addr()) + 1,
+            };
+        }
+        assert_eq!(next, 0x1_0000, "sweep stopped short of the end");
+    }
+
+    #[test]
+    fn ram_and_registers_are_blocks_rather_than_disassembly() {
+        let deck = ControlDeck::new();
+        let address_space = AddressSpace::capture(deck.bus());
+
+        let kind_at = |addr: u16| {
+            let row = address_space.row_at(addr).expect("covered");
+            match address_space.rows[row] {
+                Row::Block { kind, .. } => Some(kind),
+                Row::Instruction(_) => None,
+            }
+        };
+        assert_eq!(kind_at(0x0000), Some(BlockKind::Ram));
+        assert_eq!(kind_at(0x1FFF), Some(BlockKind::Ram));
+        assert_eq!(kind_at(0x2000), Some(BlockKind::Registers));
+        // Nothing is banked in without a cart.
+        assert_eq!(kind_at(0x8000), Some(BlockKind::Unmapped));
+    }
+
+    #[test]
+    fn an_address_inside_a_block_finds_that_block() {
+        let deck = ControlDeck::new();
+        let address_space = AddressSpace::capture(deck.bus());
+
+        let row = address_space.row_at(0x1234).expect("covered");
+        match address_space.rows[row] {
+            Row::Block { start, end, .. } => assert!(start <= 0x1234 && 0x1234 <= end),
+            Row::Instruction(_) => panic!("work ram should be a block"),
+        }
     }
 }

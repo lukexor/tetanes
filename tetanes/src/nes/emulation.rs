@@ -10,7 +10,10 @@ use crate::nes::{
     },
     renderer::{
         FrameRecycle,
-        gui::{MessageType, debugger::CpuSnapshot},
+        gui::{
+            MessageType,
+            debugger::{AddressSpace, CpuSnapshot},
+        },
     },
 };
 use anyhow::{Context, anyhow};
@@ -29,6 +32,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
+    memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
     video::Frame,
@@ -328,6 +332,9 @@ pub struct State {
     run_state: RunState,
     /// What the Debugger wants each frame, if it is open.
     debug_request: Option<DebugRequest>,
+    /// The PRG mapping the address space was last captured as, so the capture is skipped when the
+    /// board has not bank switched since.
+    debug_pages: Option<[Page; PRG_PAGES]>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -499,6 +506,7 @@ impl State {
             frame_time_diag: FrameTimeDiag::new(),
             run_state: RunState::AutoPaused,
             debug_request: None,
+            debug_pages: None,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -589,6 +597,10 @@ impl State {
                         .filter(|request| request.history_lines > 0)
                         .map(|request| usize::from(request.history_lines)),
                 );
+                // A fresh subscription has nothing to compare against, so ensure an updated address
+                // space is sent.
+                self.debug_pages = None;
+                self.send_address_space();
                 self.send_debug_snapshot();
             }
             EmulationEvent::AddDebugger(debugger) => {
@@ -637,6 +649,8 @@ impl State {
                             }
                         }
                     }
+                    // A step can cross a bank switch, which moves every instruction after it.
+                    self.send_address_space();
                 }
             }
             EmulationEvent::InstantRewind => {
@@ -894,6 +908,23 @@ impl State {
         }
     }
 
+    /// Send the address space if the board has banked something else in since the last send.
+    ///
+    /// Only called when the console is stopped - opening the debugger, stepping, pausing.
+    fn send_address_space(&mut self) {
+        if self.debug_request.is_none() {
+            return;
+        }
+        let pages = *self.control_deck.bus().memory.prg_pages();
+        if self.debug_pages == Some(pages) {
+            return;
+        }
+        self.debug_pages = Some(pages);
+        let address_space = AddressSpace::capture(self.control_deck.bus());
+        self.tx
+            .event(DebugEvent::AddressSpace(Box::new(address_space)));
+    }
+
     fn set_run_state(&mut self, mode: RunState) {
         if !self.control_deck.cpu_corrupted() {
             self.run_state = mode;
@@ -903,6 +934,8 @@ impl State {
                 {
                     self.on_error(err);
                 }
+                self.send_address_space();
+                self.send_debug_snapshot();
             } else {
                 self.last_auto_save = Instant::now();
                 // To avoid having a large dip in frame stats when unpausing
