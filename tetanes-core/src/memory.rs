@@ -730,6 +730,22 @@ impl Memory {
     pub const fn chr_pages(&self) -> &[Page; CHR_PAGES] {
         &self.chr_pages
     }
+
+    /// Where the CPU `addr` reads from within mapped memory, or `None` if its page is unmapped. A
+    /// 64K CPU address may map to different memory during an execution while a memory offset always
+    /// maps to the same byte.
+    ///
+    /// Only valid until the board switches banks.
+    pub const fn prg_offset(&self, addr: u16) -> Option<usize> {
+        let page = self.prg_pages[(addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK];
+        // Page 0 is the reserved zero-filled page, so an offset of 0 is unmapped rather than the
+        // first byte of the arena.
+        if page.offset() == 0 {
+            None
+        } else {
+            Some(page.offset() | (addr as usize & PAGE_OFFSET_MASK))
+        }
+    }
 }
 
 /// A plain byte buffer with a `Debug` impl that reports its length instead of its contents, and
@@ -1136,6 +1152,29 @@ mod tests {
             page.fill(0x80 | i as u8);
         }
         memory
+    }
+
+    #[test]
+    fn an_unmapped_address_has_no_arena_offset() {
+        let memory = test_memory();
+        assert_eq!(memory.prg_offset(0x8000), None);
+    }
+
+    #[test]
+    fn an_offset_follows_the_bank_its_address_is_mapped_to() {
+        let mut memory = test_memory();
+
+        // An 8 KiB window, so the 64 KiB of PRG-ROM holds several banks to switch between.
+        memory.map_prg(0x8000, 0x2000, 0, Src::PrgRom);
+        let first = memory.prg_offset(0x8000).expect("mapped");
+        // Within a page, the offset tracks the address.
+        assert_eq!(memory.prg_offset(0x8001), Some(first + 1));
+
+        // The same address after a bank switch is a different byte of the arena, which is why a
+        // debugger keys what it knows to the offset rather than to the address.
+        memory.map_prg(0x8000, 0x2000, 1, Src::PrgRom);
+        let second = memory.prg_offset(0x8000).expect("mapped");
+        assert_ne!(first, second);
     }
 
     #[test]
