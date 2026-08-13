@@ -416,7 +416,7 @@ impl State {
     /// The instructions that ran most recently, oldest first, ending just before PC.
     fn history(&mut self, ui: &mut Ui) {
         if self.snapshot.history.is_empty() {
-            ui.weak("Nothing recorded yet - step or resume to fill it.");
+            ui.weak("Nothing recorded yet - step or resume to start executing.");
             return;
         }
         // A run of one address collapses to a count. A CPU waiting on NMI spins on a single

@@ -624,13 +624,27 @@ impl State {
                             self.send_frame();
                         }
                         DebugStep::Out => {
-                            // TODO: track stack frames list on jsr, irq, brk
-                            // while stack frame == previous stack frame, clock_instr, send_frame
+                            // Waiting on the stack pointer alone stops in the middle of returning
+                            // from a subroutine, where it pulls saved registers back off the
+                            // stack. The stack frame has not been left until the return address
+                            // itself is pulled, which only a return instruction does.
+                            let sp = self.control_deck.cpu().sp;
+                            self.step_until(|deck, opcode| {
+                                matches!(opcode, Cpu::RTS | Cpu::RTI) && deck.cpu().sp > sp
+                            });
                             self.send_frame();
                         }
                         DebugStep::Over => {
-                            // TODO: track stack frames list on jsr, irq, brk
-                            // while stack frame != previous stack frame, clock_instr, send_frame
+                            // Only a jump has anything to step over.
+                            let &Cpu { pc, sp, .. } = self.control_deck.cpu();
+                            let is_jsr = self.control_deck.bus().peek(pc) == Cpu::JSR;
+                            self.write_deck(|deck| deck.clock_instr());
+                            if is_jsr {
+                                // The stack pointer is below where the call left it, and the only
+                                // thing that brings it back up to `sp` is pulling that return
+                                // address.
+                                self.step_until(|deck, _| deck.cpu().sp >= sp);
+                            }
                             self.send_frame();
                         }
                         DebugStep::Scanline => {
@@ -898,6 +912,31 @@ impl State {
             Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
         self.send_debug_snapshot();
+    }
+
+    /// Clock instructions until `done`, or until a default budget is spent.
+    ///
+    /// Bounded by budget because a subroutine that never returns - a crash, or a wait loop
+    /// would otherwise never finish, and on the single-threaded backend would block the UI
+    /// thread. The budget is a few seconds of emulated time, far longer than any subroutine worth
+    /// stepping over.
+    fn step_until(&mut self, done: impl Fn(&ControlDeck, u8) -> bool) {
+        const BUDGET: usize = 5_000_000;
+
+        for _ in 0..BUDGET {
+            let pc = self.control_deck.cpu().pc;
+            let opcode = self.control_deck.bus().peek(pc);
+            if self.write_deck(|deck| deck.clock_instr()).is_none() {
+                return;
+            }
+            if done(&self.control_deck, opcode) {
+                return;
+            }
+        }
+        self.add_message(
+            MessageType::Warn,
+            "Step timed out - the subroutine has not returned.",
+        );
     }
 
     /// Send the Debugger a snapshot, if its open.

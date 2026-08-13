@@ -174,6 +174,13 @@ impl Cpu {
     /// Stack Pointer base address.
     pub const SP_BASE: u16 = 0x0100;
 
+    /// `JSR` opcode, jumps to location, save return address.
+    pub const JSR: u8 = 0x20;
+    /// `RTI` opcode, return from interrupt.
+    pub const RTI: u8 = 0x40;
+    /// `RTS` opcode, return from subroutine.
+    pub const RTS: u8 = 0x60;
+
     /// Create a new CPU timed for `region`.
     pub fn new(region: NesRegion) -> Self {
         let mut cpu = Self {
