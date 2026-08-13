@@ -315,6 +315,11 @@ impl Gui {
         }
     }
 
+    /// The debugger's viewport ID.
+    pub const fn debugger_viewport_id(&self) -> ViewportId {
+        self.debugger.id()
+    }
+
     /// Pause emulation when the debugger opens.
     fn pause_for_debugger(&mut self) {
         if self.loaded_rom.is_some() && !self.run_state.paused() {

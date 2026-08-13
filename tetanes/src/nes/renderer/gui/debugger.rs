@@ -28,6 +28,8 @@ pub enum BlockKind {
     SaveRam,
     /// No cart window is mapped here.
     Unmapped,
+    /// Cart ROM that could not be decoded as instructions.
+    Unknown,
 }
 
 impl BlockKind {
@@ -38,6 +40,7 @@ impl BlockKind {
             Self::Registers => "registers",
             Self::SaveRam => "save ram",
             Self::Unmapped => "unmapped",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -162,30 +165,56 @@ impl AddressSpace {
         let mut rows = Vec::new();
         let mut text = String::with_capacity(64);
         let mut addr = 0u32;
+        let pc = bus.cpu.pc;
 
         while addr <= u32::from(u16::MAX) {
             let start = addr as u16;
-            match Self::block_kind(bus, start) {
+            let next = match Self::block_kind(bus, start) {
                 Some(kind) => {
                     let mut end = start;
                     while end < u16::MAX && Self::block_kind(bus, end + 1) == Some(kind) {
                         end += 1;
                     }
                     rows.push(Row::Block { start, end, kind });
-                    addr = u32::from(end) + 1;
+                    u32::from(end) + 1
                 }
                 None => {
-                    let mut pc = start;
-                    bus.disassemble_into(&mut pc, &mut text);
-                    rows.push(Row::Instruction(DisasmLine {
-                        addr: start,
-                        text: text.clone(),
-                    }));
+                    let mut next = start;
+                    bus.disassemble_into(&mut next, &mut text);
                     // `disassemble_into` wraps past $FFFF, so take the length rather than the
                     // address it landed on, and never advance by zero.
-                    addr += u32::from(pc.wrapping_sub(start).max(1));
+                    let len = next.wrapping_sub(start).max(1);
+                    let end = start.wrapping_add(len - 1);
+
+                    // A decoded range has no way to know where instructions begin, so it decodes
+                    // straight through data and stays misaligned until it happens to realign. PC is
+                    // known to start an instruction, so a decode that overlaps it is wrong: give up
+                    // on those bytes and resume there. This keeps PC on a row of its own for the
+                    // view to highlight correctly, even if the instructions around it can't be
+                    // decoded correctly.
+                    //
+                    // Strictly after `start`, not from it: a decode that *begins* at PC is the
+                    // aligned case. Including it would end the row where it started and resume at
+                    // the same address, decoding forever.
+                    if pc > start && pc <= end {
+                        rows.push(Row::Block {
+                            start,
+                            end: pc - 1,
+                            kind: BlockKind::Unknown,
+                        });
+                        u32::from(pc)
+                    } else {
+                        rows.push(Row::Instruction(DisasmLine {
+                            addr: start,
+                            text: text.clone(),
+                        }));
+                        addr + u32::from(len)
+                    }
                 }
-            }
+            };
+            // Every branch should progress by at least one address otherwise it'll spin forever.
+            debug_assert!(next > addr, "sweep made no progress at ${start:04X}");
+            addr = next.max(addr + 1);
         }
 
         Self { rows }
@@ -575,6 +604,77 @@ mod tests {
         assert_eq!(kind_at(0x2000), Some(BlockKind::Registers));
         // Nothing is banked in without a cart.
         assert_eq!(kind_at(0x8000), Some(BlockKind::Unmapped));
+    }
+
+    /// A decoded range cannot tell where instructions begin, so it decodes straight through data
+    /// and stays misaligned. Landing mid-row leaves PC with no row of its own and nothing for the
+    /// view to highlight.
+    #[test]
+    fn pc_always_starts_a_row_however_misaligned_the_sweep_is() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        for _ in 0..10 {
+            let _ = deck.clock_frame().expect("clock frame");
+        }
+
+        // An address strictly inside a multi-byte instruction: the sweep decoded across it, so
+        // without a pc anchor there is no row that starts there and nothing for the view to mark.
+        let swept = AddressSpace::capture(deck.bus());
+        let interior = swept
+            .rows
+            .windows(2)
+            .find_map(|pair| match &pair[0] {
+                Row::Instruction(line) if pair[1].addr() > line.addr + 1 => Some(line.addr + 1),
+                _ => None,
+            })
+            .expect("a multi-byte instruction somewhere in the sweep");
+        assert_ne!(
+            swept.rows[swept.row_at(interior).expect("covered")].addr(),
+            interior,
+            "the chosen address was already a row start, so this proves nothing"
+        );
+
+        // Landing there is what stepping into a call does when the sweep is out of step with the
+        // real instruction boundaries.
+        deck.bus_mut().cpu.pc = interior;
+        let anchored = AddressSpace::capture(deck.bus());
+        let row = anchored.row_at(interior).expect("covered");
+        assert_eq!(
+            anchored.rows[row].addr(),
+            interior,
+            "PC ${interior:04X} fell inside a row instead of starting one"
+        );
+    }
+
+    /// The aligned case, which is the common one: anchoring on it rather than strictly after it
+    /// ends a row where it began and resumes at the same address, sweeping forever.
+    #[test]
+    fn pc_already_starting_a_row_still_terminates() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        for _ in 0..10 {
+            let _ = deck.clock_frame().expect("clock frame");
+        }
+
+        let swept = AddressSpace::capture(deck.bus());
+        let aligned = swept
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                Row::Instruction(line) => Some(line.addr),
+                Row::Block { .. } => None,
+            })
+            .expect("a disassembled row");
+
+        deck.bus_mut().cpu.pc = aligned;
+        let anchored = AddressSpace::capture(deck.bus());
+        let row = anchored.row_at(aligned).expect("covered");
+        assert_eq!(anchored.rows[row].addr(), aligned);
+        // One row per address at worst, so anything beyond that means rows were emitted without
+        // advancing.
+        assert!(anchored.rows.len() <= 0x1_0000, "sweep emitted extra rows");
     }
 
     #[test]

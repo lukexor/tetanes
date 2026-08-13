@@ -1056,6 +1056,12 @@ impl Running {
                 _ => !released && !repeat,
             };
             let is_root_window = Some(window_id) == self.renderer.root_window_id();
+            // Stepping is driven while looking at the disassembly, so it has to work from the
+            // debugger's window as well as the game's.
+            let is_debug_window = is_root_window || {
+                let viewport = self.renderer.gui.borrow().debugger_viewport_id();
+                self.renderer.window_id_for_viewport(viewport) == Some(window_id)
+            };
             match action {
                 Action::Ui(ui_state) if activated => match ui_state {
                     Ui::Quit => self.tx.event(UiEvent::Terminate),
@@ -1332,7 +1338,7 @@ impl Running {
                     },
                     // Unlike the other one-shots, stepping takes auto-repeat: holding the key
                     // walks the debugger forward.
-                    Debug::Step(step) if !released && is_root_window => {
+                    Debug::Step(step) if !released && is_debug_window => {
                         self.event(EmulationEvent::DebugStep(step));
                     }
                     _ => (),
