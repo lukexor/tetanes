@@ -8,3 +8,4 @@ dist/
 .direnv
 perf.*
 tests.json.lock
+.claude/worktrees
