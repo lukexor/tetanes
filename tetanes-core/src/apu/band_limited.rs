@@ -53,7 +53,7 @@ impl BandLimited {
     /// sample - at 44.1 kHz, 11 microseconds, which on a square wave's edge is audible as jitter.
     /// 32 phases put it under a third of a microsecond.
     pub const PHASES: usize = 32;
-    /// Taps each step response spans, centred on the step.
+    /// Taps each step response spans, centered on the step.
     ///
     /// A truncated sinc rings; the window suppresses that, and 16 taps is where the remaining
     /// ripple falls below the 16-bit noise floor the output is heading for anyway.
@@ -111,13 +111,13 @@ impl BandLimited {
     /// frequency.
     fn build_kernel() -> Box<[f32]> {
         let mut kernel = vec![0.0f32; Self::PHASES * Self::WIDTH];
-        let centre = (Self::WIDTH / 2) as f32;
+        let center = (Self::WIDTH / 2) as f32;
         for phase in 0..Self::PHASES {
             let offset = phase as f32 / Self::PHASES as f32;
             let taps = &mut kernel[phase * Self::WIDTH..(phase + 1) * Self::WIDTH];
             for (tap, value) in taps.iter_mut().enumerate() {
                 // Distance from the step, in output samples.
-                let x = tap as f32 - centre + 1.0 - offset;
+                let x = tap as f32 - center + 1.0 - offset;
                 // Cutoff at Nyquist, so `sinc(x)` with the sample period as its zero crossing.
                 let sinc = if x.abs() < 1e-6 {
                     1.0
@@ -358,7 +358,7 @@ mod tests {
             );
             let mut out = Vec::new();
             synth.read(256, &mut out);
-            // Where the step's energy sits: the centre of mass of the sample-to-sample change.
+            // Where the step's energy sits: the center of mass of the sample-to-sample change.
             let mut weighted = 0.0f64;
             let mut total = 0.0f64;
             for i in 1..out.len() {

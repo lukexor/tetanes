@@ -626,7 +626,7 @@ fn the_zapper_aims_and_fires() {
         "plugging it in reaches the console"
     );
 
-    // Dead centre of the frame.
+    // Dead center of the frame.
     FRONTEND.with_borrow_mut(|f| {
         f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X, 0);
         f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y, 0);
