@@ -28,7 +28,7 @@ pub enum BlockKind {
     SaveRam,
     /// No cart window is mapped here.
     Unmapped,
-    /// Cart ROM that could not be decoded as instructions.
+    /// Cart ROM that nothing has shown to be instructions.
     Unknown,
 }
 
@@ -112,8 +112,9 @@ impl CpuSnapshot {
         }
 
         // Disassembled from memory as it is banked *now*, not as it was when these ran, so a line
-        // whose bank has since been swapped shows what currently lives at that address. Recording
-        // the bytes as well as the address is what a code/data log would fix.
+        // whose bank has since been swapped shows what currently lives at that address. The
+        // code map does not help here - it says which bytes are code, not which bank an address
+        // held at the time. Recording the bytes alongside the address is what would.
         let history = bus.pc_history.as_ref().map_or_else(Vec::new, |history| {
             let skip = history
                 .len()
@@ -148,8 +149,10 @@ impl CpuSnapshot {
 
 /// The CPU address space as rows.
 ///
-/// Rebuilt when the board's PRG mapping changes, since that is the only thing that can move
-/// an instruction. The rows represent the currently mapped banks, not where PC happens to be.
+/// Rebuilt when the board's PRG mapping changes, since that is the only thing that can move an
+/// instruction, and when the [`CodeMap`](tetanes_core::debug::CodeMap) marks something new, since
+/// that is what determines an address is an instruction. The rows represent the currently mapped
+/// banks, not where PC happens to be.
 #[derive(Debug, Default, Clone)]
 #[must_use]
 pub struct AddressSpace {
@@ -159,18 +162,23 @@ pub struct AddressSpace {
 impl AddressSpace {
     /// Capture the current address space into rows.
     ///
-    /// Only mapped cart ROM is disassembled. Everything else is a collapsed block. Nothing yet
-    /// records which bytes are instructions.
+    /// Only mapped cart ROM is disassembled, and only where the
+    /// [`CodeMap`](tetanes_core::debug::CodeMap) marks instructions or where straight-line flow
+    /// from PC reaches. Everything else is a collapsed block.
     pub fn capture(bus: &Bus) -> Self {
         let mut rows = Vec::new();
         let mut text = String::with_capacity(64);
         let mut addr = 0u32;
         let pc = bus.cpu.pc;
+        // Set while decoding forward from PC. The map holds only what has executed, so a debugger
+        // that has just attached knows nothing about the routine PC is sitting in.
+        let mut following = false;
 
         while addr <= u32::from(u16::MAX) {
             let start = addr as u16;
             let next = match Self::block_kind(bus, start) {
                 Some(kind) => {
+                    following = false;
                     let mut end = start;
                     while end < u16::MAX && Self::block_kind(bus, end + 1) == Some(kind) {
                         end += 1;
@@ -178,7 +186,15 @@ impl AddressSpace {
                     rows.push(Row::Block { start, end, kind });
                     u32::from(end) + 1
                 }
-                None => {
+                None if following || Self::starts_instruction(bus, start, pc) => {
+                    if start == pc {
+                        following = true;
+                    }
+                    if following {
+                        following = Cpu::INSTR_REF[usize::from(bus.peek(start))]
+                            .instr
+                            .falls_through();
+                    }
                     let mut next = start;
                     bus.disassemble_into(&mut next, &mut text);
                     // `disassemble_into` wraps past $FFFF, so take the length rather than the
@@ -186,12 +202,11 @@ impl AddressSpace {
                     let len = next.wrapping_sub(start).max(1);
                     let end = start.wrapping_add(len - 1);
 
-                    // A decoded range has no way to know where instructions begin, so it decodes
-                    // straight through data and stays misaligned until it happens to realign. PC is
-                    // known to start an instruction, so a decode that overlaps it is wrong: give up
-                    // on those bytes and resume there. This keeps PC on a row of its own for the
-                    // view to highlight correctly, even if the instructions around it can't be
-                    // decoded correctly.
+                    // PC is known to start an instruction, so a decode that overlaps it does not
+                    // align with real instruction boundaries inside an instruction that has run
+                    // (e.g. stepping into a jump computed at runtime). Skip decoding those bytes
+                    // and resume there. Ensures the PC keeps a row of its own for the Debugger to
+                    // highlight.
                     //
                     // Strictly after `start`, not from it: a decode that *begins* at PC is the
                     // aligned case. Including it would end the row where it started and resume at
@@ -211,6 +226,24 @@ impl AddressSpace {
                         addr + u32::from(len)
                     }
                 }
+                // Mapped ROM that nothing has shown to be an instruction - the operands of the
+                // instruction above, a jump table, graphics, or code that has yet to run.
+                None => {
+                    following = false;
+                    let mut end = start;
+                    while end < u16::MAX
+                        && Self::block_kind(bus, end + 1).is_none()
+                        && !Self::starts_instruction(bus, end + 1, pc)
+                    {
+                        end += 1;
+                    }
+                    rows.push(Row::Block {
+                        start,
+                        end,
+                        kind: BlockKind::Unknown,
+                    });
+                    u32::from(end) + 1
+                }
             };
             // Every branch should progress by at least one address otherwise it'll spin forever.
             debug_assert!(next > addr, "sweep made no progress at ${start:04X}");
@@ -220,7 +253,8 @@ impl AddressSpace {
         Self { rows }
     }
 
-    /// Whether `addr` collapses into a block. `None` means disassemble it.
+    /// Whether `addr` collapses into a block. `None` means it is mapped cart ROM, which
+    /// [`AddressSpace::starts_instruction`] then decides how to render.
     const fn block_kind(bus: &Bus, addr: u16) -> Option<BlockKind> {
         match addr {
             0x0000..=0x1FFF => Some(BlockKind::Ram),
@@ -231,6 +265,25 @@ impl AddressSpace {
                 None => Some(BlockKind::Unmapped),
             },
         }
+    }
+
+    /// Whether the capture sweep should start decoding at `addr`.
+    ///
+    /// Execution is the only thing that says where an instruction begins, so this checks the
+    /// [`CodeMap`](tetanes_core::debug::CodeMap). PC counts as well - it is about to run, so it
+    /// starts an instruction whether or not it has yet, and it is the row the view highlights.
+    fn starts_instruction(bus: &Bus, addr: u16, pc: u16) -> bool {
+        addr == pc
+            || match &bus.code_map {
+                // With nothing recorded there is no way to tell code from data, so everything
+                // mapped is decoded and the capture sweep drifts out of step wherever data
+                // resides.
+                None => true,
+                Some(code_map) => bus
+                    .memory
+                    .prg_offset(addr)
+                    .is_some_and(|offset| code_map.is_code(offset)),
+            }
     }
 
     /// The row holding `addr`, or the one just before it when `addr` is mid-instruction.
@@ -567,7 +620,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::{AddressSpace, BlockKind, Row};
-    use tetanes_core::control_deck::ControlDeck;
+    use tetanes_core::{control_deck::ControlDeck, cpu::Cpu};
 
     /// With no cart loaded nothing is disassembled, which makes this a test of the sweep itself:
     /// that it covers every address exactly once and terminates at `$FFFF` rather than wrapping.
@@ -675,6 +728,139 @@ mod tests {
         // One row per address at worst, so anything beyond that means rows were emitted without
         // advancing.
         assert!(anchored.rows.len() <= 0x1_0000, "sweep emitted extra rows");
+    }
+
+    /// Without a code map the sweep decodes every mapped byte, which is how data ends up rendered
+    /// as instructions and the decode stays out of step with the real boundaries. With one, only
+    /// bytes that have run are decoded and the rest collapses into `unknown`.
+    #[test]
+    fn only_bytes_that_have_executed_are_disassembled() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.set_code_map(true);
+        for _ in 0..10 {
+            let _ = deck.clock_frame().expect("clock frame");
+        }
+
+        let mapped = AddressSpace::capture(deck.bus());
+        let pc = deck.bus().cpu.pc;
+        let code_map = deck.code_map().expect("recording");
+        for row in &mapped.rows {
+            if let Row::Instruction(line) = row
+                && line.addr != pc
+            {
+                let offset = deck.bus().memory.prg_offset(line.addr).expect("mapped");
+                assert!(
+                    code_map.is_code(offset),
+                    "${:04X} was disassembled without having run",
+                    line.addr
+                );
+            }
+        }
+        assert!(
+            mapped.rows.iter().any(|row| matches!(
+                row,
+                Row::Block {
+                    kind: BlockKind::Unknown,
+                    ..
+                }
+            )),
+            "ten frames cannot have executed the whole ROM"
+        );
+
+        // The same console with the map taken away, which is what the sweep used to do with all
+        // of it.
+        deck.set_code_map(false);
+        let blind = AddressSpace::capture(deck.bus());
+        let instructions = |space: &AddressSpace| {
+            space
+                .rows
+                .iter()
+                .filter(|row| matches!(row, Row::Instruction(_)))
+                .count()
+        };
+        assert!(
+            instructions(&mapped) < instructions(&blind),
+            "the map disassembled as much as decoding blind did, so it changed nothing"
+        );
+    }
+
+    /// A debugger that has just attached has an empty map, so PC would otherwise be the only
+    /// decoded row on screen. Straight-line flow from PC is decodable without having run.
+    #[test]
+    fn the_routine_at_pc_is_decoded_before_anything_has_run() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.set_code_map(true);
+
+        let rows = AddressSpace::capture(deck.bus()).rows;
+        let pc = deck.bus().cpu.pc;
+        let from_pc = rows
+            .iter()
+            .skip_while(|row| row.addr() != pc)
+            .take_while(|row| matches!(row, Row::Instruction(_)))
+            .count();
+        assert!(
+            from_pc > 1,
+            "only {from_pc} row(s) decoded at PC ${pc:04X} with an empty code map"
+        );
+
+        // The run ends at the first instruction that does not reach the next address, and the
+        // bytes after it are unknown until something executes them.
+        let end = rows
+            .iter()
+            .skip_while(|row| row.addr() != pc)
+            .take(from_pc)
+            .last()
+            .expect("a decoded run");
+        let Row::Instruction(line) = end else {
+            unreachable!("take_while kept only instructions")
+        };
+        let instr = Cpu::INSTR_REF[usize::from(deck.bus().peek(line.addr))].instr;
+        assert!(
+            !instr.falls_through(),
+            "the run stopped at {instr:?} at ${:04X}, which reaches the next address",
+            line.addr
+        );
+    }
+
+    /// PC is about to run whether or not it has run before, so it starts an instruction even where
+    /// the map says nothing. Without that it would fall inside an `unknown` block with no row of
+    /// its own for the view to highlight.
+    #[test]
+    fn pc_starts_a_row_even_where_nothing_has_executed() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.set_code_map(true);
+        for _ in 0..10 {
+            let _ = deck.clock_frame().expect("clock frame");
+        }
+
+        // Strictly inside an unknown block, so nothing but PC itself can start a row there.
+        let unexecuted = AddressSpace::capture(deck.bus())
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                Row::Block {
+                    start,
+                    end,
+                    kind: BlockKind::Unknown,
+                } if *start >= 0x8000 && end > start => Some(start + 1),
+                _ => None,
+            })
+            .expect("some of the ROM has not run");
+
+        deck.bus_mut().cpu.pc = unexecuted;
+        let anchored = AddressSpace::capture(deck.bus());
+        let row = anchored.row_at(unexecuted).expect("covered");
+        assert_eq!(
+            anchored.rows[row].addr(),
+            unexecuted,
+            "PC ${unexecuted:04X} fell inside an unknown block instead of starting a row"
+        );
     }
 
     #[test]

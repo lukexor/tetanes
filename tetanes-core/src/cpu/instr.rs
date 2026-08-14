@@ -29,6 +29,21 @@ pub enum Instr {
     SHAA, SLO, #[default] HLT
 }
 
+impl Instr {
+    /// Whether a linear disassembly can carry on past this instruction.
+    ///
+    /// `JMP`, `RTS`, `RTI`, `BRK` and the jam opcodes do not reach the next address. `JSR` does
+    /// once the subroutine returns, but callers often store its arguments inline after it, so a
+    /// linear decode stops there as well. Branches carry on, since they only sometimes go
+    /// elsewhere.
+    pub const fn falls_through(self) -> bool {
+        !matches!(
+            self,
+            Self::JMP | Self::JSR | Self::RTS | Self::RTI | Self::BRK | Self::HLT
+        )
+    }
+}
+
 /// CPU Addressing mode.
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::upper_case_acronyms)]

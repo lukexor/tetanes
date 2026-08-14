@@ -32,6 +32,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
+    debug::CodeMap,
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -335,6 +336,9 @@ pub struct State {
     /// The PRG mapping the address space was last captured as, so the capture is skipped when the
     /// board has not bank switched since.
     debug_pages: Option<[Page; PRG_PAGES]>,
+    /// The code map generation the address space was last captured at, so the capture is also
+    /// redone when execution has revealed an instruction the last one collapsed as unknown.
+    debug_generation: Option<u64>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -507,6 +511,7 @@ impl State {
             run_state: RunState::AutoPaused,
             debug_request: None,
             debug_pages: None,
+            debug_generation: None,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -597,9 +602,14 @@ impl State {
                         .filter(|request| request.history_lines > 0)
                         .map(|request| usize::from(request.history_lines)),
                 );
+                // Which bytes are instructions is marked by running them, so the map starts here
+                // too. It starts empty until the game runs, the disassembly is one large unknown
+                // block plus whatever PC points at.
+                self.control_deck.set_code_map(request.is_some());
                 // A fresh subscription has nothing to compare against, so ensure an updated address
                 // space is sent.
                 self.debug_pages = None;
+                self.debug_generation = None;
                 self.send_address_space();
                 self.send_debug_snapshot();
             }
@@ -947,7 +957,7 @@ impl State {
         }
     }
 
-    /// Send the address space if the board has banked something else in since the last send.
+    /// Send the address space if anything it is built from has changed since the last send.
     ///
     /// Only called when the console is stopped - opening the debugger, stepping, pausing.
     fn send_address_space(&mut self) {
@@ -955,10 +965,12 @@ impl State {
             return;
         }
         let pages = *self.control_deck.bus().memory.prg_pages();
-        if self.debug_pages == Some(pages) {
+        let generation = self.control_deck.code_map().map(CodeMap::generation);
+        if self.debug_pages == Some(pages) && self.debug_generation == generation {
             return;
         }
         self.debug_pages = Some(pages);
+        self.debug_generation = generation;
         let address_space = AddressSpace::capture(self.control_deck.bus());
         self.tx
             .event(DebugEvent::AddressSpace(Box::new(address_space)));
@@ -1482,7 +1494,7 @@ mod tests {
 
     /// A nominal rate that is persistently wrong - a rounded frame rate, a sound card that is not
     /// quite at its stated rate - is what the base-rate estimate exists for. The buffer has to end
-    /// up back at half full, not merely somewhere safe: sitting off-centre is sitting with less
+    /// up back at half full, not merely somewhere safe: sitting off-center is sitting with less
     /// cushion than the user asked for, and that is what a hitch then falls through.
     #[test]
     fn a_persistent_rate_error_is_tracked_out_rather_than_absorbed_by_the_buffer() {
