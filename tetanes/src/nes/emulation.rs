@@ -339,6 +339,9 @@ pub struct State {
     /// The code map generation the address space was last captured at, so the capture is also
     /// redone when execution has revealed an instruction the last one collapsed as unknown.
     debug_generation: Option<u64>,
+    /// What the code map recorded before the debugger closed, held so that reopening it does not
+    /// start over. Only recording stops; the marks stay true for as long as the cart is loaded.
+    debug_code_map: Option<CodeMap>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -512,6 +515,7 @@ impl State {
             debug_request: None,
             debug_pages: None,
             debug_generation: None,
+            debug_code_map: None,
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -603,9 +607,15 @@ impl State {
                         .map(|request| usize::from(request.history_lines)),
                 );
                 // Which bytes are instructions is marked by running them, so the map starts here
-                // too. It starts empty until the game runs, the disassembly is one large unknown
-                // block plus whatever PC points at.
-                self.control_deck.set_code_map(request.is_some());
+                // too. A first subscription starts empty until the game runs, the disassembly is
+                // one large unknown block plus whatever PC points at. Closing the debugger stops
+                // the recording but keeps the marks, so reopening it does not start over.
+                if request.is_some() {
+                    let recorded = self.debug_code_map.take();
+                    self.control_deck.attach_code_map(recorded);
+                } else {
+                    self.debug_code_map = self.control_deck.detach_code_map();
+                }
                 // A fresh subscription has nothing to compare against, so ensure an updated address
                 // space is sent.
                 self.debug_pages = None;
@@ -1035,6 +1045,9 @@ impl State {
             }
             self.replay_record(false);
             self.rewind.clear();
+            // Marks are offsets into this cart's memory. Both load paths come through here, so a
+            // held map cannot outlive the cart it describes.
+            self.debug_code_map = None;
             let _ = self.audio.stop();
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);

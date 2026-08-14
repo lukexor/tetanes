@@ -199,7 +199,9 @@ impl Bus {
         self.memory = cart.memory;
         // Marks are offsets into memory that have just been replaced above
         // Rebuild with the new cart's size, still recording if it was previously.
-        self.set_code_map(self.code_map.is_some());
+        if self.code_map.is_some() {
+            self.attach_code_map(None);
+        }
         self.load_mapper(cart.mapper);
     }
 

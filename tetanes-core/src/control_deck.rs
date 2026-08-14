@@ -775,17 +775,24 @@ impl ControlDeck {
         self.bus.pc_history.as_ref()
     }
 
-    /// Enable recording what executes into a [`CodeMap`], or disable and discard it.
+    /// Start recording what executes into a [`CodeMap`], resuming `code_map` when it was built for
+    /// the loaded cart.
     ///
     /// See [`CodeMap`]. Like [`ControlDeck::set_pc_history`] this has to be switched on before the
     /// instructions run: a byte is known to be code only because it has been executed, so a map
-    /// starts empty and fills in as the game runs.
-    pub fn set_code_map(&mut self, enabled: bool) {
-        self.bus.set_code_map(enabled);
+    /// starts empty and fills in as the game runs. A caller that stops and starts recording hands
+    /// the map back here rather than starting over.
+    pub fn attach_code_map(&mut self, code_map: Option<CodeMap>) {
+        self.bus.attach_code_map(code_map);
     }
 
-    /// What execution has revealed about memory regions, if [`ControlDeck::set_code_map`] asked for
-    /// it.
+    /// Stop recording and hand back what was recorded.
+    pub const fn detach_code_map(&mut self) -> Option<CodeMap> {
+        self.bus.detach_code_map()
+    }
+
+    /// What execution has revealed about memory regions, if [`ControlDeck::attach_code_map`] asked
+    /// for it.
     #[inline]
     #[must_use]
     pub const fn code_map(&self) -> Option<&CodeMap> {

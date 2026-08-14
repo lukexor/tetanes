@@ -760,7 +760,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("load rom");
-        deck.set_code_map(true);
+        deck.attach_code_map(None);
         for _ in 0..10 {
             let _ = deck.clock_frame().expect("clock frame");
         }
@@ -793,7 +793,7 @@ mod tests {
 
         // The same console with the map taken away, which is what the sweep used to do with all
         // of it.
-        deck.set_code_map(false);
+        deck.detach_code_map();
         let blind = AddressSpace::capture(deck.bus());
         let instructions = |space: &AddressSpace| {
             space
@@ -815,7 +815,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("load rom");
-        deck.set_code_map(true);
+        deck.attach_code_map(None);
 
         let rows = AddressSpace::capture(deck.bus()).rows;
         let pc = deck.bus().cpu.pc;
@@ -856,7 +856,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("load rom");
-        deck.set_code_map(true);
+        deck.attach_code_map(None);
         for _ in 0..10 {
             let _ = deck.clock_frame().expect("clock frame");
         }

@@ -4,7 +4,7 @@
 //! [`Bus`](crate::bus::Bus) - so it can take whatever state snapshot it needs at that point during
 //! emulation.
 
-use crate::bus::Bus;
+use crate::{bus::Bus, memory::Memory};
 use bitflags::bitflags;
 use std::sync::Arc;
 
@@ -86,22 +86,25 @@ bitflags! {
 /// one to three bytes with no alignment, so a decode that starts inside data drifts out of step
 /// with the real instruction boundaries and stays out of sync until it happens to realign.
 ///
-/// Keyed by [`Memory`](crate::memory::Memory) offset instead of CPU address, so a mark survives
-/// bank switches to another address. Two banks that share an address do not share marks.
-/// See [`Memory::prg_offset`](crate::memory::Memory::prg_offset).
+/// Keyed by [`Memory`] offset instead of CPU address, so a mark survives bank switches to another
+/// address. Two banks that share an address do not share marks. See [`Memory::prg_offset`].
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct CodeMap {
     kinds: Box<[ByteKind]>,
     generation: u64,
+    /// Which cart the offsets address. See [`CodeMap::covers`].
+    rom_crc32: u32,
 }
 
 impl CodeMap {
-    /// A map covering `len` bytes of memory, with nothing yet known about any of them.
-    pub fn new(len: usize) -> Self {
+    /// A map covering `len` bytes of the cart with CRC `rom_crc32`, with nothing yet known about
+    /// any of them.
+    pub fn new(len: usize, rom_crc32: u32) -> Self {
         Self {
             kinds: vec![ByteKind::empty(); len].into_boxed_slice(),
             generation: 0,
+            rom_crc32,
         }
     }
 
@@ -138,6 +141,16 @@ impl CodeMap {
     /// knows to rebuild.
     pub const fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Whether this was recorded against `memory`.
+    ///
+    /// An offset means nothing against another arena, so a map kept across a cart change has to be
+    /// refused rather than reused. The CRC says which game and the length says the geometry - two
+    /// dumps of one game can differ in trainer or padding, and an arena built with no ROM to hash
+    /// has only the geometry to go on.
+    pub fn covers(&self, memory: &Memory) -> bool {
+        self.rom_crc32 == memory.rom_crc32() && self.kinds.len() == memory.len()
     }
 }
 
@@ -177,13 +190,23 @@ impl Bus {
         self.debugger = debugger.unwrap_or_default();
     }
 
-    /// Enable or disable recording what executes into a [`CodeMap`]. Discards what was previously
-    /// recorded.
+    /// Start recording what executes into a [`CodeMap`].
     ///
-    /// The map is sized to the loaded cart and its marks are offsets into that cart's memory, so
-    /// [`Bus::load_cart`] resets this.
-    pub fn set_code_map(&mut self, enabled: bool) {
-        self.code_map = enabled.then(|| CodeMap::new(self.memory.len()));
+    /// Resumes `code_map` when it was built for the loaded cart, otherwise starts a fresh one.
+    /// Pass `None` to start fresh regardless.
+    pub fn attach_code_map(&mut self, code_map: Option<CodeMap>) {
+        self.code_map = Some(match code_map {
+            Some(code_map) if code_map.covers(&self.memory) => code_map,
+            _ => CodeMap::new(self.memory.len(), self.memory.rom_crc32()),
+        });
+    }
+
+    /// Stop recording and hand back what was recorded, for a later [`Bus::attach_code_map`].
+    ///
+    /// The marks stay valid for as long as the cart is loaded. Only execution adds to them, so a
+    /// map that misses what ran while it was detached reads as unmarked rather than as wrong.
+    pub const fn detach_code_map(&mut self) -> Option<CodeMap> {
+        self.code_map.take()
     }
 }
 
@@ -241,7 +264,7 @@ mod tests {
 
     #[test]
     fn a_mark_records_its_kind_and_leaves_its_neighbours_alone() {
-        let mut map = CodeMap::new(4);
+        let mut map = CodeMap::new(4, 0);
         map.mark(1, ByteKind::CODE);
         assert_eq!(map.kind(1), ByteKind::CODE);
         assert!(map.is_code(1));
@@ -251,7 +274,7 @@ mod tests {
 
     #[test]
     fn kinds_accumulate_rather_than_replace_one_another() {
-        let mut map = CodeMap::new(1);
+        let mut map = CodeMap::new(1, 0);
         map.mark(0, ByteKind::SUB_ENTRY);
         map.mark(0, ByteKind::CODE);
         assert_eq!(map.kind(0), ByteKind::CODE | ByteKind::SUB_ENTRY);
@@ -261,7 +284,7 @@ mod tests {
     /// built for has to read as "nothing known" rather than panic.
     #[test]
     fn an_offset_past_the_end_is_ignored() {
-        let mut map = CodeMap::new(1);
+        let mut map = CodeMap::new(1, 0);
         map.mark(64, ByteKind::CODE);
         assert_eq!(map.kind(64), ByteKind::empty());
         assert!(!map.is_code(64));
@@ -270,7 +293,7 @@ mod tests {
 
     #[test]
     fn the_generation_moves_only_when_the_map_learns_something() {
-        let mut map = CodeMap::new(2);
+        let mut map = CodeMap::new(2, 0);
         map.mark(0, ByteKind::CODE);
         let learned = map.generation();
         assert_ne!(learned, 0, "a first mark is something new");
@@ -297,7 +320,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("test_roms/spritecans.nes")
             .expect("load rom");
-        deck.set_code_map(true);
+        deck.attach_code_map(None);
 
         let mut calls = 0;
         for _ in 0..100_000 {
@@ -325,6 +348,50 @@ mod tests {
         assert!(calls > 0, "no subroutine call ran, so nothing was proven");
     }
 
+    /// Closing a debugger stops the recording. What it recorded is still true, so reopening one
+    /// resumes rather than starting over.
+    #[test]
+    fn detaching_keeps_what_was_recorded_for_the_next_attach() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.attach_code_map(None);
+        for _ in 0..1_000 {
+            deck.clock_instr().expect("clock instruction");
+        }
+        let recorded = deck.code_map().expect("recording").generation();
+        assert_ne!(recorded, 0);
+
+        let detached = deck.detach_code_map();
+        assert!(deck.code_map().is_none(), "still recording after detaching");
+        deck.attach_code_map(detached);
+        assert_eq!(deck.code_map().expect("recording").generation(), recorded);
+    }
+
+    /// Offsets address the arena they were recorded against, so a map from another cart has to be
+    /// dropped rather than reused.
+    #[test]
+    fn a_map_recorded_against_another_cart_is_refused() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.attach_code_map(None);
+        for _ in 0..1_000 {
+            deck.clock_instr().expect("clock instruction");
+        }
+        let detached = deck.detach_code_map();
+        assert_ne!(detached.as_ref().expect("recorded").generation(), 0);
+
+        deck.load_rom_path("test_roms/cpu/nestest.nes")
+            .expect("load rom");
+        deck.attach_code_map(detached);
+        assert_eq!(
+            deck.code_map().expect("recording").generation(),
+            0,
+            "another cart's marks were kept"
+        );
+    }
+
     /// Marks are memory offsets, so they describe bytes that a different cart's arena no longer
     /// holds - and the arena is a different size, which would leave the map addressing past its
     /// end.
@@ -333,7 +400,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("test_roms/spritecans.nes")
             .expect("load rom");
-        deck.set_code_map(true);
+        deck.attach_code_map(None);
         for _ in 0..1_000 {
             deck.clock_instr().expect("clock instruction");
         }

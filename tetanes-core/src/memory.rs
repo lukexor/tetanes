@@ -643,6 +643,14 @@ impl Memory {
         self.rom_crc32 = crc32;
     }
 
+    /// CRC32 of the cart's ROM, the same one the game database is keyed by.
+    ///
+    /// Says which game the arena belongs to, which offsets into it are only meaningful against.
+    #[must_use]
+    pub const fn rom_crc32(&self) -> u32 {
+        self.rom_crc32
+    }
+
     /// Whether the cart's RAM is battery-backed, and so survives a power cycle.
     #[must_use]
     pub const fn battery_backed(&self) -> bool {
