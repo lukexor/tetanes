@@ -38,7 +38,7 @@ use crate::{
     cart::Cart,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
-    debug::{Debugger, PcHistory},
+    debug::{CodeMap, Debugger, PcHistory},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -135,6 +135,10 @@ pub struct Bus {
     /// for history.
     #[serde(skip)]
     pub pc_history: Option<PcHistory>,
+    /// What execution has shown each byte of cartridge memory to be, recorded only while a
+    /// debugger is open.
+    #[serde(skip)]
+    pub code_map: Option<CodeMap>,
     /// Scratch buffer for [`Bus::disassemble`].
     #[serde(skip)]
     pub disasm: String,
@@ -185,6 +189,7 @@ impl Bus {
             debugger: Debugger::default(),
             debugger_active: false,
             pc_history: None,
+            code_map: None,
             disasm: String::new(),
         }
     }
@@ -192,6 +197,9 @@ impl Bus {
     /// Installs a cart: its board and every memory region it came with.
     pub fn load_cart(&mut self, cart: Cart) {
         self.memory = cart.memory;
+        // Marks are offsets into memory that have just been replaced above
+        // Rebuild with the new cart's size, still recording if it was previously.
+        self.set_code_map(self.code_map.is_some());
         self.load_mapper(cart.mapper);
     }
 
@@ -229,6 +237,7 @@ impl Bus {
             // These are all session-specific values and are not restored across snapshots.
             debugger: _,
             pc_history: _,
+            code_map: _,
             disasm: _,
         } = src;
 

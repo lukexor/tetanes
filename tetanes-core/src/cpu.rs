@@ -18,6 +18,7 @@
 use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
+    debug::ByteKind,
 };
 use crate::{
     cpu::instr::{
@@ -390,6 +391,12 @@ impl Bus {
         }
         state.debugger = std::mem::take(&mut self.debugger);
         state.debugger_active = self.debugger_active;
+        // What a debugger has recorded belongs to the session, not to the state. Restoring
+        // previous state does not obsolete which bytes are instructions.
+        // The cart is the same one - `restore_rom_from` above asserted that - so the map's offsets
+        // still address the same bytes.
+        state.pc_history = self.pc_history.take();
+        state.code_map = self.code_map.take();
         // The pixel path compares against thresholds derived from $2001 rather than reading its
         // flags, and they are not part of the save format.
         state.ppu.update_draw_thresholds();
@@ -1051,8 +1058,14 @@ impl Bus {
         #[cfg(feature = "trace")]
         self.trace_instr();
 
+        let prev_pc = self.cpu.pc;
         if let Some(history) = &mut self.pc_history {
-            history.push(self.cpu.pc);
+            history.push(prev_pc);
+        }
+        if let Some(code_map) = &mut self.code_map
+            && let Some(offset) = self.memory.prg_offset(prev_pc)
+        {
+            code_map.mark(offset, ByteKind::CODE);
         }
 
         let opcode = self.fetch_byte(); // Cycle 1
@@ -1060,6 +1073,16 @@ impl Bus {
         self.cpu.addr_mode = op.addr_mode();
         self.cpu.operand = self.fetch_operand();
         op.run(self);
+
+        // A JSR destination is wherever it left PC, so this reads after the opcode has run and
+        // before an interrupt can change it again. The next instruction would mark it as code,
+        // but this additionally marks it as a subroutine entry.
+        if let Some(code_map) = &mut self.code_map
+            && opcode == Cpu::JSR
+            && let Some(offset) = self.memory.prg_offset(self.cpu.pc)
+        {
+            code_map.mark(offset, ByteKind::SUB_ENTRY);
+        }
 
         if self
             .cpu

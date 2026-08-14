@@ -628,22 +628,22 @@ impl State {
                             // from a subroutine, where it pulls saved registers back off the
                             // stack. The stack frame has not been left until the return address
                             // itself is pulled, which only a return instruction does.
-                            let sp = self.control_deck.cpu().sp;
+                            let sp = self.control_deck.bus().cpu.sp;
                             self.step_until(|deck, opcode| {
-                                matches!(opcode, Cpu::RTS | Cpu::RTI) && deck.cpu().sp > sp
+                                matches!(opcode, Cpu::RTS | Cpu::RTI) && deck.bus().cpu.sp > sp
                             });
                             self.send_frame();
                         }
                         DebugStep::Over => {
                             // Only a jump has anything to step over.
-                            let &Cpu { pc, sp, .. } = self.control_deck.cpu();
+                            let &Cpu { pc, sp, .. } = &self.control_deck.bus().cpu;
                             let is_jsr = self.control_deck.bus().peek(pc) == Cpu::JSR;
                             self.write_deck(|deck| deck.clock_instr());
                             if is_jsr {
                                 // The stack pointer is below where the call left it, and the only
                                 // thing that brings it back up to `sp` is pulling that return
                                 // address.
-                                self.step_until(|deck, _| deck.cpu().sp >= sp);
+                                self.step_until(|deck, _| deck.bus().cpu.sp >= sp);
                             }
                             self.send_frame();
                         }
@@ -924,7 +924,7 @@ impl State {
         const BUDGET: usize = 5_000_000;
 
         for _ in 0..BUDGET {
-            let pc = self.control_deck.cpu().pc;
+            let pc = self.control_deck.bus().cpu.pc;
             let opcode = self.control_deck.bus().peek(pc);
             if self.write_deck(|deck| deck.clock_instr()).is_none() {
                 return;

@@ -721,6 +721,16 @@ impl Memory {
         true
     }
 
+    /// How many bytes the arena holds, which is the range [`Memory::prg_offset`] returns.
+    pub const fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Whether the arena is empty, which is what a console with no cart has.
+    pub const fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     /// PRG page table, for debuggers.
     pub const fn prg_pages(&self) -> &[Page; PRG_PAGES] {
         &self.prg_pages

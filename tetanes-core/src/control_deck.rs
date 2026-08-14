@@ -46,7 +46,7 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::{Debugger, PcHistory},
+    debug::{CodeMap, Debugger, PcHistory},
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -773,6 +773,23 @@ impl ControlDeck {
     #[must_use]
     pub const fn pc_history(&self) -> Option<&PcHistory> {
         self.bus.pc_history.as_ref()
+    }
+
+    /// Enable recording what executes into a [`CodeMap`], or disable and discard it.
+    ///
+    /// See [`CodeMap`]. Like [`ControlDeck::set_pc_history`] this has to be switched on before the
+    /// instructions run: a byte is known to be code only because it has been executed, so a map
+    /// starts empty and fills in as the game runs.
+    pub fn set_code_map(&mut self, enabled: bool) {
+        self.bus.set_code_map(enabled);
+    }
+
+    /// What execution has revealed about memory regions, if [`ControlDeck::set_code_map`] asked for
+    /// it.
+    #[inline]
+    #[must_use]
+    pub const fn code_map(&self) -> Option<&CodeMap> {
+        self.bus.code_map.as_ref()
     }
 
     /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.
