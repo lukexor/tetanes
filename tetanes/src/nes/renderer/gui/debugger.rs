@@ -7,9 +7,12 @@ use egui::{
     ViewportId,
 };
 use parking_lot::Mutex;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    ops::Range,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tetanes_core::{
     bus::Bus,
@@ -300,11 +303,12 @@ struct State {
     tx: NesEventProxy,
     snapshot: CpuSnapshot,
     address_space: AddressSpace,
-    /// Set when a new capture or a step should scroll PC back into view.
-    scroll_to_pc: bool,
+    /// Address to center in the disassembly, cleared once its row has been drawn and centered.
+    scroll_to: Option<u16>,
+    /// Rows the last draw put on screen. A center request for a row outside them needs a coarse
+    /// jump first.
+    visible_rows: Range<usize>,
     goto: String,
-    /// An address the user asked to jump to, consumed by the next draw.
-    goto_addr: Option<u16>,
     disasm_lines: u16,
     history_lines: u16,
 }
@@ -332,9 +336,9 @@ impl CpuDebugger {
                 tx,
                 snapshot: CpuSnapshot::default(),
                 address_space: AddressSpace::default(),
-                scroll_to_pc: true,
+                scroll_to: Some(0),
+                visible_rows: 0..0,
                 goto: String::new(),
-                goto_addr: None,
                 disasm_lines: Self::DISASM_LINES,
                 history_lines: Self::HISTORY_LINES,
             })),
@@ -373,14 +377,18 @@ impl CpuDebugger {
     pub fn update_snapshot(&mut self, snapshot: CpuSnapshot) {
         let mut state = self.state.lock();
         // Follow PC only when it moved, so scrolling away stays put while the console is stopped.
-        state.scroll_to_pc |= state.snapshot.cpu.pc != snapshot.cpu.pc;
+        if state.snapshot.cpu.pc != snapshot.cpu.pc {
+            state.scroll_to = Some(snapshot.cpu.pc);
+        }
         state.snapshot = snapshot;
     }
 
     pub fn update_address_space(&mut self, address_space: AddressSpace) {
         let mut state = self.state.lock();
         state.address_space = address_space;
-        state.scroll_to_pc = true;
+        // A capture arrives whenever the code map marks something new, and rows added above PC move
+        // its row index. Re-center against the new rows so PC stays on the same line.
+        state.scroll_to = Some(state.snapshot.cpu.pc);
     }
 
     pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions) {
@@ -531,7 +539,7 @@ impl State {
             if let Ok(addr) = addr
                 && ui.button("Go").clicked()
             {
-                self.goto_addr = Some(addr);
+                self.scroll_to = Some(addr);
             }
         });
 
@@ -553,45 +561,59 @@ impl State {
 
         // A row per instruction rather than per address, so the only way to scroll to an address
         // is to look up which row covers it.
-        if let Some(target) = self
-            .goto_addr
-            .take()
-            .or_else(|| self.scroll_to_pc.then_some(pc))
-            && let Some(row) = self.address_space.row_at(target)
-        {
-            self.scroll_to_pc = false;
-            // Centred rather than at the top: egui fades the first and last rows of a scroll area,
-            // and the instructions either side of PC are the context worth having.
-            let centred = (row as f32).mul_add(pitch, -(viewport_height - pitch) / 2.0);
-            scroll_area = scroll_area.vertical_scroll_offset(centred.max(0.0));
+        let target = self
+            .scroll_to
+            .and_then(|addr| self.address_space.row_at(addr));
+
+        // `show_rows` only builds widgets for the rows it believes are visible, so a row that was
+        // not drawn cannot center itself. This brings it into the window; the exact centring
+        // happens below.
+        if let Some(row) = target.filter(|row| !self.visible_rows.contains(row)) {
+            let approx = (row as f32).mul_add(pitch, -(viewport_height - row_height) / 2.0);
+            scroll_area = scroll_area.vertical_scroll_offset(approx.max(0.0));
         }
 
+        let mut drawn = 0..0;
+        let mut centered = false;
         scroll_area.show_rows(
             ui,
             row_height,
             self.address_space.rows.len(),
             |ui, range| {
-                for row in &self.address_space.rows[range] {
-                    match row {
+                drawn = range.clone();
+                for (offset, row) in self.address_space.rows[range.clone()].iter().enumerate() {
+                    let response = match row {
                         Row::Instruction(line) => {
                             let text = RichText::new(&line.text).monospace();
                             if line.addr == pc {
-                                ui.label(text.strong().background_color(Color32::DARK_BLUE));
+                                ui.label(text.strong().background_color(Color32::DARK_BLUE))
                             } else {
-                                ui.label(text);
+                                ui.label(text)
                             }
                         }
-                        Row::Block { start, end, kind } => {
-                            ui.label(
-                                RichText::new(format!("${start:04X}-${end:04X}  {}", kind.label()))
-                                    .monospace()
-                                    .color(Color32::DARK_GRAY),
-                            );
-                        }
+                        Row::Block { start, end, kind } => ui.label(
+                            RichText::new(format!("${start:04X}-${end:04X}  {}", kind.label()))
+                                .monospace()
+                                .color(Color32::DARK_GRAY),
+                        ),
+                    };
+                    if target == Some(range.start + offset) {
+                        // egui measures the drawn row, where the offset arithmetic above can only
+                        // estimate it, so this is what actually lands on the center line.
+                        // Unanimated, to match the rest of the window updating in one step.
+                        response.scroll_to_me_animation(
+                            Some(egui::Align::Center),
+                            egui::style::ScrollAnimation::none(),
+                        );
+                        centered = true;
                     }
                 }
             },
         );
+        self.visible_rows = drawn;
+        if centered {
+            self.scroll_to = None;
+        }
     }
 
     fn stack(&mut self, ui: &mut Ui) {
