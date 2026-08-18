@@ -1523,25 +1523,31 @@ impl Bus {
     #[inline]
     fn bg_fetch_cycle(&mut self) {
         let phase = self.ppu.cycle & 0x07;
-        if self.ppu.mask_prev_rendering_enabled && phase == 0 {
-            // Increment Coarse X every 8 cycles (e.g. 8 pixels) since sprites are 8x wide
-            self.ppu.scroll.increment_x();
-            // 256, Increment Fine Y when we reach the end of the screen
-            if self.ppu.cycle == cycle::INC_Y {
-                self.ppu.scroll.increment_y();
-            }
-            return;
-        }
 
-        match phase {
-            1 => {
+        // Uses conditional branches instead of a match, because it compiles to jump table and one
+        // indirect jump per rendered dot accounts for half of branch mispredicts. Each test is
+        // periodic in the dot counter and is easier to predict.
+        if phase & 1 == 0 {
+            // Even phases don't fetch. Phase 0 is the start of a new block: increment Coarse X
+            // every 8 cycles (e.g. 8 pixels) since sprites are 8x wide.
+            if phase == 0 && self.ppu.mask_prev_rendering_enabled {
+                self.ppu.scroll.increment_x();
+                // Increment Fine Y when we reach the end of the screen
+                if self.ppu.cycle == cycle::INC_Y {
+                    self.ppu.scroll.increment_y();
+                }
+            }
+        } else if phase < 4 {
+            if phase == 1 {
                 self.ppu.reload_bg_shifters();
                 self.fetch_bg_nt_byte();
+            } else {
+                self.fetch_bg_attr_byte();
             }
-            3 => self.fetch_bg_attr_byte(),
-            5 => self.ppu.tile_lo = self.chr_read(self.ppu.tile_addr),
-            7 => self.ppu.tile_hi = self.chr_read(self.ppu.tile_addr + 8),
-            _ => (),
+        } else if phase == 5 {
+            self.ppu.tile_lo = self.chr_read(self.ppu.tile_addr);
+        } else {
+            self.ppu.tile_hi = self.chr_read(self.ppu.tile_addr + 8);
         }
     }
 
