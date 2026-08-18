@@ -58,6 +58,27 @@ category = "Build"
 command = "cargo"
 args = ["pgo", "bench", "--", "--bench", "clock_frame"]
 
+# The training set with a varied set of ROMs to cover a wide range of titles.
+#
+# The frame counts are small because the instrumented build is much slower than
+# a normal one and this runs in CI - a PGO profile only needs coverage, not stable
+# timings.
+[tasks.pgo-profile.env]
+TETANES_BENCH_ITERS = "1"
+TETANES_BENCH_FRAMES = "150"
+TETANES_BENCH_WARMUP = "10"
+TETANES_BENCH_ROMS = """tetanes-core/test_roms/spritecans.nes:\
+tetanes-core/test_roms/ppu/_240pee.nes:\
+tetanes-core/test_roms/ppu/ntsc_torture.nes:\
+tetanes-core/test_roms/ppu/color.nes:\
+tetanes-core/test_roms/ppu/palette.nes:\
+tetanes-core/test_roms/ppu/oam_stress.nes:\
+tetanes-core/test_roms/mapper/m004_txrom/scanline_timing.nes:\
+tetanes-core/test_roms/mapper/m004_txrom/a12_clocking.nes:\
+tetanes-core/test_roms/mapper/m005_exrom/basics.nes:\
+tetanes-core/test_roms/apu/dmc.nes:\
+tetanes-core/test_roms/cpu/branch_basics.nes"""
+
 [tasks.pgo-build]
 description = "Optimize TetaNES with PGO"
 category = "Build"

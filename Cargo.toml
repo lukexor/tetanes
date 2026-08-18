@@ -95,10 +95,9 @@ strip = true
 inherits = "release"
 panic = "unwind"
 
-# Profile to run performance profiling with debug symbols
+# Profile to run performance profiling with debug symbols.
 [profile.perf]
 inherits = "release"
-lto = "off"
 debug = true
 strip = false
 
