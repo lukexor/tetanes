@@ -66,13 +66,13 @@ pub struct Core {
 
 impl Core {
     fn new() -> Self {
-        let deck = ControlDeck::with_config(Config {
-            // The frontend owns save files: it has its own directory layout, and its own idea of
-            // when to write. `retro_get_memory_data` is how battery RAM reaches it.
-            sram_dir: None,
-            filter: VideoFilter::Pixellate,
-            ..Default::default()
-        });
+        let deck = ControlDeck::with_config(
+            Config::default()
+                // The frontend owns save files: it has its own directory layout, and its own idea
+                // of when to write. `retro_get_memory_data` is how battery RAM reaches it.
+                .with_sram_dir(None)
+                .with_filter(VideoFilter::Pixellate),
+        );
         Self {
             deck,
             callbacks: Callbacks::default(),

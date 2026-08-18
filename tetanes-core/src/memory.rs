@@ -23,6 +23,16 @@
 //!
 //! Alongside the arena this module holds the small memory primitives the rest of the emulator
 //! shares: [`ConstArray`] for plain byte storage, and [`RamState`] for power-on fill.
+//!
+//! # Stability
+//!
+//! [`Memory`]'s fields are private, unlike the emulated components', because they hold an
+//! invariant between them rather than each standing alone: `data`, `ram_start` and the region
+//! ranges have to agree, and the page tables are derived from the loaded board's registers. So
+//! [`Memory::prg_pages`] and [`Memory::chr_pages`] are read-only - a board rewrites entries
+//! through [`Memory::map_prg`] and [`Memory::map_chr`] - and [`Memory::sram`] computes a span
+//! rather than returning a field. See the crate-level [stability](crate#stability) note for the
+//! tier this belongs to and why.
 
 use crate::ppu::Mirroring;
 use rand::Rng;
@@ -59,6 +69,7 @@ const NAMETABLE_PAGE: usize = 0x2000 >> PAGE_SHIFT;
 /// Which backing region a mapping refers to.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
+#[non_exhaustive]
 pub enum Src {
     /// Program ROM.
     PrgRom,
@@ -281,6 +292,7 @@ impl fmt::Debug for Memory {
 /// Sizes of each backing region, in bytes.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
+#[non_exhaustive]
 pub struct MemoryLayout {
     /// Bytes of PRG-ROM.
     pub prg_rom: usize,

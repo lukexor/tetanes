@@ -730,9 +730,7 @@ impl State {
                 self.control_deck.set_four_player(*four_player);
             }
             ConfigEvent::GenieCodeAdded(genie_code) => {
-                self.control_deck
-                    .bus_mut()
-                    .add_genie_code(genie_code.clone());
+                self.control_deck.add_patch(genie_code.into());
             }
             ConfigEvent::GenieCodeRemoved(code) => {
                 self.control_deck.remove_genie_code(code);
@@ -1149,7 +1147,7 @@ impl State {
         loop {
             let clocked = self.control_deck.clock_frame()?;
             if clocked != Clocked::Idle
-                && let Err(err) = self.rewind.push(self.control_deck.bus())
+                && let Err(err) = self.rewind.push(&self.control_deck)
             {
                 self.rewind.set_enabled(false);
                 self.on_error(err);
@@ -1182,41 +1180,25 @@ impl State {
         }
 
         if self.rewinding {
-            match self.rewind.pop() {
-                Some(bus) => {
-                    // A mismatched state cannot happen while rewinding the running game, but
-                    // stopping beats replaying a broken console.
-                    if let Err(err) = self.control_deck.load_bus(bus) {
-                        error!("failed to rewind: {err:?}");
-                        self.set_rewinding(false);
-                        return None;
-                    }
-                    // A snapshot carries no pixels, so render them: clocking the restored state
-                    // produces the frame after the one it was taken on, which is a uniform
-                    // one-frame offset across a rewind and costs a frame of emulation on a path
-                    // that has a whole frame to spend. Audio is deliberately left undrained -
-                    // rewinding is silent, and the next clock clears what this one produced.
-                    //
-                    // Below 1x a display frame does not always owe an NES frame, and a call that
-                    // owes none clocks nothing - which would ship the blank buffer the snapshot
-                    // restored. Keep asking until one is actually rendered.
-                    loop {
-                        match self.control_deck.clock_frame() {
-                            Ok(Clocked::Idle) => continue,
-                            Ok(_) => break,
-                            Err(err) => {
-                                error!("failed to render a rewound frame: {err:?}");
-                                self.set_rewinding(false);
-                                return None;
-                            }
+            // Stop rewinding if a restore fails
+            if self.rewind.pop(&mut self.control_deck) {
+                // A rewind frame excludes the frame buffer, so render it by clocking the frame
+                // Below 1x speed, clocking may not produce a frame so clock until one is rendered.
+                loop {
+                    match self.control_deck.clock_frame() {
+                        Ok(Clocked::Idle) => continue,
+                        Ok(_) => break,
+                        Err(err) => {
+                            error!("failed to render a rewound frame: {err:?}");
+                            self.set_rewinding(false);
+                            return None;
                         }
                     }
-                    // One frame, not a display frame's worth: a rewind steps back one snapshot per
-                    // display frame however fast the game was running when it was recorded.
-                    self.send_frame();
-                    self.update_frame_stats();
                 }
-                None => self.set_rewinding(false),
+                self.send_frame();
+                self.update_frame_stats();
+            } else {
+                self.set_rewinding(false);
             }
         } else {
             if let Some(event) = self.replay.next(self.control_deck.frame_number()) {

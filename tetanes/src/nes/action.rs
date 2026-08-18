@@ -277,6 +277,7 @@ impl AsRef<str> for Action {
                         Bf909Revision::Bf909x => "Set Mapper to BF909x",
                         Bf909Revision::Bf9097 => "Set Mapper to BF9097",
                     },
+                    _ => "Set Mapper Revision",
                 },
                 DeckAction::SetNesRegion(region) => match region {
                     NesRegion::Auto => "Set Region to Auto",
@@ -288,6 +289,9 @@ impl AsRef<str> for Action {
                     VideoFilter::Pixellate => "Set Filter to Pixellate",
                     VideoFilter::Ntsc => "Set Filter to NTSC",
                 },
+                // `DeckAction` is `#[non_exhaustive]`: a core release can add one this build has
+                // no label for, and a keybind list is not worth failing to build over.
+                _ => "Unknown Deck Action",
             },
             Action::Debug(debug) => match debug {
                 Debug::Toggle(debugger) => match debugger {

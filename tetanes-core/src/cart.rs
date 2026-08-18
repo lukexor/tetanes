@@ -1,4 +1,13 @@
 //! NES cartridge implementation.
+//!
+//! # Stability
+//!
+//! [`Cart`]'s accessors are not field reads: [`Cart::mirroring`] decodes header flag bits,
+//! [`Cart::mapper_num`] and [`Cart::submapper_num`] prefer the game database's answer over the
+//! header's, and [`Cart::prg_rom`] and [`Cart::chr_rom`] trim the padding [`Memory`] added to
+//! reach a whole page. Reading the header or memory directly gets a different answer from the
+//! one the `ControlDeck` is running on. See the crate-level [stability](crate#stability) note for
+//! the tier this belongs to and why.
 
 use crate::{
     common::NesRegion,
@@ -29,6 +38,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Errors from loading a cartridge.
 #[derive(Error, Debug)]
 #[must_use]
+#[non_exhaustive]
 pub enum Error {
     /// The iNES/NES 2.0 header did not describe a cartridge this crate can build.
     #[error("invalid nes header (found: ${value:04X} at byte: {byte}). {message}")]
@@ -588,6 +598,7 @@ pub enum NesVariant {
 /// <https://nesdev.org/NESDoc.pdf> (page 28)
 #[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
+#[non_exhaustive]
 pub struct NesHeader {
     /// Which of the four header formats this is.
     pub variant: NesVariant,

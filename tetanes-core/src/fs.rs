@@ -39,6 +39,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Errors from reading or writing a save file, save state or SRAM.
 #[derive(Error, Debug)]
 #[must_use]
+#[non_exhaustive]
 pub enum Error {
     /// The file's magic or version did not match what this build writes.
     #[error("invalid tetanes header: {0}")]

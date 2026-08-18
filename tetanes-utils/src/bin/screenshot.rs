@@ -32,12 +32,12 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    let mut deck = ControlDeck::with_config(Config {
-        ram_state: RamState::AllZeros,
-        // Rendering a frame is not playing the game; leave the player's saves alone.
-        sram_dir: None,
-        ..Default::default()
-    });
+    let mut deck = ControlDeck::with_config(
+        Config::default()
+            .with_ram_state(RamState::AllZeros)
+            // Rendering a frame is not playing the game; leave the player's saves alone.
+            .with_sram_dir(None),
+    );
     let mut rom =
         File::open(&opt.path).with_context(|| format!("failed to open {:?}", opt.path))?;
     deck.load_rom(opt.path.to_string_lossy(), &mut rom)

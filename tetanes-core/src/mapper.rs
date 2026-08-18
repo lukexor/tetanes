@@ -164,6 +164,7 @@ pub use m071_bf909x::Revision as Bf909Revision;
 /// needing to reject a cart - a bad NES 2.0 submapper, say - can do so without a breaking change.
 #[derive(thiserror::Error, Debug)]
 #[must_use]
+#[non_exhaustive]
 pub enum Error {
     /// No board in the `boards!` table serves this mapper number.
     ///
@@ -176,6 +177,7 @@ pub enum Error {
 /// Allow user-controlled mapper revision for mappers that are difficult to auto-detect correctly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum MapperRevision {
     // Mmc1 and Vrc6 should be properly detected by the mapper number
     /// No known detection except DB lookup
@@ -246,6 +248,8 @@ macro_rules! boards {
         // position. Without that, reordering rows silently reinterprets every existing save state.
         #[derive(Debug, Clone)]
         #[must_use]
+        // Adding a board is a `boards!` row, not a breaking change for anyone matching on this.
+        #[non_exhaustive]
         pub enum Mapper {
             /// No board, i.e. no cart loaded. Reads come back as open bus.
             None(()),

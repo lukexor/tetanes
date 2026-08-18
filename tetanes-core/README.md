@@ -121,8 +121,41 @@ several large features on the roadmap that may result in breaking changes. This
 applies to both APIs and save file formats.
 
 Once some of these larger features are completed, and `1.0` is released, more
-effort will be dedicatged to versioning these files for backward compatibility
+effort will be dedicated to versioning these files for backward compatibility
 in the event of future breaking changes.
+
+Even past `1.0`, the API surface falls into three stability tiers. A mix of
+`pub` fields and getter methods is deliberate. A chain like
+`deck.bus().memory.prg_pages()` may look inconsistent but crosses separate API
+boundaries.
+
+1. **`ControlDeck` is the primary stable API.** Its fields are private and it is
+   the only item covered by semantic versioning. Its accessors are not
+   pass-throughs: `frame_buffer` applies the video filter, cached behind a dirty
+   flag, `frame_buffer_raw` picks the run-ahead (older) frame over the most
+   recent one, `sram` is a no-op unless the cart has a battery, etc.
+2. **The ControlDeck component internals are unstable but public.** `Bus`,
+   `Cpu`, `Ppu`, `Apu`, `Input` and every mapper board expose all their fields
+   as `pub`, so a debugger, a cheat engine or a machine-learning harness can
+   read and write internals as needed for any imagined use case. A release may
+   add, rename or retype any of them. `ControlDeck::bus` and `bus_mut` enable
+   full access. Getters for internal fields are provided when the type is
+   wrapped in a container: `Bus::wram` returns `&[u8; 2048]` from a
+   `Box<ConstArray<..>>`, `Ppu::frame_buffer` dereferences a `Frame`, etc.
+3. **Types that require invariants.** `Memory`, `Cart`, `GenieCode`,
+   `PaletteRam` and `Scroll` have private fields and getters that require
+   additional logic. `Memory::sram` splices PRG-RAM together with the used
+   prefix of the battery region, `Cart::mapper_num` prefers the game database
+   over the header, `Cart::prg_rom` trims the padding `Memory` added to reach a
+   whole page, etc. `PaletteRam` is private *because* every access has to apply
+   `$3F10`/`$14`/`$18`/ `$1C` mirroring.
+
+Derived state is split across the last two tiers. `Ppu`'s render-gating caches
+and `Bus::mapper_ops` are `pub` with a comment warning that writing them
+desynchronizes the emulator, while `Memory`'s page tables are private behind
+read-only getters. The difference is that `Memory`'s private set is not only
+derived — `data`, `ram_start` and the region ranges have to agree with each
+other, where the PPU's caches are scalars recomputed from a register write.
 
 ## Known Issues
 

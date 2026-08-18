@@ -37,6 +37,7 @@ impl Error {
 /// Why a Game Genie code was rejected.
 #[derive(Error, Debug, Copy, Clone)]
 #[must_use]
+#[non_exhaustive]
 pub enum ErrorKind {
     /// A code is 6 or 8 characters; this one was neither.
     #[error("length must be 6 or 8 characters. found `{0}`")]

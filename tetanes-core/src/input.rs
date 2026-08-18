@@ -5,7 +5,8 @@
 //! The methods here - [`Joypad::set_button`], [`Zapper::aim`] and the rest - are the input API and
 //! are covered like any other. The *fields* are the emulation's internal wiring, public so that
 //! embedders and debuggers can read them, and they track the implementation rather than the crate
-//! version.
+//! version. See the crate-level [stability](crate#stability) note for the tier this belongs to and
+//! why.
 
 use crate::{
     bus::Bus,

@@ -14,7 +14,9 @@
 //! of them. The stable entry point is
 //! [`ControlDeck`](crate::control_deck::ControlDeck). Fields documented as *derived* are caches of
 //! state that lives elsewhere; writing one from outside desynchronizes the emulator rather than
-//! changing what it does.
+//! changing what it does. See the crate-level [stability](crate#stability) note for the tier this
+//! belongs to and why the derived fields here are public where [`Memory`](crate::memory::Memory)'s
+//! are not.
 
 use crate::{
     bus::Bus,

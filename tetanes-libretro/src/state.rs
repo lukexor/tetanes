@@ -163,12 +163,12 @@ mod tests {
     const ROM: &[u8] = include_bytes!("../../tetanes-core/test_roms/spritecans.nes");
 
     fn deck() -> ControlDeck {
-        let mut deck = ControlDeck::with_config(Config {
-            sram_dir: None,
-            ram_state: RamState::AllZeros,
-            filter: VideoFilter::Pixellate,
-            ..Default::default()
-        });
+        let mut deck = ControlDeck::with_config(
+            Config::default()
+                .with_sram_dir(None)
+                .with_ram_state(RamState::AllZeros)
+                .with_filter(VideoFilter::Pixellate),
+        );
         deck.load_rom("test", &mut &ROM[..]).expect("loads");
         deck
     }

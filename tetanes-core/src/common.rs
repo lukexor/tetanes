@@ -223,7 +223,7 @@ pub(crate) mod tests {
     use crate::{
         action::Action,
         common::ResetKind,
-        control_deck::{Config, ControlDeck},
+        control_deck::{Config, ControlDeck, HeadlessMode},
         input::Player,
         // Aliased: `std::io::Read` is imported below for reading ROMs off disk.
         memory::RamState,
@@ -717,7 +717,11 @@ pub(crate) mod tests {
                 .iter()
                 .any(|frame| frame.audio_profile.is_some());
         let mut deck = load_control_deck(&rom);
-        deck.bus_mut().apu.skip_mixing = !wants_audio;
+        deck.set_headless_mode(if wants_audio {
+            HeadlessMode::empty()
+        } else {
+            HeadlessMode::NO_AUDIO
+        });
         deck.set_clear_audio_on_clock(!wants_audio);
 
         let mut results = Vec::new();

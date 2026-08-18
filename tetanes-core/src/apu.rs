@@ -7,7 +7,8 @@
 //! [`Apu`]'s fields, and the per-channel types in this module's submodules, are the emulation's
 //! internal wiring. They are public so that embedders and debuggers can read them, but they track
 //! the implementation rather than the crate version, and a release may add, rename or retype any
-//! of them. The stable entry point is [`ControlDeck`](crate::control_deck::ControlDeck).
+//! of them. The stable entry point is [`ControlDeck`](crate::control_deck::ControlDeck). See the
+//! crate-level [stability](crate#stability) note for the tier this belongs to and why.
 
 use crate::{
     apu::{

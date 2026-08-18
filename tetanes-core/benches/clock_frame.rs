@@ -227,20 +227,20 @@ fn bench_rom(
         // mapper PRG-RAM/SRAM or mapper bank registers, so resetting would let battery-backed
         // saves and bank state carry over and each iteration would measure a different game
         // state. Loading costs a few ms against ~2s of timed frames.
-        let mut deck = ControlDeck::with_config(Config {
-            // Deterministic RAM so runs are comparable.
-            ram_state: RamState::AllZeros,
-            // Likewise: a battery file left by a previous run would change what is measured.
-            sram_dir: None,
-            filter,
-            run_ahead,
-            headless_mode: if no_audio {
-                HeadlessMode::NO_AUDIO
-            } else {
-                HeadlessMode::empty()
-            },
-            ..Default::default()
-        });
+        let mut deck = ControlDeck::with_config(
+            Config::default()
+                // Deterministic RAM so runs are comparable.
+                .with_ram_state(RamState::AllZeros)
+                // Likewise: a battery file left by a previous run would change what is measured.
+                .with_sram_dir(None)
+                .with_filter(filter)
+                .with_run_ahead(run_ahead)
+                .with_headless_mode(if no_audio {
+                    HeadlessMode::NO_AUDIO
+                } else {
+                    HeadlessMode::empty()
+                }),
+        );
         let mut rom = File::open(path).map_err(|err| err.to_string())?;
         deck.load_rom(path.to_string_lossy(), &mut rom)
             .map_err(|err| err.to_string())?;

@@ -1,25 +1,35 @@
 use crate::nes::{emulation::State, renderer::gui::MessageType};
 use tetanes_core::{
-    bus::Bus,
+    control_deck::ControlDeck,
     fs::{Error, Result},
 };
 use tracing::error;
 
-/// A ring of serialized console states, one every [`Rewind::interval`] *NES* frames.
+/// One slot of the rewind buffer.
 ///
-/// The distinction matters because rewinding replays one snapshot per display frame, so the
-/// spacing between snapshots is the speed the game rewinds at. Emulation speed changes how many
-/// NES frames a single `clock_frame` runs - four at 4x, sometimes none at 0.5x - so counting
-/// calls would leave the buffer unevenly spaced in game time, and a stretch that was
-/// fast-forwarded would rewind four times as fast as the rest. It also makes the buffer hold
-/// [`Rewind::seconds`] of *gameplay*, whatever speed it was played at.
+/// Popping only unmarks a slot, so the allocation is reused for the next push.
+#[derive(Default, Debug, Clone)]
+#[must_use]
+pub struct Slot {
+    /// A buffer sized to the cart's state
+    pub buf: Vec<u8>,
+    /// Whether the buffer is filled.
+    pub filled: bool,
+}
+
+/// A ring buffer of serialized console states, one every [`Rewind::interval`] *NES* frames.
 ///
-/// Only state is kept. Pixels are not: `Frame::buffer` is `#[serde(skip)]`, because a snapshot
-/// carrying a 120 KiB clone of the frame alongside its ~23 KiB of state comes to - at the default
-/// 30 s and an interval of 2, so 900 snapshots - ~108 MB of pixels against ~21 MB of everything
-/// else. Rewinding re-renders instead, by clocking one frame off the restored state, which trades
-/// ~3 ms on the rewind path - a path with a whole frame's budget and nothing else to do - for a
-/// 120 KiB allocation and copy on every push during normal play.
+/// Rewinding replays one snapshot per display frame, so the spacing between snapshots is the speed
+/// the game rewinds at. Emulation speed changes how many NES frames a single `clock_frame` runs -
+/// four at 4x, sometimes none at 0.5x - so counting calls would leave the buffer unevenly spaced in
+/// game time, and a stretch that was fast-forwarded would rewind four times as fast as the rest. It
+/// also makes the buffer hold [`Rewind::seconds`] of *gameplay*, whatever speed it was played at.
+///
+/// Only runtime state is kept. ROM data and frame buffers are not to reduce memory. Rewinding
+/// re-renders frames, by clocking the restored state.
+///
+/// `ControlDeck` encodes a state at a fixed size for the life of a cart, so every slot can be sized
+/// once to reduce allocations.
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
@@ -30,7 +40,10 @@ pub struct Rewind {
     pub count: usize,
     pub interval: usize,
     pub seconds: usize,
-    pub frames: Vec<Option<Vec<u8>>>,
+    pub frames: Vec<Slot>,
+    /// Bytes one state takes, which is fixed for the life of a cart. `0` until the first push after
+    /// a [`Rewind::clear`].
+    pub state_len: usize,
 }
 
 impl Rewind {
@@ -46,7 +59,8 @@ impl Rewind {
             count: 0,
             interval,
             seconds,
-            frames: vec![None; Self::frame_size(seconds, interval)],
+            frames: vec![Slot::default(); Self::frame_size(seconds, interval)],
+            state_len: 0,
         }
     }
 
@@ -63,17 +77,28 @@ impl Rewind {
 
     pub fn set_seconds(&mut self, seconds: u32) {
         self.seconds = seconds as usize;
-        self.frames
-            .resize(Self::frame_size(self.seconds, self.interval), None);
+        self.resize();
     }
 
     pub fn set_interval(&mut self, interval: u32) {
         self.interval = interval as usize;
-        self.frames
-            .resize(Self::frame_size(self.seconds, self.interval), None);
+        self.resize();
     }
 
-    pub fn push(&mut self, bus: &Bus) -> Result<()> {
+    /// Resize the ring buffer slots to the current state length.
+    fn resize(&mut self) {
+        self.frames.resize(
+            Self::frame_size(self.seconds, self.interval),
+            Slot::default(),
+        );
+        let state_len = self.state_len;
+        for slot in &mut self.frames {
+            slot.buf.resize(state_len, 0);
+        }
+    }
+
+    /// Snapshots `deck` into the next slot, if the rewind interval has elapsed.
+    pub fn push(&mut self, deck: &ControlDeck) -> Result<()> {
         if !self.enabled || self.frames.is_empty() {
             return Ok(());
         }
@@ -83,10 +108,16 @@ impl Rewind {
         }
         self.interval_counter = 0;
 
-        let config = bincode::config::legacy();
-        let state = bincode::serde::encode_to_vec(bus, config)
+        if self.state_len == 0 {
+            self.state_len = deck
+                .serialized_state_len()
+                .map_err(|err| Error::SerializationFailed(err.to_string()))?;
+            self.resize();
+        }
+
+        deck.serialize_state_into(&mut self.frames[self.index].buf)
             .map_err(|err| Error::SerializationFailed(err.to_string()))?;
-        self.frames[self.index] = Some(state);
+        self.frames[self.index].filled = true;
 
         self.count += 1;
         self.index += 1;
@@ -96,39 +127,45 @@ impl Rewind {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Option<Bus> {
-        if !self.enabled || self.frames.is_empty() {
-            return None;
+    /// Restores `deck` to the most recent snapshot, reporting whether there was one to restore.
+    ///
+    /// Inputs held when the snapshot was taken are dropped on the way in, since they belong to the
+    /// player rather than to the timeline being replayed.
+    pub fn pop(&mut self, deck: &mut ControlDeck) -> bool {
+        if !self.enabled || self.frames.is_empty() || self.count == 0 {
+            return false;
         }
-        if self.count > 0 {
-            self.count -= 1;
-            // Wrap before decrementing, not after: `push` leaves `index` at 0 every time it wraps,
-            // so decrementing first underflows there - and the slot at 0 was skipped on the way
-            // past regardless.
-            if self.index == 0 {
-                self.index = self.frames.len();
-            }
-            self.index -= 1;
+        self.count -= 1;
+        // Wrap before decrementing, not after: `push` leaves `index` at 0 every time it wraps, so
+        // decrementing first underflows there - and the slot at 0 was skipped on the way past
+        // regardless.
+        if self.index == 0 {
+            self.index = self.frames.len();
+        }
+        self.index -= 1;
 
-            let state = self.frames[self.index].take()?;
-            let config = bincode::config::legacy();
-            bincode::serde::decode_from_slice::<Bus, _>(&state, config)
-                .map(|(mut bus, _)| {
-                    bus.input.clear(); // Discard inputs while rewinding
-                    bus
-                })
-                .map_err(|err| error!("Failed to deserialize console state: {err:?}"))
-                .ok()
-        } else {
-            None
+        if !self.frames[self.index].filled {
+            return false;
         }
+        self.frames[self.index].filled = false;
+        if let Err(err) = deck.deserialize_state(&self.frames[self.index].buf) {
+            error!("Failed to restore console state: {err:?}");
+            return false;
+        }
+        true
     }
 
     pub fn clear(&mut self) {
         self.interval_counter = 0;
         self.index = 0;
         self.count = 0;
-        self.frames.fill(None);
+        // The buffers go too: `clear` runs on unload, and the next cart's state may be a different
+        // size.
+        self.state_len = 0;
+        for slot in &mut self.frames {
+            slot.buf = Vec::new();
+            slot.filled = false;
+        }
     }
 }
 
@@ -146,12 +183,7 @@ impl State {
         }
         // ~2 seconds worth of frames @ 60 FPS
         let mut rewind_frames = 120 / self.rewind.interval;
-        while let Some(mut bus) = self.rewind.pop() {
-            bus.input.clear(); // Discard inputs while rewinding
-            if let Err(err) = self.control_deck.load_bus(bus) {
-                error!("failed to rewind: {err:?}");
-                return;
-            }
+        while self.rewind.pop(&mut self.control_deck) {
             rewind_frames -= 1;
             if rewind_frames == 0 {
                 break;
@@ -170,19 +202,24 @@ mod tests {
     /// outright. Either way it took the emulation thread with it.
     #[test]
     fn popping_at_the_wrap_point_does_not_underflow() {
+        use tetanes_core::control_deck::ControlDeck;
+
         let mut rewind = Rewind::new(true, 1, 1);
         assert_eq!(rewind.frames.len(), 60);
 
-        // A full ring whose write cursor has just wrapped. The states are not decodable, which
-        // `pop` reports as `None` - the index arithmetic under test runs first either way.
-        rewind.frames.fill(Some(Vec::new()));
+        // A full ring whose write cursor has just wrapped. The deck has no rom, so every restore
+        // fails and `pop` reports `false` - the index arithmetic under test runs first either way.
+        let mut deck = ControlDeck::new();
+        for slot in &mut rewind.frames {
+            slot.filled = true;
+        }
         rewind.count = rewind.frames.len();
         rewind.index = 0;
 
-        assert!(rewind.pop().is_none());
+        assert!(!rewind.pop(&mut deck));
         assert_eq!(rewind.index, 59, "wrapped to the last slot, not past it");
 
-        assert!(rewind.pop().is_none());
+        assert!(!rewind.pop(&mut deck));
         assert_eq!(rewind.index, 58, "and keeps walking backwards from there");
     }
 
@@ -190,9 +227,12 @@ mod tests {
     /// otherwise.
     #[test]
     fn an_empty_ring_is_inert_rather_than_a_panic() {
+        use tetanes_core::control_deck::ControlDeck;
+
         let mut rewind = Rewind::new(true, 0, 2);
+        let mut deck = ControlDeck::new();
         assert!(rewind.frames.is_empty());
-        assert!(rewind.pop().is_none());
+        assert!(!rewind.pop(&mut deck));
     }
 
     /// Snapshots have to be evenly spaced in *NES* frames, because rewinding replays them one per
@@ -207,10 +247,8 @@ mod tests {
         use tetanes_core::control_deck::{Clocked, Config, ControlDeck};
         use tetanes_core::memory::RamState;
 
-        let mut deck = ControlDeck::with_config(Config {
-            ram_state: RamState::AllZeros,
-            ..Default::default()
-        });
+        let mut deck =
+            ControlDeck::with_config(Config::default().with_ram_state(RamState::AllZeros));
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("failed to load rom");
 
@@ -225,7 +263,7 @@ mod tests {
                 loop {
                     let clocked = deck.clock_frame().expect("failed to clock frame");
                     if clocked != Clocked::Idle {
-                        rewind.push(deck.bus()).expect("failed to push a snapshot");
+                        rewind.push(&deck).expect("failed to push a snapshot");
                     }
                     if clocked != Clocked::Continue {
                         break;
@@ -234,8 +272,8 @@ mod tests {
             }
 
             let mut snapshots = vec![];
-            while let Some(bus) = rewind.pop() {
-                snapshots.push(bus.ppu.frame_number());
+            while rewind.pop(&mut deck) {
+                snapshots.push(deck.bus().ppu.frame_number());
             }
             // `pop` walks backwards, so each gap is the previous snapshot minus this one.
             let gaps = snapshots
@@ -258,10 +296,8 @@ mod tests {
         use tetanes_core::control_deck::{Config, ControlDeck};
         use tetanes_core::memory::RamState;
 
-        let mut deck = ControlDeck::with_config(Config {
-            ram_state: RamState::AllZeros,
-            ..Default::default()
-        });
+        let mut deck =
+            ControlDeck::with_config(Config::default().with_ram_state(RamState::AllZeros));
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("failed to load rom");
 
@@ -269,16 +305,15 @@ mod tests {
         for _ in 0..120 {
             // At 1x a call is a frame, so this needs no drain loop.
             let _ = deck.clock_frame().expect("failed to clock frame");
-            rewind.push(deck.bus()).expect("failed to push a snapshot");
+            rewind.push(&deck).expect("failed to push a snapshot");
         }
         assert!(
             deck.bus().ppu.frame_buffer().iter().any(|&px| px != 0),
             "the rom draws something by frame 120, or this test proves nothing"
         );
 
-        let bus = rewind.pop().expect("a snapshot to rewind to");
-        let snapshot_frame = bus.ppu.frame_number();
-        deck.load_bus(bus).expect("failed to restore");
+        assert!(rewind.pop(&mut deck), "a snapshot to rewind to");
+        let snapshot_frame = deck.bus().ppu.frame_number();
 
         assert!(
             deck.bus().ppu.frame_buffer().iter().all(|&px| px == 0),
@@ -306,22 +341,19 @@ mod tests {
         use tetanes_core::control_deck::{Clocked, Config, ControlDeck};
         use tetanes_core::memory::RamState;
 
-        let mut deck = ControlDeck::with_config(Config {
-            ram_state: RamState::AllZeros,
-            ..Default::default()
-        });
+        let mut deck =
+            ControlDeck::with_config(Config::default().with_ram_state(RamState::AllZeros));
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("failed to load rom");
 
         let mut rewind = Rewind::new(true, 1, 1);
         for _ in 0..120 {
             let _ = deck.clock_frame().expect("failed to clock frame");
-            rewind.push(deck.bus()).expect("failed to push a snapshot");
+            rewind.push(&deck).expect("failed to push a snapshot");
         }
 
         deck.set_frame_speed(0.25);
-        let bus = rewind.pop().expect("a snapshot to rewind to");
-        deck.load_bus(bus).expect("failed to restore");
+        assert!(rewind.pop(&mut deck), "a snapshot to rewind to");
 
         assert_eq!(
             deck.clock_frame().expect("clocks"),

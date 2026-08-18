@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// [`ControlDeck`]: crate::control_deck::ControlDeck
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Action {
     /// Reset the [`ControlDeck`](crate::control_deck::ControlDeck).
     Reset(ResetKind),

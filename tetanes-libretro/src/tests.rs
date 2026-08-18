@@ -635,7 +635,7 @@ fn the_zapper_aims_and_fires() {
     assert_eq!(deck().zapper_pos(), (128, 120));
 
     // The trigger, which is the half that actually shoots.
-    let armed = || deck().input().zapper.triggered > 0.0;
+    let armed = || deck().bus().input.zapper.triggered > 0.0;
     assert!(!armed(), "nothing pulled it yet");
     FRONTEND.with_borrow_mut(|f| f.lightgun.insert(RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, 1));
     session.run(1);

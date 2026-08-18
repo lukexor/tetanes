@@ -28,7 +28,10 @@
 //! open-bus and region state it routes with. They are public so that embedders and debuggers can
 //! reach the component tree, but they track the implementation rather than the crate version, and
 //! a release may add, rename or retype any of them. The stable entry point is
-//! [`ControlDeck`](crate::control_deck::ControlDeck).
+//! [`ControlDeck`](crate::control_deck::ControlDeck), which reaches the whole component tree
+//! through [`ControlDeck::bus`](crate::control_deck::ControlDeck::bus) and
+//! [`bus_mut`](crate::control_deck::ControlDeck::bus_mut). See the crate-level
+//! [stability](crate#stability) note for the tier this belongs to and why.
 
 use crate::{
     apu::{Apu, Channel},

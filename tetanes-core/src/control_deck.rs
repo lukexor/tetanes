@@ -31,6 +31,14 @@
 //! [`ControlDeck::set_run_ahead`] for latency hiding, [`ControlDeck::set_frame_speed`] for
 //! emulation speed, [`ControlDeck::set_filter`] for video filtering. Everything a [`Config`] sets
 //! up front also has a setter, so it can be changed on a running deck.
+//!
+//! # Stability
+//!
+//! This is the crate's primary public API: [`ControlDeck`]'s fields are private, and is what
+//! semantic versioning covers. Reaching past it ([`ControlDeck::bus`] and [`ControlDeck::bus_mut`])
+//! is supported and is how a debugger or a cheat engine is meant to work, but what it reaches
+//! tracks implementation instead of the crate version. See the crate-level
+//! [stability](crate#stability) note for the three tiers and what decides which one a type is in.
 
 use crate::sys::fs as sys_fs;
 use crate::{
@@ -38,15 +46,14 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    cpu::Cpu,
     debug::Debugger,
     fs,
     genie::{self, GenieCode},
-    input::{FourPlayer, Input, Joypad, Player},
+    input::{FourPlayer, Joypad, Player},
     mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
-    memory::{Memory, RamState},
+    memory::RamState,
     patch::Patch,
-    ppu::{self, Ppu},
+    ppu,
     video::{Frame, Video, VideoFilter},
 };
 use bitflags::bitflags;
@@ -64,6 +71,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Errors that [`ControlDeck`] can return.
 #[derive(Error, Debug)]
 #[must_use]
+#[non_exhaustive]
 pub enum Error {
     /// [`Cart`] error when loading a ROM.
     #[error(transparent)]
@@ -134,6 +142,7 @@ bitflags! {
 /// Set of desired mapper revisions to use when loading a ROM matching the available mapper types.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub struct MapperRevisionsConfig {
     /// MMC3 mapper revision.
     pub mmc3: Mmc3Revision,
@@ -152,9 +161,19 @@ impl MapperRevisionsConfig {
 }
 
 /// Control deck configuration settings.
+///
+/// ```
+/// use tetanes_core::prelude::*;
+///
+/// let cfg = Config::default()
+///     .with_sram_dir(None)
+///     .with_ram_state(RamState::AllZeros);
+/// assert!(cfg.sram_dir.is_none());
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[must_use]
+#[non_exhaustive]
 pub struct Config {
     /// Video filter.
     pub filter: VideoFilter,
@@ -222,6 +241,93 @@ impl Config {
     pub fn default_sram_dir() -> PathBuf {
         Self::default_data_dir().join(Self::SRAM_DIR)
     }
+
+    /// Sets the video filter.
+    pub const fn with_filter(mut self, filter: VideoFilter) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    /// Sets the NES region.
+    pub const fn with_region(mut self, region: NesRegion) -> Self {
+        self.region = region;
+        self
+    }
+
+    /// Sets the RAM initialization state.
+    pub const fn with_ram_state(mut self, ram_state: RamState) -> Self {
+        self.ram_state = ram_state;
+        self
+    }
+
+    /// Sets the four player adapter.
+    pub const fn with_four_player(mut self, four_player: FourPlayer) -> Self {
+        self.four_player = four_player;
+        self
+    }
+
+    /// Sets whether the zapper gun is connected.
+    pub const fn with_zapper(mut self, zapper: bool) -> Self {
+        self.zapper = zapper;
+        self
+    }
+
+    /// Sets the Game Genie codes to apply on load.
+    pub fn with_genie_codes(mut self, genie_codes: Vec<GenieCode>) -> Self {
+        self.genie_codes = genie_codes;
+        self
+    }
+
+    /// Sets whether concurrent D-Pad input is allowed.
+    pub const fn with_concurrent_dpad(mut self, concurrent_dpad: bool) -> Self {
+        self.concurrent_dpad = concurrent_dpad;
+        self
+    }
+
+    /// Sets which APU channels are enabled.
+    pub const fn with_channels_enabled(
+        mut self,
+        channels_enabled: [bool; Apu::MAX_CHANNEL_COUNT],
+    ) -> Self {
+        self.channels_enabled = channels_enabled;
+        self
+    }
+
+    /// Sets headless mode.
+    pub const fn with_headless_mode(mut self, headless_mode: HeadlessMode) -> Self {
+        self.headless_mode = headless_mode;
+        self
+    }
+
+    /// Sets where battery-backed cart RAM is kept.
+    pub fn with_sram_dir(mut self, sram_dir: Option<PathBuf>) -> Self {
+        self.sram_dir = sram_dir;
+        self
+    }
+
+    /// Sets the mapper revisions to emulate.
+    pub const fn with_mapper_revisions(mut self, mapper_revisions: MapperRevisionsConfig) -> Self {
+        self.mapper_revisions = mapper_revisions;
+        self
+    }
+
+    /// Sets whether PPU warmup is emulated.
+    pub const fn with_emulate_ppu_warmup(mut self, emulate_ppu_warmup: bool) -> Self {
+        self.emulate_ppu_warmup = emulate_ppu_warmup;
+        self
+    }
+
+    /// Sets how many frames to run ahead of the console.
+    pub const fn with_run_ahead(mut self, run_ahead: usize) -> Self {
+        self.run_ahead = run_ahead;
+        self
+    }
+
+    /// Sets whether clocking discards the previous call's audio samples first.
+    pub const fn with_clear_audio_on_clock(mut self, clear_audio_on_clock: bool) -> Self {
+        self.clear_audio_on_clock = clear_audio_on_clock;
+        self
+    }
 }
 
 impl Default for Config {
@@ -262,6 +368,7 @@ pub enum Clocked {
 
 /// Represents a loaded ROM [`Cart`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadedRom {
     /// Name of ROM.
     pub name: String,
@@ -376,11 +483,11 @@ impl ControlDeck {
     /// use tetanes_core::control_deck::{Config, HeadlessMode};
     ///
     /// // A deck for batch processing: no video or audio work, deterministic RAM.
-    /// let deck = ControlDeck::with_config(Config {
-    ///     headless_mode: HeadlessMode::NO_AUDIO | HeadlessMode::NO_VIDEO,
-    ///     ram_state: RamState::AllZeros,
-    ///     ..Default::default()
-    /// });
+    /// let deck = ControlDeck::with_config(
+    ///     Config::default()
+    ///         .with_headless_mode(HeadlessMode::NO_AUDIO | HeadlessMode::NO_VIDEO)
+    ///         .with_ram_state(RamState::AllZeros),
+    /// );
     /// assert_eq!(deck.region(), NesRegion::Ntsc);
     /// ```
     pub fn with_config(cfg: Config) -> Self {
@@ -901,7 +1008,8 @@ impl ControlDeck {
     /// doing their own color decoding.
     ///
     /// This is the frame the most recent clock produced. With run-ahead enabled that is a frame
-    /// from *ahead* of where the console now sits, not [`ControlDeck::ppu`]'s current buffer.
+    /// from *ahead* of where the console now sits, not the buffer
+    /// [`Ppu::frame_buffer`](crate::ppu::Ppu::frame_buffer) currently holds.
     #[inline]
     #[must_use]
     pub fn frame_buffer_raw(&self) -> &[u16; ppu::size::FRAME] {
@@ -1340,91 +1448,27 @@ impl ControlDeck {
         self.bus.cpu.corrupted
     }
 
-    /// Returns the current [`Cpu`] registers.
+    /// Returns the ControlDeck bus state which contains all components.
     ///
-    /// The register file only; driving the CPU goes through [`ControlDeck::bus_mut`].
-    #[inline]
-    pub const fn cpu(&self) -> &Cpu {
-        &self.bus.cpu
-    }
-
-    /// Returns a mutable reference to the current [`Cpu`] registers.
-    #[inline]
-    pub const fn cpu_mut(&mut self) -> &mut Cpu {
-        &mut self.bus.cpu
-    }
-
-    /// Returns the current [`Ppu`] state.
-    #[inline]
-    pub const fn ppu(&self) -> &Ppu {
-        &self.bus.ppu
-    }
-
-    /// Returns a mutable reference to the current [`Ppu`] state.
-    #[inline]
-    pub const fn ppu_mut(&mut self) -> &mut Ppu {
-        &mut self.bus.ppu
-    }
-
-    /// Returns the console - every component, and the whole of the emulated state.
+    /// The components are `pub` fields of [`Bus`], so this is the way to the
+    /// [`Cpu`](crate::cpu::Cpu), [`Ppu`](crate::ppu::Ppu), [`Apu`], [`Mapper`],
+    /// [`Memory`](crate::memory::Memory) and [`Input`](crate::input::Input):
+    /// `deck.bus().ppu`, `deck.bus().memory`, and so on.
+    ///
+    /// NOTE: What is reachable here is internal and may change between releases - see the
+    /// crate-level [stability](crate#stability) note.
     #[inline]
     pub const fn bus(&self) -> &Bus {
         &self.bus
     }
 
-    /// Returns a mutable reference to the console.
+    /// Returns a mutable reference to the ControlDeck bus state.
+    ///
+    /// NOTE: What is reachable here is internal and may change between releases - see the
+    /// crate-level [stability](crate#stability) note.
     #[inline]
     pub const fn bus_mut(&mut self) -> &mut Bus {
         &mut self.bus
-    }
-
-    /// Returns the current [`Apu`] state.
-    #[inline]
-    pub const fn apu(&self) -> &Apu {
-        &self.bus.apu
-    }
-
-    /// Returns a mutable reference to the current [`Apu`] state.
-    #[inline]
-    pub const fn apu_mut(&mut self) -> &mut Apu {
-        &mut self.bus.apu
-    }
-
-    /// Returns the current [`Mapper`] state.
-    #[inline]
-    pub const fn mapper(&self) -> &Mapper {
-        &self.bus.mapper
-    }
-
-    /// Returns a mutable reference to the current [`Mapper`] state.
-    #[inline]
-    pub const fn mapper_mut(&mut self) -> &mut Mapper {
-        &mut self.bus.mapper
-    }
-
-    /// Returns the cartridge's memory - PRG, CHR, CIRAM and any expansion RAM, addressed through
-    /// the board's page tables.
-    #[inline]
-    pub const fn memory(&self) -> &Memory {
-        &self.bus.memory
-    }
-
-    /// Returns a mutable reference to the cartridge's memory.
-    #[inline]
-    pub const fn memory_mut(&mut self) -> &mut Memory {
-        &mut self.bus.memory
-    }
-
-    /// Returns the current [`Input`] state - joypads and the zapper.
-    #[inline]
-    pub const fn input(&self) -> &Input {
-        &self.bus.input
-    }
-
-    /// Returns a mutable reference to the current [`Input`] state.
-    #[inline]
-    pub const fn input_mut(&mut self) -> &mut Input {
-        &mut self.bus.input
     }
 
     /// Returns the current four player mode.
@@ -1916,10 +1960,14 @@ mod tests {
         run(&mut restored, 5);
         restored.load_state(state.as_slice()).expect("loads");
 
-        assert_eq!(restored.apu().speed, 1.0, "speed is the session's");
-        assert_eq!(restored.apu().sample_rate, 48_000.0, "so is sample rate");
+        assert_eq!(restored.bus().apu.speed, 1.0, "speed is the session's");
         assert_eq!(
-            restored.apu().synth.samples_per_cycle(),
+            restored.bus().apu.sample_rate,
+            48_000.0,
+            "so is sample rate"
+        );
+        assert_eq!(
+            restored.bus().apu.synth.samples_per_cycle(),
             crate::apu::band_limited::BandLimited::new(restored.bus().clock_rate(), 48_000.0, 1)
                 .samples_per_cycle(),
             "and the synthesiser is tuned to them, or it produces samples at the wrong rate"
