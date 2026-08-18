@@ -139,9 +139,6 @@ pub struct Bus {
     /// debugger is open.
     #[serde(skip)]
     pub code_map: Option<CodeMap>,
-    /// Scratch buffer for [`Bus::disassemble`].
-    #[serde(skip)]
-    pub disasm: String,
     /// Cheats: values substituted for what a read would otherwise return.
     ///
     /// Not serialized. A cheat is the player's current choice rather than the machine's - the same
@@ -190,7 +187,6 @@ impl Bus {
             debugger_active: false,
             pc_history: None,
             code_map: None,
-            disasm: String::new(),
         }
     }
 
@@ -217,8 +213,8 @@ impl Bus {
     /// whose ROM half is already correct, so only what a frame can actually change has to be
     /// copied. Restoring is `Bus::swap_state`, which hands the console back for the next one.
     ///
-    /// The debugger and the disassembly scratch are not copied, for the same reason `swap_state`
-    /// moves them across a restore: they belong to the session rather than to the state.
+    /// The debugger is not copied, for the same reason `swap_state` moves them across a restore:
+    /// they belong to the session rather than to the state.
     pub(crate) fn snapshot_from(&mut self, src: &Self) {
         // Destructured exhaustively so that a field added to `Bus` is a compile error here rather
         // than console state that silently fails to survive a run-ahead frame.
@@ -240,7 +236,6 @@ impl Bus {
             debugger: _,
             pc_history: _,
             code_map: _,
-            disasm: _,
         } = src;
 
         self.cpu.clone_from(cpu);

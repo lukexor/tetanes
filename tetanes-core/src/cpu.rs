@@ -1008,14 +1008,6 @@ impl Bus {
         };
     }
 
-    /// Disassemble the instruction at the given program counter.
-    pub fn disassemble(&mut self, pc: &mut u16) -> &str {
-        let mut out = std::mem::take(&mut self.disasm);
-        self.disassemble_into(pc, &mut out);
-        self.disasm = out;
-        &self.disasm
-    }
-
     /// Logs the disassembled instruction being executed.
     #[cold]
     #[inline(never)]
@@ -1037,9 +1029,10 @@ impl Bus {
         let i = if status.contains(Status::I) { 'I' } else { 'i' };
         let z = if status.contains(Status::Z) { 'Z' } else { 'z' };
         let c = if status.contains(Status::C) { 'C' } else { 'c' };
+        let mut disasm = String::with_capacity(64);
+        self.disassemble_into(&mut pc, &mut disasm);
         println!(
-            "{:<50} A:{acc:02X} X:{x:02X} Y:{y:02X} P:{n}{v}--d{i}{z}{c} SP:{sp:02X} PPU:{ppu_cycle:3},{ppu_scanline:3} CYC:{cycle}",
-            self.disassemble(&mut pc),
+            "{disasm:<50} A:{acc:02X} X:{x:02X} Y:{y:02X} P:{n}{v}--d{i}{z}{c} SP:{sp:02X} PPU:{ppu_cycle:3},{ppu_scanline:3} CYC:{cycle}",
         );
     }
 

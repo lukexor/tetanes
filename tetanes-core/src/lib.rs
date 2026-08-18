@@ -150,7 +150,6 @@ mod tests {
             region: NesRegion,
             debugger_active: bool,
             debugger: Debugger,
-            disasm: String,
             ppu: Ppu,
             apu: Apu,
             input: Input,
