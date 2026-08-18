@@ -63,6 +63,12 @@ pub struct EmulationConfig {
     pub save_slot: u8,
     pub speed: f32,
     pub threaded: bool,
+    /// Frames to clock in benchmark mode, or `None` for normal play.
+    ///
+    /// Skipped rather than stored: a benchmark is something a run is, not something a user
+    /// configures, and persisting it would leave the next launch uncapped and vsync-free.
+    #[serde(skip)]
+    pub bench: Option<u32>,
 }
 
 impl Default for EmulationConfig {
@@ -84,6 +90,7 @@ impl Default for EmulationConfig {
             save_slot: 1,
             speed: 1.0,
             threaded: true,
+            bench: None,
         }
     }
 }

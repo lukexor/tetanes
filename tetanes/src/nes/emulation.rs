@@ -312,11 +312,99 @@ pub struct State {
     speed: f32,
     run_ahead: usize,
     show_frame_stats: bool,
+    /// Frame-time accounting for `--bench`, absent in normal play.
+    bench: Option<Bench>,
 }
 
 impl Drop for State {
     fn drop(&mut self) {
         self.unload_rom();
+    }
+}
+
+/// Frame-time accounting for `--bench`.
+///
+/// Records the wall interval between finished frames, which is throughput rather than the cost of
+/// any one frame: threaded, that is the emulation thread's own rate, and single-threaded it is
+/// emulation plus render plus present, because the event loop does all three in turn.
+#[derive(Debug)]
+#[must_use]
+struct Bench {
+    /// Untimed frames still owed before the clock starts, so the measurement is not of boot.
+    warmup: u32,
+    /// Timed frames still owed.
+    remaining: u32,
+    /// Interval of each timed frame, in milliseconds.
+    intervals: Vec<f32>,
+    /// When the previous frame finished, or `None` before the first timed frame.
+    last: Option<Instant>,
+}
+
+impl Bench {
+    /// Frames clocked before timing starts. Matches `clock_frame`'s default so the two benchmarks
+    /// are measuring the same part of the run.
+    const WARMUP_FRAMES: u32 = 120;
+
+    fn new(frames: u32) -> Self {
+        Self {
+            warmup: Self::WARMUP_FRAMES,
+            remaining: frames,
+            intervals: Vec::with_capacity(frames as usize),
+            last: None,
+        }
+    }
+
+    /// Records a finished frame, returning true once the last timed frame is in.
+    fn frame_done(&mut self) -> bool {
+        if self.warmup > 0 {
+            self.warmup -= 1;
+            return false;
+        }
+        let now = Instant::now();
+        // The first timed frame only starts the clock: an interval needs two endpoints, and the
+        // one before it is the last warmup frame, which was not measured.
+        if let Some(last) = self.last.replace(now) {
+            self.intervals.push((now - last).as_secs_f32() * 1000.0);
+            self.remaining -= 1;
+        }
+        self.remaining == 0
+    }
+
+    /// Prints the same statistics `clock_frame` reports, so the two can be read side by side.
+    fn report(&self, threaded: bool) {
+        let n = self.intervals.len() as f32;
+        if n == 0.0 {
+            println!("no frames were timed");
+            return;
+        }
+        let mean = self.intervals.iter().sum::<f32>() / n;
+        let var = self
+            .intervals
+            .iter()
+            .map(|t| (t - mean).powi(2))
+            .sum::<f32>()
+            / n;
+        let stddev = var.sqrt();
+        let (min, max) = self
+            .intervals
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), t| {
+                (lo.min(*t), hi.max(*t))
+            });
+        let scope = if threaded {
+            "emulation thread"
+        } else {
+            "emulation + render"
+        };
+        println!("\n=== RESULTS ({scope}) ===");
+        println!(
+            "{:>10} {:>10} {:>8} {:>10} {:>10}",
+            "ms/frame", "stddev", "cv", "min", "max"
+        );
+        println!(
+            "{mean:>10.3} {stddev:>10.4} {:>7.2}% {min:>10.3} {max:>10.3}",
+            100.0 * stddev / mean
+        );
     }
 }
 
@@ -390,6 +478,7 @@ impl State {
             speed: cfg.emulation.speed,
             run_ahead: cfg.emulation.run_ahead,
             show_frame_stats: false,
+            bench: cfg.emulation.bench.map(Bench::new),
         };
         state.update_region(cfg.deck.region);
         state.update_run_ahead();
@@ -679,6 +768,17 @@ impl State {
                 self.control_deck.connect_zapper(*connected);
             }
             _ => (),
+        }
+    }
+
+    /// Counts a frame against `--bench`, reporting and shutting down once the last one is in.
+    fn update_bench(&mut self) {
+        let threaded = self.threaded;
+        if let Some(bench) = &mut self.bench
+            && bench.frame_done()
+        {
+            bench.report(threaded);
+            self.tx.event(UiEvent::Terminate);
         }
     }
 
@@ -1016,6 +1116,11 @@ impl State {
         // Park if we're paused, occluded, or not running
         let duration = if self.run_state.paused() || !self.control_deck.is_running() {
             Some(self.target_frame_duration - park_epsilon)
+        } else if self.bench.is_some() {
+            // Benchmarking measures how fast frames *can* be produced, so the frame clock that
+            // normally holds them to the region's rate does not apply. Only the running check
+            // above still does: a paused benchmark would spin without producing frames.
+            None
         } else {
             // A steady wall clock, whatever audio is doing. `update_audio_rate` holds the audio
             // queue at its target by bending pitch imperceptibly; gating frame timing on that
@@ -1128,6 +1233,7 @@ impl State {
                         Err(_) => shutdown(&self.tx, "failed to get frame"),
                     }
                     self.update_frame_stats();
+                    self.update_bench();
                     if self.auto_save && self.last_auto_save.elapsed() > self.auto_save_interval {
                         self.last_auto_save = Instant::now();
                         self.save_state(self.save_slot, true);

@@ -476,6 +476,11 @@ impl Renderer {
     }
 
     pub fn save(&mut self, cfg: &Config) -> anyhow::Result<()> {
+        // A benchmark run is not a session worth remembering, and writing this one back would
+        // overwrite the real config and window state with whatever the benchmark was given.
+        if cfg.emulation.bench.is_some() {
+            return Ok(());
+        }
         cfg.save()?;
 
         let path = Config::default_config_dir().join("gui.dat");
@@ -522,13 +527,20 @@ impl Renderer {
             Theme::Light
         }));
 
+        // A benchmark has to be free to run ahead of the display, or it measures the monitor.
+        let present_mode = if cfg.emulation.bench.is_some() {
+            wgpu::PresentMode::AutoNoVsync
+        } else {
+            wgpu::PresentMode::AutoVsync
+        };
+
         let (painter_tx, painter_rx) = channel::bounded(1);
         thread::spawn({
             let window = Arc::clone(&window);
             let event_tx = tx.clone();
             async move {
                 debug!("creating painter...");
-                match Self::create_painter(window).await {
+                match Self::create_painter(window, present_mode).await {
                     Ok(painter) => {
                         painter_tx.send(painter).expect("failed to send painter");
                         event_tx.event(RendererEvent::ResourcesReady);
@@ -654,7 +666,10 @@ impl Renderer {
         Ok(window)
     }
 
-    pub async fn create_painter(window: Arc<Window>) -> anyhow::Result<Painter> {
+    pub async fn create_painter(
+        window: Arc<Window>,
+        present_mode: wgpu::PresentMode,
+    ) -> anyhow::Result<Painter> {
         // The window must be ready with a non-zero size before `Painter::set_window` is called,
         // otherwise the wgpu surface won't be configured correctly.
         let start = Instant::now();
@@ -670,7 +685,7 @@ impl Renderer {
             start.elapsed().as_secs_f32()
         );
 
-        let mut painter = Painter::new();
+        let mut painter = Painter::new(present_mode);
         painter
             .set_window(ViewportId::ROOT, Some(Arc::clone(&window)))
             .await?;

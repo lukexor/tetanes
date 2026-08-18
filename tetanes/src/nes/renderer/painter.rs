@@ -93,6 +93,11 @@ pub struct Painter {
     instance: wgpu::Instance,
     render_state: Option<RenderState>,
     surfaces: ViewportIdMap<Surface>,
+    /// How every surface this painter configures waits for the display.
+    ///
+    /// Fixed for the life of the painter: only `--bench` sets it to anything but `AutoVsync`, and
+    /// a benchmark chooses it before the first surface exists.
+    present_mode: wgpu::PresentMode,
 }
 
 impl Default for Painter {
@@ -111,13 +116,17 @@ impl Default for Painter {
             instance: wgpu::Instance::new(descriptor),
             render_state: None,
             surfaces: Default::default(),
+            present_mode: wgpu::PresentMode::AutoVsync,
         }
     }
 }
 
 impl Painter {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(present_mode: wgpu::PresentMode) -> Self {
+        Self {
+            present_mode,
+            ..Self::default()
+        }
     }
 
     pub fn set_shader(&mut self, shader: Shader) {
@@ -147,7 +156,9 @@ impl Painter {
                 let render_state = match &mut self.render_state {
                     Some(render_state) => render_state,
                     None => {
-                        let render_state = RenderState::create(&self.instance, &surface).await?;
+                        let render_state =
+                            RenderState::create(&self.instance, &surface, self.present_mode)
+                                .await?;
                         self.render_state.get_or_insert(render_state)
                     }
                 };
@@ -347,6 +358,7 @@ pub struct RenderState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub format: wgpu::TextureFormat,
+    present_mode: wgpu::PresentMode,
 
     pipeline: wgpu::RenderPipeline,
 
@@ -372,6 +384,7 @@ impl RenderState {
     async fn create(
         instance: &wgpu::Instance,
         surface: &wgpu::Surface<'_>,
+        present_mode: wgpu::PresentMode,
     ) -> anyhow::Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -576,6 +589,7 @@ impl RenderState {
             device,
             queue,
             format,
+            present_mode,
 
             pipeline,
 
@@ -656,8 +670,7 @@ impl RenderState {
                 format: self.format,
                 width: width.get(),
                 height: height.get(),
-                // TODO: Support disabling vsync
-                present_mode: wgpu::PresentMode::AutoVsync,
+                present_mode: self.present_mode,
                 desired_maximum_frame_latency: 2,
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
                 view_formats: vec![self.format],

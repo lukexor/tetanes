@@ -104,6 +104,18 @@ pub struct Opts {
     /// Start with debugger open.
     #[arg(short, long)]
     pub(crate) debug: bool,
+    /// Clock <FRAMES> frames as fast as the pipeline allows, print frame times and exit.
+    ///
+    /// Pair with `--no-threaded` to measure the whole pipeline: emulation and rendering are then
+    /// serialized in the event loop, so the frame interval is what one displayed frame costs.
+    /// Threaded, the emulation thread free-runs and the renderer drops what it cannot keep up
+    /// with, so the interval measures the emulation thread alone.
+    ///
+    /// A result pinned to the display's refresh interval means the compositor refused the tearing
+    /// present mode and is still pacing the surface - Wayland does this unless tearing is enabled
+    /// for the window. Run under X11 to get a number.
+    #[arg(long, value_name = "FRAMES")]
+    pub(crate) bench: Option<u32>,
 }
 
 impl Opts {
@@ -149,6 +161,19 @@ impl Opts {
             cfg.emulation.speed = speed
         }
         cfg.emulation.threaded = !self.no_threaded && cfg.emulation.threaded;
+        cfg.emulation.bench = self.bench;
+        if self.bench.is_some() {
+            // A benchmark session writes nothing. Partly because a run that saves is timing the
+            // filesystem and one that resumes is not starting from power-on, but mostly because
+            // it is not a session the user asked to have recorded: it runs against whatever ROM
+            // is convenient, from a config that may have come from `--clean`, and persisting any
+            // of that back over the real config, GUI state or battery file loses their data.
+            // `Renderer::save` is the other half of this; `sram_dir: None` stops the deck
+            // touching the filesystem at all.
+            cfg.emulation.auto_save = false;
+            cfg.emulation.auto_load = false;
+            cfg.deck.sram_dir = None;
+        }
 
         cfg.audio.enabled = !self.silent && cfg.audio.enabled;
 
