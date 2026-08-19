@@ -19,12 +19,18 @@ is `Bus::copy_ppu_bus`, which fills a buffer with `$0000-$2FFF` as currently ban
 needs board knowledge. The dot is the only trigger `Debugger` has.
 
 **A breakpoint is a stop condition the caller passes in, not a callback.**
-`ControlDeck::clock_frame_until` takes a predicate over PC, checks it between instructions, and
-reports `Clocked::Stopped` with the frame left half clocked for the next call to finish, so
-stopping unwinds to whoever drives the console instead of running arbitrary work in the middle of
-a frame. `clock_frame` shares its display-frame accounting through `clock_frame_with` and so adds
-nothing for it. The UI owns the list of addresses (`renderer/gui/debugger.rs`), and an empty list
-keeps a console with no breakpoints on the frame-at-a-time path.
+`ControlDeck::clock_frame_until` and `clock_scanline_until` take a predicate over the bus, check it
+between instructions, and report that they stopped short with the frame or scanline left half
+clocked for the next call to finish, so stopping unwinds to whoever drives the console instead of
+running arbitrary work in the middle of a frame. `clock_frame` and `clock_scanline` are those two
+with a predicate that never fires, and `clock_frame` shares its display-frame accounting through
+`clock_frame_with`. The UI owns the list of addresses (`renderer/gui/debugger.rs`), and an empty
+list keeps a console with no breakpoints on the frame-at-a-time path.
+
+**Every way of running the console asks one condition,** `emulation.rs`'s `breaks_here`, so a step
+stops at a breakpoint the way a resume does. Step into and step over clock an instruction, step out
+and step over's tail run `step_until`, and stepping a scanline or a frame goes through the `_until`
+pair. A step that stops reports through `on_breakpoint`, the same path the running console takes.
 
 **A breakpoint carries the arena offset of its start address,** taken when it is set, and
 `Breakpoint::matches` stops only where the mapping still puts those bytes at that address. A CPU

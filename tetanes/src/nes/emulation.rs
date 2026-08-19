@@ -170,6 +170,19 @@ fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
     tx.event(UiEvent::Terminate);
 }
 
+/// Whether an armed breakpoint stops the console where it now stands.
+///
+/// The one condition every way of running the console asks, so a step reaches a breakpoint the
+/// same way a resume does. Reads and writes are caught on the bus and left in `access_hit`.
+/// Execution is checked here, between instructions, since a fetch and an operand read look alike
+/// on the bus.
+fn breaks_here(bus: &Bus, breakpoints: &[Breakpoint]) -> bool {
+    bus.access_hit.is_some()
+        || breakpoints.iter().any(|breakpoint| {
+            breakpoint.breaks && breakpoint.matches(&bus.memory, bus.cpu.pc, Access::EXEC)
+        })
+}
+
 #[derive(Debug)]
 #[must_use]
 enum Threads {
@@ -684,10 +697,16 @@ impl State {
             // event
             EmulationEvent::DebugStep(step) => {
                 if self.control_deck.is_running() {
-                    match step {
+                    // Cloned so the step can drive the console while the condition still reads
+                    // the armed set. At most `Breakpoints::MAX` `Copy` structs, and only on a
+                    // step.
+                    let breakpoints = self.debug_breakpoints.clone();
+                    let stopped = match step {
+                        // A step of exactly one instruction lands where it was asked to, so
+                        // announcing a breakpoint at the address it was aimed at says nothing.
+                        // What it read or wrote on the way is still worth reporting.
                         DebugStep::Into => {
-                            self.write_deck(|deck| deck.clock_instr());
-                            self.send_frame();
+                            self.write_deck(|deck| deck.clock_instr()).map(|()| false)
                         }
                         DebugStep::Out => {
                             // Waiting on the stack pointer alone stops in the middle of returning
@@ -695,44 +714,47 @@ impl State {
                             // stack. The stack frame has not been left until the return address
                             // itself is pulled, which only a return instruction does.
                             let sp = self.control_deck.bus().cpu.sp;
-                            self.step_until(|deck, opcode| {
+                            Some(self.step_until(&breakpoints, |deck, opcode| {
                                 matches!(opcode, Cpu::RTS | Cpu::RTI) && deck.bus().cpu.sp > sp
-                            });
-                            self.send_frame();
+                            }))
                         }
                         DebugStep::Over => {
                             // Only a jump has anything to step over.
                             let &Cpu { pc, sp, .. } = &self.control_deck.bus().cpu;
                             let is_jsr = self.control_deck.bus().peek(pc) == Cpu::JSR;
-                            self.write_deck(|deck| deck.clock_instr());
-                            if is_jsr {
-                                // The stack pointer is below where the call left it, and the only
-                                // thing that brings it back up to `sp` is pulling that return
-                                // address.
-                                self.step_until(|deck, _| deck.bus().cpu.sp >= sp);
-                            }
-                            self.send_frame();
+                            self.write_deck(|deck| deck.clock_instr()).map(|()| {
+                                is_jsr
+                                    // The stack pointer is below where the call left it, and the
+                                    // only thing that brings it back up to `sp` is pulling that
+                                    // return address.
+                                    && self.step_until(&breakpoints, |deck, _| {
+                                        deck.bus().cpu.sp >= sp
+                                    })
+                            })
                         }
-                        DebugStep::Scanline => {
-                            if self.write_deck(|deck| deck.clock_scanline()).is_some() {
-                                self.send_frame();
-                            }
-                        }
+                        DebugStep::Scanline => self.write_deck(|deck| {
+                            deck.clock_scanline_until(|bus| breaks_here(bus, &breakpoints))
+                        }),
                         DebugStep::Frame => {
                             // One NES frame, which stepping means regardless of the speed a
                             // display frame would clock.
-                            if self
-                                .write_deck(|deck| deck.clock_frame().map(|_| ()))
-                                .is_some()
-                            {
-                                self.send_frame();
-                            }
+                            self.write_deck(|deck| {
+                                deck.clock_frame_until(|bus| breaks_here(bus, &breakpoints))
+                                    .map(|clocked| clocked == Clocked::Stopped)
+                            })
+                        }
+                    };
+                    if let Some(stopped) = stopped {
+                        // A step that reached a breakpoint reports it the way a running console
+                        // does, so the message and the window focus are the same either way. An
+                        // access is caught part way through an instruction, which a step of any
+                        // size can make.
+                        if stopped || self.control_deck.bus().access_hit.is_some() {
+                            self.on_breakpoint(self.control_deck.bus().cpu.pc);
+                        } else {
+                            self.send_frame();
                         }
                     }
-                    // A step reports where it landed, so an access it made is already on screen.
-                    // Leaving the hit would stop the next resume on the first instruction and
-                    // name an address from before the step.
-                    self.control_deck.take_access_hit();
                     // A step can cross a bank switch, which moves every instruction after it.
                     self.send_address_space();
                 }
@@ -984,29 +1006,40 @@ impl State {
         self.send_debug_snapshot();
     }
 
-    /// Clock instructions until `done`, or until a default budget is spent.
+    /// Clock instructions until `done` or an armed breakpoint, or until a default budget is spent,
+    /// reporting whether a breakpoint stopped it.
     ///
     /// Bounded by budget because a subroutine that never returns - a crash, or a wait loop - would
     /// otherwise never finish, and on the single-threaded backend would block the UI thread. The
     /// budget is a few seconds of emulated time, far longer than any subroutine worth stepping
     /// over.
-    fn step_until(&mut self, done: impl Fn(&ControlDeck, u8) -> bool) {
+    fn step_until(
+        &mut self,
+        breakpoints: &[Breakpoint],
+        done: impl Fn(&ControlDeck, u8) -> bool,
+    ) -> bool {
         const BUDGET: usize = 5_000_000;
 
         for _ in 0..BUDGET {
             let pc = self.control_deck.bus().cpu.pc;
             let opcode = self.control_deck.bus().peek(pc);
             if self.write_deck(|deck| deck.clock_instr()).is_none() {
-                return;
+                return false;
+            }
+            // Asked before `done`, so a step that both returns and lands on a breakpoint reports
+            // the breakpoint. Either way the console stops in the same place.
+            if breaks_here(self.control_deck.bus(), breakpoints) {
+                return true;
             }
             if done(&self.control_deck, opcode) {
-                return;
+                return false;
             }
         }
         self.add_message(
             MessageType::Warn,
             "Step timed out - the subroutine has not returned.",
         );
+        false
     }
 
     /// Send the Debugger a snapshot, if it's open.
@@ -1383,17 +1416,15 @@ impl State {
     /// it was recorded at.
     fn clock_display_frame(&mut self) -> control_deck::Result<Option<u16>> {
         loop {
-            let clocked = if self.debug_breakpoints.is_empty() {
+            // Only a breakpoint that stops needs the check between instructions. One that records
+            // is caught on the bus, and an `access_hit` is only ever set by one that stops, so a
+            // list of recording breakpoints alone keeps the frame-at-a-time path.
+            let clocked = if !self.debug_breakpoints.iter().any(|b| b.breaks) {
                 self.control_deck.clock_frame()?
             } else {
                 let breakpoints = &self.debug_breakpoints;
-                self.control_deck.clock_frame_until(|bus| {
-                    bus.access_hit.is_some()
-                        || breakpoints.iter().any(|breakpoint| {
-                            breakpoint.breaks
-                                && breakpoint.matches(&bus.memory, bus.cpu.pc, Access::EXEC)
-                        })
-                })?
+                self.control_deck
+                    .clock_frame_until(|bus| breaks_here(bus, breakpoints))?
             };
             if clocked == Clocked::Stopped {
                 // Part way through a frame, so there is nothing to snapshot: the frame the display

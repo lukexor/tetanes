@@ -1565,6 +1565,20 @@ impl ControlDeck {
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<()> {
+        self.clock_scanline_until(|_| false).map(|_| ())
+    }
+
+    /// [`ControlDeck::clock_scanline`] that stops as soon as `stop` accepts the console, reporting
+    /// whether it stopped short of the scanline.
+    ///
+    /// `stop` is asked about the console each instruction leaves behind, so one that stops is
+    /// sitting on the instruction rather than past it, and resuming runs that instruction before
+    /// asking again.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
+    pub fn clock_scanline_until(&mut self, stop: impl Fn(&Bus) -> bool) -> Result<bool> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
@@ -1573,8 +1587,11 @@ impl ControlDeck {
         let current_scanline = self.bus.ppu.scanline;
         while current_scanline == self.bus.ppu.scanline {
             self.step_instr()?;
+            if stop(&self.bus) {
+                return Ok(true);
+            }
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Returns whether the CPU is corrupted, which means it encountered an invalid/unhandled
@@ -2451,6 +2468,34 @@ mod tests {
         );
         assert_eq!(deck.bus().cpu.pc, target);
         assert_eq!(deck.frame_number(), 0, "the frame was clocked to the end");
+    }
+
+    /// Stepping a scanline covers enough instructions to reach a breakpoint, which is the whole
+    /// reason it asks.
+    #[test]
+    fn clocking_a_scanline_stops_before_the_instruction_it_was_asked_to_stop_at() {
+        let target = pc_after(100);
+
+        let mut deck = spritecans();
+        let scanline = deck.bus().ppu.scanline;
+        assert!(
+            deck.clock_scanline_until(|bus| bus.cpu.pc == target)
+                .expect("clocks")
+        );
+        assert_eq!(deck.bus().cpu.pc, target);
+        assert_eq!(
+            deck.bus().ppu.scanline,
+            scanline,
+            "the scanline was clocked to the end"
+        );
+    }
+
+    #[test]
+    fn a_scanline_stop_condition_that_never_fires_clocks_the_scanline_as_usual() {
+        let mut deck = spritecans();
+        let scanline = deck.bus().ppu.scanline;
+        assert!(!deck.clock_scanline_until(|_| false).expect("clocks"));
+        assert_ne!(deck.bus().ppu.scanline, scanline);
     }
 
     /// A stop leaves the display frame owing the frame it interrupted, so resuming finishes that
