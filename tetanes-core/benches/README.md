@@ -163,8 +163,15 @@ These are the measurements a comment in the tree cites; the rest of the history 
   `chr_peek`, and that is the length load rather than the branch. The panic edge is 0.00% in both:
   never taken and laid out cold.
 
-Two build-level notes:
+Three build-level notes:
 
+- **`cargo pgo optimize`'s "profile data was not found for N functions" is expected, and is not an
+  LTO or a profile mismatch.** A profile trained on `--bench clock_frame` covers the plain
+  `tetanes-core` rlib and nothing else. Every warning an unfiltered `cargo pgo optimize bench` emits
+  comes from a `--test` lib unit — `tetanes` and `tetanes-libretro`, which the bench never links,
+  and `tetanes-core` recompiled under `cfg(test)`, whose different `-Cmetadata` puts a new crate
+  disambiguator in every v0 symbol, so nothing matches by name. The bench binary itself warns for
+  nothing. `cargo pgo optimize bench -- --bench clock_frame` builds only that target and is silent.
 - **Full LTO buys nothing** — `--profile release` measured 3.007 against `--profile perf` 3.014.
   `tetanes-core` is a single crate. The `perf` profile is a faithful stand-in for release, so its
   profiles are representative.
@@ -181,19 +188,31 @@ Two build-level notes:
 a baseline to compare a fresh run against** — an A/B is only meaningful against a build you measured
 yourself, in the same session, the same way.
 
-Desktop, 2026-08-01. `--profile perf`, `TETANES_BENCH_NO_OUTPUT=1`, `taskset -c 0`, quiet 16-core
-x86-64, 10 x 600 frames with 120 warmup.
+Desktop, 2026-08-18. PGO build (`cargo make pgo-profile`, then `cargo pgo optimize bench`),
+`TETANES_BENCH_NO_OUTPUT=1`, unpinned, quiet 16-core x86-64, 10 x 600 frames with 120 warmup, every
+ROM under 1% cv. MesenCE ran on the same machine and corpus minutes later, in its default mode.
 
-| ROM | Mapper | ms/frame |
-|---|---|---|
-| spritecans | 000 NROM (sprite stress) | 1.716 |
-| Super Mario Bros. | 000 NROM | 1.742 |
-| Legend of Zelda | 001 MMC1 | 1.774 |
-| Super Mario Bros. 3 | 004 MMC3 | 1.959 |
-| Punch-Out!! | 009 MMC2 | 1.672 |
-| Castlevania III | 005 MMC5 | 2.808 |
-| Akumajou Densetsu | 024 VRC6 | 2.323 |
-| **geometric mean** | | **1.965** |
+| ROM | Mapper | TetaNES | MesenCE | delta |
+|---|---|---|---|---|
+| spritecans | 000 NROM (sprite stress) | 1.543 | 1.666 | -7.4% |
+| Super Mario Bros. | 000 NROM | 1.600 | 1.627 | -1.7% |
+| Legend of Zelda | 001 MMC1 | 1.574 | 1.615 | -2.5% |
+| Super Mario Bros. 3 | 004 MMC3 | 1.709 | 1.698 | +0.6% |
+| Punch-Out!! | 009 MMC2 | 1.529 | 1.593 | -4.0% |
+| Castlevania III | 005 MMC5 | 2.709 | 2.563 | +5.7% |
+| Akumajou Densetsu | 024 VRC6 | 2.355 | 2.260 | +4.2% |
+| **geometric mean** | | **1.814** | **1.829** | **-0.8%** |
+
+**Compare like with like or that number is wrong by half** — `TETANES_BENCH_NO_OUTPUT=1` is the
+match for MesenCE's default, which runs its video filter on a separate thread. Timing the two
+defaults against each other reads as a ~25% gap because it puts `Video::apply_filter` on one side
+and nothing on the other.
+
+The two are at parity on this corpus: -0.8% geomean is below this machine's floor, and the runs were
+consecutive rather than interleaved. The shape is what the table is for: TetaNES is ahead by 2-7% on
+NROM, MMC1 and MMC2, level on MMC3, and behind by 4-6% on MMC5 and VRC6, the two boards whose audio
+expansion is clocked every CPU cycle. The two directions cancel so exactly that both arithmetic
+means are 1.860.
 
 Raspberry Pi 5 Model B, 2026-08-03 (Cortex-A76 x4 @ 2.4 GHz, Rocky 10). `--profile perf` built for
 `aarch64-unknown-linux-musl` with `rust-lld`, performance governor, `taskset`-pinned, same corpus.
@@ -211,14 +230,8 @@ even though it is not on x86** — IPC 2.26 and L1 miss rates under 0.15%, but a
 rate worth roughly 15% of cycles, spread across the whole loop rather than concentrated in one
 convertible select.
 
-For reference against another emulator, measured the same day on the same desktop and corpus with
-`--profile release`: TetaNES 1.953 geomean against MesenCE 1.812, a 7.8% gap, worst on MMC3
-(+14.8%) and best on VRC6 (+3.3%). **Compare like with like or that number is wrong by half** —
-`TETANES_BENCH_NO_OUTPUT=1` is the match for MesenCE's default, which runs its video filter on a
-separate thread. Timing the two defaults against each other reads as a ~25% gap because it puts
-`Video::apply_filter` on one side and nothing on the other. Both binaries were non-PGO and generic
-x86-64, so the comparison is architectural.
-
-Note when reading anything older: `spritecans.nes` is the sole PGO training workload, which biases
-branch layout toward mapper 0, and baselines recorded before 2026-07 excluded the output filter, so
-they are comparable to `TETANES_BENCH_NO_OUTPUT=1` runs rather than to the current default.
+PGO trains on the varied ROM list in the `cargo make pgo-profile` task, which spans NROM, MMC3,
+MMC5 and the APU/PPU/CPU test ROMs. A baseline recorded against a narrower training set carries that
+set's branch-layout bias — a spritecans-only profile biases toward mapper 0. Baselines recorded
+before 2026-07 also excluded the output filter, so they are comparable to
+`TETANES_BENCH_NO_OUTPUT=1` runs rather than to the current default.
