@@ -38,25 +38,14 @@ nightly/stable/1.88.
 
 ### Tests
 
-Both crates have tests, each with its own CI job. `tetanes-core`'s are the bulk of them; `tetanes`'
-cover the audio-rate control loop and the rewind ring.
+Both crates have tests, each with its own CI job. `tetanes-core`'s are the bulk of them, and most
+are ROM snapshot tests.
 
 ```sh
 cargo nextest run -p tetanes-core --all-features           # everything
 cargo nextest run -p tetanes-core nestest                  # substring filter for one test
 cargo nextest run -p tetanes-core common::tests::cpu::     # a whole ROM-test group
-cargo make update-snapshots -- <test>                      # rewrite expected frame hashes
 ```
-
-Most tests are **ROM snapshot tests**. The harness lives in `tetanes-core/src/common.rs` (`mod tests`):
-the `test_roms!` macro declares one `#[test]` per named ROM, expectations come from
-`test_roms/<dir>/tests.json` (frame number → frame-buffer or audio hash, plus optional `Action`s to
-inject), and rendered PNGs land in `tetanes-core/test_results/{pass,fail}/`. Adding a ROM test means
-adding the ROM + a `tests.json` entry + a name in the relevant `test_roms!` invocation at the bottom
-of `common.rs`. `cargo make update-snapshots` rewrites `tests.json` in place — only use it when a
-hash change is intentional and the resulting PNG has been eyeballed. It is `UPDATE_SNAPSHOT=1` plus
-`--test-threads=1`; the harness merges its own entry into the file under a lock either way, so the
-raw env var is safe too, but serialising keeps the diff readable.
 
 ### Commit messages
 
@@ -74,6 +63,9 @@ A `BREAKING CHANGE:` footer must be **one line**. `cliff.toml` renders
 so a wrapped footer silently loses everything after the first line in the changelog.
 
 ## Architecture
+
+Per-area detail lives in .claude/rules/ and loads when you open the matching files: mappers,
+debugging support, the UI crate, and the ROM test harness.
 
 ### Emulation core
 
@@ -125,16 +117,6 @@ buy no polymorphism and cost an import in every file plus a name clash whenever 
 **Adding a component method does not mean adding a trait.** Prefer an inherent method plus an
 explicit forwarding call from the owner.
 
-**Doc comments are for consumers; rationale is for maintainers.** `///` and `//!` say what a thing
-is and how to use it. A plain `//` comment next to the code explains why it is the way it is, and
-what it is for, when that is not clear from reading it — `Bus::wram`'s "measured un-boxed: ~1.2%
-slower, keep it boxed" is the pattern.
-
-**Comments describe the code as it stands, not its history.** Git has the history. "This used to
-be X", "before the rewrite", and "the old loop did Y" all age into noise and mislead the next
-reader about what the code does now. A measurement that justifies a choice is worth keeping,
-because it is the reason the code is that way; the shape the code had before it is not.
-
 Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
 (`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save
 states.
@@ -150,99 +132,60 @@ skip: a snapshot's settings are already the running console's, and the APU histo
 back with them belongs to the timeline being discarded. Page tables are likewise absent, rebuilt by
 `Bus::rebuild_mapper_state` from the restored mapper registers.
 
-**A debugger callback is handed the whole `Bus`** (`debug.rs`), not one component's state, because
-what a debugger needs differs per debugger — a CPU debugger wants registers and the disassembly
-around PC, an APU viewer the channels, a hex viewer an arbitrary range, the PPU viewer CHR resolved
-through the board. Each viewer's closure runs at the break point and copies out only what it ships
-to its own thread; `ppu_viewer.rs`'s `PpuSnapshot` is one such choice, not the API. Core's part is
-`Bus::copy_ppu_bus`, which fills a buffer with `$0000-$2FFF` as currently banked, so no consumer
-needs board knowledge. The dot is the only trigger today; `Debugger` is the struct to extend when
-breakpoints land.
-
 ### Mappers
 
-`Mapper` is an **enum with static dispatch**, not a boxed trait object — this is deliberate for
+`Mapper` is an **enum with static dispatch**, not a boxed trait object, and that is deliberate for
 performance. Each board implements the `Map` trait, where only `mirroring` is required and
 everything else has a default, so a board writes exactly the hooks its hardware has: register
-writes, `update_banks`, the `prg_read`/`chr_read` escape hatches for things no page entry can describe,
-IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits; `Mapper` carries
-the inherent `clock`/`reset`/`region`/`output` methods and forwards them down the ownership tree.
+writes, `update_banks`, the `prg_read`/`chr_read` escape hatches for things no page entry can
+describe, IRQ/DMA pending, and `clock`/`reset`/`region`/`output`. `Map` has no supertraits, and
+`Mapper` carries the inherent `clock`/`reset`/`region`/`output` methods and forwards them down the
+ownership tree.
 
-**Adding a mapper is four edits:**
+Adding a board is four edits, and the stable serialization ids are the part that breaks save states
+when got wrong. Both are in the mappers rule.
 
-1. `tetanes-core/src/mapper/m0NN_<name>.rs` (files are named by primary mapper number; shared logic
-   lives in un-numbered files like `mmc1.rs`, `mmc3.rs`, `vrc_irq.rs`).
-2. One row in the `boards!` table in `mapper.rs`, which generates the `pub mod`, the `pub use`, the
-   `Mapper` variant, the `From` impls, every dispatch arm, the mapper-number match in
-   `Mapper::from_cart` (which `Cart::from_rom` calls), and the `print_layouts` entry.
-3. An arm in `ControlDeck::update_mapper_revisions` (`control_deck.rs`), whose match over `Mapper`
-   is exhaustive: a board with a user-selectable revision calls `set_revision`, everything else
-   joins the no-op list. This one the compiler catches.
-4. A row in the supported-mapper table in `README.md`. Nothing catches this one, and it is the step
-   that gets skipped.
+## Lint/style conventions worth knowing
 
-A board module that publicly exports something *other* than the board type — so far only a revision
-enum — needs a `pub use` next to the table. Optionally add a `test_roms!` group in `common.rs`.
+- Lints live in `Cargo.toml`'s `[workspace.lints]` - treat those as the source
+  of truth. Prefer `Mutex` over `RwLock` (std/parking_lot) without a perf
+  justification. Avoid `unsafe` unless absolutely necessary.
+- `typos` runs as part of `cargo make lint`. `typos.toml` contains the ignored
+  words and patterns.
+- `deny.toml` enforces license + security-advisory policy.
+- Error handling: `Result<T, E>`/`Option<T>` for recoverable/absent values,
+  `thiserror` for errors. Avoid `unwrap`/`expect` outside tests unless the
+  invariant is guaranteed and documented.
+- `tracing` for structured logging.
+- Prefer `fs::copy` over `fs::rename` - the latter fails when `src`/`dst` are on
+  different mount points.
+- Favor the Actor pattern over shared-state locking. When locking is needed,
+  `Arc<Mutex<_>>` over `RwLock` absent a measured perf need. Prefer turbofish
+  (`collect::<HashMap<_, _>>()`) over manual type annotations. Encapsulate any
+  `unsafe` in a safe abstraction and document it with a `# Safety` section.
+- API design: use `Into`/`From`/`TryFrom` for conversions
+  (`.into()`/`try_into()` at call sites avoids future churn), implement `Debug`
+  for public types, use `#[non_exhaustive]` for enums expected to grow, and
+  restrict visibility to the smallest scope needed (`pub(crate)` over `pub`).
+- Before naming a new type, check for vocabulary collisions with existing names
+  and prefer the established `module::Type` convention.
 
-Each row carries `= <id>`, its **stable serialization id: assign-once, never reused, never
-renumbered.** That id is what goes on disk, so **rows can be reordered freely — keep the table in
-mapper-number order.** The id *is* the board's primary (lowest) mapper number, so the table reads as
-its own index; a board sharing a number with an earlier one (NINA-001 vs BNROM, both mapper 34)
-takes `0x1000 + n` instead, above every real NES 2.0 number, and `Mapper::none()` is `0xFFFF` since
-0 is NROM.
+## Writing documentation
 
-This is why `Serialize`/`Deserialize` for `Mapper` are hand-rolled: serde's derive tags variants by
-*declaration position* and honours neither an explicit discriminant nor `#[repr]` (`enum E { A = 10 }`
-still serializes as `0`), and bincode 2's own non-serde derive behaves the same, so the stability has
-to live in our code to survive changing serializer. `mapper::tests::variant_tag_is_the_stable_id_not_the_declaration_position` pins the
-bytes; `board_ids_are_unique_and_not_reserved` catches a duplicated id.
+The full house style is the `writing-docs` skill, and `~/.claude/hooks/doc-lint.py` rejects the
+mechanical half at write time. The rules that apply while writing:
 
-Where two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
-mutually exclusive `if` guards, so loader dispatch never depends on row order either.
+- Say it once. State the fact, then stop.
+- Describe the code as it stands, not its history. Git has the history.
+- `///` and `//!` are for consumers. Rationale goes in a plain `//` beside the code.
+- Name the mechanism, not the intent. Make the component the subject.
+- One idea per sentence. No semicolon joining two clauses.
+- No em-dash or en-dash. Use a comma, parens, or ` - `.
+- US spelling: center, rigor. Contractions are fine, and so is "we".
+- Wrap comments at 100 columns, markdown prose at 80.
+- Every item gets a doc comment, and siblings get the same treatment.
 
-A mapper number no row claims is `Error::Unimplemented`, so an unsupported ROM says so instead of
-loading as open bus and showing a black screen. Tools that survey ROMs rather than run them use
-`Cart::from_path_unmapped`/`from_rom_unmapped`, which skip board selection entirely.
+## Additional guidelines
 
-Large boards are boxed in the enum (`Exrom`, `Namco163`, `Vrc6`, `BandaiFCG`, `SunsoftFme7`) to keep
-`Mapper` small — `print_layouts` prints every board's unboxed size and the enum's own, so this stays
-watchable without a number here to go stale. Boxing is a **measured** trade, not a size rule: it
-costs an indirection on boards clocked every CPU cycle, and both directions have surprised us. See
-`tetanes-core/benches/README.md`.
-
-Boards that can't be identified from the header use `MapperRevision` (user/DB selectable, see
-`MapperRevisionsConfig`), and `tetanes-core/game_db.dat` / `tetanes-core/game_database.txt` supply
-per-ROM overrides by CRC. `tetanes-utils`' `generate_db` regenerates them, but it takes a directory
-of `.nes` files that is not in the repo, so a correction to a handful of entries is easier made
-against `game_database.txt` and re-encoded than by rebuilding from a corpus.
-
-`docs/` is NES hardware reference, not project documentation. `docs/mapper/` holds Disch's mapper
-documents, one `NNN.txt` per mapper number — read those before reaching for nesdev.
-
-### UI crate
-
-`Nes` (`nes.rs`) is the winit `ApplicationHandler`, holding a `State` machine
-(`Suspended → Pending → Running → Exiting`) because wgpu/window resources are created asynchronously.
-`Running` owns:
-
-- **`Emulation`** (`nes/emulation.rs`) — runs the `ControlDeck`. It has two backends: `Threads::Multi`
-  (emulation on its own thread, self-clocking, woken via `unpark`) and `Threads::Single` (clocked
-  from the event loop). Selection is `cfg.emulation.threaded` (CLI `--no-threaded`) AND
-  `available_parallelism() > 1`, so single-threaded is what runs on wasm. Frames reach the renderer over a `thingbuf`
-  channel with a `FrameRecycle` pool to avoid per-frame allocation.
-- **`Renderer`** (`nes/renderer.rs`) — egui + wgpu, multi-viewport aware, with the emulator frame
-  drawn through a custom `painter`/`shader`/`texture` path and the GUI in `renderer/gui.rs`.
-
-All communication is via `NesEvent` (`nes/event.rs`) pushed through a winit `EventLoopProxy`
-(`NesEventProxy`), split into `EmulationEvent`, `RendererEvent`, `ConfigEvent`, `DebugEvent`, and
-`UiEvent`. Adding a feature that crosses the emulation/UI boundary means adding a variant there
-rather than sharing state.
-
-### Platform abstraction
-
-Both crates use the same pattern: a public façade module that `pub use`s a `sys::` implementation
-selected by `cfg`, with parallel `os.rs` / `wasm.rs` files (`tetanes/src/sys/{platform,logging,thread,info}/`,
-`tetanes-core/src/sys/{fs,time}/`). Capability checks at runtime go through
-`platform::Feature` (`Filesystem`, `Storage`, `Suspend`, `ScreenReader`, …) rather than raw `cfg`
-in UI code. Anything touching files, threads, time, or clipboard needs both sides implemented — the
-wasm clippy/doc CI jobs will catch omissions.
+- Ask for confirmation before deleting any unchecked in files as this is
+  permanent and unrecoverable data loss.
