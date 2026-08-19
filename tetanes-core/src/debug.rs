@@ -154,6 +154,146 @@ impl CodeMap {
     }
 }
 
+bitflags! {
+    /// The ways an address can be touched.
+    ///
+    /// A breakpoint carries the set it stops on, so one range covers reads, writes and execution
+    /// in whatever combination the user ticked.
+    #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+    #[must_use]
+    pub struct Access: u8 {
+        /// Fetched as an instruction.
+        ///
+        /// Checked between instructions rather than on the bus, since a fetch and an operand read
+        /// look alike there, and the console stops *before* running the instruction rather than
+        /// after it the way a read or a write does.
+        const EXEC = 1;
+        /// Read by an instruction, other than the fetch.
+        const READ = 1 << 1;
+        /// Written by an instruction.
+        const WRITE = 1 << 2;
+    }
+}
+
+/// A range of CPU addresses the console stops on, or records, when one is accessed.
+///
+/// Keyed by CPU address rather than by [`Memory`] offset, so a range in banked ROM follows
+/// whatever is mapped there rather than the code it was set on.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Breakpoint {
+    /// First address covered.
+    pub start: u16,
+    /// Last address covered, inclusive. Equal to `start` for a single address.
+    pub end: u16,
+    /// Which accesses trip it.
+    pub access: Access,
+    /// Cleared to record the access and let the console run on.
+    pub breaks: bool,
+}
+
+impl Breakpoint {
+    /// Whether this covers `addr` and stops on `access`.
+    #[inline]
+    pub const fn covers(&self, addr: u16, access: Access) -> bool {
+        self.start <= addr && addr <= self.end && self.access.contains(access)
+    }
+}
+
+/// An access a [`Breakpoint`] caught.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct AccessHit {
+    /// The address touched.
+    pub addr: u16,
+    /// How it was touched, which is one of [`Access`]'s flags rather than a set.
+    pub access: Access,
+    /// The byte read or written.
+    pub value: u8,
+}
+
+/// The armed breakpoints, with a bitmap over every address they cover.
+///
+/// The bitmap is a pre-filter: a breakpoint carries a range, and later a condition, that no
+/// bitmap expresses. An access matching none of them tests one bit and stops there, which keeps
+/// this affordable on [`Bus::read`](crate::bus::Bus) and `Bus::write`.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use]
+pub struct Breakpoints {
+    /// One bit per CPU address, set where any breakpoint covers it, whatever the access.
+    covered: Box<[u64; Self::WORDS]>,
+    list: Vec<Breakpoint>,
+    hits: Vec<AccessHit>,
+}
+
+impl Breakpoints {
+    /// 64K addresses, one bit each.
+    const WORDS: usize = (u16::MAX as usize + 1) / 64;
+    /// How many breakpoints are kept, which bounds the scan a hit pays for.
+    pub const MAX: usize = 64;
+    /// How many recorded accesses are kept between drains, so a breakpoint on a hot address
+    /// cannot grow without limit.
+    const MAX_HITS: usize = 256;
+
+    /// Arm `breakpoints`, dropping any past [`Breakpoints::MAX`].
+    pub fn new(breakpoints: impl IntoIterator<Item = Breakpoint>) -> Self {
+        let mut covered = Box::new([0u64; Self::WORDS]);
+        let list = breakpoints.into_iter().take(Self::MAX).collect::<Vec<_>>();
+        for breakpoint in &list {
+            for addr in breakpoint.start..=breakpoint.end {
+                let addr = usize::from(addr);
+                covered[addr / 64] |= 1 << (addr % 64);
+            }
+        }
+        Self {
+            covered,
+            list,
+            hits: Vec::new(),
+        }
+    }
+
+    /// Whether any breakpoint covers `addr`, whatever the access.
+    #[inline]
+    fn covers(&self, addr: u16) -> bool {
+        let addr = usize::from(addr);
+        self.covered[addr / 64] & (1 << (addr % 64)) != 0
+    }
+
+    /// Record an access, reporting whether the console is to stop.
+    ///
+    /// Returns `false` for the addresses nothing watches, which is the answer almost every time.
+    pub fn hit(&mut self, addr: u16, access: Access, value: u8) -> bool {
+        if !self.covers(addr) {
+            return false;
+        }
+        let mut stop = false;
+        for breakpoint in &self.list {
+            if breakpoint.covers(addr, access) {
+                if breakpoint.breaks {
+                    stop = true;
+                } else if self.hits.len() < Self::MAX_HITS {
+                    self.hits.push(AccessHit {
+                        addr,
+                        access,
+                        value,
+                    });
+                }
+            }
+        }
+        stop
+    }
+
+    /// Take the accesses recorded since the last drain.
+    pub fn drain_hits(&mut self) -> Vec<AccessHit> {
+        std::mem::take(&mut self.hits)
+    }
+
+    /// Whether nothing is armed, in which case the console keeps the unwatched path.
+    pub const fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
 /// Runs a callback once the PPU reaches a given dot.
 #[derive(Clone)]
 #[must_use]
@@ -221,8 +361,10 @@ impl std::fmt::Debug for Debugger {
 
 #[cfg(test)]
 mod tests {
-    use super::{ByteKind, CodeMap, PcHistory};
-    use crate::{control_deck::ControlDeck, cpu::Cpu};
+    use super::{Access, Breakpoint, Breakpoints, ByteKind, CodeMap, PcHistory};
+    use crate::{
+        bus::Bus, cart::Cart, common::ResetKind, control_deck::ControlDeck, cpu::Cpu, mapper::Nrom,
+    };
 
     #[test]
     fn an_unused_history_reads_as_empty() {
@@ -409,5 +551,119 @@ mod tests {
             .expect("load rom");
         let map = deck.code_map().expect("still recording");
         assert_eq!(map.generation(), 0, "marks survived a different cart");
+    }
+
+    fn bus_with_cart() -> Bus {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus
+    }
+
+    fn breakpoint(start: u16, end: u16, access: Access) -> Breakpoint {
+        Breakpoint {
+            start,
+            end,
+            access,
+            breaks: true,
+        }
+    }
+
+    /// The bitmap is only a pre-filter, so a range has to be checked at both ends and one past
+    /// each. Getting the inclusive end wrong shortens every range by one address.
+    #[test]
+    fn a_range_covers_both_ends_and_nothing_past_them() {
+        let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0302, Access::WRITE)]);
+        for addr in [0x0300, 0x0301, 0x0302] {
+            assert!(breakpoints.hit(addr, Access::WRITE, 0), "${addr:04X}");
+        }
+        for addr in [0x02FF, 0x0303] {
+            assert!(!breakpoints.hit(addr, Access::WRITE, 0), "${addr:04X}");
+        }
+    }
+
+    /// A breakpoint stops on the accesses it was ticked for and no others.
+    #[test]
+    fn an_access_the_breakpoint_does_not_watch_is_ignored() {
+        let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0300, Access::WRITE)]);
+        assert!(breakpoints.hit(0x0300, Access::WRITE, 0));
+        assert!(!breakpoints.hit(0x0300, Access::READ, 0));
+    }
+
+    /// A breakpoint that records rather than stops keeps the console running, and the accesses
+    /// come back once each.
+    #[test]
+    fn a_recording_breakpoint_collects_hits_without_stopping() {
+        let mut breakpoints = Breakpoints::new([Breakpoint {
+            breaks: false,
+            ..breakpoint(0x0300, 0x0300, Access::WRITE)
+        }]);
+        assert!(!breakpoints.hit(0x0300, Access::WRITE, 0x42));
+        assert!(!breakpoints.hit(0x0300, Access::WRITE, 0x43));
+
+        let hits = breakpoints.drain_hits();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].value, 0x42);
+        assert!(
+            breakpoints.drain_hits().is_empty(),
+            "draining twice repeats what was already reported"
+        );
+    }
+
+    /// A breakpoint on a hot address would otherwise grow the log without limit between frames.
+    #[test]
+    fn a_recording_breakpoint_stops_collecting_at_its_cap() {
+        let mut breakpoints = Breakpoints::new([Breakpoint {
+            breaks: false,
+            ..breakpoint(0x0300, 0x0300, Access::WRITE)
+        }]);
+        for _ in 0..Breakpoints::MAX_HITS * 2 {
+            breakpoints.hit(0x0300, Access::WRITE, 0);
+        }
+        assert_eq!(breakpoints.drain_hits().len(), Breakpoints::MAX_HITS);
+    }
+
+    /// Past the cap the extras are dropped rather than scanned, so the work a hit pays for stays
+    /// bounded.
+    #[test]
+    fn breakpoints_past_the_cap_are_dropped() {
+        let breakpoints = Breakpoints::new(
+            (0..Breakpoints::MAX as u16 + 8)
+                .map(|i| breakpoint(0x0300 + i, 0x0300 + i, Access::WRITE)),
+        );
+        assert_eq!(breakpoints.list.len(), Breakpoints::MAX);
+    }
+
+    /// The debugger resolves every row it draws through `peek`, so a read breakpoint that fired
+    /// there would trip on the disassembly reading the address it was set on.
+    #[test]
+    fn peeking_does_not_trip_a_read_breakpoint() {
+        let mut bus = bus_with_cart();
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([breakpoint(
+            0x0300,
+            0x0300,
+            Access::READ | Access::WRITE,
+        )])));
+
+        let _ = bus.peek(0x0300);
+        assert_eq!(bus.access_hit, None);
+
+        let _ = bus.read(0x0300);
+        assert!(bus.access_hit.is_some(), "a real read still stops");
+    }
+
+    /// With nothing armed the read and write paths take one `bool` test and no further work,
+    /// which is all the hot path is allowed to spend.
+    #[test]
+    fn nothing_armed_leaves_the_bus_unwatched() {
+        let mut bus = bus_with_cart();
+        let _ = bus.read(0x0300);
+        bus.write(0x0300, 0x42);
+        assert!(!bus.breakpoints_active);
+        assert!(bus.breakpoints.is_none());
+        assert_eq!(bus.access_hit, None);
     }
 }

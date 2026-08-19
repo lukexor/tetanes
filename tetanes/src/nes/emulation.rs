@@ -32,7 +32,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
-    debug::CodeMap,
+    debug::{Access, Breakpoint, CodeMap},
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -346,7 +346,7 @@ pub struct State {
     ///
     /// Checking them means clocking the console an instruction at a time, so an empty list is what
     /// keeps a console with no breakpoints on the frame-at-a-time path.
-    debug_breakpoints: Vec<u16>,
+    debug_breakpoints: Vec<Breakpoint>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -626,6 +626,7 @@ impl State {
                     // sit paused with no way to see why. The list itself is the Debugger's, and
                     // comes back when it reopens.
                     self.debug_breakpoints.clear();
+                    self.control_deck.set_breakpoints([]);
                 }
                 // A fresh subscription has nothing to compare against, so ensure an updated address
                 // space is sent.
@@ -634,8 +635,21 @@ impl State {
                 self.send_address_space();
                 self.send_debug_snapshot();
             }
-            EmulationEvent::DebugBreakpoints(addrs) => {
-                self.debug_breakpoints.clone_from(addrs);
+            EmulationEvent::DebugBreakpoints(breakpoints) => {
+                self.debug_breakpoints.clone_from(breakpoints);
+                // Reads and writes are caught on the bus, execution between instructions, so the
+                // console is told only the half it can see.
+                self.control_deck.set_breakpoints(
+                    breakpoints
+                        .iter()
+                        .filter(|breakpoint| {
+                            breakpoint.access.intersects(Access::READ | Access::WRITE)
+                        })
+                        .map(|breakpoint| Breakpoint {
+                            access: breakpoint.access & (Access::READ | Access::WRITE),
+                            ..*breakpoint
+                        }),
+                );
             }
             EmulationEvent::AddDebugger(debugger) => {
                 self.control_deck.set_debugger(debugger.clone());
@@ -1008,7 +1022,12 @@ impl State {
         self.set_run_state(RunState::ManuallyPaused);
         // Half a frame's worth of pixels, which the console has drawn at this point.
         self.send_frame();
-        self.tx.event(DebugEvent::Breakpoint(addr));
+        // An access is caught part way through an instruction and reported at the boundary after
+        // it, so it names what was touched rather than where PC now sits.
+        match self.control_deck.take_access_hit() {
+            Some(hit) => self.tx.event(DebugEvent::AccessBreak(hit)),
+            None => self.tx.event(DebugEvent::Breakpoint(addr)),
+        }
     }
 
     fn set_run_state(&mut self, mode: RunState) {
@@ -1345,8 +1364,12 @@ impl State {
                 self.control_deck.clock_frame()?
             } else {
                 let breakpoints = &self.debug_breakpoints;
-                self.control_deck
-                    .clock_frame_until(|pc| breakpoints.contains(&pc))?
+                self.control_deck.clock_frame_until(|bus| {
+                    bus.access_hit.is_some()
+                        || breakpoints
+                            .iter()
+                            .any(|breakpoint| breakpoint.covers(bus.cpu.pc, Access::EXEC))
+                })?
             };
             if clocked == Clocked::Stopped {
                 // Part way through a frame, so there is nothing to snapshot: the frame the display

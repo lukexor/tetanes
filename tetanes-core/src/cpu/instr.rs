@@ -248,7 +248,7 @@ impl Bus {
     /// ```
     #[inline(always)]
     pub fn acc_imp(&mut self) -> u16 {
-        self.read(self.cpu.pc); // Cycle 2, dummy read
+        self.read_dummy(self.cpu.pc); // Cycle 2, dummy read
         0
     }
 
@@ -399,7 +399,7 @@ impl Bus {
     #[inline(always)]
     pub fn zpx(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
-        self.read(addr); // Cycle 3, dummy read
+        self.read_dummy(addr); // Cycle 3, dummy read
         // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.x)) & 0x00FF
     }
@@ -442,7 +442,7 @@ impl Bus {
     #[inline(always)]
     pub fn zpy(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
-        self.read(addr); // Cycle 3, dummy read
+        self.read_dummy(addr); // Cycle 3, dummy read
         // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.y)) & 0x00FF
     }
@@ -574,7 +574,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.x));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 4 dummy read with fixed high byte
-            self.read((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }
@@ -656,7 +656,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 4 dummy read with fixed high byte
-            self.read((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }
@@ -753,7 +753,7 @@ impl Bus {
     #[inline(always)]
     pub fn idx(&mut self) -> u16 {
         let mut zero_addr = self.fetch_byte(); // Cycle 2
-        self.read(u16::from(zero_addr)); // Cycle 3 dummy read
+        self.read_dummy(u16::from(zero_addr)); // Cycle 3 dummy read
         zero_addr = zero_addr.wrapping_add(self.cpu.x);
         let lo = self.read(u16::from(zero_addr)); // Cycle 4
         let hi = self.read(u16::from(zero_addr.wrapping_add(1))); // Cycle 5
@@ -847,7 +847,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 5 dummy read with fixed high byte
-            self.read((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }

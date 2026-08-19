@@ -46,7 +46,7 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::{CodeMap, Debugger, PcHistory},
+    debug::{AccessHit, Breakpoint, Breakpoints, CodeMap, Debugger, PcHistory},
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -795,6 +795,30 @@ impl ControlDeck {
         self.bus.detach_code_map()
     }
 
+    /// Arm `breakpoints` over the CPU bus, replacing whatever was armed before.
+    ///
+    /// An empty set disarms, which puts the read and write paths back to one `bool` test. At most
+    /// [`Breakpoints::MAX`] are kept, so a caller that allows more has to say so itself.
+    pub fn set_breakpoints(&mut self, breakpoints: impl IntoIterator<Item = Breakpoint>) {
+        let breakpoints = Breakpoints::new(breakpoints);
+        self.bus.breakpoints_active = !breakpoints.is_empty();
+        self.bus.breakpoints = (!breakpoints.is_empty()).then(|| Box::new(breakpoints));
+        self.bus.access_hit = None;
+    }
+
+    /// The access a breakpoint caught, cleared by the taking.
+    pub const fn take_access_hit(&mut self) -> Option<AccessHit> {
+        self.bus.access_hit.take()
+    }
+
+    /// The accesses breakpoints recorded without stopping, cleared by the taking.
+    pub fn drain_access_log(&mut self) -> Vec<AccessHit> {
+        self.bus
+            .breakpoints
+            .as_mut()
+            .map_or_else(Vec::new, |breakpoints| breakpoints.drain_hits())
+    }
+
     /// What execution has revealed about memory regions, if [`ControlDeck::attach_code_map`] asked
     /// for it.
     #[inline]
@@ -1329,11 +1353,11 @@ impl ControlDeck {
     //
     // A separate loop rather than a condition inside `clock_one_frame`, so the path that clocks
     // every frame of normal play does nothing for a feature that is almost always off.
-    fn clock_one_frame_until(&mut self, stop: &impl Fn(u16) -> bool) -> Result<bool> {
+    fn clock_one_frame_until(&mut self, stop: &impl Fn(&Bus) -> bool) -> Result<bool> {
         let frame = self.frame_number();
         while frame == self.frame_number() {
             self.step_instr()?;
-            if stop(self.bus.cpu.pc) {
+            if stop(&self.bus) {
                 // The instruction may have been the last of the frame, which still has to be
                 // wound up before the caller is told anything.
                 if frame != self.frame_number() {
@@ -1410,7 +1434,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
-    pub fn clock_frame_until(&mut self, stop: impl Fn(u16) -> bool) -> Result<Clocked> {
+    pub fn clock_frame_until(&mut self, stop: impl Fn(&Bus) -> bool) -> Result<Clocked> {
         self.clock_frame_with(|deck| deck.clock_one_frame_until(&stop))
     }
 
@@ -2421,7 +2445,8 @@ mod tests {
 
         let mut deck = spritecans();
         assert_eq!(
-            deck.clock_frame_until(|pc| pc == target).expect("clocks"),
+            deck.clock_frame_until(|bus| bus.cpu.pc == target)
+                .expect("clocks"),
             Clocked::Stopped
         );
         assert_eq!(deck.bus().cpu.pc, target);
@@ -2437,13 +2462,17 @@ mod tests {
 
         let mut deck = spritecans();
         assert_eq!(
-            deck.clock_frame_until(|pc| pc == target).expect("clocks"),
+            deck.clock_frame_until(|bus| bus.cpu.pc == target)
+                .expect("clocks"),
             Clocked::Stopped
         );
 
         let mut cycle = deck.bus().cpu.cycle;
         while deck.frame_number() == 0
-            && deck.clock_frame_until(|pc| pc == target).expect("clocks") == Clocked::Stopped
+            && deck
+                .clock_frame_until(|bus| bus.cpu.pc == target)
+                .expect("clocks")
+                == Clocked::Stopped
         {
             assert!(
                 deck.bus().cpu.cycle > cycle,
@@ -2471,8 +2500,11 @@ mod tests {
 
         let mut broken = spritecans();
         for _ in 0..3 {
-            while broken.clock_frame_until(|pc| pc == target).expect("clocks") == Clocked::Stopped {
-            }
+            while broken
+                .clock_frame_until(|bus| bus.cpu.pc == target)
+                .expect("clocks")
+                == Clocked::Stopped
+            {}
         }
 
         let &Cpu {

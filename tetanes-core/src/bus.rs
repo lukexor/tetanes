@@ -38,7 +38,7 @@ use crate::{
     cart::Cart,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
-    debug::{CodeMap, Debugger, PcHistory},
+    debug::{AccessHit, Breakpoints, CodeMap, Debugger, PcHistory},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -139,6 +139,19 @@ pub struct Bus {
     /// debugger is open.
     #[serde(skip)]
     pub code_map: Option<CodeMap>,
+    /// Whether any breakpoint is armed, cached so the read and write paths test a bool rather
+    /// than an `Option` on every access.
+    #[serde(skip)]
+    pub breakpoints_active: bool,
+    /// Breakpoint ranges over the CPU bus, allocated only once one is armed.
+    #[serde(skip)]
+    pub breakpoints: Option<Box<Breakpoints>>,
+    /// The access a breakpoint caught, taken by whoever reports the stop.
+    ///
+    /// An access happens part way through an instruction, where there is no clean way to unwind,
+    /// so this is left for the instruction boundary to find.
+    #[serde(skip)]
+    pub access_hit: Option<AccessHit>,
     /// Cheats: values substituted for what a read would otherwise return.
     ///
     /// Not serialized. A cheat is the player's current choice rather than the machine's - the same
@@ -185,6 +198,9 @@ impl Bus {
             region,
             debugger: Debugger::default(),
             debugger_active: false,
+            breakpoints_active: false,
+            breakpoints: None,
+            access_hit: None,
             pc_history: None,
             code_map: None,
         }
@@ -236,6 +252,9 @@ impl Bus {
             debugger: _,
             pc_history: _,
             code_map: _,
+            breakpoints_active: _,
+            breakpoints: _,
+            access_hit: _,
         } = src;
 
         self.cpu.clone_from(cpu);

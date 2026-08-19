@@ -27,7 +27,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
     cpu::instr::InstrRef,
-    debug::Debugger,
+    debug::{AccessHit, Breakpoint, Debugger},
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     memory::RamState,
@@ -192,8 +192,11 @@ pub enum DebugEvent {
     AddressSpace(Box<AddressSpace>),
     /// A PPU snapshot of registers, PPU and CHR memory.
     Ppu(Box<PpuSnapshot>),
-    /// The console stopped at the breakpoint on this address, and is already paused.
+    /// The console stopped before executing this address, and is already paused.
     Breakpoint(u16),
+    /// The console stopped after an instruction accessed a watched address, and is already
+    /// paused. PC has moved past the instruction that made the access.
+    AccessBreak(AccessHit),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -213,11 +216,11 @@ pub enum EmulationEvent {
     },
     /// Subscribe on `Some`, unsubscribe on `None`.
     DebugSubscribe(Option<DebugRequest>),
-    /// The addresses to stop the console at, replacing whatever was armed before.
+    /// The breakpoints to arm, replacing whatever was armed before.
     ///
-    /// The whole set rather than one change at a time: the debugger owns the list, and what the
-    /// console needs is only which addresses are armed right now.
-    DebugBreakpoints(Vec<u16>),
+    /// The whole set rather than one change at a time: the debugger owns the list, and the
+    /// console needs only what is armed right now.
+    DebugBreakpoints(Vec<Breakpoint>),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),

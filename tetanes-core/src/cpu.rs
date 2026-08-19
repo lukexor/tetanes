@@ -18,7 +18,7 @@
 use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
-    debug::ByteKind,
+    debug::{Access, AccessHit, ByteKind},
 };
 use crate::{
     cpu::instr::{
@@ -863,6 +863,20 @@ impl Bus {
     /// Read a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
     #[inline(always)]
     pub fn read(&mut self, addr: u16) -> u8 {
+        let val = self.read_dummy(addr);
+        if self.breakpoints_active {
+            self.check_access(addr, Access::READ, val);
+        }
+        val
+    }
+
+    /// Read a byte the program did not ask for, spending its cycle all the same.
+    ///
+    /// The 6502 reads a wrong address before fixing the high byte on an indexed page cross, and
+    /// re-reads before a read-modify-write. No breakpoint fires on those: the address is one the
+    /// program never meant to touch, so reporting it would be noise.
+    #[inline(always)]
+    pub fn read_dummy(&mut self, addr: u16) -> u8 {
         if self.cpu.irq_flags(IrqFlags::DMA_HALT) {
             self.handle_dma(addr);
         }
@@ -871,6 +885,25 @@ impl Bus {
         let val = self.cpu_bus_read(addr);
         self.end_cycle(self.cpu.end_cycles + 1);
         val
+    }
+
+    /// Record an access against the armed breakpoints, keeping the first one that stops.
+    ///
+    /// Out of line and cold, so the test in `read` and `write` is a predictable branch over a
+    /// call rather than the scan itself.
+    #[cold]
+    #[inline(never)]
+    fn check_access(&mut self, addr: u16, access: Access, val: u8) {
+        if let Some(breakpoints) = self.breakpoints.as_mut()
+            && breakpoints.hit(addr, access, val)
+            && self.access_hit.is_none()
+        {
+            self.access_hit = Some(AccessHit {
+                addr,
+                access,
+                value: val,
+            });
+        }
     }
 
     /// Read a byte without side effects, and without moving the console.
@@ -890,6 +923,9 @@ impl Bus {
             self.cpu_bus_write(addr, val);
         }
         self.end_cycle(self.cpu.end_cycles - 1);
+        if self.breakpoints_active {
+            self.check_access(addr, Access::WRITE, val);
+        }
     }
 
     /// Fetch a byte and increments PC by 1.
@@ -1146,7 +1182,6 @@ impl Bus {
         {
             code_map.mark(offset, ByteKind::CODE);
         }
-
         let opcode = self.fetch_byte(); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];
         self.cpu.addr_mode = op.addr_mode();

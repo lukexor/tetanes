@@ -1,8 +1,8 @@
 use crate::nes::{
     action::{Debug, DebugStep},
     config::Config,
-    event::{ConfigEvent, DebugRequest, EmulationEvent, NesEventProxy},
-    renderer::gui::{lib::ViewportOptions, palette::Palette},
+    event::{ConfigEvent, DebugRequest, EmulationEvent, NesEventProxy, UiEvent},
+    renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
 };
 use egui::{
     CentralPanel, Color32, Context, Grid, Label, Panel, RichText, ScrollArea, Sense, Ui, Vec2,
@@ -20,16 +20,55 @@ use std::{
 use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Disasm, Status},
+    debug::{Access, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
 };
 
-/// An address the console stops at before executing.
+/// A range of addresses the console stops at when one is accessed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
-    /// The address the console stops at.
+    /// First address covered.
     pub addr: u16,
+    /// Last address covered, inclusive. Equal to `addr` for a single address.
+    pub end: u16,
+    /// Which accesses trip it.
+    pub access: Access,
     /// Cleared to keep a breakpoint in the list without stopping at it.
     pub enabled: bool,
+    /// Cleared to record the access in the list and let the console run on.
+    pub breaks: bool,
+}
+
+impl Breakpoint {
+    /// A breakpoint on a single address, stopping before it executes.
+    pub const fn execute(addr: u16) -> Self {
+        Self {
+            addr,
+            end: addr,
+            access: Access::EXEC,
+            enabled: true,
+            breaks: true,
+        }
+    }
+
+    /// The range as the list writes it, one address or two.
+    pub fn range_text(&self) -> String {
+        if self.addr == self.end {
+            format!("${:04X}", self.addr)
+        } else {
+            format!("${:04X}-${:04X}", self.addr, self.end)
+        }
+    }
+
+    /// What the console is told, which drops the parts only the list draws.
+    const fn armed(&self) -> DeckBreakpoint {
+        DeckBreakpoint {
+            start: self.addr,
+            end: self.end,
+            access: self.access,
+            breaks: self.breaks,
+        }
+    }
 }
 
 /// The Debugger's breakpoints, in address order so the list reads like the disassembly.
@@ -41,17 +80,11 @@ pub struct Breakpoint {
 pub struct Breakpoints(Vec<Breakpoint>);
 
 impl Breakpoints {
-    /// Add a breakpoint at `addr`, if there is not one there already.
-    pub fn add(&mut self, addr: u16) {
-        if self.get(addr).is_none() {
-            let index = self.0.partition_point(|breakpoint| breakpoint.addr < addr);
-            self.0.insert(
-                index,
-                Breakpoint {
-                    addr,
-                    enabled: true,
-                },
-            );
+    /// Add `breakpoint`, if there is not one starting at the same address already.
+    pub fn add(&mut self, breakpoint: Breakpoint) {
+        if self.get(breakpoint.addr).is_none() && self.0.len() < DeckBreakpoints::MAX {
+            let index = self.0.partition_point(|other| other.addr < breakpoint.addr);
+            self.0.insert(index, breakpoint);
         }
     }
 
@@ -62,11 +95,16 @@ impl Breakpoints {
         self.0.len() != held
     }
 
-    /// Add a breakpoint at `addr`, or remove the one already there.
+    /// Stop before `addr` executes, or clear the breakpoint already there.
     pub fn toggle(&mut self, addr: u16) {
         if !self.remove(addr) {
-            self.add(addr);
+            self.add(Breakpoint::execute(addr));
         }
+    }
+
+    /// Whether another breakpoint would be refused.
+    pub const fn is_full(&self) -> bool {
+        self.0.len() >= DeckBreakpoints::MAX
     }
 
     /// The breakpoint at `addr`, whether or not it is enabled.
@@ -74,12 +112,12 @@ impl Breakpoints {
         self.0.iter().find(|breakpoint| breakpoint.addr == addr)
     }
 
-    /// The addresses the console is to stop at.
-    pub fn armed(&self) -> Vec<u16> {
+    /// What the console is to act on, which is the enabled ones with an access selected.
+    pub fn armed(&self) -> Vec<DeckBreakpoint> {
         self.0
             .iter()
-            .filter(|breakpoint| breakpoint.enabled)
-            .map(|breakpoint| breakpoint.addr)
+            .filter(|breakpoint| breakpoint.enabled && !breakpoint.access.is_empty())
+            .map(Breakpoint::armed)
             .collect()
     }
 
@@ -518,6 +556,23 @@ fn parse_addr(text: &str) -> Option<u16> {
         .or_else(|| text.strip_prefix("0X"))
         .unwrap_or(text);
     u16::from_str_radix(digits, 16).ok()
+}
+
+/// Parse an address range as typed into the breakpoint box: one address, or `$lo-$hi`.
+///
+/// Reversed ends are put back in order rather than refused, since a range typed backwards says
+/// plainly enough what was meant.
+fn parse_range(text: &str) -> Option<(u16, u16)> {
+    match text.trim().split_once('-') {
+        Some((start, end)) => {
+            let (start, end) = (parse_addr(start)?, parse_addr(end)?);
+            Some((start.min(end), start.max(end)))
+        }
+        None => {
+            let addr = parse_addr(text)?;
+            Some((addr, addr))
+        }
+    }
 }
 
 /// Whether the box that was just drawn was submitted with Enter.
@@ -973,16 +1028,27 @@ impl State {
         ui.horizontal(|ui| {
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.breakpoint_goto)
-                    .hint_text("break at $addr")
+                    .hint_text("break at $addr, or $lo-$hi")
                     .desired_width(90.0),
             );
             let add = submitted(ui, &response) | ui.button("Add").clicked();
-            if let Some(addr) = parse_addr(&self.breakpoint_goto)
+            if let Some((addr, end)) = parse_range(&self.breakpoint_goto)
                 && add
             {
                 self.breakpoint_goto.clear();
-                self.breakpoints.add(addr);
-                self.send_breakpoints();
+                if self.breakpoints.is_full() {
+                    self.tx.event(UiEvent::Message((
+                        MessageType::Warn,
+                        format!("Only {} breakpoints can be armed.", DeckBreakpoints::MAX),
+                    )));
+                } else {
+                    self.breakpoints.add(Breakpoint {
+                        addr,
+                        end,
+                        ..Breakpoint::execute(addr)
+                    });
+                    self.send_breakpoints();
+                }
             }
         });
 
@@ -1002,9 +1068,33 @@ impl State {
             .show(ui, |ui| {
                 for breakpoint in breakpoints.iter_mut() {
                     ui.horizontal(|ui| {
-                        armed_changed |= ui.checkbox(&mut breakpoint.enabled, "").changed();
+                        armed_changed |= ui
+                            .checkbox(&mut breakpoint.enabled, "")
+                            .on_hover_text("Arm this breakpoint.")
+                            .changed();
+                        // One letter each, since three of them plus the range have to fit a
+                        // column narrower than the disassembly.
+                        for (access, letter, hover) in [
+                            (Access::EXEC, "X", "Break before an instruction here runs."),
+                            (Access::READ, "R", "Break after an instruction reads here."),
+                            (
+                                Access::WRITE,
+                                "W",
+                                "Break after an instruction writes here.",
+                            ),
+                        ] {
+                            let mut on = breakpoint.access.contains(access);
+                            if ui
+                                .toggle_value(&mut on, letter)
+                                .on_hover_text(hover)
+                                .changed()
+                            {
+                                breakpoint.access.set(access, on);
+                                armed_changed = true;
+                            }
+                        }
                         let label = Label::new(
-                            RichText::new(format!("${:04X}", breakpoint.addr))
+                            RichText::new(breakpoint.range_text())
                                 .monospace()
                                 .color(Color32::LIGHT_RED),
                         )
@@ -1016,6 +1106,10 @@ impl State {
                         {
                             scroll_to = Some(breakpoint.addr);
                         }
+                        armed_changed |= ui
+                            .toggle_value(&mut breakpoint.breaks, "⏸")
+                            .on_hover_text("Stop the console, rather than only recording the hit.")
+                            .changed();
                         if ui.small_button("✖").clicked() {
                             removed = Some(breakpoint.addr);
                         }
@@ -1359,10 +1453,19 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::{
-        AddressSpace, BlockKind, Breakpoints, Column, Pane, Row, parse_addr, request,
-        row_is_visible,
+        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, Pane, Row, parse_addr,
+        parse_range, request, row_is_visible,
     };
-    use tetanes_core::{control_deck::ControlDeck, cpu::Cpu};
+
+    /// The addresses of what the console was told to arm, which is all these tests look at.
+    fn armed_at(breakpoints: &Breakpoints) -> Vec<u16> {
+        breakpoints
+            .armed()
+            .into_iter()
+            .map(|breakpoint| breakpoint.start)
+            .collect()
+    }
+    use tetanes_core::{control_deck::ControlDeck, cpu::Cpu, debug::Access};
 
     const HISTORY_LINES: u16 = 8;
 
@@ -1448,7 +1551,7 @@ mod tests {
     fn toggling_an_address_adds_a_breakpoint_and_toggling_it_again_removes_it() {
         let mut breakpoints = Breakpoints::default();
         breakpoints.toggle(0xC000);
-        assert_eq!(breakpoints.armed(), [0xC000]);
+        assert_eq!(armed_at(&breakpoints), [0xC000]);
 
         breakpoints.toggle(0xC000);
         assert!(breakpoints.is_empty());
@@ -1459,31 +1562,56 @@ mod tests {
     fn breakpoints_are_held_in_address_order_however_they_are_added() {
         let mut breakpoints = Breakpoints::default();
         for addr in [0xE000, 0x8000, 0xC000] {
-            breakpoints.add(addr);
+            breakpoints.add(Breakpoint::execute(addr));
         }
-        assert_eq!(breakpoints.armed(), [0x8000, 0xC000, 0xE000]);
+        assert_eq!(armed_at(&breakpoints), [0x8000, 0xC000, 0xE000]);
+    }
+
+    /// The box takes one address or a range, and a range typed backwards says plainly enough
+    /// what was meant.
+    #[test]
+    fn a_breakpoint_range_parses_either_way_round() {
+        assert_eq!(parse_range("$C000"), Some((0xC000, 0xC000)));
+        assert_eq!(parse_range("$C000-$C0FF"), Some((0xC000, 0xC0FF)));
+        assert_eq!(parse_range("0xC0FF-0xC000"), Some((0xC000, 0xC0FF)));
+        assert_eq!(parse_range("$C000-"), None);
+    }
+
+    /// A breakpoint with no access ticked stops nothing, so the console is not told about it.
+    #[test]
+    fn a_breakpoint_with_no_access_selected_is_not_armed() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::execute(0xC000));
+        for breakpoint in breakpoints.iter_mut() {
+            breakpoint.access = Access::empty();
+        }
+        assert!(breakpoints.armed().is_empty());
+        assert!(
+            !breakpoints.is_empty(),
+            "it stays listed so its ticks can be put back"
+        );
     }
 
     /// Adding is not toggling: typing an address that is already listed must not clear it.
     #[test]
     fn adding_an_address_twice_leaves_one_breakpoint() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(0xC000);
-        breakpoints.add(0xC000);
-        assert_eq!(breakpoints.armed(), [0xC000]);
+        breakpoints.add(Breakpoint::execute(0xC000));
+        breakpoints.add(Breakpoint::execute(0xC000));
+        assert_eq!(armed_at(&breakpoints), [0xC000]);
     }
 
     /// Disabling keeps a breakpoint in the list and out of what the console is told to stop at.
     #[test]
     fn a_disabled_breakpoint_stays_listed_but_is_not_armed() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(0xC000);
-        breakpoints.add(0xD000);
+        breakpoints.add(Breakpoint::execute(0xC000));
+        breakpoints.add(Breakpoint::execute(0xD000));
         for breakpoint in breakpoints.iter_mut() {
             breakpoint.enabled = breakpoint.addr != 0xC000;
         }
 
-        assert_eq!(breakpoints.armed(), [0xD000]);
+        assert_eq!(armed_at(&breakpoints), [0xD000]);
         assert!(
             breakpoints.get(0xC000).is_some_and(|bp| !bp.enabled),
             "a disabled breakpoint was dropped rather than kept"

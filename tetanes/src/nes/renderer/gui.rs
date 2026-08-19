@@ -54,6 +54,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
     cpu::instr::InstrRef,
+    debug::Access,
     ppu,
     time::{Duration, Instant},
 };
@@ -319,6 +320,20 @@ impl Gui {
             NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());
+            }
+            NesEvent::Debug(DebugEvent::AccessBreak(hit)) => {
+                self.run_state = RunState::ManuallyPaused;
+                let access = if hit.access.contains(Access::WRITE) {
+                    "wrote"
+                } else {
+                    "read"
+                };
+                self.add_message(
+                    MessageType::Info,
+                    format!("${:04X} {access} ${:02X}", hit.addr, hit.value),
+                );
+                self.ctx
+                    .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);
             }
             NesEvent::Debug(DebugEvent::Breakpoint(addr)) => {
                 // The console stopped itself, so this only mirrors the state the UI keeps -
