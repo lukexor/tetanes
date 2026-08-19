@@ -183,6 +183,14 @@ impl Row {
             Self::Block { start, .. } => *start,
         }
     }
+
+    /// Whether `addr` falls in this row, which for a block is anywhere in its range.
+    pub const fn covers(&self, addr: u16) -> bool {
+        match self {
+            Self::Instruction(disasm) => disasm.addr == addr,
+            Self::Block { start, end, .. } => *start <= addr && addr <= *end,
+        }
+    }
 }
 
 /// Snapshot of the Control Deck CPU state for use by the Debugger.
@@ -345,15 +353,27 @@ impl AddressSpace {
         Self { rows }
     }
 
-    /// Whether `addr` collapses into a block. `None` means it is mapped cart ROM, which
+    /// Whether `addr` collapses into a block. `None` means cart memory, which
     /// [`AddressSpace::starts_instruction`] then decides how to render.
-    const fn block_kind(bus: &Bus, addr: u16) -> Option<BlockKind> {
+    fn block_kind(bus: &Bus, addr: u16) -> Option<BlockKind> {
         match addr {
             0x0000..=0x1FFF => Some(BlockKind::Ram),
             0x2000..=0x401F => Some(BlockKind::Registers),
             _ => match bus.memory.prg_offset(addr) {
                 Some(_) if addr >= 0x8000 => None,
-                Some(_) => Some(BlockKind::SaveRam),
+                // Cart RAM, which some boards run code out of. It reads as save data until the
+                // code map has seen something execute there.
+                Some(offset) => {
+                    let executed = bus
+                        .code_map
+                        .as_ref()
+                        .is_some_and(|code_map| code_map.is_code(offset));
+                    if executed {
+                        None
+                    } else {
+                        Some(BlockKind::SaveRam)
+                    }
+                }
                 None => Some(BlockKind::Unmapped),
             },
         }
@@ -1054,8 +1074,8 @@ impl State {
         ui.horizontal(|ui| {
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.breakpoint_goto)
-                    .hint_text("break at $addr, or $lo-$hi")
-                    .desired_width(180.0),
+                    .hint_text("$addr or $lo-$hi")
+                    .desired_width(140.0),
             );
             let add = submitted(ui, &response) | ui.button("Add").clicked();
             if let Some((addr, end)) = parse_range(&self.breakpoint_goto)
@@ -1064,7 +1084,7 @@ impl State {
                 if self.breakpoints.is_full() {
                     self.tx.event(UiEvent::Message((
                         MessageType::Warn,
-                        format!("Only {} breakpoints can be armed.", DeckBreakpoints::MAX),
+                        format!("Only {} breakpoints can be enabled.", DeckBreakpoints::MAX),
                     )));
                 } else {
                     self.breakpoint_goto.clear();
@@ -1190,10 +1210,12 @@ impl State {
                             } else {
                                 "read"
                             };
+                            // The instruction first, since "what touches this address" is the
+                            // question a recording breakpoint is set to answer.
                             ui.label(
                                 RichText::new(format!(
-                                    "${:04X} {verb} ${:02X}",
-                                    hit.addr, hit.value
+                                    "${:04X}  {verb} ${:04X} = ${:02X}",
+                                    hit.pc, hit.addr, hit.value
                                 ))
                                 .monospace(),
                             );
@@ -1209,7 +1231,7 @@ impl State {
         ui.horizontal(|ui| {
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.goto)
-                    .hint_text("go to $addr")
+                    .hint_text("$addr")
                     .desired_width(90.0),
             );
             let go = submitted(ui, &response) | ui.button("Go").clicked();
@@ -1331,6 +1353,10 @@ impl State {
             Row::Block { .. } => None,
         };
         let addr = instruction.map(|disasm| disasm.addr);
+        // A block holds PC and the selection by covering their address, so a console stopped
+        // inside a collapsed range still shows where it is.
+        let holds_pc = row.covers(pc);
+        let holds_selection = self.selected.is_some_and(|selected| row.covers(selected));
 
         // Interacted with before it is painted, so hovering the gutter can light it up. A row
         // whose gutter has no breakpoint would otherwise give no sign of being clickable.
@@ -1346,15 +1372,13 @@ impl State {
             },
         );
 
-        if let Some(addr) = addr {
-            if addr == pc {
-                painter.rect_filled(text, 0.0, palette.pc_background);
-            }
-            if self.selected == Some(addr) {
-                // An outline rather than a fill, so a selected row that PC is also on keeps both
-                // marks.
-                painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
-            }
+        if holds_pc {
+            painter.rect_filled(text, 0.0, palette.pc_background);
+        }
+        if holds_selection {
+            // An outline rather than a fill, so a selected row that PC is also on keeps both
+            // marks.
+            painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
         }
         painter.galley(
             text.left_center() - Vec2::new(0.0, font.size / 2.0),
@@ -1363,7 +1387,13 @@ impl State {
         );
 
         let (Some(addr), Some(disasm)) = (addr, instruction) else {
-            return (response, None);
+            let row_response =
+                ui.interact(text, ui.id().with(("block", row.addr())), Sense::click());
+            let selected = row_response
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+                .then(|| RowAction::Select(row.addr()));
+            return (response, selected);
         };
         if let Some(breakpoint) = self.breakpoints.get(addr) {
             // Filled for armed and hollow for listed, a difference that reads without the
@@ -1587,6 +1617,42 @@ mod tests {
             assert_eq!(times, 1, "{pane:?} was laid out {times} times");
         }
         assert_eq!(placed.len(), Pane::ALL.len());
+    }
+
+    /// Some boards run code out of cart RAM, and a range that only ever reads as `save ram` gives
+    /// a console stopped in there no row to sit on. The code map has seen it execute, so the
+    /// sweep asks rather than taking everything below `$8000` for data.
+    #[test]
+    fn cart_ram_that_has_executed_is_disassembled() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.attach_code_map(None);
+
+        // `LDA #$00` in cart RAM, run from there the way a board that copies a routine into RAM
+        // reaches it.
+        deck.bus_mut().write(0x6000, 0xA9);
+        deck.bus_mut().write(0x6001, 0x00);
+        deck.bus_mut().cpu.pc = 0x6000;
+        deck.bus_mut().clock_instr();
+
+        let space = AddressSpace::capture(deck.bus());
+        let row = space.row_at(0x6000).expect("covered");
+        assert!(
+            matches!(space.rows[row], Row::Instruction(_)),
+            "$6000 executed but reads as {:?}",
+            space.rows[row]
+        );
+
+        // A neighbour nothing has run stays collapsed, so the whole range does not decode blind.
+        let untouched = space.row_at(0x7F00).expect("covered");
+        assert!(matches!(
+            space.rows[untouched],
+            Row::Block {
+                kind: BlockKind::SaveRam,
+                ..
+            }
+        ));
     }
 
     /// Stepping walks the highlight down rows already on screen, so only a PC that lands outside

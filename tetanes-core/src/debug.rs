@@ -204,6 +204,8 @@ impl Breakpoint {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct AccessHit {
+    /// The instruction that made the access.
+    pub pc: u16,
     /// The address touched.
     pub addr: u16,
     /// How it was touched, which is one of [`Access`]'s flags rather than a set.
@@ -264,7 +266,7 @@ impl Breakpoints {
     /// Record an access, reporting whether the console is to stop.
     ///
     /// Returns `false` for the addresses nothing watches, which is the answer almost every time.
-    pub fn hit(&mut self, addr: u16, access: Access, value: u8) -> bool {
+    pub fn hit(&mut self, pc: u16, addr: u16, access: Access, value: u8) -> bool {
         if !self.covers(addr) {
             return false;
         }
@@ -275,6 +277,7 @@ impl Breakpoints {
                     stop = true;
                 } else if self.hits.len() < Self::MAX_HITS {
                     self.hits.push(AccessHit {
+                        pc,
                         addr,
                         access,
                         value,
@@ -579,10 +582,16 @@ mod tests {
     fn a_range_covers_both_ends_and_nothing_past_them() {
         let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0302, Access::WRITE)]);
         for addr in [0x0300, 0x0301, 0x0302] {
-            assert!(breakpoints.hit(addr, Access::WRITE, 0), "${addr:04X}");
+            assert!(
+                breakpoints.hit(0xC000, addr, Access::WRITE, 0),
+                "${addr:04X}"
+            );
         }
         for addr in [0x02FF, 0x0303] {
-            assert!(!breakpoints.hit(addr, Access::WRITE, 0), "${addr:04X}");
+            assert!(
+                !breakpoints.hit(0xC000, addr, Access::WRITE, 0),
+                "${addr:04X}"
+            );
         }
     }
 
@@ -590,8 +599,8 @@ mod tests {
     #[test]
     fn an_access_the_breakpoint_does_not_watch_is_ignored() {
         let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0300, Access::WRITE)]);
-        assert!(breakpoints.hit(0x0300, Access::WRITE, 0));
-        assert!(!breakpoints.hit(0x0300, Access::READ, 0));
+        assert!(breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0));
+        assert!(!breakpoints.hit(0xC000, 0x0300, Access::READ, 0));
     }
 
     /// A breakpoint that records rather than stops keeps the console running, and the accesses
@@ -602,8 +611,8 @@ mod tests {
             breaks: false,
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }]);
-        assert!(!breakpoints.hit(0x0300, Access::WRITE, 0x42));
-        assert!(!breakpoints.hit(0x0300, Access::WRITE, 0x43));
+        assert!(!breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0x42));
+        assert!(!breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0x43));
 
         let hits = breakpoints.drain_hits();
         assert_eq!(hits.len(), 2);
@@ -622,7 +631,7 @@ mod tests {
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }]);
         for _ in 0..Breakpoints::MAX_HITS * 2 {
-            breakpoints.hit(0x0300, Access::WRITE, 0);
+            breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0);
         }
         assert_eq!(breakpoints.drain_hits().len(), Breakpoints::MAX_HITS);
     }
@@ -675,10 +684,14 @@ mod tests {
         )])));
 
         bus.clock_instr();
+        let hit = bus.access_hit.expect("the write was caught");
         assert_eq!(
-            bus.access_hit.map(|hit| hit.value),
-            Some(0x06),
+            hit.value, 0x06,
             "the re-write of the old value was reported instead"
+        );
+        assert_eq!(
+            hit.pc, 0x0000,
+            "the hit names where PC reached, not the instruction that wrote"
         );
     }
 

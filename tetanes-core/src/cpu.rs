@@ -902,11 +902,13 @@ impl Bus {
     #[cold]
     #[inline(never)]
     fn check_access(&mut self, addr: u16, access: Access, val: u8) {
+        let pc = self.instr_addr;
         if let Some(breakpoints) = self.breakpoints.as_mut()
-            && breakpoints.hit(addr, access, val)
+            && breakpoints.hit(pc, addr, access, val)
             && self.access_hit.is_none()
         {
             self.access_hit = Some(AccessHit {
+                pc,
                 addr,
                 access,
                 value: val,
@@ -1199,6 +1201,11 @@ impl Bus {
             && let Some(offset) = self.memory.prg_offset(prev_pc)
         {
             code_map.mark(offset, ByteKind::CODE);
+        }
+        // An access is caught part way through, by which point PC has moved into the operand. A
+        // hit that named that would point at no instruction at all.
+        if self.breakpoints_active {
+            self.instr_addr = prev_pc;
         }
         let opcode = self.fetch_byte(); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];

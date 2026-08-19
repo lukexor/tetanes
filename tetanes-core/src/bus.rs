@@ -146,6 +146,9 @@ pub struct Bus {
     /// Breakpoint ranges over the CPU bus, allocated only once one is armed.
     #[serde(skip)]
     pub breakpoints: Option<Box<Breakpoints>>,
+    /// Where the instruction being executed started, recorded only while a breakpoint is armed.
+    #[serde(skip)]
+    pub instr_addr: u16,
     /// The access a breakpoint caught, taken by whoever reports the stop.
     ///
     /// An access happens part way through an instruction, where there is no clean way to unwind,
@@ -200,6 +203,7 @@ impl Bus {
             debugger_active: false,
             breakpoints_active: false,
             breakpoints: None,
+            instr_addr: 0,
             access_hit: None,
             pc_history: None,
             code_map: None,
@@ -254,6 +258,7 @@ impl Bus {
             code_map: _,
             breakpoints_active: _,
             breakpoints: _,
+            instr_addr: _,
             access_hit: _,
         } = src;
 

@@ -331,7 +331,10 @@ impl Gui {
                 };
                 self.add_message(
                     MessageType::Info,
-                    format!("${:04X} {access} ${:02X}", hit.addr, hit.value),
+                    format!(
+                        "${:04X} {access} ${:04X} = ${:02X}",
+                        hit.pc, hit.addr, hit.value
+                    ),
                 );
                 self.ctx
                     .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);
