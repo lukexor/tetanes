@@ -1175,8 +1175,12 @@ impl State {
             self.breakpoints.remove(addr);
             armed_changed = true;
         }
-        if scroll_to.is_some() {
+        if let Some(addr) = scroll_to {
             self.scroll_to = scroll_to;
+            // Selected as well as scrolled to, so the row it lands on is marked when it arrives.
+            // A block takes the mark by covering the address, which is how an address in a range
+            // nothing has decoded still shows where it went.
+            self.selected = Some(addr);
         }
         if armed_changed {
             self.send_breakpoints();
@@ -1239,6 +1243,7 @@ impl State {
                 && go
             {
                 self.scroll_to = Some(addr);
+                self.selected = Some(addr);
             }
         });
 
