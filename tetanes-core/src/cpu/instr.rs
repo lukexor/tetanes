@@ -64,6 +64,29 @@ pub enum AddrMode {
     OTH
 }
 
+impl AddrMode {
+    /// How many bytes follow the opcode.
+    ///
+    /// A 6502 instruction is one to three bytes with no alignment, so this steps a disassembly
+    /// from one instruction to the next.
+    pub const fn operand_len(self) -> u8 {
+        match self {
+            Self::ACC | Self::IMP => 0,
+            Self::IMM
+            | Self::REL
+            | Self::ZP0
+            | Self::ZPX
+            | Self::ZPY
+            | Self::IDX
+            | Self::IDY
+            | Self::IDYW => 1,
+            Self::ABS | Self::IND | Self::ABX | Self::ABXW | Self::ABY | Self::ABYW | Self::OTH => {
+                2
+            }
+        }
+    }
+}
+
 /// CPU Opcode.
 #[derive(Debug, Copy, Clone)]
 #[must_use]

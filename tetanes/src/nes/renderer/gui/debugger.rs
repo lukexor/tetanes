@@ -2,7 +2,7 @@ use crate::nes::{
     action::{Debug, DebugStep},
     config::Config,
     event::{ConfigEvent, DebugRequest, EmulationEvent, NesEventProxy},
-    renderer::gui::lib::ViewportOptions,
+    renderer::gui::{lib::ViewportOptions, palette::Palette},
 };
 use egui::{
     CentralPanel, Color32, Context, Grid, Label, Panel, RichText, ScrollArea, Sense, Ui, Vec2,
@@ -19,7 +19,7 @@ use std::{
 };
 use tetanes_core::{
     bus::Bus,
-    cpu::{Cpu, Status},
+    cpu::{Cpu, Disasm, Status},
 };
 
 /// An address the console stops at before executing.
@@ -128,7 +128,7 @@ impl BlockKind {
 #[must_use]
 pub enum Row {
     /// A disassembled instruction.
-    Instruction(DisasmLine),
+    Instruction(Disasm),
     /// A collapsed range, inclusive of both ends.
     Block {
         start: u16,
@@ -141,20 +141,10 @@ impl Row {
     /// The address this row starts at.
     pub const fn addr(&self) -> u16 {
         match self {
-            Self::Instruction(line) => line.addr,
+            Self::Instruction(disasm) => disasm.addr,
             Self::Block { start, .. } => *start,
         }
     }
-}
-
-/// One disassembled instruction, with the address it was read from.
-#[derive(Debug, Clone)]
-#[must_use]
-pub struct DisasmLine {
-    /// Address of the disassembled instruction.
-    pub addr: u16,
-    /// Disassembly text.
-    pub text: String,
 }
 
 /// Snapshot of the Control Deck CPU state for use by the Debugger.
@@ -167,9 +157,7 @@ pub struct CpuSnapshot {
     pub stack: Vec<u8>,
     /// Previously executed instructions, oldest first, ending just before PC from
     /// [`DebugRequest::history_lines`].
-    pub history: Vec<DisasmLine>,
-    /// Disassembled instructions from the current PC from [`DebugRequest::disasm_lines`].
-    pub disasm: Vec<DisasmLine>,
+    pub history: Vec<Disasm>,
     /// The range requested from [`DebugRequest::memory`], if any.
     pub memory: Vec<u8>,
 }
@@ -177,18 +165,6 @@ pub struct CpuSnapshot {
 impl CpuSnapshot {
     /// Capture the requested snapshot.
     pub fn capture(bus: &Bus, request: &DebugRequest) -> Self {
-        let mut text = String::with_capacity(64);
-        let mut pc = bus.cpu.pc;
-        let mut disasm = Vec::with_capacity(usize::from(request.disasm_lines));
-        for _ in 0..request.disasm_lines {
-            let addr = pc;
-            bus.disassemble_into(&mut pc, &mut text);
-            disasm.push(DisasmLine {
-                addr,
-                text: text.clone(),
-            });
-        }
-
         // Disassembled from memory as it is banked *now*, not as it was when these ran, so a line
         // whose bank has since been swapped shows what currently lives at that address. The
         // code map does not help here - it says which bytes are code, not which bank an address
@@ -202,11 +178,7 @@ impl CpuSnapshot {
                 .skip(skip)
                 .map(|addr| {
                     let mut pc = addr;
-                    bus.disassemble_into(&mut pc, &mut text);
-                    DisasmLine {
-                        addr,
-                        text: text.clone(),
-                    }
+                    bus.disassemble(&mut pc)
                 })
                 .collect()
         });
@@ -221,7 +193,6 @@ impl CpuSnapshot {
                 Vec::new()
             },
             history,
-            disasm,
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
                 (0..len).map(|i| bus.peek(start.wrapping_add(i))).collect()
             }),
@@ -249,7 +220,7 @@ impl AddressSpace {
     /// from PC reaches. Everything else is a collapsed block.
     pub fn capture(bus: &Bus) -> Self {
         let mut rows = Vec::new();
-        let mut text = String::with_capacity(64);
+        let mut disasm = Disasm::default();
         let mut addr = 0u32;
         let pc = bus.cpu.pc;
         // Set while decoding forward from PC. The map contains only what has executed, so a
@@ -278,10 +249,10 @@ impl AddressSpace {
                             .falls_through();
                     }
                     let mut next = start;
-                    bus.disassemble_into(&mut next, &mut text);
-                    // `disassemble_into` wraps past $FFFF, so take the length rather than the
-                    // address it landed on, and never advance by zero.
-                    let len = next.wrapping_sub(start).max(1);
+                    bus.disassemble_into(&mut next, &mut disasm);
+                    // Taken from the addressing mode rather than from where the decode landed,
+                    // which wraps past $FFFF.
+                    let len = disasm.len();
                     let end = start.wrapping_add(len - 1);
 
                     // PC is known to start an instruction, so a decode that overlaps it does not
@@ -301,10 +272,7 @@ impl AddressSpace {
                         });
                         u32::from(pc)
                     } else {
-                        rows.push(Row::Instruction(DisasmLine {
-                            addr: start,
-                            text: text.clone(),
-                        }));
+                        rows.push(Row::Instruction(disasm.clone()));
                         addr + u32::from(len)
                     }
                 }
@@ -447,6 +415,20 @@ impl Pane {
     }
 }
 
+/// What a click on a disassembly row asked for.
+///
+/// Reported rather than applied, since the row draws from state it borrows.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+enum RowAction {
+    /// Add a breakpoint at this address, or remove the one already there.
+    ToggleBreakpoint(u16),
+    /// Arm or disarm the breakpoint there, keeping it listed either way.
+    ArmBreakpoint(u16, bool),
+    /// Make this the row later commands act on.
+    Select(u16),
+}
+
 /// Where a pane is placed. Panes keep their column, and only redistribute height within it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
@@ -509,14 +491,20 @@ struct State {
     /// jump first.
     visible_rows: Range<usize>,
     goto: String,
+    /// The row later commands act on, by address rather than row index so it survives a capture
+    /// that moves the rows under it.
+    selected: Option<u16>,
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
-    disasm_lines: u16,
     history_lines: u16,
     /// The panes that are open, in [`Pane::ALL`] order.
     panes: Vec<Pane>,
 }
+
+/// Width of the breakpoint column left of the disassembly. Wide enough to click at, where one
+/// character of the monospace font is not.
+const GUTTER_WIDTH: f32 = 16.0;
 
 /// Parse an address as typed into one of the window's address boxes, with or without the `$`.
 fn parse_addr(text: &str) -> Option<u16> {
@@ -535,9 +523,8 @@ fn row_is_visible(address_space: &AddressSpace, visible: &Range<usize>, addr: u1
 /// What the console is asked to capture, folded over the panes in `open`.
 ///
 /// A closed pane draws nothing, so what feeds it is not captured either.
-fn request(open: &[Pane], disasm_lines: u16, history_lines: u16) -> DebugRequest {
+fn request(open: &[Pane], history_lines: u16) -> DebugRequest {
     DebugRequest {
-        disasm_lines,
         history_lines: if open.contains(&Pane::History) {
             history_lines
         } else {
@@ -558,8 +545,6 @@ pub struct CpuDebugger {
 
 impl CpuDebugger {
     const TITLE: &'static str = "TetaNES - Debugger";
-    /// Enough to fill the disassembly pane without scrolling at the default window size.
-    const DISASM_LINES: u16 = 24;
     /// Enough context to see how the current instruction was reached without pushing it off-screen.
     const HISTORY_LINES: u16 = 8;
 
@@ -584,9 +569,9 @@ impl CpuDebugger {
                 scroll_to: Some(0),
                 visible_rows: 0..0,
                 goto: String::new(),
+                selected: None,
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
-                disasm_lines: Self::DISASM_LINES,
                 history_lines: Self::HISTORY_LINES,
                 panes,
             })),
@@ -728,7 +713,7 @@ impl State {
 
     /// What the console is asked to capture for the panes that are open.
     fn request(&self) -> DebugRequest {
-        request(&self.panes, self.disasm_lines, self.history_lines)
+        request(&self.panes, self.history_lines)
     }
 
     /// Forget every dragged splitter, so the next frame lays out from the default sizes.
@@ -961,9 +946,9 @@ impl State {
                 repeats += 1;
             }
             let text = if repeats > 1 {
-                format!("{}  ×{repeats}", line.text)
+                format!("{line}  ×{repeats}")
             } else {
-                line.text.clone()
+                line.to_string()
             };
             ui.label(RichText::new(text).monospace().color(Color32::DARK_GRAY));
         }
@@ -1080,10 +1065,11 @@ impl State {
             scroll_area = scroll_area.vertical_scroll_offset(approx.max(0.0));
         }
 
+        let palette = Palette::new(ui.visuals());
+        let font = egui::TextStyle::Monospace.resolve(ui.style());
         let mut drawn = 0..0;
         let mut centered = false;
-        let mut toggled = None;
-        let breakpoints = &self.breakpoints;
+        let mut act = None;
         scroll_area.show_rows(
             ui,
             row_height,
@@ -1091,36 +1077,13 @@ impl State {
             |ui, range| {
                 drawn = range.clone();
                 for (offset, row) in self.address_space.rows[range.clone()].iter().enumerate() {
-                    let response = match row {
-                        Row::Instruction(line) => {
-                            let mut text = RichText::new(&line.text).monospace();
-                            if line.addr == pc {
-                                text = text.strong().background_color(Color32::DARK_BLUE);
-                            }
-                            // Tinted rather than given a marker column, so every row stays the
-                            // same shape and the addresses down the left stay in one column.
-                            if let Some(breakpoint) = breakpoints.get(line.addr) {
-                                text = match (breakpoint.enabled, line.addr == pc) {
-                                    // PC's own highlight has the background, so a breakpoint on
-                                    // the instruction stopped at takes the text instead.
-                                    (true, true) => text.color(Color32::LIGHT_RED),
-                                    (true, false) => text.background_color(Color32::DARK_RED),
-                                    // Listed, but not something the console will stop at.
-                                    (false, _) => text.color(Color32::GRAY),
-                                };
-                            }
-                            let response = ui.add(Label::new(text).sense(Sense::click()));
-                            if response.clicked() {
-                                toggled = Some(line.addr);
-                            }
-                            response
-                        }
-                        Row::Block { start, end, kind } => ui.label(
-                            RichText::new(format!("${start:04X}-${end:04X}  {}", kind.label()))
-                                .monospace()
-                                .color(Color32::DARK_GRAY),
-                        ),
-                    };
+                    let (rect, response) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), row_height),
+                        Sense::hover(),
+                    );
+                    if let Some(clicked) = self.row(ui, rect, row, pc, &palette, font.clone()) {
+                        act = Some(clicked);
+                    }
                     if target == Some(range.start + offset) {
                         // egui measures the drawn row, where the offset arithmetic above can only
                         // estimate it, so this lands the row on the center line.
@@ -1138,10 +1101,195 @@ impl State {
         if centered {
             self.scroll_to = None;
         }
-        if let Some(addr) = toggled {
-            self.breakpoints.toggle(addr);
-            self.send_breakpoints();
+        match act {
+            Some(RowAction::ToggleBreakpoint(addr)) => {
+                self.breakpoints.toggle(addr);
+                self.send_breakpoints();
+            }
+            Some(RowAction::ArmBreakpoint(addr, enabled)) => {
+                for breakpoint in self.breakpoints.iter_mut() {
+                    if breakpoint.addr == addr {
+                        breakpoint.enabled = enabled;
+                    }
+                }
+                self.send_breakpoints();
+            }
+            Some(RowAction::Select(addr)) => self.selected = Some(addr),
+            None => (),
         }
+    }
+
+    /// Draw one row into `rect`, reporting what a click on it asked for.
+    ///
+    /// The row is split by hand rather than laid out with [`Ui::horizontal`], which sizes to its
+    /// contents. `show_rows` maps scroll offset to row index by multiplying, so a row a pixel
+    /// taller desynchronizes both the virtual window and the jump to an address.
+    fn row(
+        &self,
+        ui: &Ui,
+        rect: egui::Rect,
+        row: &Row,
+        pc: u16,
+        palette: &Palette,
+        font: egui::FontId,
+    ) -> Option<RowAction> {
+        let (gutter, text) = rect.split_left_right_at_x(rect.left() + GUTTER_WIDTH);
+        let painter = ui.painter();
+
+        let Row::Instruction(disasm) = row else {
+            painter.rect_filled(gutter, 0.0, palette.gutter);
+            let Row::Block { start, end, kind } = row else {
+                unreachable!("a row is an instruction or a block")
+            };
+            painter.text(
+                text.left_center(),
+                egui::Align2::LEFT_CENTER,
+                format!("${start:04X}-${end:04X}  {}", kind.label()),
+                font,
+                palette.block,
+            );
+            // A block spans a range, so there is no single address to break on. The address box
+            // stays the way to set one inside it.
+            return None;
+        };
+        let addr = disasm.addr;
+
+        // Interacted with before it is painted, so hovering the gutter can light it up. A row
+        // whose gutter takes no breakpoint would otherwise give no sign of being clickable.
+        let gutter_response = ui.interact(gutter, ui.id().with(("gutter", addr)), Sense::click());
+        painter.rect_filled(
+            gutter,
+            0.0,
+            if gutter_response.hovered() {
+                palette.gutter_hovered
+            } else {
+                palette.gutter
+            },
+        );
+
+        if addr == pc {
+            painter.rect_filled(text, 0.0, palette.pc_background);
+        }
+        if self.selected == Some(addr) {
+            // An outline rather than a fill, so a selected row that PC is also on keeps both
+            // marks.
+            painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
+        }
+        painter.galley(
+            text.left_center() - Vec2::new(0.0, font.size / 2.0),
+            self.row_galley(ui, disasm, addr == pc, palette, font),
+            palette.operand,
+        );
+
+        if let Some(breakpoint) = self.breakpoints.get(addr) {
+            // Filled for armed and hollow for listed, a difference that reads without the
+            // palette being involved.
+            let center = gutter.center();
+            let radius = GUTTER_WIDTH / 4.0;
+            if breakpoint.enabled {
+                painter.circle_filled(center, radius, palette.breakpoint);
+            } else {
+                painter.circle_stroke(
+                    center,
+                    radius,
+                    egui::Stroke::new(1.5, palette.breakpoint_disabled),
+                );
+            }
+        }
+
+        let mut action = gutter_response
+            .clicked()
+            .then_some(RowAction::ToggleBreakpoint(addr));
+        match self.breakpoints.get(addr) {
+            Some(breakpoint) => {
+                let enabled = breakpoint.enabled;
+                gutter_response
+                    .on_hover_text("Remove this breakpoint.")
+                    .context_menu(|ui| {
+                        if ui
+                            .button(if enabled { "Disable" } else { "Enable" })
+                            .clicked()
+                        {
+                            action = Some(RowAction::ArmBreakpoint(addr, !enabled));
+                            ui.close();
+                        }
+                        if ui.button("Remove").clicked() {
+                            action = Some(RowAction::ToggleBreakpoint(addr));
+                            ui.close();
+                        }
+                    });
+            }
+            None => {
+                gutter_response.on_hover_text("Break here.");
+            }
+        }
+
+        let row_response = ui.interact(text, ui.id().with(("row", addr)), Sense::click());
+        if row_response.clicked() {
+            action = Some(RowAction::Select(addr));
+        }
+        row_response.context_menu(|ui| {
+            if ui.button("Copy address").clicked() {
+                ui.ctx().copy_text(format!("${addr:04X}"));
+                ui.close();
+            }
+        });
+        action
+    }
+
+    /// Lay the instruction's parts out as one galley, each part in its own color.
+    ///
+    /// One galley rather than a painted string per part, so the row is measured once and the
+    /// columns stay where the monospace padding puts them.
+    fn row_galley(
+        &self,
+        ui: &Ui,
+        disasm: &Disasm,
+        at_pc: bool,
+        palette: &Palette,
+        font: egui::FontId,
+    ) -> Arc<egui::Galley> {
+        let mut job = egui::text::LayoutJob::default();
+        let mut part = |text: String, color: Color32| {
+            job.append(
+                &text,
+                0.0,
+                egui::TextFormat {
+                    font_id: font.clone(),
+                    // The console is about to run the row at PC, so it reads as one line rather
+                    // than as five tinted parts.
+                    color: if at_pc { palette.pc_text } else { color },
+                    ..Default::default()
+                },
+            );
+        };
+
+        part(format!("${:04X} ", disasm.addr), palette.address);
+        let mut bytes = format!("${:02X} ", disasm.instr.opcode);
+        let mut columns = 0;
+        for byte in disasm.operands() {
+            bytes.push_str(&format!("${byte:02X} "));
+            columns += 4;
+        }
+        for _ in columns..Disasm::BYTE_COLUMNS {
+            bytes.push(' ');
+        }
+        part(bytes, palette.bytes);
+        part(
+            disasm.instr.to_string(),
+            if disasm.instr.to_string().starts_with('*') {
+                palette.mnemonic_unofficial
+            } else {
+                palette.mnemonic
+            },
+        );
+        if !disasm.operand.is_empty() {
+            part(format!(" {}", disasm.operand), palette.operand);
+        }
+        if !disasm.resolved.is_empty() {
+            part(format!(" {}", disasm.resolved), palette.resolved);
+        }
+        ui.painter().layout_job(job)
     }
 
     fn stack(&mut self, ui: &mut Ui) {
@@ -1174,8 +1322,6 @@ mod tests {
     };
     use tetanes_core::{control_deck::ControlDeck, cpu::Cpu};
 
-    /// The disassembly is drawn against the address space, so its line count is fixed here.
-    const DISASM_LINES: u16 = 24;
     const HISTORY_LINES: u16 = 8;
 
     /// The column stacks all but one pane at a fixed height and gives the last what is left, so
@@ -1233,7 +1379,7 @@ mod tests {
     /// A closed pane draws nothing, so the console is asked for nothing on its behalf.
     #[test]
     fn closing_a_pane_drops_what_only_it_draws() {
-        let all = request(&Pane::ALL, DISASM_LINES, HISTORY_LINES);
+        let all = request(&Pane::ALL, HISTORY_LINES);
         assert_eq!(all.history_lines, HISTORY_LINES);
         assert!(all.stack);
 
@@ -1241,13 +1387,9 @@ mod tests {
             .into_iter()
             .filter(|pane| !matches!(pane, Pane::History | Pane::Stack))
             .collect::<Vec<_>>();
-        let request = request(&closed, DISASM_LINES, HISTORY_LINES);
+        let request = request(&closed, HISTORY_LINES);
         assert_eq!(request.history_lines, 0);
         assert!(!request.stack);
-        assert_eq!(
-            request.disasm_lines, all.disasm_lines,
-            "the disassembly cannot be closed, so its line count is not folded"
-        );
     }
 
     #[test]

@@ -175,8 +175,6 @@ impl From<ConfigEvent> for NesEvent {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct DebugRequest {
-    /// How many instructions to disassemble forward from PC.
-    pub disasm_lines: u16,
     /// How many previously executed instructions to keep.
     pub history_lines: u16,
     /// Whether to copy the stack page.

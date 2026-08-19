@@ -63,6 +63,7 @@ use winit::event::WindowEvent;
 pub mod debugger;
 mod keybinds;
 pub mod lib;
+pub mod palette;
 pub mod ppu_viewer;
 mod preferences;
 

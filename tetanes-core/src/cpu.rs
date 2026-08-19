@@ -107,6 +107,68 @@ bitflags! {
 #[must_use]
 pub struct StateMismatch;
 
+/// One disassembled instruction, split into the parts a view tints and aligns separately.
+///
+/// [`Display`](fmt::Display) joins them back into the single line the instruction trace prints,
+/// which is also the column layout the debugger draws.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Disasm {
+    /// Address the instruction was read from.
+    pub addr: u16,
+    /// Opcode, mnemonic, addressing mode and cycle count.
+    pub instr: InstrRef,
+    /// The bytes after the opcode. [`Disasm::operands`] slices off the ones that belong to the
+    /// instruction.
+    pub bytes: [u8; 2],
+    /// The operand as written: `#$42`, `$1234,X`, `($10),Y`. Empty for implied and accumulator
+    /// modes, which name no operand.
+    pub operand: String,
+    /// What the operand comes to on the console as it stands: `= #$34`, `@ $1237 = #$BB`, or
+    /// `= $1234` for an indirect jump. Empty where the mode resolves nothing.
+    pub resolved: String,
+}
+
+impl Disasm {
+    /// Columns the operand bytes are padded to, which `$10 $00 ` fills at its widest.
+    pub const BYTE_COLUMNS: usize = 8;
+
+    /// The bytes after the opcode that belong to the instruction, zero to two of them.
+    pub fn operands(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.instr.addr_mode.operand_len())]
+    }
+
+    /// How many bytes the instruction occupies, opcode included.
+    #[expect(
+        clippy::len_without_is_empty,
+        reason = "an instruction is never zero bytes"
+    )]
+    pub const fn len(&self) -> u16 {
+        1 + self.instr.addr_mode.operand_len() as u16
+    }
+}
+
+impl fmt::Display for Disasm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "${:04X} ${:02X} ", self.addr, self.instr.opcode)?;
+        let mut columns = 0;
+        for byte in self.operands() {
+            write!(f, "${byte:02X} ")?;
+            columns += 4;
+        }
+        // Padded so the mnemonic starts in the same column whatever the instruction's length.
+        write!(f, "{:width$}", "", width = Self::BYTE_COLUMNS - columns)?;
+        write!(f, "{}", self.instr)?;
+        if !self.operand.is_empty() {
+            write!(f, " {}", self.operand)?;
+        }
+        if !self.resolved.is_empty() {
+            write!(f, " {}", self.resolved)?;
+        }
+        Ok(())
+    }
+}
+
 /// The Central Processing Unit status and registers
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[must_use]
@@ -861,70 +923,79 @@ impl Bus {
         u16::from_le_bytes([lo, hi])
     }
 
+    /// Disassemble the instruction at the given program counter, advancing `pc` past it.
+    pub fn disassemble(&self, pc: &mut u16) -> Disasm {
+        let mut disasm = Disasm::default();
+        self.disassemble_into(pc, &mut disasm);
+        disasm
+    }
+
     /// Disassemble the instruction at the given program counter into `out`, advancing `pc` past it.
-    pub fn disassemble_into(&self, pc: &mut u16, out: &mut String) {
+    ///
+    /// `out` is reused rather than returned, so a sweep over the address space grows its two
+    /// strings once instead of allocating per instruction.
+    pub fn disassemble_into(&self, pc: &mut u16, out: &mut Disasm) {
         use fmt::Write;
 
-        out.clear();
+        out.addr = *pc;
+        out.operand.clear();
+        out.resolved.clear();
 
-        let addr = { *pc };
         let opcode = {
             let byte = self.peek(*pc);
             *pc = pc.wrapping_add(1);
             byte
         };
-        let _ = write!(out, "${addr:04X} ${opcode:02X} ");
+        out.instr = Cpu::INSTR_REF[usize::from(opcode)];
 
-        let mut peek_byte = || {
+        let mut peek_byte = |out: &mut Disasm, index: usize| {
             let byte = self.peek(*pc);
             *pc = pc.wrapping_add(1);
+            out.bytes[index] = byte;
             byte
         };
-        let mut peek_word = || {
-            let lo = peek_byte();
-            let hi = peek_byte();
-            (lo, hi, u16::from_le_bytes([lo, hi]))
+        let mut peek_word = |out: &mut Disasm| {
+            let lo = peek_byte(out, 0);
+            let hi = peek_byte(out, 1);
+            u16::from_le_bytes([lo, hi])
         };
 
-        let instr_ref = Cpu::INSTR_REF[usize::from(opcode)];
-        match instr_ref.addr_mode {
-            AddrMode::ACC | AddrMode::IMP => {
-                let _ = write!(out, "        {instr_ref}");
-            }
+        // `out.operand` gives the operand as written, `out.resolved` what it comes to on the
+        // console as it stands now. Only the row at PC is about to run, so the rest resolve
+        // against registers they will not see.
+        match out.instr.addr_mode {
+            AddrMode::ACC | AddrMode::IMP => (),
             AddrMode::IMM => {
-                let byte = peek_byte();
-                let _ = write!(out, "${byte:02X}     {instr_ref} #${byte:02X}");
+                let byte = peek_byte(out, 0);
+                let _ = write!(out.operand, "#${byte:02X}");
             }
             AddrMode::REL => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let addr = (*pc as i16).wrapping_add(i16::from(byte as i8)) as u16;
-                let _ = write!(out, "${byte:02X}     {instr_ref} ${addr:04X}");
+                let _ = write!(out.operand, "${addr:04X}");
             }
             AddrMode::ZP0 => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let val = self.peek(byte.into());
-                let _ = write!(out, "${byte:02X}     {instr_ref} ${byte:02X} = #${val:02X}");
+                let _ = write!(out.operand, "${byte:02X}");
+                let _ = write!(out.resolved, "= #${val:02X}");
             }
             AddrMode::ZPX => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let addr = byte.wrapping_add(self.cpu.x);
                 let val = self.peek(addr.into());
-                let _ = write!(
-                    out,
-                    "${byte:02X}     {instr_ref} ${byte:02X},X @ ${addr:02X} = #${val:02X}"
-                );
+                let _ = write!(out.operand, "${byte:02X},X");
+                let _ = write!(out.resolved, "@ ${addr:02X} = #${val:02X}");
             }
             AddrMode::ZPY => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let addr = byte.wrapping_add(self.cpu.y);
                 let val = self.peek(addr.into());
-                let _ = write!(
-                    out,
-                    "${byte:02X}     {instr_ref} ${byte:02X},Y @ ${addr:02X} = #${val:02X}"
-                );
+                let _ = write!(out.operand, "${byte:02X},Y");
+                let _ = write!(out.resolved, "@ ${addr:02X} = #${val:02X}");
             }
             AddrMode::IND => {
-                let (byte1, byte2, base_addr) = peek_word();
+                let base_addr = peek_word(out);
                 let val = if (base_addr & 0xFF) == 0xFF {
                     let lo = self.peek(base_addr);
                     let hi = self.peek(base_addr - 0xFF);
@@ -932,25 +1003,21 @@ impl Bus {
                 } else {
                     self.peek_word(base_addr)
                 };
-                let _ = write!(
-                    out,
-                    "${byte1:02X} ${byte2:02X} {instr_ref} (${base_addr:04X}) = ${val:04X}"
-                );
+                let _ = write!(out.operand, "(${base_addr:04X})");
+                let _ = write!(out.resolved, "= ${val:04X}");
             }
             AddrMode::IDX => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let zero_addr = byte.wrapping_add(self.cpu.x);
                 let lo = self.peek(u16::from(zero_addr));
                 let hi = self.peek(u16::from(zero_addr.wrapping_add(1)));
                 let addr = u16::from_le_bytes([lo, hi]);
                 let val = self.peek(addr);
-                let _ = write!(
-                    out,
-                    "${byte:02X}     {instr_ref} (${byte:02X},X) @ ${addr:04X} = #${val:02X}"
-                );
+                let _ = write!(out.operand, "(${byte:02X},X)");
+                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
             }
             AddrMode::IDY | AddrMode::IDYW => {
-                let byte = peek_byte();
+                let byte = peek_byte(out, 0);
                 let base_addr = {
                     let lo = self.peek(u16::from(byte));
                     let hi = self.peek(u16::from(byte.wrapping_add(1)));
@@ -958,52 +1025,32 @@ impl Bus {
                 };
                 let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
                 let val = self.peek(addr);
-                let _ = write!(
-                    out,
-                    "${byte:02X}     {instr_ref} (${byte:02X}),Y @ ${addr:04X} = #${val:02X}"
-                );
+                let _ = write!(out.operand, "(${byte:02X}),Y");
+                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
             }
-            AddrMode::ABS => {
-                let (byte1, byte2, addr) = peek_word();
-                if instr_ref.instr == JMP {
-                    let _ = write!(out, "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}");
-                } else {
+            AddrMode::ABS | AddrMode::OTH => {
+                let addr = peek_word(out);
+                let _ = write!(out.operand, "${addr:04X}");
+                // A jump names where it goes, so the byte sitting at the target says nothing about
+                // it.
+                if !matches!(out.instr.instr, JMP | JSR) {
                     let val = self.peek(addr);
-                    let _ = write!(
-                        out,
-                        "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X} = #${val:02X}"
-                    );
+                    let _ = write!(out.resolved, "= #${val:02X}");
                 }
             }
             AddrMode::ABX | AddrMode::ABXW => {
-                let (byte1, byte2, base_addr) = peek_word();
+                let base_addr = peek_word(out);
                 let addr = base_addr.wrapping_add(self.cpu.x.into());
                 let val = self.peek(addr);
-                let _ = write!(
-                    out,
-                    "${byte1:02X} ${byte2:02X} {instr_ref} ${base_addr:04X},X @ ${addr:04X} = #${val:02X}"
-                );
+                let _ = write!(out.operand, "${base_addr:04X},X");
+                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
             }
             AddrMode::ABY | AddrMode::ABYW => {
-                let (byte1, byte2, base_addr) = peek_word();
+                let base_addr = peek_word(out);
                 let addr = base_addr.wrapping_add(self.cpu.y.into());
                 let val = self.peek(addr);
-                let _ = write!(
-                    out,
-                    "${byte1:02X} ${byte2:02X} {instr_ref} ${base_addr:04X},Y @ ${addr:04X} = #${val:02X}"
-                );
-            }
-            AddrMode::OTH => {
-                let (byte1, byte2, addr) = peek_word();
-                if instr_ref.instr == JSR {
-                    let _ = write!(out, "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X}");
-                } else {
-                    let val = self.peek(addr);
-                    let _ = write!(
-                        out,
-                        "${byte1:02X} ${byte2:02X} {instr_ref} ${addr:04X} = #${val:02X}"
-                    );
-                }
+                let _ = write!(out.operand, "${base_addr:04X},Y");
+                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
             }
         };
     }
@@ -1029,8 +1076,7 @@ impl Bus {
         let i = if status.contains(Status::I) { 'I' } else { 'i' };
         let z = if status.contains(Status::Z) { 'Z' } else { 'z' };
         let c = if status.contains(Status::C) { 'C' } else { 'c' };
-        let mut disasm = String::with_capacity(64);
-        self.disassemble_into(&mut pc, &mut disasm);
+        let disasm = self.disassemble(&mut pc).to_string();
         println!(
             "{disasm:<50} A:{acc:02X} X:{x:02X} Y:{y:02X} P:{n}{v}--d{i}{z}{c} SP:{sp:02X} PPU:{ppu_cycle:3},{ppu_scanline:3} CYC:{cycle}",
         );
@@ -1105,6 +1151,122 @@ impl fmt::Debug for Cpu {
 #[cfg(test)]
 mod tests {
     use crate::{cart::Cart, cpu::instr::Instr::*, mapper::Nrom};
+
+    /// The parts have to join back into the line the instruction trace prints, which is read
+    /// against other emulators' logs, and into the columns the debugger draws. One instruction per
+    /// addressing mode, plus the cases that turn a part off: a jump resolves nothing, and an
+    /// unofficial opcode takes the `*` the mnemonic column reserves.
+    #[test]
+    fn the_parts_join_back_into_one_aligned_line() {
+        use super::*;
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus.cpu.x = 0x02;
+        bus.cpu.y = 0x03;
+        for (addr, val) in [
+            (0x0010u16, 0x34u8),
+            (0x0011, 0x12),
+            (0x0012, 0x78),
+            (0x0013, 0x56),
+            (0x0234, 0xCC),
+            (0x0237, 0xBB),
+        ] {
+            bus.cpu_bus_write(addr, val);
+        }
+
+        for (bytes, expected) in [
+            (&[0x0Au8] as &[u8], "$0700 $0A          ASL"),
+            (&[0xEA], "$0700 $EA          NOP"),
+            (&[0xA9, 0x42], "$0700 $A9 $42      LDA #$42"),
+            (&[0x10, 0x7F], "$0700 $10 $7F      BPL $0781"),
+            (&[0x10, 0xF0], "$0700 $10 $F0      BPL $06F2"),
+            (&[0xA5, 0x10], "$0700 $A5 $10      LDA $10 = #$34"),
+            (&[0xB5, 0x10], "$0700 $B5 $10      LDA $10,X @ $12 = #$78"),
+            (&[0xB6, 0x10], "$0700 $B6 $10      LDX $10,Y @ $13 = #$56"),
+            (
+                &[0x6C, 0x10, 0x00],
+                "$0700 $6C $10 $00  JMP ($0010) = $1234",
+            ),
+            (
+                &[0xA1, 0x0E],
+                "$0700 $A1 $0E      LDA ($0E,X) @ $1234 = #$CC",
+            ),
+            (
+                &[0xB1, 0x10],
+                "$0700 $B1 $10      LDA ($10),Y @ $1237 = #$BB",
+            ),
+            (
+                &[0x91, 0x10],
+                "$0700 $91 $10      STA ($10),Y @ $1237 = #$BB",
+            ),
+            (&[0xAD, 0x34, 0x12], "$0700 $AD $34 $12  LDA $1234 = #$CC"),
+            (&[0x4C, 0x34, 0x12], "$0700 $4C $34 $12  JMP $1234"),
+            (
+                &[0xBD, 0x34, 0x12],
+                "$0700 $BD $34 $12  LDA $1234,X @ $1236 = #$00",
+            ),
+            (
+                &[0x9D, 0x34, 0x12],
+                "$0700 $9D $34 $12  STA $1234,X @ $1236 = #$00",
+            ),
+            (
+                &[0xB9, 0x34, 0x12],
+                "$0700 $B9 $34 $12  LDA $1234,Y @ $1237 = #$BB",
+            ),
+            (
+                &[0x99, 0x34, 0x12],
+                "$0700 $99 $34 $12  STA $1234,Y @ $1237 = #$BB",
+            ),
+            (&[0x20, 0x34, 0x12], "$0700 $20 $34 $12  JSR $1234"),
+            (&[0x9B, 0x34, 0x12], "$0700 $9B $34 $12 *TAS $1234 = #$CC"),
+            (&[0x07, 0x10], "$0700 $07 $10     *SLO $10 = #$34"),
+            (&[0x1A], "$0700 $1A         *NOP"),
+        ] {
+            for (i, byte) in bytes.iter().enumerate() {
+                bus.cpu_bus_write(0x0700 + i as u16, *byte);
+            }
+            let mut pc = 0x0700;
+            let disasm = bus.disassemble(&mut pc);
+            assert_eq!(disasm.to_string(), expected);
+            assert_eq!(
+                usize::from(disasm.len()),
+                bytes.len(),
+                "${:02X} reported the wrong length for {expected}",
+                bytes[0]
+            );
+        }
+    }
+
+    /// `AddressSpace::capture` steps by [`AddrMode::operand_len`], so a mode that disagrees with
+    /// how far the disassembler moves `pc` puts the whole sweep out of step with the instruction
+    /// boundaries.
+    #[test]
+    fn every_opcodes_operand_len_matches_what_the_disassembler_reads() {
+        use super::*;
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+
+        let mut disasm = Disasm::default();
+        for instr_ref in Cpu::INSTR_REF.iter() {
+            bus.cpu_bus_write(0x0700, instr_ref.opcode);
+            let mut pc = 0x0700;
+            bus.disassemble_into(&mut pc, &mut disasm);
+            assert_eq!(
+                pc - 0x0700,
+                disasm.len(),
+                "${:02X} {:?} #{:?}",
+                instr_ref.opcode,
+                instr_ref.instr,
+                instr_ref.addr_mode
+            );
+        }
+    }
 
     #[test]
     fn cycle_timing() {
