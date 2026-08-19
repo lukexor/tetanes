@@ -20,7 +20,7 @@ use std::{
 use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Disasm, Status},
-    debug::{Access, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
+    debug::{Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
 };
 
 /// A range of addresses the console stops at when one is accessed.
@@ -198,6 +198,8 @@ pub struct CpuSnapshot {
     pub history: Vec<Disasm>,
     /// The range requested from [`DebugRequest::memory`], if any.
     pub memory: Vec<u8>,
+    /// Accesses that breakpoints recorded without stopping, oldest first.
+    pub access_log: Vec<AccessHit>,
 }
 
 impl CpuSnapshot {
@@ -234,6 +236,8 @@ impl CpuSnapshot {
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
                 (0..len).map(|i| bus.peek(start.wrapping_add(i))).collect()
             }),
+            // Filled by the caller, which owns the console the log is drained from.
+            access_log: Vec::new(),
         }
     }
 }
@@ -532,6 +536,9 @@ struct State {
     /// The row later commands act on, by address rather than row index so it survives a capture
     /// that moves the rows under it.
     selected: Option<u16>,
+    /// What recording breakpoints have caught, oldest first, capped so a hot address cannot grow
+    /// it without limit.
+    access_log: Vec<AccessHit>,
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
@@ -639,6 +646,7 @@ impl CpuDebugger {
                 visible_rows: 0..0,
                 goto: String::new(),
                 selected: None,
+                access_log: Vec::new(),
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
                 history_lines: Self::HISTORY_LINES,
@@ -677,14 +685,32 @@ impl CpuDebugger {
     }
 
     /// Take a new CPU snapshot, centering the disassembly on PC once it leaves the view.
-    pub fn update_snapshot(&mut self, snapshot: CpuSnapshot) {
+    pub fn update_snapshot(&mut self, mut snapshot: CpuSnapshot) {
         let mut state = self.state.lock();
+        // Each snapshot brings only what was caught since the last one, so the list accumulates
+        // them and drops the oldest at its cap.
+        state.access_log.append(&mut snapshot.access_log);
+        let over = state
+            .access_log
+            .len()
+            .saturating_sub(State::ACCESS_LOG_LINES);
+        state.access_log.drain(..over);
         // Stepping through a routine walks the highlight down the rows already on screen. Only a
         // jump that lands off screen moves the view, so the lines around PC stay where they were.
         if state.snapshot.cpu.pc != snapshot.cpu.pc && !state.pc_is_visible(snapshot.cpu.pc) {
             state.scroll_to = Some(snapshot.cpu.pc);
         }
         state.snapshot = snapshot;
+    }
+
+    /// Center the disassembly on PC, whatever the view was showing.
+    ///
+    /// A stop is the one time the view has to move: the console jumped somewhere the user did not
+    /// scroll to, and the row indices it was following belong to an address space captured before
+    /// the jump.
+    pub fn center_on_pc(&mut self) {
+        let mut state = self.state.lock();
+        state.scroll_to = Some(state.snapshot.cpu.pc);
     }
 
     /// Take a new address space, keeping PC centered for a view that was following it.
@@ -750,6 +776,9 @@ impl State {
         self.tx
             .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
     }
+
+    /// How many recorded accesses the breakpoint pane keeps, oldest dropped first.
+    const ACCESS_LOG_LINES: usize = 128;
 
     /// Whether `pane` is drawn.
     fn is_open(&self, pane: Pane) -> bool {
@@ -1052,8 +1081,10 @@ impl State {
             }
         });
 
+        self.access_log_rows(ui);
+
         if self.breakpoints.is_empty() {
-            ui.weak("None. Add one above, or click an instruction in the disassembly.");
+            ui.weak("None. Add one above, or click the gutter beside an instruction.");
             return;
         }
 
@@ -1068,9 +1099,14 @@ impl State {
             .show(ui, |ui| {
                 for breakpoint in breakpoints.iter_mut() {
                     ui.horizontal(|ui| {
+                        let enabled = breakpoint.enabled;
                         armed_changed |= ui
                             .checkbox(&mut breakpoint.enabled, "")
-                            .on_hover_text("Arm this breakpoint.")
+                            .on_hover_text(if enabled {
+                                "Disable this breakpoint."
+                            } else {
+                                "Enable this breakpoint."
+                            })
                             .changed();
                         // One letter each, since three of them plus the range have to fit a
                         // column narrower than the disassembly.
@@ -1101,14 +1137,20 @@ impl State {
                         .sense(Sense::click());
                         if ui
                             .add(label)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .on_hover_text("Show this address in the disassembly.")
                             .clicked()
                         {
                             scroll_to = Some(breakpoint.addr);
                         }
+                        let breaks = breakpoint.breaks;
                         armed_changed |= ui
                             .toggle_value(&mut breakpoint.breaks, "⏸")
-                            .on_hover_text("Stop the console, rather than only recording the hit.")
+                            .on_hover_text(if breaks {
+                                "Keep running when this breakpoint triggers, and list the access."
+                            } else {
+                                "Pause emulation when this breakpoint triggers."
+                            })
                             .changed();
                         if ui.small_button("✖").clicked() {
                             removed = Some(breakpoint.addr);
@@ -1125,6 +1167,48 @@ impl State {
         }
         if armed_changed {
             self.send_breakpoints();
+        }
+    }
+
+    /// What the breakpoints that keep running have caught, newest last.
+    fn access_log_rows(&mut self, ui: &mut Ui) {
+        if self.access_log.is_empty() {
+            return;
+        }
+        let mut cleared = false;
+        let log = &self.access_log;
+        // Claims its strip before the list, whose scroll area takes whatever is left.
+        Panel::bottom("breakpoint_log")
+            .resizable(true)
+            .default_size(ui.text_style_height(&egui::TextStyle::Monospace) * 7.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong("Caught");
+                    cleared = ui.small_button("Clear").clicked();
+                });
+                ScrollArea::vertical()
+                    .id_salt("access_log")
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for hit in log {
+                            let verb = if hit.access.contains(Access::WRITE) {
+                                "wrote"
+                            } else {
+                                "read"
+                            };
+                            ui.label(
+                                RichText::new(format!(
+                                    "${:04X} {verb} ${:02X}",
+                                    hit.addr, hit.value
+                                ))
+                                .monospace(),
+                            );
+                        }
+                    });
+            });
+        if cleared {
+            self.access_log.clear();
         }
     }
 
@@ -1254,10 +1338,11 @@ impl State {
 
         // Only an instruction has one address to arm. A block spans a range, so its gutter is
         // inert and the address box stays the way to break inside it.
-        let addr = match row {
-            Row::Instruction(disasm) => Some(disasm.addr),
+        let instruction = match row {
+            Row::Instruction(disasm) => Some(disasm),
             Row::Block { .. } => None,
         };
+        let addr = instruction.map(|disasm| disasm.addr);
 
         // Interacted with before it is painted, so hovering the gutter can light it up. A row
         // whose gutter holds no breakpoint would otherwise give no sign of being clickable.
@@ -1289,7 +1374,7 @@ impl State {
             palette.operand,
         );
 
-        let Some(addr) = addr else {
+        let (Some(addr), Some(disasm)) = (addr, instruction) else {
             return (response, None);
         };
         if let Some(breakpoint) = self.breakpoints.get(addr) {
@@ -1340,10 +1425,21 @@ impl State {
         if row_response.clicked() {
             action = Some(RowAction::Select(addr));
         }
+        // Every address the row names is worth copying, not only the one it starts at: the
+        // effective address is where an indexed operand actually landed.
         row_response.context_menu(|ui| {
-            if ui.button("Copy address").clicked() {
-                ui.ctx().copy_text(format!("${addr:04X}"));
-                ui.close();
+            let copy = |ui: &mut Ui, label: &str, text: String| {
+                if ui.button(label).clicked() {
+                    ui.ctx().copy_text(text);
+                    ui.close();
+                }
+            };
+            copy(ui, "Copy address", format!("${addr:04X}"));
+            if let Some(effective) = disasm.effective_text() {
+                copy(ui, "Copy effective address", effective);
+            }
+            if let Some(value) = disasm.value {
+                copy(ui, "Copy value", value.to_string());
             }
         });
         (response, action)

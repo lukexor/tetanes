@@ -988,9 +988,10 @@ impl State {
     }
 
     /// Send the Debugger a snapshot, if it's open.
-    fn send_debug_snapshot(&self) {
+    fn send_debug_snapshot(&mut self) {
         if let Some(request) = &self.debug_request {
-            let snapshot = CpuSnapshot::capture(self.control_deck.bus(), request);
+            let mut snapshot = CpuSnapshot::capture(self.control_deck.bus(), request);
+            snapshot.access_log = self.control_deck.drain_access_log();
             self.tx.event(DebugEvent::Cpu(Box::new(snapshot)));
         }
     }

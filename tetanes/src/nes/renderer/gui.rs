@@ -323,6 +323,7 @@ impl Gui {
             }
             NesEvent::Debug(DebugEvent::AccessBreak(hit)) => {
                 self.run_state = RunState::ManuallyPaused;
+                self.debugger.center_on_pc();
                 let access = if hit.access.contains(Access::WRITE) {
                     "wrote"
                 } else {
@@ -340,6 +341,7 @@ impl Gui {
                 // `ManuallyPaused` like opening the Debugger, since `AutoPaused` would resume on
                 // the next focus change and run straight past where the player wanted to look.
                 self.run_state = RunState::ManuallyPaused;
+                self.debugger.center_on_pc();
                 self.add_message(MessageType::Info, format!("Breakpoint at ${addr:04X}"));
                 self.ctx
                     .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);

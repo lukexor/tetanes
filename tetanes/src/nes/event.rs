@@ -1171,7 +1171,7 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Setting(setting) => match setting {
+                Action::Setting(setting) if is_root_window => match setting {
                     Setting::ToggleFullscreen if activated => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
                         self.renderer.set_fullscreen(
@@ -1259,7 +1259,7 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Deck(action) => match action {
+                Action::Deck(action) if is_root_window => match action {
                     DeckAction::Reset(kind) if activated => {
                         self.event(EmulationEvent::Reset(kind));
                     }
