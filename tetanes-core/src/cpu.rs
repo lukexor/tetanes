@@ -878,9 +878,11 @@ impl Bus {
 
     /// Read a byte without a read breakpoint seeing it, spending its cycle all the same.
     ///
-    /// Two kinds of access come through here. The 6502 reads a wrong address before fixing the
-    /// high byte on an indexed page cross, and re-reads before a read-modify-write, neither of
-    /// which the program meant to touch. Instruction and operand fetches come through as well,
+    /// The 6502 spends cycles on reads the program did not ask for: a wrong address before the
+    /// high byte is fixed on an indexed page cross, a re-read before a read-modify-write, and the
+    /// dummy reads of PC or the stack that a branch, `JSR`, `RTS`, `RTI`, `PLA` and `PLP` take
+    /// while the address bus has nothing else to do. All of them come through here, so a read
+    /// breakpoint reports what the program reached for. Instruction and operand fetches do too,
     /// since [`Access::EXEC`] covers those and a read breakpoint over a code bank would otherwise
     /// fire on every instruction in it.
     #[inline(always)]

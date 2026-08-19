@@ -1179,11 +1179,11 @@ impl Bus {
         if run_irq && !prev_run_irq {
             self.cpu.irq_flags.remove(IrqFlags::RUN_IRQ);
         }
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
 
         let offset = i16::from(self.cpu.operand as i8);
         if Cpu::page_crossed(self.cpu.pc, offset) {
-            self.read(self.cpu.pc); // Dummy read
+            self.read_unwatched(self.cpu.pc); // Dummy read
         }
         self.cpu.pc = (self.cpu.pc as i16).wrapping_add(offset) as u16;
     }
@@ -1244,7 +1244,7 @@ impl Bus {
     #[inline(always)]
     pub fn jsr(&mut self) {
         let lo = self.fetch_byte();
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         self.push_word(self.cpu.pc);
         let hi = self.fetch_byte();
         let addr = u16::from_le_bytes([lo, hi]);
@@ -1265,7 +1265,7 @@ impl Bus {
     /// ```
     #[inline(always)]
     pub fn rti(&mut self) {
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         let status = Status::from_bits_truncate(self.pop_byte());
         self.cpu.set_status(status);
         self.cpu.pc = self.pop_word();
@@ -1285,9 +1285,9 @@ impl Bus {
     /// ```
     #[inline(always)]
     pub fn rts(&mut self) {
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         let addr = self.pop_word();
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         self.cpu.pc = addr.wrapping_add(1);
     }
 
@@ -1386,7 +1386,7 @@ impl Bus {
     ///  ```
     #[inline(always)]
     pub fn plp(&mut self) {
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         let status = Status::from_bits_truncate(self.pop_byte());
         self.cpu.set_status(status);
     }
@@ -1417,7 +1417,7 @@ impl Bus {
     /// ```
     #[inline(always)]
     pub fn pla(&mut self) {
-        self.read(Cpu::SP_BASE | u16::from(self.cpu.sp)); // Dummy read
+        self.read_unwatched(Cpu::SP_BASE | u16::from(self.cpu.sp)); // Dummy read
         self.cpu.acc = self.pop_byte(); // Cycle 4
         self.cpu.set_zn_status(self.cpu.acc);
     }
@@ -1607,7 +1607,7 @@ impl Bus {
 
         let start_cycles = self.cpu.cycle;
         // Dummy read with fixed high byte
-        self.read((base_addr & 0xFF00) | (addr & 0x00FF));
+        self.read_unwatched((base_addr & 0xFF00) | (addr & 0x00FF));
 
         // Dummy read took more than 1 cycle, so it was interrupted by a DMA
         let had_dma = (self.cpu.cycle - start_cycles) > 1;
