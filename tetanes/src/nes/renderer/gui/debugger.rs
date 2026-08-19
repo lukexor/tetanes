@@ -21,6 +21,7 @@ use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Disasm, Status},
     debug::{Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
+    memory::{Memory, PRG_PAGES, Page},
 };
 
 /// A range of addresses the console stops at when one is accessed.
@@ -31,6 +32,9 @@ pub struct Breakpoint {
     pub addr: u16,
     /// Last address covered, inclusive. Equal to `addr` for a single address.
     pub end: u16,
+    /// Where `addr` sat in the cart arena when the breakpoint was set. See
+    /// [`DeckBreakpoint::offset`].
+    pub offset: Option<u32>,
     /// Which accesses trip it.
     pub access: Access,
     /// Cleared to keep a breakpoint in the list without stopping at it.
@@ -41,10 +45,13 @@ pub struct Breakpoint {
 
 impl Breakpoint {
     /// A breakpoint on a single address, stopping before it executes.
-    pub const fn execute(addr: u16) -> Self {
+    ///
+    /// `offset` pins it to the bank mapped at `addr` as the window draws it.
+    pub const fn execute(addr: u16, offset: Option<u32>) -> Self {
         Self {
             addr,
             end: addr,
+            offset,
             access: Access::EXEC,
             enabled: true,
             breaks: true,
@@ -65,6 +72,7 @@ impl Breakpoint {
         DeckBreakpoint {
             start: self.addr,
             end: self.end,
+            offset: self.offset,
             access: self.access,
             breaks: self.breaks,
         }
@@ -80,25 +88,29 @@ impl Breakpoint {
 pub struct Breakpoints(Vec<Breakpoint>);
 
 impl Breakpoints {
-    /// Add `breakpoint`, if there is not one starting at the same address already.
+    /// Add `breakpoint`, if there is not one on the same bytes already.
     pub fn add(&mut self, breakpoint: Breakpoint) {
-        if self.get(breakpoint.addr).is_none() && self.0.len() < DeckBreakpoints::MAX {
+        if self.get(breakpoint.addr, breakpoint.offset).is_none()
+            && self.0.len() < DeckBreakpoints::MAX
+        {
             let index = self.0.partition_point(|other| other.addr < breakpoint.addr);
             self.0.insert(index, breakpoint);
         }
     }
 
-    /// Remove the breakpoint at `addr`, reporting whether there was one.
-    pub fn remove(&mut self, addr: u16) -> bool {
+    /// Remove the breakpoint on `addr` in the bank at `offset`, reporting whether there was one.
+    pub fn remove(&mut self, addr: u16, offset: Option<u32>) -> bool {
         let held = self.0.len();
-        self.0.retain(|breakpoint| breakpoint.addr != addr);
+        self.0
+            .retain(|breakpoint| breakpoint.addr != addr || breakpoint.offset != offset);
         self.0.len() != held
     }
 
-    /// Stop before `addr` executes, or clear the breakpoint already there.
-    pub fn toggle(&mut self, addr: u16) {
-        if !self.remove(addr) {
-            self.add(Breakpoint::execute(addr));
+    /// Stop before the instruction at `addr` in the bank at `offset` executes, or clear the
+    /// breakpoint already on it.
+    pub fn toggle(&mut self, addr: u16, offset: Option<u32>) {
+        if !self.remove(addr, offset) {
+            self.add(Breakpoint::execute(addr, offset));
         }
     }
 
@@ -107,9 +119,14 @@ impl Breakpoints {
         self.0.len() >= DeckBreakpoints::MAX
     }
 
-    /// The breakpoint at `addr`, whether or not it is enabled.
-    pub fn get(&self, addr: u16) -> Option<&Breakpoint> {
-        self.0.iter().find(|breakpoint| breakpoint.addr == addr)
+    /// The breakpoint on `addr` in the bank at `offset`, whether or not it is enabled.
+    ///
+    /// One address holds one breakpoint per bank, since the same address in two banks is two
+    /// different instructions.
+    pub fn get(&self, addr: u16, offset: Option<u32>) -> Option<&Breakpoint> {
+        self.0
+            .iter()
+            .find(|breakpoint| breakpoint.addr == addr && breakpoint.offset == offset)
     }
 
     /// What the console is to act on, which is the enabled ones with an access selected.
@@ -194,7 +211,7 @@ impl Row {
 }
 
 /// Snapshot of the Control Deck CPU state for use by the Debugger.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct CpuSnapshot {
     /// CPU state and registers.
@@ -208,6 +225,25 @@ pub struct CpuSnapshot {
     pub memory: Vec<u8>,
     /// Accesses that breakpoints recorded without stopping, oldest first.
     pub access_log: Vec<AccessHit>,
+    /// The PRG page table, which resolves an address to the cart byte currently mapped there.
+    ///
+    /// Sent every frame while running and after every step, so a breakpoint is pinned to the bank
+    /// the window was drawing when it was set, and a row draws the mark only while that bank is
+    /// still in.
+    pub prg_pages: [Page; PRG_PAGES],
+}
+
+impl Default for CpuSnapshot {
+    fn default() -> Self {
+        Self {
+            cpu: Cpu::default(),
+            stack: Vec::new(),
+            history: Vec::new(),
+            memory: Vec::new(),
+            access_log: Vec::new(),
+            prg_pages: [Page::UNMAPPED; PRG_PAGES],
+        }
+    }
 }
 
 impl CpuSnapshot {
@@ -246,6 +282,7 @@ impl CpuSnapshot {
             }),
             // Filled by the caller, which owns the console the log is drained from.
             access_log: Vec::new(),
+            prg_pages: *bus.memory.prg_pages(),
         }
     }
 }
@@ -483,10 +520,11 @@ impl Pane {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 enum RowAction {
-    /// Add a breakpoint at this address, or remove the one already there.
-    ToggleBreakpoint(u16),
+    /// Add a breakpoint at this address in the bank at this arena offset, or remove the one
+    /// already there.
+    ToggleBreakpoint(u16, Option<u32>),
     /// Arm or disarm the breakpoint there, keeping it listed either way.
-    ArmBreakpoint(u16, bool),
+    ArmBreakpoint(u16, Option<u32>, bool),
     /// Make this the row later commands act on.
     Select(u16),
 }
@@ -600,6 +638,19 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
             Some((addr, addr))
         }
     }
+}
+
+/// Where `addr` sits in the cart arena under `pages`, the mapping the window is drawing.
+fn prg_offset(pages: &[Page; PRG_PAGES], addr: u16) -> Option<u32> {
+    Memory::offset_in(pages, addr).map(|offset| offset as u32)
+}
+
+/// Whether the bytes `breakpoint` was set over are still mapped where it was set.
+///
+/// A breakpoint keyed by address alone is always in place, since no bank switch moves work RAM or
+/// the registers.
+fn is_mapped(pages: &[Page; PRG_PAGES], breakpoint: &Breakpoint) -> bool {
+    breakpoint.offset.is_none() || breakpoint.offset == prg_offset(pages, breakpoint.addr)
 }
 
 /// Whether the box that was just drawn was submitted with Enter.
@@ -791,6 +842,14 @@ impl State {
         }
     }
 
+    /// Say that the list is full, which is the one reason adding a breakpoint does nothing.
+    fn warn_breakpoints_full(&self) {
+        self.tx.event(UiEvent::Message((
+            MessageType::Warn,
+            format!("Only {} breakpoints can be enabled.", DeckBreakpoints::MAX),
+        )));
+    }
+
     /// Tell the console which addresses to stop at.
     fn send_breakpoints(&self) {
         self.tx
@@ -808,6 +867,13 @@ impl State {
     /// Whether `pc`'s row was on screen in the last draw of the disassembly.
     fn pc_is_visible(&self, pc: u16) -> bool {
         row_is_visible(&self.address_space, &self.visible_rows, pc)
+    }
+
+    /// Where `addr` sits in the cart arena, as the last snapshot had it mapped.
+    ///
+    /// `None` for work RAM, the registers and an unmapped page, none of which the arena addresses.
+    fn prg_offset(&self, addr: u16) -> Option<u32> {
+        prg_offset(&self.snapshot.prg_pages, addr)
     }
 
     /// Open or close `pane`, and tell config and the console what changed.
@@ -1082,16 +1148,14 @@ impl State {
                 && add
             {
                 if self.breakpoints.is_full() {
-                    self.tx.event(UiEvent::Message((
-                        MessageType::Warn,
-                        format!("Only {} breakpoints can be enabled.", DeckBreakpoints::MAX),
-                    )));
+                    self.warn_breakpoints_full();
                 } else {
                     self.breakpoint_goto.clear();
+                    let offset = self.prg_offset(addr);
                     self.breakpoints.add(Breakpoint {
                         addr,
                         end,
-                        ..Breakpoint::execute(addr)
+                        ..Breakpoint::execute(addr, offset)
                     });
                     self.send_breakpoints();
                 }
@@ -1109,6 +1173,7 @@ impl State {
         let mut armed_changed = false;
         let mut removed = None;
         let mut scroll_to = None;
+        let pages = &self.snapshot.prg_pages;
         let breakpoints = &mut self.breakpoints;
         ScrollArea::vertical()
             .id_salt("breakpoints")
@@ -1142,16 +1207,26 @@ impl State {
                                 armed_changed = true;
                             }
                         }
-                        let label = Label::new(
-                            RichText::new(breakpoint.range_text())
-                                .monospace()
-                                .color(Color32::LIGHT_RED),
-                        )
-                        .sense(Sense::click());
+                        // A breakpoint whose bank has been switched out cannot fire, and nothing
+                        // else on screen would say why, so the range says it here.
+                        let mapped = is_mapped(pages, breakpoint);
+                        let label =
+                            Label::new(RichText::new(breakpoint.range_text()).monospace().color(
+                                if mapped {
+                                    Color32::LIGHT_RED
+                                } else {
+                                    Color32::DARK_GRAY
+                                },
+                            ))
+                            .sense(Sense::click());
                         if ui
                             .add(label)
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text("Go to location")
+                            .on_hover_text(if mapped {
+                                "Go to location"
+                            } else {
+                                "Go to location - its bank is not mapped there now"
+                            })
                             .clicked()
                         {
                             scroll_to = Some(breakpoint.addr);
@@ -1166,13 +1241,13 @@ impl State {
                             })
                             .changed();
                         if ui.small_button("✖").clicked() {
-                            removed = Some(breakpoint.addr);
+                            removed = Some((breakpoint.addr, breakpoint.offset));
                         }
                     });
                 }
             });
-        if let Some(addr) = removed {
-            self.breakpoints.remove(addr);
+        if let Some((addr, offset)) = removed {
+            self.breakpoints.remove(addr, offset);
             armed_changed = true;
         }
         if let Some(addr) = scroll_to {
@@ -1313,13 +1388,19 @@ impl State {
             self.scroll_to = None;
         }
         match act {
-            Some(RowAction::ToggleBreakpoint(addr)) => {
-                self.breakpoints.toggle(addr);
-                self.send_breakpoints();
+            Some(RowAction::ToggleBreakpoint(addr, offset)) => {
+                // A full list refuses the add, so say so. Clicking a gutter and having nothing
+                // appear reads as a broken window.
+                if self.breakpoints.is_full() && self.breakpoints.get(addr, offset).is_none() {
+                    self.warn_breakpoints_full();
+                } else {
+                    self.breakpoints.toggle(addr, offset);
+                    self.send_breakpoints();
+                }
             }
-            Some(RowAction::ArmBreakpoint(addr, enabled)) => {
+            Some(RowAction::ArmBreakpoint(addr, offset, enabled)) => {
                 for breakpoint in self.breakpoints.iter_mut() {
-                    if breakpoint.addr == addr {
+                    if breakpoint.addr == addr && breakpoint.offset == offset {
                         breakpoint.enabled = enabled;
                     }
                 }
@@ -1400,7 +1481,10 @@ impl State {
                 .then(|| RowAction::Select(row.addr()));
             return (response, selected);
         };
-        if let Some(breakpoint) = self.breakpoints.get(addr) {
+        // The row draws the breakpoint set on the bank it shows. A breakpoint on the same address
+        // in another bank belongs to code that is not on screen.
+        let offset = self.prg_offset(addr);
+        if let Some(breakpoint) = self.breakpoints.get(addr, offset) {
             // Filled for armed and hollow for listed, a difference that reads without the
             // palette being involved.
             let center = gutter.center();
@@ -1419,8 +1503,8 @@ impl State {
         let gutter_response = gutter_response.expect("an instruction row interacts");
         let mut action = gutter_response
             .clicked()
-            .then_some(RowAction::ToggleBreakpoint(addr));
-        match self.breakpoints.get(addr) {
+            .then_some(RowAction::ToggleBreakpoint(addr, offset));
+        match self.breakpoints.get(addr, offset) {
             Some(breakpoint) => {
                 let enabled = breakpoint.enabled;
                 gutter_response
@@ -1430,11 +1514,11 @@ impl State {
                             .button(if enabled { "Disable" } else { "Enable" })
                             .clicked()
                         {
-                            action = Some(RowAction::ArmBreakpoint(addr, !enabled));
+                            action = Some(RowAction::ArmBreakpoint(addr, offset, !enabled));
                             ui.close();
                         }
                         if ui.button("Remove").clicked() {
-                            action = Some(RowAction::ToggleBreakpoint(addr));
+                            action = Some(RowAction::ToggleBreakpoint(addr, offset));
                             ui.close();
                         }
                     });
@@ -1572,8 +1656,8 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::{
-        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, Pane, Row, parse_addr,
-        parse_range, request, row_is_visible,
+        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, PRG_PAGES, Page, Pane, Row,
+        is_mapped, parse_addr, parse_range, request, row_is_visible,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -1705,10 +1789,10 @@ mod tests {
     #[test]
     fn toggling_an_address_adds_a_breakpoint_and_toggling_it_again_removes_it() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.toggle(0xC000);
+        breakpoints.toggle(0xC000, None);
         assert_eq!(armed_at(&breakpoints), [0xC000]);
 
-        breakpoints.toggle(0xC000);
+        breakpoints.toggle(0xC000, None);
         assert!(breakpoints.is_empty());
     }
 
@@ -1717,7 +1801,7 @@ mod tests {
     fn breakpoints_are_held_in_address_order_however_they_are_added() {
         let mut breakpoints = Breakpoints::default();
         for addr in [0xE000, 0x8000, 0xC000] {
-            breakpoints.add(Breakpoint::execute(addr));
+            breakpoints.add(Breakpoint::execute(addr, None));
         }
         assert_eq!(armed_at(&breakpoints), [0x8000, 0xC000, 0xE000]);
     }
@@ -1736,7 +1820,7 @@ mod tests {
     #[test]
     fn a_breakpoint_with_no_access_selected_is_not_armed() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(Breakpoint::execute(0xC000));
+        breakpoints.add(Breakpoint::execute(0xC000, None));
         for breakpoint in breakpoints.iter_mut() {
             breakpoint.access = Access::empty();
         }
@@ -1747,12 +1831,41 @@ mod tests {
         );
     }
 
+    /// The same address in two banks is two instructions, so each keeps a breakpoint of its own
+    /// and removing one leaves the other.
+    #[test]
+    fn an_address_holds_a_breakpoint_for_each_bank() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::execute(0x8000, Some(0x4000)));
+        breakpoints.add(Breakpoint::execute(0x8000, Some(0x8000)));
+        assert_eq!(armed_at(&breakpoints), [0x8000, 0x8000]);
+
+        assert!(breakpoints.remove(0x8000, Some(0x4000)));
+        assert_eq!(
+            breakpoints.get(0x8000, Some(0x8000)).map(|bp| bp.offset),
+            Some(Some(0x8000)),
+            "removing one bank's breakpoint took the other bank's with it"
+        );
+    }
+
+    /// A bank that is no longer mapped resolves to no offset, so the list greys the breakpoint
+    /// rather than leaving it looking armed.
+    #[test]
+    fn a_breakpoint_whose_bank_is_gone_reads_as_unmapped() {
+        let unmapped = [Page::UNMAPPED; PRG_PAGES];
+        assert!(is_mapped(&unmapped, &Breakpoint::execute(0x0300, None)));
+        assert!(!is_mapped(
+            &unmapped,
+            &Breakpoint::execute(0x8000, Some(0x4000))
+        ));
+    }
+
     /// Adding is not toggling: typing an address that is already listed must not clear it.
     #[test]
     fn adding_an_address_twice_leaves_one_breakpoint() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(Breakpoint::execute(0xC000));
-        breakpoints.add(Breakpoint::execute(0xC000));
+        breakpoints.add(Breakpoint::execute(0xC000, None));
+        breakpoints.add(Breakpoint::execute(0xC000, None));
         assert_eq!(armed_at(&breakpoints), [0xC000]);
     }
 
@@ -1760,15 +1873,15 @@ mod tests {
     #[test]
     fn a_disabled_breakpoint_stays_listed_but_is_not_armed() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(Breakpoint::execute(0xC000));
-        breakpoints.add(Breakpoint::execute(0xD000));
+        breakpoints.add(Breakpoint::execute(0xC000, None));
+        breakpoints.add(Breakpoint::execute(0xD000, None));
         for breakpoint in breakpoints.iter_mut() {
             breakpoint.enabled = breakpoint.addr != 0xC000;
         }
 
         assert_eq!(armed_at(&breakpoints), [0xD000]);
         assert!(
-            breakpoints.get(0xC000).is_some_and(|bp| !bp.enabled),
+            breakpoints.get(0xC000, None).is_some_and(|bp| !bp.enabled),
             "a disabled breakpoint was dropped rather than kept"
         );
     }

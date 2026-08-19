@@ -26,6 +26,16 @@ a frame. `clock_frame` shares its display-frame accounting through `clock_frame_
 nothing for it. The UI owns the list of addresses (`renderer/gui/debugger.rs`), and an empty list
 keeps a console with no breakpoints on the frame-at-a-time path.
 
+**A breakpoint carries the arena offset of its start address,** taken when it is set, and
+`Breakpoint::matches` stops only where the mapping still puts those bytes at that address. A CPU
+address names a window rather than a byte, so without it a breakpoint set on one bank's instruction
+also fires on whatever another bank puts there. `None` where the address has no offset - work RAM,
+the registers, an unmapped page - which leaves those keyed by address. The window resolves the
+offset from the `prg_pages` copy on `CpuSnapshot` through `Memory::offset_in`, so a breakpoint is
+pinned to the bank that was on screen when it was set, one address lists one breakpoint per bank,
+and a breakpoint whose bank has been switched out greys in the list rather than silently going
+quiet.
+
 **What a debugger records as it runs lives on `Bus` behind an `Option`,** the way `pc_history` and
 `code_map` (`debug.rs`) both do: `None` by default, so a console with no debugger open pays a
 branch on a cold field rather than the work. Each is `#[serde(skip)]` and moved across

@@ -177,8 +177,7 @@ bitflags! {
 
 /// A range of CPU addresses the console stops on, or records, when one is accessed.
 ///
-/// Keyed by CPU address rather than by [`Memory`] offset, so a range in banked ROM follows
-/// whatever is mapped there.
+/// `offset` pins it to the bytes it was set over.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
@@ -186,6 +185,14 @@ pub struct Breakpoint {
     pub start: u16,
     /// Last address covered, inclusive. Equal to `start` for a single address.
     pub end: u16,
+    /// Where `start` sat in the [`Memory`] arena when the breakpoint was set.
+    ///
+    /// A CPU address names a window, not a byte: the instruction at `$8123` in one bank and the
+    /// one at `$8123` in another are different code that a breakpoint on the address cannot tell
+    /// apart. Recording the offset pins the breakpoint to the bytes it was set over, the way
+    /// [`CodeMap`] pins a mark. `None` where the address has no offset to record - work RAM, the
+    /// registers, an unmapped page - which leaves those keyed by address.
+    pub offset: Option<u32>,
     /// Which accesses trip it.
     pub access: Access,
     /// Cleared to record the access and let the console run on.
@@ -197,6 +204,22 @@ impl Breakpoint {
     #[inline]
     pub const fn covers(&self, addr: u16, access: Access) -> bool {
         self.start <= addr && addr <= self.end && self.access.contains(access)
+    }
+
+    /// Whether this covers `addr` and stops on `access`, with the bank it was set in still mapped
+    /// at `start`.
+    ///
+    /// The whole range answers to `start`'s bank rather than each address answering to its own.
+    /// The arena is contiguous across a range only while one bank holds all of it, so resolving
+    /// per address would leave a range typed across two windows covering its first half from the
+    /// moment it was set.
+    #[inline]
+    pub fn matches(&self, memory: &Memory, addr: u16, access: Access) -> bool {
+        self.covers(addr, access)
+            && match self.offset {
+                Some(offset) => memory.prg_offset(self.start) == Some(offset as usize),
+                None => true,
+            }
     }
 }
 
@@ -266,13 +289,15 @@ impl Breakpoints {
     /// Record an access, reporting whether the console is to stop.
     ///
     /// Returns `false` for the addresses nothing watches, which is the answer almost every time.
-    pub fn hit(&mut self, pc: u16, addr: u16, access: Access, value: u8) -> bool {
+    /// `memory` is read only past the bitmap, so an unwatched address pays for the bit and nothing
+    /// else.
+    pub fn hit(&mut self, memory: &Memory, pc: u16, addr: u16, access: Access, value: u8) -> bool {
         if !self.covers(addr) {
             return false;
         }
         let mut stop = false;
         for breakpoint in &self.list {
-            if breakpoint.covers(addr, access) {
+            if breakpoint.matches(memory, addr, access) {
                 if breakpoint.breaks {
                     stop = true;
                 } else if self.hits.len() < Self::MAX_HITS {
@@ -368,8 +393,17 @@ impl std::fmt::Debug for Debugger {
 mod tests {
     use super::{Access, Breakpoint, Breakpoints, ByteKind, CodeMap, PcHistory};
     use crate::{
-        bus::Bus, cart::Cart, common::ResetKind, control_deck::ControlDeck, cpu::Cpu, mapper::Nrom,
+        bus::Bus,
+        cart::Cart,
+        common::ResetKind,
+        control_deck::ControlDeck,
+        cpu::Cpu,
+        mapper::Nrom,
+        memory::{Memory, Src},
     };
+
+    /// One 16 KiB PRG bank, which is the window the banked tests swap.
+    const BANK: usize = 0x4000;
 
     #[test]
     fn an_unused_history_reads_as_empty() {
@@ -567,10 +601,12 @@ mod tests {
         bus
     }
 
+    /// A breakpoint on an address rather than on a bank, the way work RAM records one.
     fn breakpoint(start: u16, end: u16, access: Access) -> Breakpoint {
         Breakpoint {
             start,
             end,
+            offset: None,
             access,
             breaks: true,
         }
@@ -580,16 +616,17 @@ mod tests {
     /// each. Getting the inclusive end wrong shortens every range by one address.
     #[test]
     fn a_range_covers_both_ends_and_nothing_past_them() {
+        let memory = Memory::default();
         let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0302, Access::WRITE)]);
         for addr in [0x0300, 0x0301, 0x0302] {
             assert!(
-                breakpoints.hit(0xC000, addr, Access::WRITE, 0),
+                breakpoints.hit(&memory, 0xC000, addr, Access::WRITE, 0),
                 "${addr:04X}"
             );
         }
         for addr in [0x02FF, 0x0303] {
             assert!(
-                !breakpoints.hit(0xC000, addr, Access::WRITE, 0),
+                !breakpoints.hit(&memory, 0xC000, addr, Access::WRITE, 0),
                 "${addr:04X}"
             );
         }
@@ -598,21 +635,23 @@ mod tests {
     /// A breakpoint stops on the accesses it was ticked for and no others.
     #[test]
     fn an_access_the_breakpoint_does_not_watch_is_ignored() {
+        let memory = Memory::default();
         let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0300, Access::WRITE)]);
-        assert!(breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0));
-        assert!(!breakpoints.hit(0xC000, 0x0300, Access::READ, 0));
+        assert!(breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0));
+        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::READ, 0));
     }
 
     /// A breakpoint that records rather than stops keeps the console running, and the accesses
     /// come back once each.
     #[test]
     fn a_recording_breakpoint_collects_hits_without_stopping() {
+        let memory = Memory::default();
         let mut breakpoints = Breakpoints::new([Breakpoint {
             breaks: false,
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }]);
-        assert!(!breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0x42));
-        assert!(!breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0x43));
+        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0x42));
+        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0x43));
 
         let hits = breakpoints.drain_hits();
         assert_eq!(hits.len(), 2);
@@ -626,12 +665,13 @@ mod tests {
     /// A breakpoint on a hot address would otherwise grow the log without limit between frames.
     #[test]
     fn a_recording_breakpoint_stops_collecting_at_its_cap() {
+        let memory = Memory::default();
         let mut breakpoints = Breakpoints::new([Breakpoint {
             breaks: false,
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }]);
         for _ in 0..Breakpoints::MAX_HITS * 2 {
-            breakpoints.hit(0xC000, 0x0300, Access::WRITE, 0);
+            breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0);
         }
         assert_eq!(breakpoints.drain_hits().len(), Breakpoints::MAX_HITS);
     }
@@ -725,5 +765,64 @@ mod tests {
         assert!(!bus.breakpoints_active);
         assert!(bus.breakpoints.is_none());
         assert_eq!(bus.access_hit, None);
+    }
+
+    /// Two 16 KiB PRG banks mapped flat, so a test can swap the second into `$8000`.
+    fn bus_with_banked_cart() -> Bus {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty_sized(2 * BANK, 0x2000);
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus
+    }
+
+    /// A breakpoint names the bytes it was set over. Another bank at the same address holds
+    /// unrelated code, and stopping there stops somewhere nothing was set.
+    #[test]
+    fn a_breakpoint_does_not_fire_on_another_bank_at_its_address() {
+        let mut bus = bus_with_banked_cart();
+        let offset = bus.memory.prg_offset(0x8000).expect("mapped") as u32;
+        let breakpoint = Breakpoint {
+            offset: Some(offset),
+            ..breakpoint(0x8000, 0x8000, Access::EXEC)
+        };
+        assert!(breakpoint.matches(&bus.memory, 0x8000, Access::EXEC));
+
+        bus.memory.map_prg(0x8000, BANK, 1, Src::PrgRom);
+        assert!(!breakpoint.matches(&bus.memory, 0x8000, Access::EXEC));
+        assert!(
+            breakpoint.covers(0x8000, Access::EXEC),
+            "the address is still covered, so the bank is what refused it"
+        );
+    }
+
+    /// A range answers to the bank at its start, so switching that bank out takes the whole range
+    /// with it however far past the switched window the range reaches.
+    #[test]
+    fn a_range_is_pinned_by_the_bank_at_its_start() {
+        let mut bus = bus_with_banked_cart();
+        let offset = bus.memory.prg_offset(0xBFFF).expect("mapped") as u32;
+        let breakpoint = Breakpoint {
+            offset: Some(offset),
+            ..breakpoint(0xBFFF, 0xC000, Access::EXEC)
+        };
+        assert!(breakpoint.matches(&bus.memory, 0xC000, Access::EXEC));
+
+        bus.memory.map_prg(0x8000, BANK, 1, Src::PrgRom);
+        assert!(!breakpoint.matches(&bus.memory, 0xBFFF, Access::EXEC));
+        assert!(!breakpoint.matches(&bus.memory, 0xC000, Access::EXEC));
+    }
+
+    /// Work RAM has no arena offset to pin to, so a breakpoint there is keyed by address alone.
+    #[test]
+    fn a_breakpoint_outside_the_cart_is_keyed_by_address() {
+        let bus = bus_with_banked_cart();
+        assert_eq!(bus.memory.prg_offset(0x0300), None);
+        assert!(breakpoint(0x0300, 0x0300, Access::WRITE).matches(
+            &bus.memory,
+            0x0300,
+            Access::WRITE
+        ));
     }
 }

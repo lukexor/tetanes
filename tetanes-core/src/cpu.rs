@@ -904,7 +904,7 @@ impl Bus {
     fn check_access(&mut self, addr: u16, access: Access, val: u8) {
         let pc = self.instr_addr;
         if let Some(breakpoints) = self.breakpoints.as_mut()
-            && breakpoints.hit(pc, addr, access, val)
+            && breakpoints.hit(&self.memory, pc, addr, access, val)
             && self.access_hit.is_none()
         {
             self.access_hit = Some(AccessHit {

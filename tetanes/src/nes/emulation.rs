@@ -1390,7 +1390,8 @@ impl State {
                 self.control_deck.clock_frame_until(|bus| {
                     bus.access_hit.is_some()
                         || breakpoints.iter().any(|breakpoint| {
-                            breakpoint.breaks && breakpoint.covers(bus.cpu.pc, Access::EXEC)
+                            breakpoint.breaks
+                                && breakpoint.matches(&bus.memory, bus.cpu.pc, Access::EXEC)
                         })
                 })?
             };

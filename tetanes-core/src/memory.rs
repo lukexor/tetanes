@@ -755,7 +755,16 @@ impl Memory {
     ///
     /// Only valid until the board switches banks.
     pub const fn prg_offset(&self, addr: u16) -> Option<usize> {
-        let page = self.prg_pages[(addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK];
+        Self::offset_in(&self.prg_pages, addr)
+    }
+
+    /// [`Memory::prg_offset`] against a page table held apart from the arena.
+    ///
+    /// A debugger keeps its own copy of [`Memory::prg_pages`] and translates with this, so an
+    /// address resolves against the mapping the debugger is drawing rather than the one the
+    /// console has moved on to.
+    pub const fn offset_in(pages: &[Page; PRG_PAGES], addr: u16) -> Option<usize> {
+        let page = pages[(addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK];
         // Page 0 is the reserved zero-filled page, so an offset of 0 is unmapped rather than the
         // first byte of the arena.
         if page.offset() == 0 {
