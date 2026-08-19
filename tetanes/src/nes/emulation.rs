@@ -618,15 +618,18 @@ impl State {
         match event {
             EmulationEvent::DebugSubscribe(request) => {
                 let resubscribing = self.debug_request.is_some() && request.is_some();
+                // Executed instructions can only be collected as they run, so recording starts
+                // when the pane asking for them opens. Only a change in how many lines it asks
+                // for touches the ring, since every pane toggle re-subscribes and attaching again
+                // would start it over.
+                let previous_lines = self
+                    .debug_request
+                    .map_or(0, |request| request.history_lines);
                 self.debug_request = *request;
-                // Executed instructions can only be collected as they run, so start recording when
-                // the subscription starts, if history is requested. A re-subscribe, which every
-                // pane toggle sends, keeps what has been recorded so far.
-                let history = request
-                    .filter(|request| request.history_lines > 0)
-                    .map(|request| usize::from(request.history_lines));
-                if !resubscribing || history.is_none() {
-                    self.control_deck.set_pc_history(history);
+                let history_lines = request.map_or(0, |request| request.history_lines);
+                if history_lines != previous_lines {
+                    self.control_deck
+                        .set_pc_history((history_lines > 0).then(|| usize::from(history_lines)));
                 }
                 // Which bytes are instructions is marked by running them, so the map starts here
                 // too. A first subscription starts empty until the game runs, leaving the
