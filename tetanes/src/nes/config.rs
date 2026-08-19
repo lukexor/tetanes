@@ -80,13 +80,7 @@ impl Default for EmulationConfig {
             rewind: true,
             rewind_seconds: 30,
             rewind_interval: 2,
-            // WASM struggles to run fast enough with run-ahead and low latency is not needed in
-            // debug builds.
-            run_ahead: if cfg!(any(debug_assertions, target_arch = "wasm32")) {
-                0
-            } else {
-                1
-            },
+            run_ahead: 0,
             save_slot: 1,
             speed: 1.0,
             threaded: true,
