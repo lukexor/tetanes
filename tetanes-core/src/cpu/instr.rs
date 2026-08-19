@@ -206,7 +206,7 @@ impl Cpu {
         instr!(0x60, RTS, IMP, 6), instr!(0x61, ADC, IDX,  6), instr!(0x62, HLT, IMP, 2), instr!(0x63, RRA, IDX,  8), instr!(0x64, NOP, ZP0, 3), instr!(0x65, ADC, ZP0, 3), instr!(0x66, ROR, ZP0, 5), instr!(0x67, RRA, ZP0, 5), instr!(0x68, PLA, IMP, 4), instr!(0x69, ADC, IMM,  2), instr!(0x6A, ROR, ACC, 2), instr!(0x6B, ARR, IMM,  2), instr!(0x6C, JMP, IND, 5), instr!(0x6D, ADC, ABS,  4), instr!(0x6E, ROR, ABS,  6), instr!(0x6F, RRA,  ABS,  6),
         instr!(0x70, BVS, REL, 2), instr!(0x71, ADC, IDY,  5), instr!(0x72, HLT, IMP, 2), instr!(0x73, RRA, IDYW, 8), instr!(0x74, NOP, ZPX, 4), instr!(0x75, ADC, ZPX, 4), instr!(0x76, ROR, ZPX, 6), instr!(0x77, RRA, ZPX, 6), instr!(0x78, SEI, IMP, 2), instr!(0x79, ADC, ABY,  4), instr!(0x7A, NOP, IMP, 2), instr!(0x7B, RRA, ABYW, 7), instr!(0x7C, NOP, ABX, 4), instr!(0x7D, ADC, ABX,  4), instr!(0x7E, ROR, ABXW, 7), instr!(0x7F, RRA,  ABXW, 7),
         instr!(0x80, NOP, IMM, 2), instr!(0x81, STA, IDX,  6), instr!(0x82, NOP, IMM, 2), instr!(0x83, SAX, IDX,  6), instr!(0x84, STY, ZP0, 3), instr!(0x85, STA, ZP0, 3), instr!(0x86, STX, ZP0, 3), instr!(0x87, SAX, ZP0, 3), instr!(0x88, DEY, IMP, 2), instr!(0x89, NOP, IMM,  2), instr!(0x8A, TXA, IMP, 2), instr!(0x8B, XAA, IMM,  2), instr!(0x8C, STY, ABS, 4), instr!(0x8D, STA, ABS,  4), instr!(0x8E, STX, ABS,  4), instr!(0x8F, SAX,  ABS , 4),
-        instr!(0x90, BCC, REL, 2), instr!(0x91, STA, IDYW, 6), instr!(0x92, HLT, IMP, 2), instr!(0x93, AHX, OTH,  6), instr!(0x94, STY, ZPX, 4), instr!(0x95, STA, ZPX, 4), instr!(0x96, STX, ZPY, 4), instr!(0x97, SAX, ZPY, 4), instr!(0x98, TYA, IMP, 2), instr!(0x99, STA, ABYW, 5), instr!(0x9A, TXS, IMP, 2), instr!(0x9B, TAS, OTH,  5), instr!(0x9C, SYA, OTH, 5), instr!(0x9D, STA, ABXW, 5), instr!(0x9E, SXA, OTH,  5), instr!(0x9F, SHAA, OTH,  5),
+        instr!(0x90, BCC, REL, 2), instr!(0x91, STA, IDYW, 6), instr!(0x92, HLT, IMP, 2), instr!(0x93, AHX, IDYW, 6), instr!(0x94, STY, ZPX, 4), instr!(0x95, STA, ZPX, 4), instr!(0x96, STX, ZPY, 4), instr!(0x97, SAX, ZPY, 4), instr!(0x98, TYA, IMP, 2), instr!(0x99, STA, ABYW, 5), instr!(0x9A, TXS, IMP, 2), instr!(0x9B, TAS, OTH,  5), instr!(0x9C, SYA, OTH, 5), instr!(0x9D, STA, ABXW, 5), instr!(0x9E, SXA, OTH,  5), instr!(0x9F, SHAA, OTH,  5),
         instr!(0xA0, LDY, IMM, 2), instr!(0xA1, LDA, IDX,  6), instr!(0xA2, LDX, IMM, 2), instr!(0xA3, LAX, IDX,  6), instr!(0xA4, LDY, ZP0, 3), instr!(0xA5, LDA, ZP0, 3), instr!(0xA6, LDX, ZP0, 3), instr!(0xA7, LAX, ZP0, 3), instr!(0xA8, TAY, IMP, 2), instr!(0xA9, LDA, IMM,  2), instr!(0xAA, TAX, IMP, 2), instr!(0xAB, ATX, IMM,  2), instr!(0xAC, LDY, ABS, 4), instr!(0xAD, LDA, ABS,  4), instr!(0xAE, LDX, ABS,  4), instr!(0xAF, LAX,  ABS,  4),
         instr!(0xB0, BCS, REL, 2), instr!(0xB1, LDA, IDY,  5), instr!(0xB2, HLT, IMP, 2), instr!(0xB3, LAX, IDY,  5), instr!(0xB4, LDY, ZPX, 4), instr!(0xB5, LDA, ZPX, 4), instr!(0xB6, LDX, ZPY, 4), instr!(0xB7, LAX, ZPY, 4), instr!(0xB8, CLV, IMP, 2), instr!(0xB9, LDA, ABY,  4), instr!(0xBA, TSX, IMP, 2), instr!(0xBB, LAS, ABY,  4), instr!(0xBC, LDY, ABX, 4), instr!(0xBD, LDA, ABX,  4), instr!(0xBE, LDX, ABY,  4), instr!(0xBF, LAX,  ABY,  4),
         instr!(0xC0, CPY, IMM, 2), instr!(0xC1, CMP, IDX,  6), instr!(0xC2, NOP, IMM, 2), instr!(0xC3, DCP, IDX,  8), instr!(0xC4, CPY, ZP0, 3), instr!(0xC5, CMP, ZP0, 3), instr!(0xC6, DEC, ZP0, 5), instr!(0xC7, DCP, ZP0, 5), instr!(0xC8, INY, IMP, 2), instr!(0xC9, CMP, IMM,  2), instr!(0xCA, DEX, IMP, 2), instr!(0xCB, AXS, IMM,  2), instr!(0xCC, CPY, ABS, 4), instr!(0xCD, CMP, ABS,  4), instr!(0xCE, DEC, ABS,  6), instr!(0xCF, DCP,  ABS,  6),
@@ -248,7 +248,7 @@ impl Bus {
     /// ```
     #[inline(always)]
     pub fn acc_imp(&mut self) -> u16 {
-        self.read_dummy(self.cpu.pc); // Cycle 2, dummy read
+        self.read_unwatched(self.cpu.pc); // Cycle 2, dummy read
         0
     }
 
@@ -399,7 +399,7 @@ impl Bus {
     #[inline(always)]
     pub fn zpx(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
-        self.read_dummy(addr); // Cycle 3, dummy read
+        self.read_unwatched(addr); // Cycle 3, dummy read
         // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.x)) & 0x00FF
     }
@@ -442,7 +442,7 @@ impl Bus {
     #[inline(always)]
     pub fn zpy(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
-        self.read_dummy(addr); // Cycle 3, dummy read
+        self.read_unwatched(addr); // Cycle 3, dummy read
         // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.y)) & 0x00FF
     }
@@ -574,7 +574,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.x));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 4 dummy read with fixed high byte
-            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_unwatched((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }
@@ -656,7 +656,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 4 dummy read with fixed high byte
-            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_unwatched((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }
@@ -753,7 +753,7 @@ impl Bus {
     #[inline(always)]
     pub fn idx(&mut self) -> u16 {
         let mut zero_addr = self.fetch_byte(); // Cycle 2
-        self.read_dummy(u16::from(zero_addr)); // Cycle 3 dummy read
+        self.read_unwatched(u16::from(zero_addr)); // Cycle 3 dummy read
         zero_addr = zero_addr.wrapping_add(self.cpu.x);
         let lo = self.read(u16::from(zero_addr)); // Cycle 4
         let hi = self.read(u16::from(zero_addr.wrapping_add(1))); // Cycle 5
@@ -847,7 +847,7 @@ impl Bus {
         let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
         if Cpu::pages_differ(base_addr, addr) || dummy_read {
             // Cycle 5 dummy read with fixed high byte
-            self.read_dummy((base_addr & 0xFF00) | (addr & 0x00FF));
+            self.read_unwatched((base_addr & 0xFF00) | (addr & 0x00FF));
         }
         addr
     }
@@ -957,7 +957,7 @@ impl Bus {
     pub fn inc(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let res = val.wrapping_add(1);
         self.write(addr, res);
         self.cpu.set_zn_status(res);
@@ -967,7 +967,7 @@ impl Bus {
     pub fn dec(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let res = val.wrapping_sub(1);
         self.write(addr, res);
         self.cpu.set_zn_status(res);
@@ -1028,7 +1028,7 @@ impl Bus {
     fn aslm(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let res = self.asl(val);
         self.write(addr, res);
     }
@@ -1052,7 +1052,7 @@ impl Bus {
     pub fn lsrm(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let res = self.lsr(val);
         self.write(addr, res);
     }
@@ -1076,7 +1076,7 @@ impl Bus {
     pub fn rolm(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let val = self.rol(val);
         self.write(addr, val);
     }
@@ -1101,7 +1101,7 @@ impl Bus {
     pub fn rorm(&mut self) {
         let addr = self.cpu.operand;
         let val = self.read(addr);
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let val = self.ror(val);
         self.write(addr, val);
     }
@@ -1509,7 +1509,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // INC
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let val = val.wrapping_add(1);
         // SBC
         self.add(val ^ 0xFF);
@@ -1522,7 +1522,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // DEC
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let val = val.wrapping_sub(1);
         // CMP
         self.cmp(self.cpu.acc, val);
@@ -1645,7 +1645,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // ROR
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let shifted_val = self.ror(val);
         // ADC
         self.add(shifted_val);
@@ -1680,7 +1680,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // LSR
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let shifted_val = self.lsr(val);
         // EOR
         self.cpu.set_acc(self.cpu.acc ^ shifted_val);
@@ -1702,7 +1702,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // ROL
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let shifted_val = self.rol(val);
         // AND
         self.cpu.set_acc(self.cpu.acc & shifted_val);
@@ -1725,7 +1725,7 @@ impl Bus {
         let val = self.read_operand();
         let addr = self.cpu.operand;
         // ASL
-        self.write(addr, val); // Dummy write
+        self.write_unwatched(addr, val); // Dummy write
         let shifted_val = self.asl(val);
         // ORA
         self.cpu.set_acc(self.cpu.acc | shifted_val);

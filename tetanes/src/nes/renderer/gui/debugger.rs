@@ -877,7 +877,7 @@ impl State {
         ui.separator();
         if ui
             .button("Reset layout")
-            .on_hover_text("Put every pane back to its default size.")
+            .on_hover_text("Restore panes to their default sizes")
             .clicked()
         {
             Self::reset_layout(ui.ctx());
@@ -941,9 +941,7 @@ impl State {
                     return false;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.small_button("✖")
-                        .on_hover_text("Close this pane.")
-                        .clicked()
+                    ui.small_button("✖").on_hover_text("Close pane").clicked()
                 })
                 .inner
             })
@@ -1030,7 +1028,7 @@ impl State {
 
     fn history_rows(&mut self, ui: &mut Ui) {
         if self.snapshot.history.is_empty() {
-            ui.weak("Nothing recorded yet - step or resume to start executing.");
+            ui.weak("Nothing recorded - step or resume to start executing.");
             return;
         }
         // A run of one address collapses to a count. A CPU waiting on NMI spins on a single
@@ -1057,19 +1055,19 @@ impl State {
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.breakpoint_goto)
                     .hint_text("break at $addr, or $lo-$hi")
-                    .desired_width(90.0),
+                    .desired_width(180.0),
             );
             let add = submitted(ui, &response) | ui.button("Add").clicked();
             if let Some((addr, end)) = parse_range(&self.breakpoint_goto)
                 && add
             {
-                self.breakpoint_goto.clear();
                 if self.breakpoints.is_full() {
                     self.tx.event(UiEvent::Message((
                         MessageType::Warn,
                         format!("Only {} breakpoints can be armed.", DeckBreakpoints::MAX),
                     )));
                 } else {
+                    self.breakpoint_goto.clear();
                     self.breakpoints.add(Breakpoint {
                         addr,
                         end,
@@ -1102,21 +1100,17 @@ impl State {
                         armed_changed |= ui
                             .checkbox(&mut breakpoint.enabled, "")
                             .on_hover_text(if enabled {
-                                "Disable this breakpoint."
+                                "Disable breakpoint"
                             } else {
-                                "Enable this breakpoint."
+                                "Enable breakpoint"
                             })
                             .changed();
                         // One letter each, since three of them plus the range have to fit a
                         // column narrower than the disassembly.
                         for (access, letter, hover) in [
-                            (Access::EXEC, "X", "Break before an instruction here runs."),
-                            (Access::READ, "R", "Break after an instruction reads here."),
-                            (
-                                Access::WRITE,
-                                "W",
-                                "Break after an instruction writes here.",
-                            ),
+                            (Access::EXEC, "X", "Break on execution"),
+                            (Access::READ, "R", "Break on read"),
+                            (Access::WRITE, "W", "Break on write"),
                         ] {
                             let mut on = breakpoint.access.contains(access);
                             if ui
@@ -1137,7 +1131,7 @@ impl State {
                         if ui
                             .add(label)
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text("Show this address in the disassembly.")
+                            .on_hover_text("Go to location")
                             .clicked()
                         {
                             scroll_to = Some(breakpoint.addr);
@@ -1146,9 +1140,9 @@ impl State {
                         armed_changed |= ui
                             .toggle_value(&mut breakpoint.breaks, "⏸")
                             .on_hover_text(if breaks {
-                                "Keep running when this breakpoint triggers, and list the access."
+                                "Continue execution"
                             } else {
-                                "Pause emulation when this breakpoint triggers."
+                                "Break execution"
                             })
                             .changed();
                         if ui.small_button("✖").clicked() {
@@ -1395,7 +1389,7 @@ impl State {
             Some(breakpoint) => {
                 let enabled = breakpoint.enabled;
                 gutter_response
-                    .on_hover_text("Remove this breakpoint.")
+                    .on_hover_text("Remove breakpoint")
                     .context_menu(|ui| {
                         if ui
                             .button(if enabled { "Disable" } else { "Enable" })
@@ -1411,7 +1405,7 @@ impl State {
                     });
             }
             None => {
-                gutter_response.on_hover_text("Break here.");
+                gutter_response.on_hover_text("Add breakpoint");
             }
         }
 

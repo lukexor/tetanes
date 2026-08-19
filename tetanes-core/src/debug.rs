@@ -657,6 +657,51 @@ mod tests {
         assert!(bus.access_hit.is_some(), "a real read still stops");
     }
 
+    /// A read-modify-write puts the old value back before the new one, and only the first hit is
+    /// kept, so reporting the re-write names a value the program never chose.
+    #[test]
+    fn a_write_breakpoint_reports_the_value_the_program_wrote() {
+        let mut bus = bus_with_cart();
+        bus.cpu_bus_write(0x0010, 0x05);
+        // `INC $10`, which reads $10, writes $05 back, then writes $06.
+        bus.cpu_bus_write(0x0000, 0xE6);
+        bus.cpu_bus_write(0x0001, 0x10);
+        bus.cpu.pc = 0x0000;
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([breakpoint(
+            0x0010,
+            0x0010,
+            Access::WRITE,
+        )])));
+
+        bus.clock_instr();
+        assert_eq!(
+            bus.access_hit.map(|hit| hit.value),
+            Some(0x06),
+            "the re-write of the old value was reported instead"
+        );
+    }
+
+    /// `Access::EXEC` covers fetches, so a read breakpoint over a bank holding both code and data
+    /// would otherwise stop on every instruction in it.
+    #[test]
+    fn a_read_breakpoint_does_not_fire_on_an_instruction_fetch() {
+        let mut bus = bus_with_cart();
+        // `LDA #$42`, whose two bytes are both fetches and whose operand is immediate.
+        bus.cpu_bus_write(0x0000, 0xA9);
+        bus.cpu_bus_write(0x0001, 0x42);
+        bus.cpu.pc = 0x0000;
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([breakpoint(
+            0x0000,
+            0x0001,
+            Access::READ,
+        )])));
+
+        bus.clock_instr();
+        assert_eq!(bus.access_hit, None);
+    }
+
     /// With nothing armed the read and write paths take one `bool` test and no further work,
     /// which is all the hot path is allowed to spend.
     #[test]

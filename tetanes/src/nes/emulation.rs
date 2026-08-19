@@ -604,22 +604,29 @@ impl State {
     fn on_emulation_event(&mut self, event: &EmulationEvent) {
         match event {
             EmulationEvent::DebugSubscribe(request) => {
+                let resubscribing = self.debug_request.is_some() && request.is_some();
                 self.debug_request = *request;
                 // Executed instructions can only be collected as they run, so start recording when
-                // the subscription starts, if history is requested.
-                self.control_deck.set_pc_history(
-                    request
-                        .filter(|request| request.history_lines > 0)
-                        .map(|request| usize::from(request.history_lines)),
-                );
+                // the subscription starts, if history is requested. A re-subscribe, which every
+                // pane toggle sends, keeps what has been recorded so far.
+                let history = request
+                    .filter(|request| request.history_lines > 0)
+                    .map(|request| usize::from(request.history_lines));
+                if !resubscribing || history.is_none() {
+                    self.control_deck.set_pc_history(history);
+                }
                 // Which bytes are instructions is marked by running them, so the map starts here
                 // too. A first subscription starts empty until the game runs, leaving the
                 // disassembly one large unknown block plus whatever PC points at. Closing the
                 // debugger stops the recording but keeps the marks, so reopening it does not start
                 // over.
                 if request.is_some() {
-                    let recorded = self.debug_code_map.take();
-                    self.control_deck.attach_code_map(recorded);
+                    // Attaching again would hand `None` back and start a fresh map, throwing away
+                    // every mark the session has made.
+                    if !resubscribing {
+                        let recorded = self.debug_code_map.take();
+                        self.control_deck.attach_code_map(recorded);
+                    }
                 } else {
                     self.debug_code_map = self.control_deck.detach_code_map();
                     // Nothing would report a stop with the Debugger closed, so the console would
@@ -643,10 +650,21 @@ impl State {
                     breakpoints
                         .iter()
                         .filter(|breakpoint| {
-                            breakpoint.access.intersects(Access::READ | Access::WRITE)
+                            // Execution stops between instructions, so the deck sees it only for
+                            // the breakpoints that record instead of stopping.
+                            let bus_side = if breakpoint.breaks {
+                                Access::READ | Access::WRITE
+                            } else {
+                                Access::all()
+                            };
+                            breakpoint.access.intersects(bus_side)
                         })
                         .map(|breakpoint| Breakpoint {
-                            access: breakpoint.access & (Access::READ | Access::WRITE),
+                            access: if breakpoint.breaks {
+                                breakpoint.access & (Access::READ | Access::WRITE)
+                            } else {
+                                breakpoint.access
+                            },
                             ..*breakpoint
                         }),
                 );
@@ -711,6 +729,10 @@ impl State {
                             }
                         }
                     }
+                    // A step reports where it landed, so an access it made is already on screen.
+                    // Leaving the hit would stop the next resume on the first instruction and
+                    // name an address from before the step.
+                    self.control_deck.take_access_hit();
                     // A step can cross a bank switch, which moves every instruction after it.
                     self.send_address_space();
                 }
@@ -1367,9 +1389,9 @@ impl State {
                 let breakpoints = &self.debug_breakpoints;
                 self.control_deck.clock_frame_until(|bus| {
                     bus.access_hit.is_some()
-                        || breakpoints
-                            .iter()
-                            .any(|breakpoint| breakpoint.covers(bus.cpu.pc, Access::EXEC))
+                        || breakpoints.iter().any(|breakpoint| {
+                            breakpoint.breaks && breakpoint.covers(bus.cpu.pc, Access::EXEC)
+                        })
                 })?
             };
             if clocked == Clocked::Stopped {

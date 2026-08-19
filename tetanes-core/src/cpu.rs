@@ -500,6 +500,12 @@ impl Bus {
         // still address the same bytes.
         state.pc_history = self.pc_history.take();
         state.code_map = self.code_map.take();
+        // Breakpoints belong to the session too, and what they caught belongs to the timeline
+        // being discarded. Run-ahead restores over speculative frames, so a hit from one of those
+        // would otherwise stop the console at a PC it never reached.
+        state.breakpoints_active = self.breakpoints_active;
+        state.breakpoints = self.breakpoints.take();
+        state.access_hit = None;
         // The pixel path compares against thresholds derived from $2001 rather than reading its
         // flags, and they are not part of the save format.
         state.ppu.update_draw_thresholds();
@@ -610,8 +616,8 @@ impl Bus {
             self.handle_dma(self.cpu.pc);
         }
 
-        self.read(self.cpu.pc); // Dummy read
-        self.read(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
+        self.read_unwatched(self.cpu.pc); // Dummy read
         self.push_word(self.cpu.pc);
 
         // Pushing status to the stack has to happen after checking NMI since it can hijack the BRK
@@ -863,20 +869,22 @@ impl Bus {
     /// Read a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
     #[inline(always)]
     pub fn read(&mut self, addr: u16) -> u8 {
-        let val = self.read_dummy(addr);
+        let val = self.read_unwatched(addr);
         if self.breakpoints_active {
             self.check_access(addr, Access::READ, val);
         }
         val
     }
 
-    /// Read a byte the program did not ask for, spending its cycle all the same.
+    /// Read a byte without a read breakpoint seeing it, spending its cycle all the same.
     ///
-    /// The 6502 reads a wrong address before fixing the high byte on an indexed page cross, and
-    /// re-reads before a read-modify-write. No breakpoint fires on those: the address is one the
-    /// program never meant to touch, so reporting it would be noise.
+    /// Two kinds of access come through here. The 6502 reads a wrong address before fixing the
+    /// high byte on an indexed page cross, and re-reads before a read-modify-write, neither of
+    /// which the program meant to touch. Instruction and operand fetches come through as well,
+    /// since [`Access::EXEC`] covers those and a read breakpoint over a code bank would otherwise
+    /// fire on every instruction in it.
     #[inline(always)]
-    pub fn read_dummy(&mut self, addr: u16) -> u8 {
+    pub fn read_unwatched(&mut self, addr: u16) -> u8 {
         if self.cpu.irq_flags(IrqFlags::DMA_HALT) {
             self.handle_dma(addr);
         }
@@ -916,6 +924,19 @@ impl Bus {
     /// Write a byte, spending a full CPU cycle - which clocks the PPU, the APU and the board.
     #[inline(always)]
     pub fn write(&mut self, addr: u16, val: u8) {
+        self.write_unwatched(addr, val);
+        if self.breakpoints_active {
+            self.check_access(addr, Access::WRITE, val);
+        }
+    }
+
+    /// Write a byte without a write breakpoint seeing it, spending its cycle all the same.
+    ///
+    /// A read-modify-write puts the old value back before the new one. Reporting that would name
+    /// a value the program never chose, and `check_access` keeps the first hit, so the report
+    /// would be the wrong one.
+    #[inline(always)]
+    pub fn write_unwatched(&mut self, addr: u16, val: u8) {
         self.start_cycle(self.cpu.start_cycles + 1);
         if addr == 0x4014 {
             self.cpu.start_oam_dma(u16::from(val) << 8);
@@ -923,16 +944,13 @@ impl Bus {
             self.cpu_bus_write(addr, val);
         }
         self.end_cycle(self.cpu.end_cycles - 1);
-        if self.breakpoints_active {
-            self.check_access(addr, Access::WRITE, val);
-        }
     }
 
     /// Fetch a byte and increments PC by 1.
     #[inline(always)]
     #[must_use]
     pub(crate) fn fetch_byte(&mut self) -> u8 {
-        let val = self.read(self.cpu.pc);
+        let val = self.read_unwatched(self.cpu.pc);
         self.cpu.pc = self.cpu.pc.wrapping_add(1);
         val
     }
@@ -1315,27 +1333,39 @@ mod tests {
         }
     }
 
-    /// `AddressSpace::capture` steps by [`AddrMode::operand_len`], so a mode that disagrees with
-    /// how far the disassembler moves `pc` puts the whole sweep out of step with the instruction
-    /// boundaries.
+    /// `AddressSpace::capture` steps by [`Disasm::len`], so an instruction the CPU measures
+    /// differently puts the sweep out of step with every boundary after it.
+    ///
+    /// Measured against execution rather than against the disassembler, which derives its own
+    /// length from the same [`AddrMode`] and would agree with itself whatever the CPU does.
     #[test]
-    fn every_opcodes_operand_len_matches_what_the_disassembler_reads() {
+    fn every_opcodes_length_matches_what_executing_it_consumes() {
         use super::*;
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
         cart.mapper = Nrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
-        bus.reset(ResetKind::Hard);
 
-        let mut disasm = Disasm::default();
         for instr_ref in Cpu::INSTR_REF.iter() {
-            bus.cpu_bus_write(0x0700, instr_ref.opcode);
-            let mut pc = 0x0700;
-            bus.disassemble_into(&mut pc, &mut disasm);
+            // A jam never leaves the instruction, and a branch or jump moves PC by its own rules.
+            if matches!(
+                instr_ref.instr,
+                HLT | JMP | JSR | RTS | RTI | BRK | BCC | BCS | BEQ | BMI | BNE | BPL | BVC | BVS
+            ) {
+                continue;
+            }
+            bus.reset(ResetKind::Hard);
+            bus.cpu_bus_write(0x0000, instr_ref.opcode);
+            bus.cpu.pc = 0x0000;
+            // Read off before running it, since a read-modify-write can land on its own operand.
+            let mut pc = 0x0000;
+            let disasm = bus.disassemble(&mut pc);
+            bus.clock_instr();
+            let consumed = bus.cpu.pc;
             assert_eq!(
-                pc - 0x0700,
                 disasm.len(),
-                "${:02X} {:?} #{:?}",
+                consumed,
+                "${:02X} {:?} #{:?} runs {consumed} bytes",
                 instr_ref.opcode,
                 instr_ref.instr,
                 instr_ref.addr_mode
