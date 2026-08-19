@@ -1026,6 +1026,8 @@ impl State {
             ConfigEvent::GenieCodeClear,
             ConfigEvent::HideOverscan(renderer.hide_overscan),
             ConfigEvent::MapperRevisions(deck.mapper_revisions),
+            ConfigEvent::PerfStatsHistory(renderer.perf_stats_history),
+            ConfigEvent::PerfStatsPlot(renderer.perf_stats_plot),
             ConfigEvent::RamState(deck.ram_state),
             // Clearing recent roms is handled in a separate button
             ConfigEvent::Region(deck.region),

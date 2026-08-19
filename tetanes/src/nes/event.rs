@@ -140,6 +140,8 @@ pub enum ConfigEvent {
     GenieCodeRemoved(String),
     HideOverscan(bool),
     MapperRevisions(MapperRevisionsConfig),
+    PerfStatsHistory(usize),
+    PerfStatsPlot(bool),
     RamState(RamState),
     RecentRomsClear,
     Region(NesRegion),
@@ -194,6 +196,7 @@ pub enum EmulationEvent {
     RunState(RunState),
     ReplayRecord(bool),
     Reset(ResetKind),
+    ResetFrameStats,
     RequestFrame,
     Rewinding(bool),
     SaveState(u8),
@@ -511,6 +514,10 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                     ConfigEvent::HideOverscan(hide) => renderer.hide_overscan = *hide,
                     ConfigEvent::MapperRevisions(revs) => deck.mapper_revisions = *revs,
+                    ConfigEvent::PerfStatsHistory(history) => {
+                        renderer.perf_stats_history = *history;
+                    }
+                    ConfigEvent::PerfStatsPlot(plot) => renderer.perf_stats_plot = *plot,
                     ConfigEvent::RamState(ram_state) => deck.ram_state = *ram_state,
                     ConfigEvent::RecentRomsClear => renderer.recent_roms.clear(),
                     ConfigEvent::Region(region) => deck.region = *region,
