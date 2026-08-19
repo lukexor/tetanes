@@ -1,7 +1,7 @@
 use crate::nes::{
     action::Action,
     input::{ActionBindings, Gamepads, Input},
-    renderer::shader::Shader,
+    renderer::{gui::debugger::Pane, shader::Shader},
     rom::HOMEBREW_ROMS,
 };
 use ahash::HashSet;
@@ -132,6 +132,14 @@ pub struct RendererConfig {
     pub shader: Shader,
     #[serde(default)]
     pub show_updates: bool,
+    /// Which Debugger panes are open, in draw order.
+    pub debugger_panes: Vec<Pane>,
+    /// Whether to open the Debugger and stop the console once a ROM is loaded.
+    ///
+    /// Skipped rather than stored: `--debug` says how to start one run, and a launch that saved
+    /// it would stop every later run at power-on.
+    #[serde(skip)]
+    pub open_debugger: bool,
 }
 
 impl Default for RendererConfig {
@@ -154,6 +162,8 @@ impl Default for RendererConfig {
             dark_theme: true,
             shader: Shader::default(),
             show_updates: true,
+            debugger_panes: Pane::ALL.to_vec(),
+            open_debugger: false,
         }
     }
 }

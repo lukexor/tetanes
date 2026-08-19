@@ -94,6 +94,8 @@ pub enum MessageType {
 pub struct Gui {
     ctx: Context,
     initialized: bool,
+    /// `--debug` asked to stop the console, which waits for the first ROM to load.
+    stop_for_debug: bool,
     title: String,
     tx: NesEventProxy,
     pub nes_texture: Texture,
@@ -165,6 +167,7 @@ impl Gui {
         Self {
             ctx,
             initialized: false,
+            stop_for_debug: cfg.renderer.open_debugger,
             title: Config::WINDOW_TITLE.to_string(),
             tx: tx.clone(),
             nes_texture,
@@ -189,7 +192,7 @@ impl Gui {
             version: Version::new(),
             keybinds: Keybinds::new(tx.clone()),
             preferences: Preferences::new(tx.clone()),
-            debugger: CpuDebugger::new(tx.clone()),
+            debugger: CpuDebugger::new(tx.clone(), &cfg.renderer.debugger_panes),
             ppu_viewer: PpuViewer::new(tx, render_state),
             apu_mixer_open: false,
             viewport_info_open: false,
@@ -278,6 +281,11 @@ impl Gui {
                     self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.title = format!("{} :: {}", Config::WINDOW_TITLE, rom.name);
                     self.loaded_rom = Some(rom.clone());
+                    // `--debug` stops here rather than at the first frame, since there is no
+                    // console to stop until a ROM is in it.
+                    if std::mem::take(&mut self.stop_for_debug) {
+                        self.pause_for_debugger();
+                    }
                 }
                 RendererEvent::Menu(menu) => match menu {
                     Menu::About => self.about_open = !self.about_open,
@@ -391,7 +399,7 @@ impl Gui {
 
         self.preferences.show(ui, viewport_opts, cfg.clone());
         self.keybinds.show(ui, viewport_opts, cfg.clone(), gamepads);
-        self.debugger.show(ui, viewport_opts);
+        self.debugger.show(ui, viewport_opts, cfg.clone());
         self.ppu_viewer.show(ui, viewport_opts);
 
         self.show_about_window(ui, viewport_opts.enabled);
@@ -477,6 +485,10 @@ impl Gui {
             None => tracing::warn!("failed to set monospace font"),
         }
         ui.set_fonts(fonts);
+
+        if cfg.renderer.open_debugger {
+            self.debugger.set_open(true, ui.ctx());
+        }
 
         // Check for update on start
         if self.version.requires_updates() {

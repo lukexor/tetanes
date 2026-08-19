@@ -182,6 +182,7 @@ impl Opts {
             .or(cfg.renderer.roms_path)
             .and_then(|path| path.canonicalize().ok());
         cfg.renderer.fullscreen = self.fullscreen || cfg.renderer.fullscreen;
+        cfg.renderer.open_debugger = self.debug;
 
         Ok(cfg)
     }

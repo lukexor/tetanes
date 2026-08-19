@@ -9,7 +9,7 @@ use crate::{
         renderer::{
             gui::{
                 Menu, MessageType,
-                debugger::{AddressSpace, CpuSnapshot},
+                debugger::{AddressSpace, CpuSnapshot, Pane},
                 ppu_viewer::PpuSnapshot,
             },
             shader::Shader,
@@ -132,6 +132,7 @@ pub enum ConfigEvent {
     AutoSaveInterval(Duration),
     ConcurrentDpad(bool),
     DarkTheme(bool),
+    DebuggerPanes(Vec<Pane>),
     EmbedViewports(bool),
     EmulatePpuWarmup(bool),
     FourPlayer(FourPlayer),
@@ -178,6 +179,8 @@ pub struct DebugRequest {
     pub disasm_lines: u16,
     /// How many previously executed instructions to keep.
     pub history_lines: u16,
+    /// Whether to copy the stack page.
+    pub stack: bool,
     /// A CPU-bus address range to copy, as `(start, len)`.
     pub memory: Option<(u16, u16)>,
 }
@@ -511,6 +514,9 @@ impl ApplicationHandler<NesEvent> for Running {
                     }
                     ConfigEvent::ConcurrentDpad(enabled) => deck.concurrent_dpad = *enabled,
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
+                    ConfigEvent::DebuggerPanes(panes) => {
+                        renderer.debugger_panes.clone_from(panes);
+                    }
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
                     ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,
                     ConfigEvent::FourPlayer(four_player) => deck.four_player = *four_player,

@@ -1,5 +1,7 @@
 use crate::nes::{
-    event::{DebugRequest, EmulationEvent, NesEventProxy},
+    action::{Debug, DebugStep},
+    config::Config,
+    event::{ConfigEvent, DebugRequest, EmulationEvent, NesEventProxy},
     renderer::gui::lib::ViewportOptions,
 };
 use egui::{
@@ -7,6 +9,7 @@ use egui::{
     ViewportClass, ViewportId,
 };
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::{
     ops::Range,
     sync::{
@@ -210,9 +213,13 @@ impl CpuSnapshot {
 
         Self {
             cpu: bus.cpu.clone(),
-            stack: (0..0x0100u16)
-                .map(|offset| bus.peek(Cpu::SP_BASE + offset))
-                .collect(),
+            stack: if request.stack {
+                (0..0x0100u16)
+                    .map(|offset| bus.peek(Cpu::SP_BASE + offset))
+                    .collect()
+            } else {
+                Vec::new()
+            },
             history,
             disasm,
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
@@ -369,6 +376,127 @@ impl AddressSpace {
     }
 }
 
+/// A view in the debugger window.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[must_use]
+pub enum Pane {
+    /// The address space as rows, which is the pane the window is built around.
+    Disassembly,
+    /// The CPU registers and status flags.
+    Registers,
+    /// The stack page, top of stack first.
+    Stack,
+    /// The breakpoint list, and the box that adds one.
+    Breakpoints,
+    /// The instructions that ran most recently.
+    History,
+}
+
+impl Pane {
+    /// Every pane, in the order a column stacks them.
+    pub const ALL: [Self; 5] = [
+        Self::Disassembly,
+        Self::Registers,
+        Self::Stack,
+        Self::Breakpoints,
+        Self::History,
+    ];
+
+    /// The heading the pane draws above its view.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Disassembly => "Disassembly",
+            Self::Registers => "Registers",
+            Self::Stack => "Stack",
+            Self::Breakpoints => "Breakpoints",
+            Self::History => "Recently executed",
+        }
+    }
+
+    /// Where the pane is placed.
+    pub const fn column(self) -> Column {
+        match self {
+            Self::Disassembly => Column::Center,
+            Self::Registers | Self::Stack | Self::Breakpoints => Column::Right,
+            Self::History => Column::Bottom,
+        }
+    }
+
+    /// The pane's height before anything drags its splitter.
+    ///
+    /// The center column's single pane takes what is left, so its height is never asked for.
+    pub const fn default_size(self) -> f32 {
+        match self {
+            Self::Disassembly => 0.0,
+            Self::Registers => 92.0,
+            Self::Stack => 220.0,
+            Self::Breakpoints => 160.0,
+            Self::History => 140.0,
+        }
+    }
+
+    /// The [`egui::Id`] the pane's [`Panel`] and its stored size are keyed by.
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Disassembly => "debugger_pane_disassembly",
+            Self::Registers => "debugger_pane_registers",
+            Self::Stack => "debugger_pane_stack",
+            Self::Breakpoints => "debugger_pane_breakpoints",
+            Self::History => "debugger_pane_history",
+        }
+    }
+}
+
+/// Where a pane is placed. Panes keep their column, and only redistribute height within it.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum Column {
+    /// What is left once the other columns have taken their space.
+    Center,
+    /// Down the right edge, above the bottom column.
+    Right,
+    /// Across the full width of the window.
+    Bottom,
+}
+
+impl Column {
+    /// Every column, in the order it claims space. The center takes what the others leave.
+    const ORDER: [Self; 3] = [Self::Bottom, Self::Right, Self::Center];
+
+    /// The column's own size before anything drags its splitter: a width on the right, a height
+    /// along the bottom.
+    const fn default_size(self) -> f32 {
+        match self {
+            // Wide enough for the register grid's six columns without wrapping.
+            Self::Center | Self::Right => 340.0,
+            Self::Bottom => 160.0,
+        }
+    }
+
+    /// How the column divides its space among the panes of `open` that belong to it: those sized
+    /// by [`Pane::default_size`], then the one taking what is left.
+    ///
+    /// `None` when none of them are open, which is when the column is not drawn and so takes no
+    /// space.
+    fn tiling(self, open: &[Pane]) -> Option<(Vec<Pane>, Pane)> {
+        let mut panes = Pane::ALL
+            .into_iter()
+            .filter(|pane| pane.column() == self && open.contains(pane))
+            .collect::<Vec<_>>();
+        let filling = panes.pop()?;
+        Some((panes, filling))
+    }
+
+    /// The [`egui::Id`] the column's [`Panel`] and its stored size are keyed by.
+    const fn id(self) -> &'static str {
+        match self {
+            Self::Center => "debugger_column_center",
+            Self::Right => "debugger_column_right",
+            Self::Bottom => "debugger_column_bottom",
+        }
+    }
+}
+
 #[derive(Debug)]
 #[must_use]
 struct State {
@@ -386,11 +514,38 @@ struct State {
     breakpoint_goto: String,
     disasm_lines: u16,
     history_lines: u16,
+    /// The panes that are open, in [`Pane::ALL`] order.
+    panes: Vec<Pane>,
 }
 
 /// Parse an address as typed into one of the window's address boxes, with or without the `$`.
 fn parse_addr(text: &str) -> Option<u16> {
     u16::from_str_radix(text.trim().trim_start_matches('$'), 16).ok()
+}
+
+/// Whether the row covering `addr` falls inside `visible`, the rows the last draw put on screen.
+///
+/// False for an empty `visible`, so a window that has yet to draw centers on its first snapshot.
+fn row_is_visible(address_space: &AddressSpace, visible: &Range<usize>, addr: u16) -> bool {
+    address_space
+        .row_at(addr)
+        .is_some_and(|row| visible.contains(&row))
+}
+
+/// What the console is asked to capture, folded over the panes in `open`.
+///
+/// A closed pane draws nothing, so what feeds it is not captured either.
+fn request(open: &[Pane], disasm_lines: u16, history_lines: u16) -> DebugRequest {
+    DebugRequest {
+        disasm_lines,
+        history_lines: if open.contains(&Pane::History) {
+            history_lines
+        } else {
+            0
+        },
+        stack: open.contains(&Pane::Stack),
+        memory: None,
+    }
 }
 
 #[derive(Debug)]
@@ -408,7 +563,17 @@ impl CpuDebugger {
     /// Enough context to see how the current instruction was reached without pushing it off-screen.
     const HISTORY_LINES: u16 = 8;
 
-    pub fn new(tx: NesEventProxy) -> Self {
+    /// Create a debugger with `panes` open, as saved in config by the last run.
+    pub fn new(tx: NesEventProxy, panes: &[Pane]) -> Self {
+        // The center pane cannot be closed, so a config that lost it gets it back rather than an
+        // empty center with the columns still drawn.
+        let mut panes = Pane::ALL
+            .into_iter()
+            .filter(|pane| panes.contains(pane))
+            .collect::<Vec<_>>();
+        if !panes.contains(&Pane::Disassembly) {
+            panes.insert(0, Pane::Disassembly);
+        }
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
@@ -423,6 +588,7 @@ impl CpuDebugger {
                 breakpoint_goto: String::new(),
                 disasm_lines: Self::DISASM_LINES,
                 history_lines: Self::HISTORY_LINES,
+                panes,
             })),
         }
     }
@@ -456,24 +622,32 @@ impl CpuDebugger {
         }
     }
 
+    /// Take a new CPU snapshot, centering the disassembly on PC once it leaves the view.
     pub fn update_snapshot(&mut self, snapshot: CpuSnapshot) {
         let mut state = self.state.lock();
-        // Follow PC only when it moved, so scrolling away stays put while the console is stopped.
-        if state.snapshot.cpu.pc != snapshot.cpu.pc {
+        // Stepping through a routine walks the highlight down the rows already on screen. Only a
+        // jump that lands off screen moves the view, so the lines around PC stay where they were.
+        if state.snapshot.cpu.pc != snapshot.cpu.pc && !state.pc_is_visible(snapshot.cpu.pc) {
             state.scroll_to = Some(snapshot.cpu.pc);
         }
         state.snapshot = snapshot;
     }
 
+    /// Take a new address space, keeping PC centered for a view that was following it.
     pub fn update_address_space(&mut self, address_space: AddressSpace) {
         let mut state = self.state.lock();
+        // A capture arrives whenever the code map marks something new, and rows added above PC
+        // move its row index. Re-center so PC stays on the same line, but only for a view that
+        // had it on screen, since one scrolled elsewhere is reading something else.
+        let following = state.pc_is_visible(state.snapshot.cpu.pc);
         state.address_space = address_space;
-        // A capture arrives whenever the code map marks something new, and rows added above PC move
-        // its row index. Re-center against the new rows so PC stays on the same line.
-        state.scroll_to = Some(state.snapshot.cpu.pc);
+        if following {
+            state.scroll_to = Some(state.snapshot.cpu.pc);
+        }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions) {
+    /// Draw the debugger's viewport, as a window when viewports are embedded.
+    pub fn show(&mut self, ui: &mut Ui, opts: ViewportOptions, cfg: Config) {
         if !self.open.load(Ordering::Relaxed) {
             return;
         }
@@ -493,10 +667,10 @@ impl CpuDebugger {
                 let mut window_open = open.load(Ordering::Acquire);
                 egui::Window::new(CpuDebugger::TITLE)
                     .open(&mut window_open)
-                    .show(ui, |ui| state.lock().ui(ui, opts.enabled));
+                    .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 open.store(window_open, Ordering::Release);
             } else {
-                CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled));
+                CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
@@ -508,13 +682,8 @@ impl CpuDebugger {
 impl State {
     /// Start or stop subscribing to debug events based on the window being open.
     fn subscribe(&self, open: bool) {
-        self.tx.event(EmulationEvent::DebugSubscribe(open.then_some(
-            DebugRequest {
-                disasm_lines: self.disasm_lines,
-                history_lines: self.history_lines,
-                memory: None,
-            },
-        )));
+        self.tx
+            .event(EmulationEvent::DebugSubscribe(open.then(|| self.request())));
         // Closing disarms them, since a console that stopped with nothing to show it would just
         // look frozen. The list is kept here, so opening puts back what was armed.
         if open {
@@ -528,29 +697,196 @@ impl State {
             .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
     }
 
-    fn ui(&mut self, ui: &mut Ui, enabled: bool) {
-        ui.add_enabled_ui(enabled, |ui| {
-            self.registers(ui);
-            // Its own section rather than inline above PC: the disassembly is ordered by address
-            // and this is ordered by time, so the two only coincide in straight-line code.
-            egui::CollapsingHeader::new("Recently executed")
-                .default_open(false)
-                .show(ui, |ui| self.history(ui));
-            egui::CollapsingHeader::new("Breakpoints")
-                .default_open(false)
-                .show(ui, |ui| self.breakpoint_list(ui));
-            ui.separator();
-            // The stack is a fixed two columns of hex. The disassembly wants every pixel it can
-            // get, so it takes what is left rather than an even half.
-            Panel::right("stack")
-                .resizable(false)
-                .exact_size(110.0)
-                .show(ui, |ui| self.stack(ui));
-            CentralPanel::default().show(ui, |ui| self.disassembly(ui));
+    /// Whether `pane` is drawn.
+    fn is_open(&self, pane: Pane) -> bool {
+        self.panes.contains(&pane)
+    }
+
+    /// Whether `pc`'s row was on screen in the last draw of the disassembly.
+    fn pc_is_visible(&self, pc: u16) -> bool {
+        row_is_visible(&self.address_space, &self.visible_rows, pc)
+    }
+
+    /// Open or close `pane`, and tell config and the console what changed.
+    fn set_pane_open(&mut self, pane: Pane, open: bool) {
+        // Rebuilt in `Pane::ALL` order, so a reopened pane goes back where it was in its column.
+        self.panes = Pane::ALL
+            .into_iter()
+            .filter(|other| {
+                if *other == pane {
+                    open
+                } else {
+                    self.panes.contains(other)
+                }
+            })
+            .collect();
+        self.tx
+            .event(ConfigEvent::DebuggerPanes(self.panes.clone()));
+        self.tx
+            .event(EmulationEvent::DebugSubscribe(Some(self.request())));
+    }
+
+    /// What the console is asked to capture for the panes that are open.
+    fn request(&self) -> DebugRequest {
+        request(&self.panes, self.disasm_lines, self.history_lines)
+    }
+
+    /// Forget every dragged splitter, so the next frame lays out from the default sizes.
+    fn reset_layout(ctx: &Context) {
+        ctx.data_mut(|data| {
+            for id in Pane::ALL
+                .into_iter()
+                .map(Pane::id)
+                .chain([Column::Right.id(), Column::Bottom.id()])
+            {
+                data.remove::<egui::containers::PanelState>(egui::Id::new(id));
+            }
         });
     }
 
+    fn ui(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config) {
+        ui.add_enabled_ui(enabled, |ui| {
+            Panel::top("debugger_toolbar").show(ui, |ui| self.toolbar(ui, cfg));
+            for column in Column::ORDER {
+                self.column(ui, column);
+            }
+        });
+    }
+
+    /// The step buttons and the View menu.
+    fn toolbar(&mut self, ui: &mut Ui, cfg: &Config) {
+        ui.horizontal(|ui| {
+            for (step, label, hover) in [
+                (DebugStep::Into, "➡", "Step a single CPU instruction."),
+                (DebugStep::Out, "⬆", "Step out of the current CPU function."),
+                (DebugStep::Over, "⮫", "Step over the next CPU instruction."),
+                (DebugStep::Scanline, "➖", "Step an entire PPU scanline."),
+                (DebugStep::Frame, "🖼", "Step an entire PPU frame."),
+            ] {
+                let shortcut = cfg.shortcut(Debug::Step(step));
+                let button = egui::Button::new(label);
+                if ui
+                    .add(button)
+                    .on_hover_text(format!("{hover} ({shortcut})"))
+                    .clicked()
+                {
+                    self.tx.event(EmulationEvent::DebugStep(step));
+                }
+            }
+            ui.separator();
+            ui.menu_button("View", |ui| self.view_menu(ui));
+        });
+    }
+
+    /// Which panes are open, and the button that undoes every splitter drag.
+    fn view_menu(&mut self, ui: &mut Ui) {
+        for pane in Pane::ALL {
+            // The center pane has no toggle: an empty center with the columns still drawn reads
+            // as a broken window.
+            if pane.column() == Column::Center {
+                continue;
+            }
+            let mut open = self.is_open(pane);
+            if ui.checkbox(&mut open, pane.title()).changed() {
+                self.set_pane_open(pane, open);
+            }
+        }
+        ui.separator();
+        if ui
+            .button("Reset layout")
+            .on_hover_text("Put every pane back to its default size.")
+            .clicked()
+        {
+            Self::reset_layout(ui.ctx());
+        }
+    }
+
+    /// Stack `column`'s open panes inside a panel of its own, drawing nothing when it is empty.
+    ///
+    /// Every pane but the last is sized by [`Pane::default_size`], and the last takes what is
+    /// left, so a splitter sits between each pair and one between the column and the center.
+    fn column(&mut self, ui: &mut Ui, column: Column) {
+        let Some((sized, filling)) = column.tiling(&self.panes) else {
+            return;
+        };
+        let mut closed = None;
+        let mut tile = |ui: &mut Ui, this: &mut Self| {
+            for pane in &sized {
+                let close = Panel::top(pane.id())
+                    .resizable(true)
+                    .default_size(pane.default_size())
+                    .show(ui, |ui| this.pane(ui, *pane))
+                    .inner;
+                if close {
+                    closed = Some(*pane);
+                }
+            }
+            if CentralPanel::default()
+                .show(ui, |ui| this.pane(ui, filling))
+                .inner
+            {
+                closed = Some(filling);
+            }
+        };
+        match column {
+            Column::Center => tile(ui, self),
+            Column::Right => {
+                Panel::right(column.id())
+                    .default_size(column.default_size())
+                    .show(ui, |ui| tile(ui, self));
+            }
+            Column::Bottom => {
+                Panel::bottom(column.id())
+                    .resizable(true)
+                    .default_size(column.default_size())
+                    .show(ui, |ui| tile(ui, self));
+            }
+        }
+        if let Some(pane) = closed {
+            self.set_pane_open(pane, false);
+        }
+    }
+
+    /// Draw `pane`'s heading and its view, reporting whether the heading's ✖ was clicked.
+    ///
+    /// A panel has no title bar of its own, so the heading is part of what the pane draws.
+    fn pane(&mut self, ui: &mut Ui, pane: Pane) -> bool {
+        let closed = ui
+            .horizontal(|ui| {
+                ui.strong(pane.title());
+                if pane.column() == Column::Center {
+                    return false;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.small_button("✖")
+                        .on_hover_text("Close this pane.")
+                        .clicked()
+                })
+                .inner
+            })
+            .inner;
+        match pane {
+            Pane::Disassembly => self.disassembly(ui),
+            Pane::Registers => self.registers(ui),
+            Pane::Stack => self.stack(ui),
+            Pane::Breakpoints => self.breakpoint_list(ui),
+            // Its own pane rather than inline above PC: the disassembly is ordered by address and
+            // this is ordered by time, so the two only coincide in straight-line code.
+            Pane::History => self.history(ui),
+        }
+        closed
+    }
+
     fn registers(&mut self, ui: &mut Ui) {
+        // Every pane scrolls rather than growing, so a panel keeps the height its splitter was
+        // dragged to instead of being pushed out by its contents.
+        ScrollArea::vertical()
+            .id_salt("registers")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.register_grid(ui));
+    }
+
+    fn register_grid(&mut self, ui: &mut Ui) {
         let cpu = &self.snapshot.cpu;
         Grid::new("cpu_registers")
             .num_columns(6)
@@ -601,6 +937,16 @@ impl State {
 
     /// The instructions that ran most recently, oldest first, ending just before PC.
     fn history(&mut self, ui: &mut Ui) {
+        // Newest last, and the newest is the one worth seeing, so the view follows the end the
+        // way a log does. Scrolling up unsticks it until it is dragged back down.
+        ScrollArea::vertical()
+            .id_salt("history")
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| self.history_rows(ui));
+    }
+
+    fn history_rows(&mut self, ui: &mut Ui) {
         if self.snapshot.history.is_empty() {
             ui.weak("Nothing recorded yet - step or resume to start executing.");
             return;
@@ -650,27 +996,33 @@ impl State {
         let mut armed_changed = false;
         let mut removed = None;
         let mut scroll_to = None;
-        for breakpoint in self.breakpoints.iter_mut() {
-            ui.horizontal(|ui| {
-                armed_changed |= ui.checkbox(&mut breakpoint.enabled, "").changed();
-                let label = Label::new(
-                    RichText::new(format!("${:04X}", breakpoint.addr))
-                        .monospace()
-                        .color(Color32::LIGHT_RED),
-                )
-                .sense(Sense::click());
-                if ui
-                    .add(label)
-                    .on_hover_text("Show this address in the disassembly.")
-                    .clicked()
-                {
-                    scroll_to = Some(breakpoint.addr);
-                }
-                if ui.small_button("✖").clicked() {
-                    removed = Some(breakpoint.addr);
+        let breakpoints = &mut self.breakpoints;
+        ScrollArea::vertical()
+            .id_salt("breakpoints")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for breakpoint in breakpoints.iter_mut() {
+                    ui.horizontal(|ui| {
+                        armed_changed |= ui.checkbox(&mut breakpoint.enabled, "").changed();
+                        let label = Label::new(
+                            RichText::new(format!("${:04X}", breakpoint.addr))
+                                .monospace()
+                                .color(Color32::LIGHT_RED),
+                        )
+                        .sense(Sense::click());
+                        if ui
+                            .add(label)
+                            .on_hover_text("Show this address in the disassembly.")
+                            .clicked()
+                        {
+                            scroll_to = Some(breakpoint.addr);
+                        }
+                        if ui.small_button("✖").clicked() {
+                            removed = Some(breakpoint.addr);
+                        }
+                    });
                 }
             });
-        }
         if let Some(addr) = removed {
             self.breakpoints.remove(addr);
             armed_changed = true;
@@ -685,7 +1037,6 @@ impl State {
 
     fn disassembly(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.strong("Disassembly");
             ui.add(
                 egui::TextEdit::singleline(&mut self.goto)
                     .hint_text("go to $addr")
@@ -794,7 +1145,6 @@ impl State {
     }
 
     fn stack(&mut self, ui: &mut Ui) {
-        ui.strong("Stack");
         ScrollArea::vertical()
             .id_salt("stack")
             .auto_shrink([false, false])
@@ -818,8 +1168,87 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddressSpace, BlockKind, Breakpoints, Row, parse_addr};
+    use super::{
+        AddressSpace, BlockKind, Breakpoints, Column, Pane, Row, parse_addr, request,
+        row_is_visible,
+    };
     use tetanes_core::{control_deck::ControlDeck, cpu::Cpu};
+
+    /// The disassembly is drawn against the address space, so its line count is fixed here.
+    const DISASM_LINES: u16 = 24;
+    const HISTORY_LINES: u16 = 8;
+
+    /// The column stacks all but one pane at a fixed height and gives the last what is left, so
+    /// closing a pane redistributes space inside the column rather than resizing the window.
+    #[test]
+    fn the_last_open_pane_in_a_column_takes_what_is_left() {
+        let (sized, filling) = Column::Right
+            .tiling(&Pane::ALL)
+            .expect("the right column has panes");
+        assert_eq!(sized, [Pane::Registers, Pane::Stack]);
+        assert_eq!(filling, Pane::Breakpoints);
+    }
+
+    /// A column that reports nothing is not drawn, so it takes no width or height from the rest.
+    #[test]
+    fn a_column_with_nothing_open_is_not_drawn() {
+        assert_eq!(Column::Bottom.tiling(&[Pane::Disassembly]), None);
+        assert_eq!(Column::Right.tiling(&[Pane::Disassembly]), None);
+    }
+
+    /// [`Column::ORDER`] reaches every column, and every column places its panes, so no open pane
+    /// goes undrawn.
+    #[test]
+    fn every_pane_is_laid_out_in_exactly_one_column() {
+        let mut placed = Vec::new();
+        for column in Column::ORDER {
+            if let Some((sized, filling)) = column.tiling(&Pane::ALL) {
+                placed.extend(sized);
+                placed.push(filling);
+            }
+        }
+        for pane in Pane::ALL {
+            let times = placed.iter().filter(|other| **other == pane).count();
+            assert_eq!(times, 1, "{pane:?} was laid out {times} times");
+        }
+        assert_eq!(placed.len(), Pane::ALL.len());
+    }
+
+    /// Stepping walks the highlight down rows already on screen, so only a PC that lands outside
+    /// them moves the view. Centering on every step jogs the disassembly once per instruction.
+    #[test]
+    fn only_a_pc_off_screen_moves_the_disassembly() {
+        let deck = ControlDeck::new();
+        let address_space = AddressSpace::capture(deck.bus());
+        let row = address_space.row_at(0x1234).expect("covered");
+
+        assert!(row_is_visible(&address_space, &(row..row + 4), 0x1234));
+        assert!(!row_is_visible(&address_space, &(row + 1..row + 4), 0x1234));
+        assert!(
+            !row_is_visible(&address_space, &(0..0), 0x1234),
+            "a window that has yet to draw has to center on its first snapshot"
+        );
+    }
+
+    /// A closed pane draws nothing, so the console is asked for nothing on its behalf.
+    #[test]
+    fn closing_a_pane_drops_what_only_it_draws() {
+        let all = request(&Pane::ALL, DISASM_LINES, HISTORY_LINES);
+        assert_eq!(all.history_lines, HISTORY_LINES);
+        assert!(all.stack);
+
+        let closed = Pane::ALL
+            .into_iter()
+            .filter(|pane| !matches!(pane, Pane::History | Pane::Stack))
+            .collect::<Vec<_>>();
+        let request = request(&closed, DISASM_LINES, HISTORY_LINES);
+        assert_eq!(request.history_lines, 0);
+        assert!(!request.stack);
+        assert_eq!(
+            request.disasm_lines, all.disasm_lines,
+            "the disassembly cannot be closed, so its line count is not folded"
+        );
+    }
 
     #[test]
     fn an_address_parses_with_or_without_its_sigil() {
