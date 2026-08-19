@@ -13,7 +13,13 @@ use tracing::warn;
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.
-const SAVE_VERSION: &str = "2";
+//
+// Bump this whenever a serialized field is added, removed, retyped **or reordered**. Reordering is
+// the one that does not look like a format change and is the most dangerous: bincode writes struct
+// fields positionally with no names or tags, and the header carries no checksum, so a reorder that
+// happens to preserve the total byte count deserializes without error into the wrong fields and
+// resumes a corrupt console.
+const SAVE_VERSION: &str = "3";
 /// Version for the bundled game database.
 ///
 /// Deliberately independent of `SAVE_VERSION`: the database is not save-state data, so bumping

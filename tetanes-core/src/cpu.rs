@@ -114,14 +114,14 @@ pub struct Cpu {
     pub cycle: u32,
     /// Master clock cycles run, which is what the PPU and APU are caught up against.
     pub master_clock: u32,
-    /// Master cycles before a read or write within the current instruction.
-    pub start_cycles: u8,
-    /// Master cycles after a read or write within the current instruction.
-    pub end_cycles: u8,
     /// Program counter.
     pub pc: u16,
     /// The current instruction's operand.
     pub operand: u16,
+    /// Master cycles before a read or write within the current instruction.
+    pub start_cycles: u8,
+    /// Master cycles after a read or write within the current instruction.
+    pub end_cycles: u8,
     /// The current instruction's addressing mode.
     pub addr_mode: AddrMode,
     /// Stack pointer; the stack itself is at $0100-$01FF.

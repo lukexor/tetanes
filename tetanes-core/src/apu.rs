@@ -83,19 +83,33 @@ impl TryFrom<usize> for Channel {
 /// See: <https://wiki.nesdev.org/w/index.php/APU>
 #[derive(Clone, Serialize, Deserialize)]
 #[must_use]
+// Declaration order is the memory layout, so the fields the mixer touches every block sit together
+// ahead of the ones only reconfiguration reads. Adding a field here places it in a cache line
+// rather than leaving that to the compiler, and moving one changes the save-state layout - both
+// want `SAVE_VERSION` bumped.
+#[repr(C)]
 pub struct Apu {
-    /// The frame sequencer that clocks envelopes, sweeps and length counters.
-    pub frame_counter: FrameCounter,
     /// Cycles into the current [`Apu::CYCLE_SIZE`] block.
     pub master_clock: u32,
     /// Total CPU cycles clocked.
     pub cpu_cycle: u32,
     /// APU cycles clocked.
     pub clock: u32,
-    /// CPU clock rate for the current region, in Hz.
-    pub clock_rate: f32,
-    /// The region the APU is timed for.
-    pub region: NesRegion,
+    /// Cycles of this block the mixer has consumed, which trails `master_clock`.
+    pub mix_clock: u32,
+    /// Mixed level of the five APU channels as of `mix_clock`, so a change is a delta from it.
+    pub mixed_level: f32,
+    /// Expansion audio level as of the last cycle the board reported one.
+    ///
+    /// Tracked separately because the board is clocked by the CPU rather than the APU, and
+    /// because it is mixed in linearly - so its changes are deltas in their own right rather than
+    /// having to go through the channel tables.
+    pub mapper_level: f32,
+    /// Mixed samples produced since the last drain.
+    #[serde(skip)]
+    pub audio_samples: Vec<f32>,
+    /// The frame sequencer that clocks envelopes, sweeps and length counters.
+    pub frame_counter: FrameCounter,
     /// The first square-wave channel.
     pub pulse1: Pulse,
     /// The second square-wave channel.
@@ -111,22 +125,6 @@ pub struct Apu {
     /// Turns amplitude changes into output-rate samples.
     #[serde(skip, default = "Apu::default_synth")]
     pub synth: BandLimited,
-    /// Cycles of this block the mixer has consumed, which trails `master_clock`.
-    pub mix_clock: u32,
-    /// Mixed level of the five APU channels as of `mix_clock`, so a change is a delta from it.
-    pub mixed_level: f32,
-    /// Expansion audio level as of the last cycle the board reported one.
-    ///
-    /// Tracked separately because the board is clocked by the CPU rather than the APU, and
-    /// because it is mixed in linearly - so its changes are deltas in their own right rather than
-    /// having to go through the channel tables.
-    pub mapper_level: f32,
-    /// Whether the synthesiser's rate is stale and must be retuned at the next block boundary.
-    #[serde(skip)]
-    pub rate_dirty: bool,
-    /// Mixed samples produced since the last drain.
-    #[serde(skip)]
-    pub audio_samples: Vec<f32>,
     /// Output sample rate in Hz.
     pub sample_rate: f32,
     /// Emulation speed multiplier, which stretches the sample period.
@@ -135,6 +133,13 @@ pub struct Apu {
     ///
     /// See [`Apu::set_sample_ratio`].
     pub sample_ratio: f32,
+    /// CPU clock rate for the current region, in Hz.
+    pub clock_rate: f32,
+    /// Whether the synthesiser's rate is stale and must be retuned at the next block boundary.
+    #[serde(skip)]
+    pub rate_dirty: bool,
+    /// The region the APU is timed for.
+    pub region: NesRegion,
     /// Whether cartridge expansion audio is mixed in.
     pub mapper_enabled: bool,
     /// Whether mixing is skipped entirely, as in headless runs.

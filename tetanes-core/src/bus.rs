@@ -84,8 +84,6 @@ pub struct Bus {
     /// Central Processing Unit registers and cycle counters. What the CPU *does* is an
     /// `impl Bus` block in [`cpu`](crate::cpu), since every access moves the whole console.
     pub cpu: Cpu,
-    /// Picture Processing Unit.
-    pub ppu: Ppu,
     /// Which of the loaded board's optional hooks apply: a per-cycle clock, IRQ or DMA, audio,
     /// watching every PPU bus address, or serving reads itself rather than from page tables.
     ///
@@ -96,6 +94,8 @@ pub struct Bus {
     // board unconditionally. Recomputed in `load_mapper` and `rebuild_mapper_state`.
     #[serde(skip)]
     pub mapper_ops: MapperOps,
+    /// Picture Processing Unit.
+    pub ppu: Ppu,
     /// The cartridge's board.
     //
     // Ordered after `ppu`: the PPU is the heaviest user (CHR and CIRAM fetches are the hot path),
