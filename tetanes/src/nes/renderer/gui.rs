@@ -3,7 +3,7 @@ use crate::{
     nes::{
         RunState,
         action::{Debug, DebugKind, DebugStep, Feature, Setting, Ui as UiAction},
-        config::{Config, RecentRom, RendererConfig},
+        config::{Config, FrameRate, RecentRom, RendererConfig},
         emulation::FrameStats,
         event::{
             ConfigEvent, DebugEvent, EmulationEvent, NesEvent, NesEventProxy, RendererEvent,
@@ -29,17 +29,24 @@ use crate::{
     sys::{SystemInfo, info::System},
 };
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, FontData,
-    FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, PopupCloseBehavior, Pos2, Rect,
-    RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId, Visuals,
+    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, DragValue,
+    FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, PopupCloseBehavior,
+    Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId,
+    Visuals,
     containers::menu::{MenuConfig, SubMenuButton},
     hex_color, include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
 };
+use egui_plot::{
+    Corner, HLine, HoverPosition, Legend, Line, LineStyle, Plot, PlotBounds, PlotPoint, PlotPoints,
+};
 use serde::{Deserialize, Serialize};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    collections::VecDeque,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tetanes_core::{
     action::Action as DeckAction,
@@ -103,6 +110,8 @@ pub struct Gui {
     #[cfg(debug_assertions)]
     ui_memory_open: Arc<AtomicBool>,
     perf_stats_open: bool,
+    /// Whether the plot was shown last frame, so the window can be resized when that changes.
+    perf_stats_plot_shown: bool,
     update_window_open: bool,
     version: Version,
     pub keybinds: Keybinds,
@@ -114,6 +123,11 @@ pub struct Gui {
     replay_recording: bool,
     audio_recording: bool,
     frame_stats: FrameStats,
+    /// Per-frame times, in seconds since [`Gui::start`] against milliseconds, for the plot.
+    ///
+    /// Capped at [`Gui::MAX_FRAME_TIME_HISTORY`] rather than at the configured history, so
+    /// widening the plot's window shows samples already collected instead of starting over.
+    frame_time_history: VecDeque<PlotPoint>,
     messages: Vec<(MessageType, String, Instant)>,
     pub loaded_rom: Option<LoadedRom>,
     about_homebrew_rom_open: Option<RomAsset>,
@@ -128,6 +142,8 @@ impl Gui {
     const MSG_TIMEOUT: Duration = Duration::from_secs(3);
     const MAX_MESSAGES: usize = 5;
     const NO_ROM_LOADED: &'static str = "No ROM is loaded.";
+    /// About five minutes at 60 fps, and the ceiling the history drag offers.
+    const MAX_FRAME_TIME_HISTORY: usize = 18_000;
 
     /// Create a `Gui` instance.
     pub fn new(
@@ -165,6 +181,7 @@ impl Gui {
             #[cfg(debug_assertions)]
             ui_memory_open: Arc::new(AtomicBool::new(false)),
             perf_stats_open: false,
+            perf_stats_plot_shown: cfg.renderer.perf_stats_plot,
             update_window_open: false,
             version: Version::new(),
             keybinds: Keybinds::new(tx.clone()),
@@ -176,6 +193,7 @@ impl Gui {
             replay_recording: false,
             audio_recording: false,
             frame_stats: FrameStats::new(),
+            frame_time_history: VecDeque::new(),
             messages: Vec::new(),
             loaded_rom: None,
             about_homebrew_rom_open: None,
@@ -227,6 +245,16 @@ impl Gui {
             NesEvent::Renderer(event) => match event {
                 RendererEvent::FrameStats(stats) => {
                     self.frame_stats = *stats;
+                    if self.frame_time_history.len() >= Self::MAX_FRAME_TIME_HISTORY {
+                        self.frame_time_history.pop_front();
+                    }
+                    self.frame_time_history.push_back(PlotPoint::new(
+                        stats
+                            .timestamp
+                            .saturating_duration_since(self.start)
+                            .as_secs_f64(),
+                        stats.frame_time_raw,
+                    ));
                 }
                 // Toggling true is handled in the menu widget
                 RendererEvent::ShowMenubar(show) if !*show => {
@@ -465,12 +493,40 @@ impl Gui {
     }
 
     fn show_performance_window(&mut self, ctx: &Context, enabled: bool, cfg: &Config) {
+        const TITLE: &str = "🛠 Performance Stats";
+
         let mut perf_stats_open = self.perf_stats_open;
-        egui::Window::new("🛠 Performance Stats")
+        // A title bar truncates to the width it is given rather than widening the window, and the
+        // grid alone is narrower than this title. Measuring the title tracks the UI scale.
+        let style = ctx.global_style();
+        let title_width = ctx.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    TITLE.to_string(),
+                    egui::TextStyle::Heading.resolve(&style),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        });
+        let spacing = &style.spacing;
+        // The collapse arrow and the close button flank the title, and the window frame insets it.
+        let title_bar_width =
+            title_width + 2.0 * (spacing.interact_size.x + spacing.item_spacing.x);
+        let mut window = egui::Window::new(TITLE)
             .open(&mut perf_stats_open)
-            .show(ctx, |ui| {
-                ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
-            });
+            .min_width(title_bar_width);
+        // A window only ever grows to fit its contents, so dropping the plot would leave it stuck
+        // at the plot's width. Pinch it shut for the one frame the toggle changes on and it
+        // re-expands to whatever it now holds.
+        if self.perf_stats_plot_shown != cfg.renderer.perf_stats_plot {
+            self.perf_stats_plot_shown = cfg.renderer.perf_stats_plot;
+            window = window.max_width(0.0).resizable(false);
+            ctx.request_repaint();
+        }
+        window.show(ctx, |ui| {
+            ui.add_enabled_ui(enabled, |ui| self.performance_stats(ui, cfg));
+        });
         self.perf_stats_open = perf_stats_open;
     }
 
@@ -1362,6 +1418,50 @@ impl Gui {
     }
 
     fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
+        ui.horizontal(|ui| {
+            let mut plot = cfg.renderer.perf_stats_plot;
+            if ui.toggle_value(&mut plot, "📊 Plot").changed() {
+                self.tx.event(ConfigEvent::PerfStatsPlot(plot));
+            }
+
+            if plot {
+                ui.label("History:");
+                let mut history = cfg.renderer.perf_stats_history;
+                let drag = DragValue::new(&mut history)
+                    .range(60..=Self::MAX_FRAME_TIME_HISTORY)
+                    .speed(10);
+                if ui.add(drag).changed() {
+                    self.tx.event(ConfigEvent::PerfStatsHistory(history));
+                }
+
+                if ui.button("🔄 Clear").clicked() {
+                    self.tx.event(EmulationEvent::ResetFrameStats);
+                    self.frame_time_history.clear();
+                }
+            }
+        });
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            self.performance_stats_grid(ui, cfg);
+            if cfg.renderer.perf_stats_plot {
+                ui.separator();
+                self.performance_plot(ui, cfg);
+            }
+        });
+    }
+
+    /// The frame rate the emulator is pacing to, and the frame time that implies.
+    ///
+    /// This is the same [`FrameRate`] the emulation thread paces to, so NTSC is 60.0 rather than
+    /// the hardware's 60.0988 and the thresholds match what a frame is actually given.
+    fn frame_rate_target(cfg: &Config) -> (f32, f32) {
+        let fps = f32::from(FrameRate::from(cfg.deck.region)) * cfg.emulation.speed;
+        (fps, to_display_precision(1000.0 / fps))
+    }
+
+    fn performance_stats_grid(&mut self, ui: &mut Ui, cfg: &Config) {
         let grid = Grid::new("perf_stats").num_columns(2).spacing([40.0, 6.0]);
         grid.show(ui, |ui| {
             ui.ctx().request_repaint_after(Duration::from_secs(1));
@@ -1375,14 +1475,17 @@ impl Gui {
             };
             let warn_color = ui.style().visuals.warn_fg_color;
             let bad_color = ui.style().visuals.error_fg_color;
-            let fps_color = |fps| match fps {
-                fps if fps < 30.0 => bad_color,
-                fps if fps < 60.0 => warn_color,
+            let (target_fps, target_frame_time) = Self::frame_rate_target(cfg);
+            // Both closures compare the value as it is displayed. Comparing the raw f32 makes a
+            // steady 60.00 fps flicker green/yellow as it crosses 59.9999.
+            let fps_color = |fps| match to_display_precision(fps) {
+                fps if fps < target_fps / 2.0 => bad_color,
+                fps if fps < target_fps => warn_color,
                 _ => good_color,
             };
-            let frame_time_color = |time| match time {
-                time if time <= 1000.0 * 1.0 / 60.0 => good_color,
-                time if time <= 1000.0 * 1.0 / 30.0 => warn_color,
+            let frame_time_color = |time| match to_display_precision(time) {
+                time if time <= target_frame_time => good_color,
+                time if time <= target_frame_time * 2.0 => warn_color,
                 _ => bad_color,
             };
 
@@ -1427,6 +1530,18 @@ impl Gui {
 
             ui.strong("Frame Count:");
             ui.label(format!("{}", self.frame_stats.frame_count));
+            ui.end_row();
+
+            let dropped_frames = self.frame_stats.dropped_frames;
+            ui.strong("Dropped Frames:");
+            ui.colored_label(
+                if dropped_frames > 0 {
+                    warn_color
+                } else {
+                    good_color
+                },
+                format!("{dropped_frames}"),
+            );
             ui.end_row();
 
             if let Some(stats) = self.sys.stats() {
@@ -1515,6 +1630,91 @@ impl Gui {
                 ui.end_row();
             }
         });
+    }
+
+    fn performance_plot(&self, ui: &mut Ui, cfg: &Config) {
+        let (target_fps, target_frame_time) = Self::frame_rate_target(cfg);
+        let target_frame_time = f64::from(target_frame_time);
+        // Dim, so the reference reads as a backdrop to the trace rather than competing with it.
+        let target_color = ui.style().visuals.warn_fg_color.gamma_multiply(0.4);
+        let history = cfg
+            .renderer
+            .perf_stats_history
+            .min(self.frame_time_history.len());
+        // One allocation of a few kilobytes per repaint. `PlotPoints::Borrowed` would need a
+        // contiguous slice, and `VecDeque::make_contiguous` moves the whole ring to supply one.
+        let points = self
+            .frame_time_history
+            .range(self.frame_time_history.len() - history..)
+            .copied()
+            .collect::<Vec<_>>();
+
+        // A window of fixed duration: the trace draws rightward into an empty plot and scrolls
+        // once it reaches the edge, instead of the whole x range rescaling on every sample.
+        let window = cfg.renderer.perf_stats_history as f64 / f64::from(target_fps);
+        let (x_min, x_max) = match (points.first(), points.last()) {
+            (Some(first), Some(last)) if last.x - first.x >= window => (last.x - window, last.x),
+            (Some(first), _) => (first.x, first.x + window),
+            _ => (0.0, window),
+        };
+
+        // Framed on the values rather than on zero, so a spike of a millisecond or two is legible.
+        // The padding has a floor, or a steady trace magnifies its own noise into mountains.
+        let (y_low, y_high) = points.iter().fold(
+            (target_frame_time, target_frame_time),
+            |(low, high), point| (low.min(point.y), high.max(point.y)),
+        );
+        let pad = ((y_high - y_low) * 0.15).max(target_frame_time * 0.05);
+
+        Plot::new("performance_plot")
+            .legend(Legend::default().position(Corner::LeftBottom))
+            .x_axis_label("seconds")
+            .y_axis_label("ms")
+            // The crosshair is drawn regardless, but the readout beside it only appears when a
+            // formatter says what to write in it.
+            .label_formatter(|hover| {
+                let (name, point) = match hover {
+                    HoverPosition::NearDataPoint {
+                        plot_name,
+                        position,
+                        ..
+                    } => (*plot_name, position),
+                    HoverPosition::Elsewhere { position } => ("", position),
+                };
+                let fps = 1000.0 / point.y;
+                let mut label = String::new();
+                if !name.is_empty() {
+                    label.push_str(name);
+                    label.push('\n');
+                }
+                label.push_str(&format!("{:.2} ms at {:.1} s", point.y, point.x));
+                if fps.is_finite() {
+                    label.push_str(&format!("\n{fps:.2} fps"));
+                }
+                Some(label)
+            })
+            // The bounds are set per frame to keep the window scrolling, which leaves nothing for
+            // panning or zooming to do.
+            .allow_drag(false)
+            .allow_zoom(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false)
+            .height(220.0)
+            .width(ui.available_width().max(400.0))
+            .show(ui, |plot_ui| {
+                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                    [x_min, (y_low - pad).max(0.0)],
+                    [x_max, y_high + pad],
+                ));
+                plot_ui.hline(
+                    HLine::new("Target", target_frame_time)
+                        .color(target_color)
+                        .style(LineStyle::dashed_loose()),
+                );
+                plot_ui.line(
+                    Line::new("Frame Time", PlotPoints::Owned(points)).color(hex_color!("#a9491f")),
+                );
+            });
     }
 
     fn help_menu(&mut self, ui: &mut Ui) {
@@ -1756,5 +1956,28 @@ impl Gui {
             },
             ..Self::dark_theme()
         }
+    }
+}
+
+/// Rounds to the two decimals the performance stats are formatted with.
+///
+/// Thresholds are compared against this rather than the raw value, so a reading colors as the
+/// number the user sees.
+fn to_display_precision(value: f32) -> f32 {
+    (value * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_display_precision;
+
+    #[test]
+    fn a_reading_that_displays_as_the_target_is_not_under_it() {
+        // Both format as "60.00", so both land on the same side of the threshold. A raw
+        // comparison splits them and the label flickers between two colors.
+        assert!(to_display_precision(59.9987) >= 60.0);
+        assert!(to_display_precision(60.0004) >= 60.0);
+        // A reading that displays as a miss still colors as one.
+        assert!(to_display_precision(59.99) < 60.0);
     }
 }

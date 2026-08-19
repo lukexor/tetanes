@@ -37,12 +37,22 @@ pub mod rewind;
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[must_use]
 pub struct FrameStats {
+    /// When this frame was measured, so samples can be plotted against a real time axis.
     pub timestamp: Instant,
+    /// Frames per second, averaged over the sample window.
     pub fps: f32,
+    /// The lowest frames per second in the sample window.
     pub fps_min: f32,
+    /// Milliseconds per frame, averaged over the sample window.
     pub frame_time: f32,
+    /// The longest frame in the sample window, in milliseconds.
     pub frame_time_max: f32,
+    /// This frame alone, in milliseconds. The averages above hide the hitches a plot is for.
+    pub frame_time_raw: f32,
+    /// Frames emulated since stats were last reset.
     pub frame_count: usize,
+    /// Frames emulated but never drawn, because the renderer had not claimed the previous one.
+    pub dropped_frames: usize,
 }
 
 impl Default for FrameStats {
@@ -53,7 +63,9 @@ impl Default for FrameStats {
             fps_min: 0.0,
             frame_time: 0.0,
             frame_time_max: 0.0,
+            frame_time_raw: 0.0,
             frame_count: 0,
+            dropped_frames: 0,
         }
     }
 }
@@ -68,6 +80,7 @@ impl FrameStats {
 #[must_use]
 pub struct FrameTimeDiag {
     frame_count: usize,
+    dropped_frames: usize,
     history: VecDeque<f32>,
     sum: f32,
     avg: f32,
@@ -77,10 +90,16 @@ pub struct FrameTimeDiag {
 impl FrameTimeDiag {
     const MAX_HISTORY: usize = 120;
     const UPDATE_INTERVAL: Duration = Duration::from_millis(300);
+    /// Frames to measure before reporting anything, so the average settles.
+    ///
+    /// The first interval after a reset is also a fraction of a frame rather than a whole one,
+    /// and plotted it reads as a dip to zero.
+    const WARMUP: usize = 10;
 
     fn new() -> Self {
         Self {
             frame_count: 0,
+            dropped_frames: 0,
             history: VecDeque::with_capacity(Self::MAX_HISTORY),
             sum: 0.0,
             avg: 1.0 / 60.0,
@@ -88,11 +107,14 @@ impl FrameTimeDiag {
         }
     }
 
+    const fn is_warm(&self) -> bool {
+        self.frame_count >= Self::WARMUP
+    }
+
     fn push(&mut self, frame_time: f32) {
         self.frame_count += 1;
 
-        // Ignore the first few frames to allow the average to stabilize
-        if frame_time.is_finite() && self.frame_count >= 10 {
+        if frame_time.is_finite() && self.is_warm() {
             if self.history.len() >= Self::MAX_HISTORY
                 && let Some(oldest) = self.history.pop_front()
             {
@@ -118,8 +140,13 @@ impl FrameTimeDiag {
         self.history.iter()
     }
 
+    const fn drop_frame(&mut self) {
+        self.dropped_frames += 1;
+    }
+
     fn reset(&mut self) {
         self.frame_count = 0;
+        self.dropped_frames = 0;
         self.history.clear();
         self.sum = 0.0;
         self.avg = 1.0 / 60.0;
@@ -628,7 +655,7 @@ impl State {
                 }
             }
             EmulationEvent::Reset(kind) => {
-                self.frame_time_diag.reset();
+                self.reset_frame_stats();
                 if self.control_deck.is_running() || self.control_deck.cpu_corrupted() {
                     self.control_deck.reset(*kind);
                     match kind {
@@ -652,9 +679,10 @@ impl State {
             }
             EmulationEvent::SaveState(slot) => self.save_state(*slot, false),
             EmulationEvent::ShowFrameStats(show) => {
-                self.frame_time_diag.reset();
+                self.reset_frame_stats();
                 self.show_frame_stats = *show;
             }
+            EmulationEvent::ResetFrameStats => self.reset_frame_stats(),
             EmulationEvent::Screenshot => {
                 if self.control_deck.is_running() {
                     match self.save_screenshot() {
@@ -780,14 +808,27 @@ impl State {
         }
     }
 
+    /// Starts the frame time history over, without the gap since it was last measured.
+    ///
+    /// Whatever stalled or idled in between is not a frame time, and left in it would be both the
+    /// window's maximum and the whole scale of its plot.
+    fn reset_frame_stats(&mut self) {
+        self.frame_time_diag.reset();
+        self.last_frame_time = Instant::now();
+    }
+
     fn update_frame_stats(&mut self) {
         if !self.show_frame_stats {
             return;
         }
 
-        self.frame_time_diag
-            .push(self.last_frame_time.elapsed().as_secs_f32());
+        let frame_time_raw = self.last_frame_time.elapsed().as_secs_f32();
+        self.frame_time_diag.push(frame_time_raw);
         self.last_frame_time = Instant::now();
+        if !self.frame_time_diag.is_warm() {
+            return;
+        }
+
         let frame_time = self.frame_time_diag.avg();
         let frame_time_max = self
             .frame_time_diag
@@ -807,14 +848,19 @@ impl State {
             fps_min,
             frame_time: frame_time * 1000.0,
             frame_time_max: frame_time_max * 1000.0,
+            frame_time_raw: frame_time_raw * 1000.0,
             frame_count: self.frame_time_diag.frame_count,
+            dropped_frames: self.frame_time_diag.dropped_frames,
         }));
     }
 
     fn send_frame(&mut self) {
         match self.frame_tx.try_send_ref() {
             Ok(mut frame) => self.control_deck.frame_buffer_into(frame.as_array_mut()),
-            Err(TrySendError::Full(_)) => trace!("dropped frame"),
+            Err(TrySendError::Full(_)) => {
+                trace!("dropped frame");
+                self.frame_time_diag.drop_frame();
+            }
             Err(_) => shutdown(&self.tx, "failed to get frame"),
         }
     }
@@ -885,7 +931,7 @@ impl State {
                 viewport_id: ViewportId::ROOT,
                 when: Instant::now(),
             });
-            self.frame_time_diag.reset();
+            self.reset_frame_stats();
         }
     }
 
@@ -924,10 +970,8 @@ impl State {
             viewport_id: ViewportId::ROOT,
             when: Instant::now(),
         });
-        self.frame_time_diag.reset();
+        self.reset_frame_stats();
         self.last_auto_save = Instant::now();
-        // To avoid having a large dip in frame stats after loading
-        self.last_frame_time = Instant::now();
     }
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {
@@ -1209,11 +1253,7 @@ impl State {
                 Ok(()) => {
                     self.audio.process(self.control_deck.audio_samples());
                     self.update_audio_rate();
-                    match self.frame_tx.try_send_ref() {
-                        Ok(mut frame) => self.control_deck.frame_buffer_into(frame.as_array_mut()),
-                        Err(TrySendError::Full(_)) => debug!("dropped frame"),
-                        Err(_) => shutdown(&self.tx, "failed to get frame"),
-                    }
+                    self.send_frame();
                     self.update_frame_stats();
                     self.update_bench();
                     if self.auto_save && self.last_auto_save.elapsed() > self.auto_save_interval {

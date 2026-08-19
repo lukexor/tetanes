@@ -121,6 +121,10 @@ pub struct RendererConfig {
     pub recent_roms: VecDeque<RecentRom>,
     pub roms_path: Option<PathBuf>,
     pub show_perf_stats: bool,
+    /// Whether the Performance Stats window draws the frame time plot beside its grid.
+    pub perf_stats_plot: bool,
+    /// How many frame time samples of the plot's history to draw, newest last.
+    pub perf_stats_history: usize,
     pub show_messages: bool,
     pub show_menubar: bool,
     pub embed_viewports: bool,
@@ -141,6 +145,9 @@ impl Default for RendererConfig {
             recent_roms: VecDeque::default(),
             roms_path: std::env::current_dir().ok(),
             show_perf_stats: false,
+            perf_stats_plot: false,
+            // ~10 seconds at 60 fps.
+            perf_stats_history: 600,
             show_messages: true,
             show_menubar: true,
             embed_viewports: false,
