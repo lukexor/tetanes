@@ -1067,8 +1067,8 @@ impl Running {
                 _ => !released && !repeat,
             };
             let is_root_window = Some(window_id) == self.renderer.root_window_id();
-            // Stepping is driven while looking at the disassembly, so it has to work from the
-            // debugger's window as well as the game's.
+            // Stepping and pausing are both driven while looking at the disassembly, so both
+            // have to work from the debugger's window as well as the game's.
             let is_debug_window = is_root_window || {
                 let viewport = self.renderer.gui.borrow().debugger_viewport_id();
                 self.renderer.window_id_for_viewport(viewport) == Some(window_id)
@@ -1077,7 +1077,7 @@ impl Running {
                 Action::Ui(ui_state) if activated => match ui_state {
                     Ui::Quit => self.tx.event(UiEvent::Terminate),
                     Ui::TogglePause => {
-                        if is_root_window && self.renderer.rom_loaded() {
+                        if is_debug_window && self.renderer.rom_loaded() {
                             self.set_run_state(match self.run_state() {
                                 RunState::Running => RunState::ManuallyPaused,
                                 RunState::ManuallyPaused | RunState::AutoPaused => {

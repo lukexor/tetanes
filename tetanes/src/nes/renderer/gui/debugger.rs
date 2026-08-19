@@ -506,9 +506,23 @@ struct State {
 /// character of the monospace font is not.
 const GUTTER_WIDTH: f32 = 16.0;
 
-/// Parse an address as typed into one of the window's address boxes, with or without the `$`.
+/// Parse an address as typed into one of the window's address boxes.
+///
+/// Bare hex, or prefixed with the assembler's `$` or the C-style `0x`, since both turn up in
+/// documentation the address is likely to be copied out of.
 fn parse_addr(text: &str) -> Option<u16> {
-    u16::from_str_radix(text.trim().trim_start_matches('$'), 16).ok()
+    let text = text.trim();
+    let digits = text
+        .strip_prefix('$')
+        .or_else(|| text.strip_prefix("0x"))
+        .or_else(|| text.strip_prefix("0X"))
+        .unwrap_or(text);
+    u16::from_str_radix(digits, 16).ok()
+}
+
+/// Whether the box that was just drawn was submitted with Enter.
+fn submitted(ui: &Ui, response: &egui::Response) -> bool {
+    response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter))
 }
 
 /// Whether the row covering `addr` falls inside `visible`, the rows the last draw put on screen.
@@ -642,7 +656,7 @@ impl CpuDebugger {
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)
-            .with_inner_size(Vec2::new(760.0, 720.0));
+            .with_inner_size(Vec2::new(940.0, 720.0));
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
@@ -957,14 +971,14 @@ impl State {
     /// The breakpoints, and the box that adds one.
     fn breakpoint_list(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.add(
+            let response = ui.add(
                 egui::TextEdit::singleline(&mut self.breakpoint_goto)
                     .hint_text("break at $addr")
                     .desired_width(90.0),
             );
-            let addr = parse_addr(&self.breakpoint_goto);
-            if let Some(addr) = addr
-                && ui.button("Add").clicked()
+            let add = submitted(ui, &response) | ui.button("Add").clicked();
+            if let Some(addr) = parse_addr(&self.breakpoint_goto)
+                && add
             {
                 self.breakpoint_goto.clear();
                 self.breakpoints.add(addr);
@@ -1022,14 +1036,14 @@ impl State {
 
     fn disassembly(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.add(
+            let response = ui.add(
                 egui::TextEdit::singleline(&mut self.goto)
                     .hint_text("go to $addr")
                     .desired_width(90.0),
             );
-            let addr = parse_addr(&self.goto);
-            if let Some(addr) = addr
-                && ui.button("Go").clicked()
+            let go = submitted(ui, &response) | ui.button("Go").clicked();
+            if let Some(addr) = parse_addr(&self.goto)
+                && go
             {
                 self.scroll_to = Some(addr);
             }
@@ -1047,7 +1061,9 @@ impl State {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let pitch = row_height + ui.spacing().item_spacing.y;
         let viewport_height = ui.available_height();
-        let mut scroll_area = ScrollArea::vertical()
+        // Scrolls sideways as well: a row runs to about 44 columns at its longest, and the
+        // window is resizable down past that.
+        let mut scroll_area = ScrollArea::both()
             .id_salt("disassembly")
             .auto_shrink([false, false]);
 
@@ -1077,12 +1093,9 @@ impl State {
             |ui, range| {
                 drawn = range.clone();
                 for (offset, row) in self.address_space.rows[range.clone()].iter().enumerate() {
-                    let (rect, response) = ui.allocate_exact_size(
-                        Vec2::new(ui.available_width(), row_height),
-                        Sense::hover(),
-                    );
-                    if let Some(clicked) = self.row(ui, rect, row, pc, &palette, font.clone()) {
-                        act = Some(clicked);
+                    let (response, clicked) = self.row(ui, row, pc, &palette, &font, row_height);
+                    if clicked.is_some() {
+                        act = clicked;
                     }
                     if target == Some(range.start + offset) {
                         // egui measures the drawn row, where the offset arithmetic above can only
@@ -1124,63 +1137,67 @@ impl State {
     /// The row is split by hand rather than laid out with [`Ui::horizontal`], which sizes to its
     /// contents. `show_rows` maps scroll offset to row index by multiplying, so a row a pixel
     /// taller desynchronizes both the virtual window and the jump to an address.
+    /// Draw one row, reporting it and what a click on it asked for.
+    ///
+    /// The row is split by hand rather than laid out with [`Ui::horizontal`], which sizes to its
+    /// contents. `show_rows` maps scroll offset to row index by multiplying, so a row a pixel
+    /// taller desynchronizes both the virtual window and the jump to an address.
     fn row(
         &self,
-        ui: &Ui,
-        rect: egui::Rect,
+        ui: &mut Ui,
         row: &Row,
         pc: u16,
         palette: &Palette,
-        font: egui::FontId,
-    ) -> Option<RowAction> {
+        font: &egui::FontId,
+        row_height: f32,
+    ) -> (egui::Response, Option<RowAction>) {
+        let galley = self.row_galley(ui, row, pc, palette, font);
+        // At least the viewport's width, so the gutter and the row highlights span it, and at
+        // least the text's, so the scroll area learns how far right the disassembly reaches.
+        let width = (GUTTER_WIDTH + galley.size().x).max(ui.available_width());
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(width, row_height), Sense::hover());
         let (gutter, text) = rect.split_left_right_at_x(rect.left() + GUTTER_WIDTH);
-        let painter = ui.painter();
 
-        let Row::Instruction(disasm) = row else {
-            painter.rect_filled(gutter, 0.0, palette.gutter);
-            let Row::Block { start, end, kind } = row else {
-                unreachable!("a row is an instruction or a block")
-            };
-            painter.text(
-                text.left_center(),
-                egui::Align2::LEFT_CENTER,
-                format!("${start:04X}-${end:04X}  {}", kind.label()),
-                font,
-                palette.block,
-            );
-            // A block spans a range, so there is no single address to break on. The address box
-            // stays the way to set one inside it.
-            return None;
+        // Only an instruction has one address to arm. A block spans a range, so its gutter is
+        // inert and the address box stays the way to break inside it.
+        let addr = match row {
+            Row::Instruction(disasm) => Some(disasm.addr),
+            Row::Block { .. } => None,
         };
-        let addr = disasm.addr;
 
         // Interacted with before it is painted, so hovering the gutter can light it up. A row
-        // whose gutter takes no breakpoint would otherwise give no sign of being clickable.
-        let gutter_response = ui.interact(gutter, ui.id().with(("gutter", addr)), Sense::click());
+        // whose gutter holds no breakpoint would otherwise give no sign of being clickable.
+        let gutter_response =
+            addr.map(|addr| ui.interact(gutter, ui.id().with(("gutter", addr)), Sense::click()));
+        let painter = ui.painter();
         painter.rect_filled(
             gutter,
             0.0,
-            if gutter_response.hovered() {
-                palette.gutter_hovered
-            } else {
-                palette.gutter
+            match &gutter_response {
+                Some(response) if response.hovered() => palette.gutter_hovered,
+                _ => palette.gutter,
             },
         );
 
-        if addr == pc {
-            painter.rect_filled(text, 0.0, palette.pc_background);
-        }
-        if self.selected == Some(addr) {
-            // An outline rather than a fill, so a selected row that PC is also on keeps both
-            // marks.
-            painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
+        if let Some(addr) = addr {
+            if addr == pc {
+                painter.rect_filled(text, 0.0, palette.pc_background);
+            }
+            if self.selected == Some(addr) {
+                // An outline rather than a fill, so a selected row that PC is also on keeps both
+                // marks.
+                painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
+            }
         }
         painter.galley(
             text.left_center() - Vec2::new(0.0, font.size / 2.0),
-            self.row_galley(ui, disasm, addr == pc, palette, font),
+            galley,
             palette.operand,
         );
 
+        let Some(addr) = addr else {
+            return (response, None);
+        };
         if let Some(breakpoint) = self.breakpoints.get(addr) {
             // Filled for armed and hollow for listed, a difference that reads without the
             // palette being involved.
@@ -1197,6 +1214,7 @@ impl State {
             }
         }
 
+        let gutter_response = gutter_response.expect("an instruction row interacts");
         let mut action = gutter_response
             .clicked()
             .then_some(RowAction::ToggleBreakpoint(addr));
@@ -1234,30 +1252,47 @@ impl State {
                 ui.close();
             }
         });
-        action
+        (response, action)
     }
 
-    /// Lay the instruction's parts out as one galley, each part in its own color.
+    /// Lay a row out as one galley, each part in its own color.
     ///
     /// One galley rather than a painted string per part, so the row is measured once and the
     /// columns stay where the monospace padding puts them.
     fn row_galley(
         &self,
         ui: &Ui,
-        disasm: &Disasm,
-        at_pc: bool,
+        row: &Row,
+        pc: u16,
         palette: &Palette,
-        font: egui::FontId,
+        font: &egui::FontId,
     ) -> Arc<egui::Galley> {
         let mut job = egui::text::LayoutJob::default();
+        let disasm = match row {
+            Row::Instruction(disasm) => disasm,
+            Row::Block { start, end, kind } => {
+                job.append(
+                    &format!("${start:04X}-${end:04X}  {}", kind.label()),
+                    0.0,
+                    egui::TextFormat {
+                        font_id: font.clone(),
+                        color: palette.block,
+                        ..Default::default()
+                    },
+                );
+                return ui.painter().layout_job(job);
+            }
+        };
+
+        // The console is about to run the row at PC, so it reads as one line rather than as a
+        // handful of tinted parts.
+        let at_pc = disasm.addr == pc;
         let mut part = |text: String, color: Color32| {
             job.append(
                 &text,
                 0.0,
                 egui::TextFormat {
                     font_id: font.clone(),
-                    // The console is about to run the row at PC, so it reads as one line rather
-                    // than as five tinted parts.
                     color: if at_pc { palette.pc_text } else { color },
                     ..Default::default()
                 },
@@ -1275,9 +1310,11 @@ impl State {
             bytes.push(' ');
         }
         part(bytes, palette.bytes);
+        let mnemonic = disasm.instr.to_string();
+        let unofficial = mnemonic.starts_with('*');
         part(
-            disasm.instr.to_string(),
-            if disasm.instr.to_string().starts_with('*') {
+            mnemonic,
+            if unofficial {
                 palette.mnemonic_unofficial
             } else {
                 palette.mnemonic
@@ -1286,8 +1323,13 @@ impl State {
         if !disasm.operand.is_empty() {
             part(format!(" {}", disasm.operand), palette.operand);
         }
-        if !disasm.resolved.is_empty() {
-            part(format!(" {}", disasm.resolved), palette.resolved);
+        // Bracketed and tinted apart from the operand that computed it, since it names a second
+        // address the row did not write down.
+        if let Some(effective) = disasm.effective_text() {
+            part(format!(" [{effective}]"), palette.effective);
+        }
+        if let Some(value) = disasm.value {
+            part(format!(" = {value}"), palette.resolved);
         }
         ui.painter().layout_job(job)
     }

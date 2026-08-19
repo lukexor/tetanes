@@ -124,9 +124,32 @@ pub struct Disasm {
     /// The operand as written: `#$42`, `$1234,X`, `($10),Y`. Empty for implied and accumulator
     /// modes, which name no operand.
     pub operand: String,
-    /// What the operand comes to on the console as it stands: `= #$34`, `@ $1237 = #$BB`, or
-    /// `= $1234` for an indirect jump. Empty where the mode resolves nothing.
-    pub resolved: String,
+    /// The address the operand lands on once a register is added, for the modes that compute one.
+    ///
+    /// `None` where the operand already names its address, and for the modes that touch memory
+    /// not at all.
+    pub effective: Option<u16>,
+    /// What sits at the address the operand reaches, on the console as it stands.
+    pub value: Option<Resolved>,
+}
+
+/// What an operand comes to when it is followed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum Resolved {
+    /// The byte the instruction reads or writes.
+    Byte(u8),
+    /// The address an indirect jump reads out of the one it names.
+    Word(u16),
+}
+
+impl fmt::Display for Resolved {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Byte(byte) => write!(f, "#${byte:02X}"),
+            Self::Word(word) => write!(f, "${word:04X}"),
+        }
+    }
 }
 
 impl Disasm {
@@ -146,6 +169,19 @@ impl Disasm {
     pub const fn len(&self) -> u16 {
         1 + self.instr.addr_mode.operand_len() as u16
     }
+
+    /// [`Disasm::effective`] as either renderer writes it, two hex digits in zero page and four
+    /// everywhere else.
+    pub fn effective_text(&self) -> Option<String> {
+        let effective = self.effective?;
+        Some(
+            if matches!(self.instr.addr_mode, AddrMode::ZPX | AddrMode::ZPY) {
+                format!("${effective:02X}")
+            } else {
+                format!("${effective:04X}")
+            },
+        )
+    }
 }
 
 impl fmt::Display for Disasm {
@@ -162,8 +198,13 @@ impl fmt::Display for Disasm {
         if !self.operand.is_empty() {
             write!(f, " {}", self.operand)?;
         }
-        if !self.resolved.is_empty() {
-            write!(f, " {}", self.resolved)?;
+        // `@ addr` rather than the debugger's `[addr]`, since this line is read side by side with
+        // other emulators' instruction traces.
+        if let Some(effective) = self.effective_text() {
+            write!(f, " @ {effective}")?;
+        }
+        if let Some(value) = self.value {
+            write!(f, " = {value}")?;
         }
         Ok(())
     }
@@ -939,7 +980,8 @@ impl Bus {
 
         out.addr = *pc;
         out.operand.clear();
-        out.resolved.clear();
+        out.effective = None;
+        out.value = None;
 
         let opcode = {
             let byte = self.peek(*pc);
@@ -976,23 +1018,22 @@ impl Bus {
             }
             AddrMode::ZP0 => {
                 let byte = peek_byte(out, 0);
-                let val = self.peek(byte.into());
                 let _ = write!(out.operand, "${byte:02X}");
-                let _ = write!(out.resolved, "= #${val:02X}");
+                out.value = Some(Resolved::Byte(self.peek(byte.into())));
             }
             AddrMode::ZPX => {
                 let byte = peek_byte(out, 0);
                 let addr = byte.wrapping_add(self.cpu.x);
-                let val = self.peek(addr.into());
                 let _ = write!(out.operand, "${byte:02X},X");
-                let _ = write!(out.resolved, "@ ${addr:02X} = #${val:02X}");
+                out.effective = Some(addr.into());
+                out.value = Some(Resolved::Byte(self.peek(addr.into())));
             }
             AddrMode::ZPY => {
                 let byte = peek_byte(out, 0);
                 let addr = byte.wrapping_add(self.cpu.y);
-                let val = self.peek(addr.into());
                 let _ = write!(out.operand, "${byte:02X},Y");
-                let _ = write!(out.resolved, "@ ${addr:02X} = #${val:02X}");
+                out.effective = Some(addr.into());
+                out.value = Some(Resolved::Byte(self.peek(addr.into())));
             }
             AddrMode::IND => {
                 let base_addr = peek_word(out);
@@ -1004,7 +1045,7 @@ impl Bus {
                     self.peek_word(base_addr)
                 };
                 let _ = write!(out.operand, "(${base_addr:04X})");
-                let _ = write!(out.resolved, "= ${val:04X}");
+                out.value = Some(Resolved::Word(val));
             }
             AddrMode::IDX => {
                 let byte = peek_byte(out, 0);
@@ -1012,9 +1053,9 @@ impl Bus {
                 let lo = self.peek(u16::from(zero_addr));
                 let hi = self.peek(u16::from(zero_addr.wrapping_add(1)));
                 let addr = u16::from_le_bytes([lo, hi]);
-                let val = self.peek(addr);
                 let _ = write!(out.operand, "(${byte:02X},X)");
-                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
+                out.effective = Some(addr);
+                out.value = Some(Resolved::Byte(self.peek(addr)));
             }
             AddrMode::IDY | AddrMode::IDYW => {
                 let byte = peek_byte(out, 0);
@@ -1024,9 +1065,9 @@ impl Bus {
                     u16::from_le_bytes([lo, hi])
                 };
                 let addr = base_addr.wrapping_add(u16::from(self.cpu.y));
-                let val = self.peek(addr);
                 let _ = write!(out.operand, "(${byte:02X}),Y");
-                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
+                out.effective = Some(addr);
+                out.value = Some(Resolved::Byte(self.peek(addr)));
             }
             AddrMode::ABS | AddrMode::OTH => {
                 let addr = peek_word(out);
@@ -1034,23 +1075,22 @@ impl Bus {
                 // A jump names where it goes, so the byte sitting at the target says nothing about
                 // it.
                 if !matches!(out.instr.instr, JMP | JSR) {
-                    let val = self.peek(addr);
-                    let _ = write!(out.resolved, "= #${val:02X}");
+                    out.value = Some(Resolved::Byte(self.peek(addr)));
                 }
             }
             AddrMode::ABX | AddrMode::ABXW => {
                 let base_addr = peek_word(out);
                 let addr = base_addr.wrapping_add(self.cpu.x.into());
-                let val = self.peek(addr);
                 let _ = write!(out.operand, "${base_addr:04X},X");
-                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
+                out.effective = Some(addr);
+                out.value = Some(Resolved::Byte(self.peek(addr)));
             }
             AddrMode::ABY | AddrMode::ABYW => {
                 let base_addr = peek_word(out);
                 let addr = base_addr.wrapping_add(self.cpu.y.into());
-                let val = self.peek(addr);
                 let _ = write!(out.operand, "${base_addr:04X},Y");
-                let _ = write!(out.resolved, "@ ${addr:04X} = #${val:02X}");
+                out.effective = Some(addr);
+                out.value = Some(Resolved::Byte(self.peek(addr)));
             }
         };
     }

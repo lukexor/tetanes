@@ -19,7 +19,9 @@ pub struct Palette {
     pub mnemonic_unofficial: Color32,
     /// The operand as written.
     pub operand: Color32,
-    /// What the operand comes to on the console as it stands.
+    /// The address the operand lands on once a register is added.
+    pub effective: Color32,
+    /// What sits at the address the operand reaches.
     pub resolved: Color32,
     /// A collapsed range of addresses that were not disassembled.
     pub block: Color32,
@@ -54,6 +56,9 @@ impl Palette {
             // no datasheet promises.
             mnemonic_unofficial: visuals.warn_fg_color,
             operand: text,
+            // The link color, since the effective address points at somewhere else the way a
+            // link does.
+            effective: visuals.hyperlink_color,
             resolved: weak,
             block: visuals.gray_out(text),
             // PC and selection both mark "here", so both come from the theme's selection colors.
