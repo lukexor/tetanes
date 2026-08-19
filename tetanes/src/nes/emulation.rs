@@ -339,8 +339,8 @@ pub struct State {
     /// The code map generation the address space was last captured at, so the capture is also
     /// redone when execution has revealed an instruction the last one collapsed as unknown.
     debug_generation: Option<u64>,
-    /// What the code map recorded before the debugger closed, held so that reopening it does not
-    /// start over. Only recording stops; the marks stay true for as long as the cart is loaded.
+    /// What the code map recorded before the debugger closed, kept so that reopening it does not
+    /// start over. Only recording stops. The marks stay true for as long as the cart is loaded.
     debug_code_map: Option<CodeMap>,
     /// Addresses to stop the console at, empty unless the Debugger has armed some.
     ///
@@ -606,16 +606,17 @@ impl State {
             EmulationEvent::DebugSubscribe(request) => {
                 self.debug_request = *request;
                 // Executed instructions can only be collected as they run, so start recording when
-                // subscriptions starts, if history is requested.
+                // the subscription starts, if history is requested.
                 self.control_deck.set_pc_history(
                     request
                         .filter(|request| request.history_lines > 0)
                         .map(|request| usize::from(request.history_lines)),
                 );
                 // Which bytes are instructions is marked by running them, so the map starts here
-                // too. A first subscription starts empty until the game runs, the disassembly is
-                // one large unknown block plus whatever PC points at. Closing the debugger stops
-                // the recording but keeps the marks, so reopening it does not start over.
+                // too. A first subscription starts empty until the game runs, leaving the
+                // disassembly one large unknown block plus whatever PC points at. Closing the
+                // debugger stops the recording but keeps the marks, so reopening it does not start
+                // over.
                 if request.is_some() {
                     let recorded = self.debug_code_map.take();
                     self.control_deck.attach_code_map(recorded);
@@ -686,8 +687,8 @@ impl State {
                             }
                         }
                         DebugStep::Frame => {
-                            // One NES frame, which is what stepping means regardless of the speed
-                            // a display frame would clock.
+                            // One NES frame, which stepping means regardless of the speed a
+                            // display frame would clock.
                             if self
                                 .write_deck(|deck| deck.clock_frame().map(|_| ()))
                                 .is_some()
@@ -949,10 +950,10 @@ impl State {
 
     /// Clock instructions until `done`, or until a default budget is spent.
     ///
-    /// Bounded by budget because a subroutine that never returns - a crash, or a wait loop
-    /// would otherwise never finish, and on the single-threaded backend would block the UI
-    /// thread. The budget is a few seconds of emulated time, far longer than any subroutine worth
-    /// stepping over.
+    /// Bounded by budget because a subroutine that never returns - a crash, or a wait loop - would
+    /// otherwise never finish, and on the single-threaded backend would block the UI thread. The
+    /// budget is a few seconds of emulated time, far longer than any subroutine worth stepping
+    /// over.
     fn step_until(&mut self, done: impl Fn(&ControlDeck, u8) -> bool) {
         const BUDGET: usize = 5_000_000;
 
@@ -972,7 +973,7 @@ impl State {
         );
     }
 
-    /// Send the Debugger a snapshot, if its open.
+    /// Send the Debugger a snapshot, if it's open.
     fn send_debug_snapshot(&self) {
         if let Some(request) = &self.debug_request {
             let snapshot = CpuSnapshot::capture(self.control_deck.bus(), request);
@@ -1005,7 +1006,7 @@ impl State {
         // round the event loop, and on the threaded backend the console would run on - past the
         // breakpoint by however many frames the round trip took - before it arrived.
         self.set_run_state(RunState::ManuallyPaused);
-        // Half a frame's worth of pixels, which is what the console has drawn at this point.
+        // Half a frame's worth of pixels, which the console has drawn at this point.
         self.send_frame();
         self.tx.event(DebugEvent::Breakpoint(addr));
     }
@@ -1070,7 +1071,7 @@ impl State {
             self.replay_record(false);
             self.rewind.clear();
             // Marks are offsets into this cart's memory. Both load paths come through here, so a
-            // held map cannot outlive the cart it describes.
+            // kept map cannot outlive the cart it describes.
             self.debug_code_map = None;
             let _ = self.audio.stop();
             if let Err(err) = self.control_deck.unload_rom() {

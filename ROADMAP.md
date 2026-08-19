@@ -91,7 +91,7 @@
   - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over
     - [x] Step Scanline/Frame
-    - [x] Breakpoints (by address; memory watches and conditions still to come)
+    - [x] Breakpoints (by address - memory watches and conditions still to come)
     - [ ] Modify state
     - [ ] Labels
   - [ ] Hex Memory Editor & Debugger

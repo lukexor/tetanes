@@ -23,15 +23,16 @@ use tetanes_core::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
+    /// The address the console stops at.
     pub addr: u16,
     /// Cleared to keep a breakpoint in the list without stopping at it.
     pub enabled: bool,
 }
 
-/// The breakpoints the Debugger holds, in address order so the list reads like the disassembly.
+/// The Debugger's breakpoints, in address order so the list reads like the disassembly.
 ///
-/// The console is only ever told the enabled addresses, since that is all it can act on; the rest
-/// of this is what the window draws.
+/// The console is only ever told the enabled addresses, since that is all it can act on. The
+/// window draws the rest.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoints(Vec<Breakpoint>);
@@ -79,10 +80,12 @@ impl Breakpoints {
             .collect()
     }
 
+    /// The breakpoints in address order, for the window to edit in place.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
         self.0.iter_mut()
     }
 
+    /// Whether no breakpoint is listed, enabled or not.
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -105,7 +108,7 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
-    /// The rendered label for a address block.
+    /// The rendered label for an address block.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Ram => "work ram",
@@ -186,7 +189,7 @@ impl CpuSnapshot {
         // Disassembled from memory as it is banked *now*, not as it was when these ran, so a line
         // whose bank has since been swapped shows what currently lives at that address. The
         // code map does not help here - it says which bytes are code, not which bank an address
-        // held at the time. Recording the bytes alongside the address is what would.
+        // was mapped to at the time. Recording the bytes alongside the address would.
         let history = bus.pc_history.as_ref().map_or_else(Vec::new, |history| {
             let skip = history
                 .len()
@@ -223,7 +226,7 @@ impl CpuSnapshot {
 ///
 /// Rebuilt when the board's PRG mapping changes, since that is the only thing that can move an
 /// instruction, and when the [`CodeMap`](tetanes_core::debug::CodeMap) marks something new, since
-/// that is what determines an address is an instruction. The rows represent the currently mapped
+/// that determines whether an address is an instruction. The rows represent the currently mapped
 /// banks, not where PC happens to be.
 #[derive(Debug, Default, Clone)]
 #[must_use]
@@ -242,8 +245,8 @@ impl AddressSpace {
         let mut text = String::with_capacity(64);
         let mut addr = 0u32;
         let pc = bus.cpu.pc;
-        // Set while decoding forward from PC. The map holds only what has executed, so a debugger
-        // that has just attached knows nothing about the routine PC is sitting in.
+        // Set while decoding forward from PC. The map contains only what has executed, so a
+        // debugger that has just attached knows nothing about the routine PC is sitting in.
         let mut following = false;
 
         while addr <= u32::from(u16::MAX) {
@@ -537,8 +540,8 @@ impl State {
                 .default_open(false)
                 .show(ui, |ui| self.breakpoint_list(ui));
             ui.separator();
-            // The stack is a fixed two columns of hex; the disassembly is the part that wants
-            // every pixel it can get, so it takes what is left rather than an even half.
+            // The stack is a fixed two columns of hex. The disassembly wants every pixel it can
+            // get, so it takes what is left rather than an even half.
             Panel::right("stack")
                 .resizable(false)
                 .exact_size(110.0)
@@ -704,7 +707,7 @@ impl State {
         let pc = self.snapshot.cpu.pc;
         let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
         // Rows have to stay exactly one line tall: `show_rows` maps scroll offset to row index by
-        // multiplying, so a row that wraps desynchronises both the virtual window and the jump.
+        // multiplying, so a row that wraps desynchronizes both the virtual window and the jump.
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let pitch = row_height + ui.spacing().item_spacing.y;
         let viewport_height = ui.available_height();
@@ -719,7 +722,7 @@ impl State {
             .and_then(|addr| self.address_space.row_at(addr));
 
         // `show_rows` only builds widgets for the rows it believes are visible, so a row that was
-        // not drawn cannot center itself. This brings it into the window; the exact centring
+        // not drawn cannot center itself. This brings it into the window, and the exact centering
         // happens below.
         if let Some(row) = target.filter(|row| !self.visible_rows.contains(row)) {
             let approx = (row as f32).mul_add(pitch, -(viewport_height - row_height) / 2.0);
@@ -769,7 +772,7 @@ impl State {
                     };
                     if target == Some(range.start + offset) {
                         // egui measures the drawn row, where the offset arithmetic above can only
-                        // estimate it, so this is what actually lands on the center line.
+                        // estimate it, so this lands the row on the center line.
                         // Unanimated, to match the rest of the window updating in one step.
                         response.scroll_to_me_animation(
                             Some(egui::Align::Center),
@@ -838,7 +841,7 @@ mod tests {
         assert!(breakpoints.is_empty());
     }
 
-    /// The list is drawn in the order it is held, which is the order the disassembly reads in.
+    /// The list is drawn in the order it is kept, which is the order the disassembly reads in.
     #[test]
     fn breakpoints_are_held_in_address_order_however_they_are_added() {
         let mut breakpoints = Breakpoints::default();
@@ -1021,8 +1024,7 @@ mod tests {
             "ten frames cannot have executed the whole ROM"
         );
 
-        // The same console with the map taken away, which is what the sweep used to do with all
-        // of it.
+        // The same console with the map taken away, which leaves the sweep decoding all of it.
         deck.detach_code_map();
         let blind = AddressSpace::capture(deck.bus());
         let instructions = |space: &AddressSpace| {

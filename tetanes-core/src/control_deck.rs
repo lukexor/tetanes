@@ -766,7 +766,7 @@ impl ControlDeck {
     /// Start recording the last `capacity` executed program counters, or stop with `None`.
     ///
     /// See [`PcHistory`]. Executed instructions cannot be recovered afterwards by disassembling
-    /// backwards without a known starting address to disassemble from from, so a debugger that
+    /// backwards without a known starting address to disassemble from, so a debugger that
     /// wants to show them has to start recording before the instructions run.
     pub fn set_pc_history(&mut self, capacity: Option<usize>) {
         self.bus.pc_history = capacity.map(PcHistory::new);
@@ -1328,7 +1328,7 @@ impl ControlDeck {
     /// runs that instruction before asking again, so the same condition does not stop it twice.
     //
     // A separate loop rather than a condition inside `clock_one_frame`, so the path that clocks
-    // every frame of normal play carries nothing for a feature that is almost always off.
+    // every frame of normal play does nothing for a feature that is almost always off.
     fn clock_one_frame_until(&mut self, stop: &impl Fn(u16) -> bool) -> Result<bool> {
         let frame = self.frame_number();
         while frame == self.frame_number() {
@@ -1400,8 +1400,8 @@ impl ControlDeck {
     /// This is how a debugger runs the console with breakpoints armed: a frame is tens of
     /// thousands of instructions, and stopping at one of them usually means stopping part way
     /// through one. What the display frame accounts for - audio, run-ahead, the frame buffer -
-    /// then waits for the call that finishes the frame, so a stop costs nothing but the pause and
-    /// is resumed by calling again.
+    /// then waits for the call that finishes the frame, so a stop does nothing but pause, and
+    /// calling again resumes it.
     ///
     /// `stop` is asked about the program counter each instruction leaves behind, so a console that
     /// stops is sitting on the instruction rather than past it, and resuming runs that instruction
@@ -1419,8 +1419,8 @@ impl ControlDeck {
     /// reports whether it stopped short.
     //
     // Always inlined: measured at 1.77 ms/frame against 1.75 without the shared body, and 1.755
-    // with this attribute. A whole frame's worth of work hangs off one call here, so what costs
-    // that 1% is the code around it, not the call.
+    // with this attribute. A whole frame's worth of work hangs off one call here, so the code
+    // around it accounts for that 1%, not the call.
     #[inline(always)]
     fn clock_frame_with(
         &mut self,
@@ -1446,9 +1446,9 @@ impl ControlDeck {
             }
         }
 
-        // The frame number is what says a frame was clocked, not the call returning: a stop can
-        // land on the instruction that ends one, and a display frame that still owes the frame it
-        // was interrupted in has to resume it rather than start another.
+        // The frame number says a frame was clocked, not the call returning: a stop can land on
+        // the instruction that ends one, and a display frame that still owes the frame it was
+        // interrupted in has to resume it rather than start another.
         let number = self.frame_number();
         let stopped = frame(self)?;
         if self.frame_number() != number {

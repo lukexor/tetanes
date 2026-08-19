@@ -193,8 +193,8 @@ impl Bus {
     /// Installs a cart: its board and every memory region it came with.
     pub fn load_cart(&mut self, cart: Cart) {
         self.memory = cart.memory;
-        // Marks are offsets into memory that have just been replaced above
-        // Rebuild with the new cart's size, still recording if it was previously.
+        // Marks are offsets into the memory replaced above. Rebuild with the new cart's size,
+        // still recording if it was.
         if self.code_map.is_some() {
             self.attach_code_map(None);
         }
@@ -213,8 +213,8 @@ impl Bus {
     /// whose ROM half is already correct, so only what a frame can actually change has to be
     /// copied. Restoring is `Bus::swap_state`, which hands the console back for the next one.
     ///
-    /// The debugger is not copied, for the same reason `swap_state` moves them across a restore:
-    /// they belong to the session rather than to the state.
+    /// The debugger is not copied, for the same reason `swap_state` keeps it across a restore: it
+    /// belongs to the session, not to the state.
     pub(crate) fn snapshot_from(&mut self, src: &Self) {
         // Destructured exhaustively so that a field added to `Bus` is a compile error here rather
         // than console state that silently fails to survive a run-ahead frame.

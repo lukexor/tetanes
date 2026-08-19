@@ -10,10 +10,10 @@ use std::sync::Arc;
 
 /// A ring buffer of the program counters most recently executed.
 ///
-/// Executed instructions have to be recorded as it runs: 6502 instructions are one to three bytes
-/// with no alignment, so the stream before an address cannot be recovered by decoding backwards
-/// without a known address to disassemble from. This is what lets a debugger show the instructions
-/// leading up to where it stopped execution.
+/// Executed instructions have to be recorded as the console runs: 6502 instructions are one to
+/// three bytes with no alignment, so the stream before an address cannot be recovered by decoding
+/// backwards without a known address to disassemble from. Recording them lets a debugger show the
+/// instructions leading up to where it stopped execution.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct PcHistory {
@@ -82,9 +82,9 @@ bitflags! {
 /// What execution has revealed about each byte of cartridge memory.
 ///
 /// Only execution writes here, nothing decodes ahead of it. A byte is only code if it has been
-/// executed. The disassembler cannot work out for itself in all cases: 6502 instructions are
-/// one to three bytes with no alignment, so a decode that starts inside data drifts out of step
-/// with the real instruction boundaries and stays out of sync until it happens to realign.
+/// executed, which the disassembler cannot work out on its own: 6502 instructions are one to three
+/// bytes with no alignment, so a decode that starts inside data stays out of step with the real
+/// instruction boundaries until it happens to realign.
 ///
 /// Keyed by [`Memory`] offset instead of CPU address, so a mark survives bank switches to another
 /// address. Two banks that share an address do not share marks. See [`Memory::prg_offset`].
@@ -392,9 +392,8 @@ mod tests {
         );
     }
 
-    /// Marks are memory offsets, so they describe bytes that a different cart's arena no longer
-    /// holds - and the arena is a different size, which would leave the map addressing past its
-    /// end.
+    /// Marks are memory offsets, so they describe bytes a different cart's arena does not contain,
+    /// and that arena is a different size, which would leave the map addressing past its end.
     #[test]
     fn loading_a_cart_starts_the_map_over_at_the_new_size() {
         let mut deck = ControlDeck::new();

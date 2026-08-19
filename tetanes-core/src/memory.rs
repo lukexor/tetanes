@@ -645,7 +645,7 @@ impl Memory {
 
     /// CRC32 of the cart's ROM, the same one the game database is keyed by.
     ///
-    /// Says which game the arena belongs to, which offsets into it are only meaningful against.
+    /// Says which game the arena belongs to. An offset into it means nothing against another one.
     #[must_use]
     pub const fn rom_crc32(&self) -> u32 {
         self.rom_crc32
@@ -729,12 +729,12 @@ impl Memory {
         true
     }
 
-    /// How many bytes the arena holds, which is the range [`Memory::prg_offset`] returns.
+    /// How many bytes the arena contains, which is the range [`Memory::prg_offset`] returns.
     pub const fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// Whether the arena is empty, which is what a console with no cart has.
+    /// Whether the arena is empty, which it is on a console with no cart loaded.
     pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -1182,7 +1182,7 @@ mod tests {
     fn an_offset_follows_the_bank_its_address_is_mapped_to() {
         let mut memory = test_memory();
 
-        // An 8 KiB window, so the 64 KiB of PRG-ROM holds several banks to switch between.
+        // An 8 KiB window, so the 64 KiB of PRG-ROM contains several banks to switch between.
         memory.map_prg(0x8000, 0x2000, 0, Src::PrgRom);
         let first = memory.prg_offset(0x8000).expect("mapped");
         // Within a page, the offset tracks the address.
