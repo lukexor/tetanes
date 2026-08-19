@@ -1009,8 +1009,8 @@ impl Bus {
 
     /// Disassemble the instruction at the given program counter into `out`, advancing `pc` past it.
     ///
-    /// `out` is reused rather than returned, so a sweep over the address space grows its two
-    /// strings once instead of allocating per instruction.
+    /// `out` is reused rather than returned, so a sweep over the address space grows its string
+    /// once instead of allocating per instruction.
     pub fn disassemble_into(&self, pc: &mut u16, out: &mut Disasm) {
         use fmt::Write;
 
@@ -1038,9 +1038,9 @@ impl Bus {
             u16::from_le_bytes([lo, hi])
         };
 
-        // `out.operand` gives the operand as written, `out.resolved` what it comes to on the
-        // console as it stands now. Only the row at PC is about to run, so the rest resolve
-        // against registers they will not see.
+        // `out.operand` gives the operand as written, `out.effective` and `out.value` what it
+        // comes to on the console as it stands now. Only the row at PC is about to run, so the
+        // rest resolve against registers they will not see.
         match out.instr.addr_mode {
             AddrMode::ACC | AddrMode::IMP => (),
             AddrMode::IMM => {

@@ -961,8 +961,7 @@ impl State {
     }
 
     fn registers(&mut self, ui: &mut Ui) {
-        // Every pane scrolls rather than growing, so a panel keeps the height its splitter was
-        // dragged to instead of being pushed out by its contents.
+        // Every pane scrolls, so its panel keeps the height its splitter was dragged to.
         ScrollArea::vertical()
             .id_salt("registers")
             .auto_shrink([false, false])
@@ -1020,8 +1019,8 @@ impl State {
 
     /// The instructions that ran most recently, oldest first, ending just before PC.
     fn history(&mut self, ui: &mut Ui) {
-        // Newest last, and the newest is the one worth seeing, so the view follows the end the
-        // way a log does. Scrolling up unsticks it until it is dragged back down.
+        // Newest last, so the view follows the end the way a log does. Scrolling up unsticks it
+        // until it is dragged back down.
         ScrollArea::vertical()
             .id_salt("history")
             .auto_shrink([false, false])
@@ -1310,11 +1309,6 @@ impl State {
         }
     }
 
-    /// Draw one row into `rect`, reporting what a click on it asked for.
-    ///
-    /// The row is split by hand rather than laid out with [`Ui::horizontal`], which sizes to its
-    /// contents. `show_rows` maps scroll offset to row index by multiplying, so a row a pixel
-    /// taller desynchronizes both the virtual window and the jump to an address.
     /// Draw one row, reporting it and what a click on it asked for.
     ///
     /// The row is split by hand rather than laid out with [`Ui::horizontal`], which sizes to its
@@ -1345,7 +1339,7 @@ impl State {
         let addr = instruction.map(|disasm| disasm.addr);
 
         // Interacted with before it is painted, so hovering the gutter can light it up. A row
-        // whose gutter holds no breakpoint would otherwise give no sign of being clickable.
+        // whose gutter has no breakpoint would otherwise give no sign of being clickable.
         let gutter_response =
             addr.map(|addr| ui.interact(gutter, ui.id().with(("gutter", addr)), Sense::click()));
         let painter = ui.painter();

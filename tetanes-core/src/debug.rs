@@ -157,16 +157,16 @@ impl CodeMap {
 bitflags! {
     /// The ways an address can be touched.
     ///
-    /// A breakpoint carries the set it stops on, so one range covers reads, writes and execution
-    /// in whatever combination the user ticked.
+    /// A breakpoint has the set it stops on, so one range covers reads, writes and execution in
+    /// whatever combination the user ticked.
     #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
     pub struct Access: u8 {
         /// Fetched as an instruction.
         ///
-        /// Checked between instructions rather than on the bus, since a fetch and an operand read
-        /// look alike there, and the console stops *before* running the instruction rather than
-        /// after it the way a read or a write does.
+        /// Checked between instructions, since a fetch and an operand read look alike on the bus.
+        /// The console stops *before* running the instruction, where a read or a write stops
+        /// after it.
         const EXEC = 1;
         /// Read by an instruction, other than the fetch.
         const READ = 1 << 1;
@@ -178,7 +178,7 @@ bitflags! {
 /// A range of CPU addresses the console stops on, or records, when one is accessed.
 ///
 /// Keyed by CPU address rather than by [`Memory`] offset, so a range in banked ROM follows
-/// whatever is mapped there rather than the code it was set on.
+/// whatever is mapped there.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
@@ -214,15 +214,17 @@ pub struct AccessHit {
 
 /// The armed breakpoints, with a bitmap over every address they cover.
 ///
-/// The bitmap is a pre-filter: a breakpoint carries a range, and later a condition, that no
-/// bitmap expresses. An access matching none of them tests one bit and stops there, which keeps
-/// this affordable on [`Bus::read`](crate::bus::Bus) and `Bus::write`.
+/// The bitmap is a pre-filter: a breakpoint has a range, and later a condition, that no bitmap
+/// expresses. An access matching none of them tests one bit and stops there, which keeps this
+/// affordable on [`Bus::read`](crate::bus::Bus) and `Bus::write`.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use]
 pub struct Breakpoints {
     /// One bit per CPU address, set where any breakpoint covers it, whatever the access.
     covered: Box<[u64; Self::WORDS]>,
+    /// The armed breakpoints, scanned only once the bitmap says an address is covered.
     list: Vec<Breakpoint>,
+    /// Accesses the breakpoints that keep running have caught, waiting to be drained.
     hits: Vec<AccessHit>,
 }
 

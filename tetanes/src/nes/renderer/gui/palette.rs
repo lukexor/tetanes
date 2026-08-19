@@ -1,7 +1,7 @@
 //! Colors the Debugger paints with, named for what they mark.
 //!
 //! Every one resolves from the [`Visuals`] in force, so the Debugger tracks whatever theme the
-//! rest of the UI is drawn in rather than drifting from it.
+//! rest of the UI is drawn in.
 
 use egui::{Color32, Stroke, Visuals};
 
