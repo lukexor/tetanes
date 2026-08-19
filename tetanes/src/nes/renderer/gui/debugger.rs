@@ -3,8 +3,8 @@ use crate::nes::{
     renderer::gui::lib::ViewportOptions,
 };
 use egui::{
-    CentralPanel, Color32, Context, Grid, Panel, RichText, ScrollArea, Ui, Vec2, ViewportClass,
-    ViewportId,
+    CentralPanel, Color32, Context, Grid, Label, Panel, RichText, ScrollArea, Sense, Ui, Vec2,
+    ViewportClass, ViewportId,
 };
 use parking_lot::Mutex;
 use std::{
@@ -18,6 +18,75 @@ use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Status},
 };
+
+/// An address the console stops at before executing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Breakpoint {
+    pub addr: u16,
+    /// Cleared to keep a breakpoint in the list without stopping at it.
+    pub enabled: bool,
+}
+
+/// The breakpoints the Debugger holds, in address order so the list reads like the disassembly.
+///
+/// The console is only ever told the enabled addresses, since that is all it can act on; the rest
+/// of this is what the window draws.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Breakpoints(Vec<Breakpoint>);
+
+impl Breakpoints {
+    /// Add a breakpoint at `addr`, if there is not one there already.
+    pub fn add(&mut self, addr: u16) {
+        if self.get(addr).is_none() {
+            let index = self.0.partition_point(|breakpoint| breakpoint.addr < addr);
+            self.0.insert(
+                index,
+                Breakpoint {
+                    addr,
+                    enabled: true,
+                },
+            );
+        }
+    }
+
+    /// Remove the breakpoint at `addr`, reporting whether there was one.
+    pub fn remove(&mut self, addr: u16) -> bool {
+        let held = self.0.len();
+        self.0.retain(|breakpoint| breakpoint.addr != addr);
+        self.0.len() != held
+    }
+
+    /// Add a breakpoint at `addr`, or remove the one already there.
+    pub fn toggle(&mut self, addr: u16) {
+        if !self.remove(addr) {
+            self.add(addr);
+        }
+    }
+
+    /// The breakpoint at `addr`, whether or not it is enabled.
+    pub fn get(&self, addr: u16) -> Option<&Breakpoint> {
+        self.0.iter().find(|breakpoint| breakpoint.addr == addr)
+    }
+
+    /// The addresses the console is to stop at.
+    pub fn armed(&self) -> Vec<u16> {
+        self.0
+            .iter()
+            .filter(|breakpoint| breakpoint.enabled)
+            .map(|breakpoint| breakpoint.addr)
+            .collect()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
+        self.0.iter_mut()
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
 
 /// A range of the address space shown collapsed and not disassembled.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -309,8 +378,16 @@ struct State {
     /// jump first.
     visible_rows: Range<usize>,
     goto: String,
+    breakpoints: Breakpoints,
+    /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
+    breakpoint_goto: String,
     disasm_lines: u16,
     history_lines: u16,
+}
+
+/// Parse an address as typed into one of the window's address boxes, with or without the `$`.
+fn parse_addr(text: &str) -> Option<u16> {
+    u16::from_str_radix(text.trim().trim_start_matches('$'), 16).ok()
 }
 
 #[derive(Debug)]
@@ -339,6 +416,8 @@ impl CpuDebugger {
                 scroll_to: Some(0),
                 visible_rows: 0..0,
                 goto: String::new(),
+                breakpoints: Breakpoints::default(),
+                breakpoint_goto: String::new(),
                 disasm_lines: Self::DISASM_LINES,
                 history_lines: Self::HISTORY_LINES,
             })),
@@ -433,6 +512,17 @@ impl State {
                 memory: None,
             },
         )));
+        // Closing disarms them, since a console that stopped with nothing to show it would just
+        // look frozen. The list is kept here, so opening puts back what was armed.
+        if open {
+            self.send_breakpoints();
+        }
+    }
+
+    /// Tell the console which addresses to stop at.
+    fn send_breakpoints(&self) {
+        self.tx
+            .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
     }
 
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
@@ -443,6 +533,9 @@ impl State {
             egui::CollapsingHeader::new("Recently executed")
                 .default_open(false)
                 .show(ui, |ui| self.history(ui));
+            egui::CollapsingHeader::new("Breakpoints")
+                .default_open(false)
+                .show(ui, |ui| self.breakpoint_list(ui));
             ui.separator();
             // The stack is a fixed two columns of hex; the disassembly is the part that wants
             // every pixel it can get, so it takes what is left rather than an even half.
@@ -527,6 +620,66 @@ impl State {
         }
     }
 
+    /// The breakpoints, and the box that adds one.
+    fn breakpoint_list(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.breakpoint_goto)
+                    .hint_text("break at $addr")
+                    .desired_width(90.0),
+            );
+            let addr = parse_addr(&self.breakpoint_goto);
+            if let Some(addr) = addr
+                && ui.button("Add").clicked()
+            {
+                self.breakpoint_goto.clear();
+                self.breakpoints.add(addr);
+                self.send_breakpoints();
+            }
+        });
+
+        if self.breakpoints.is_empty() {
+            ui.weak("None. Add one above, or click an instruction in the disassembly.");
+            return;
+        }
+
+        // The list borrows itself for the walk, so what each row asks for is applied after it.
+        let mut armed_changed = false;
+        let mut removed = None;
+        let mut scroll_to = None;
+        for breakpoint in self.breakpoints.iter_mut() {
+            ui.horizontal(|ui| {
+                armed_changed |= ui.checkbox(&mut breakpoint.enabled, "").changed();
+                let label = Label::new(
+                    RichText::new(format!("${:04X}", breakpoint.addr))
+                        .monospace()
+                        .color(Color32::LIGHT_RED),
+                )
+                .sense(Sense::click());
+                if ui
+                    .add(label)
+                    .on_hover_text("Show this address in the disassembly.")
+                    .clicked()
+                {
+                    scroll_to = Some(breakpoint.addr);
+                }
+                if ui.small_button("✖").clicked() {
+                    removed = Some(breakpoint.addr);
+                }
+            });
+        }
+        if let Some(addr) = removed {
+            self.breakpoints.remove(addr);
+            armed_changed = true;
+        }
+        if scroll_to.is_some() {
+            self.scroll_to = scroll_to;
+        }
+        if armed_changed {
+            self.send_breakpoints();
+        }
+    }
+
     fn disassembly(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.strong("Disassembly");
@@ -535,8 +688,8 @@ impl State {
                     .hint_text("go to $addr")
                     .desired_width(90.0),
             );
-            let addr = u16::from_str_radix(self.goto.trim().trim_start_matches('$'), 16);
-            if let Ok(addr) = addr
+            let addr = parse_addr(&self.goto);
+            if let Some(addr) = addr
                 && ui.button("Go").clicked()
             {
                 self.scroll_to = Some(addr);
@@ -575,6 +728,8 @@ impl State {
 
         let mut drawn = 0..0;
         let mut centered = false;
+        let mut toggled = None;
+        let breakpoints = &self.breakpoints;
         scroll_area.show_rows(
             ui,
             row_height,
@@ -584,12 +739,27 @@ impl State {
                 for (offset, row) in self.address_space.rows[range.clone()].iter().enumerate() {
                     let response = match row {
                         Row::Instruction(line) => {
-                            let text = RichText::new(&line.text).monospace();
+                            let mut text = RichText::new(&line.text).monospace();
                             if line.addr == pc {
-                                ui.label(text.strong().background_color(Color32::DARK_BLUE))
-                            } else {
-                                ui.label(text)
+                                text = text.strong().background_color(Color32::DARK_BLUE);
                             }
+                            // Tinted rather than given a marker column, so every row stays the
+                            // same shape and the addresses down the left stay in one column.
+                            if let Some(breakpoint) = breakpoints.get(line.addr) {
+                                text = match (breakpoint.enabled, line.addr == pc) {
+                                    // PC's own highlight has the background, so a breakpoint on
+                                    // the instruction stopped at takes the text instead.
+                                    (true, true) => text.color(Color32::LIGHT_RED),
+                                    (true, false) => text.background_color(Color32::DARK_RED),
+                                    // Listed, but not something the console will stop at.
+                                    (false, _) => text.color(Color32::GRAY),
+                                };
+                            }
+                            let response = ui.add(Label::new(text).sense(Sense::click()));
+                            if response.clicked() {
+                                toggled = Some(line.addr);
+                            }
+                            response
                         }
                         Row::Block { start, end, kind } => ui.label(
                             RichText::new(format!("${start:04X}-${end:04X}  {}", kind.label()))
@@ -613,6 +783,10 @@ impl State {
         self.visible_rows = drawn;
         if centered {
             self.scroll_to = None;
+        }
+        if let Some(addr) = toggled {
+            self.breakpoints.toggle(addr);
+            self.send_breakpoints();
         }
     }
 
@@ -641,8 +815,64 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::{AddressSpace, BlockKind, Row};
+    use super::{AddressSpace, BlockKind, Breakpoints, Row, parse_addr};
     use tetanes_core::{control_deck::ControlDeck, cpu::Cpu};
+
+    #[test]
+    fn an_address_parses_with_or_without_its_sigil() {
+        assert_eq!(parse_addr("$C04F"), Some(0xC04F));
+        assert_eq!(parse_addr(" c04f "), Some(0xC04F));
+        assert_eq!(parse_addr(""), None);
+        assert_eq!(parse_addr("$1C04F"), None, "wider than the address bus");
+        assert_eq!(parse_addr("$C04G"), None);
+    }
+
+    /// Clicking a row in the disassembly is both how a breakpoint is set and how it is cleared.
+    #[test]
+    fn toggling_an_address_adds_a_breakpoint_and_toggling_it_again_removes_it() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.toggle(0xC000);
+        assert_eq!(breakpoints.armed(), [0xC000]);
+
+        breakpoints.toggle(0xC000);
+        assert!(breakpoints.is_empty());
+    }
+
+    /// The list is drawn in the order it is held, which is the order the disassembly reads in.
+    #[test]
+    fn breakpoints_are_held_in_address_order_however_they_are_added() {
+        let mut breakpoints = Breakpoints::default();
+        for addr in [0xE000, 0x8000, 0xC000] {
+            breakpoints.add(addr);
+        }
+        assert_eq!(breakpoints.armed(), [0x8000, 0xC000, 0xE000]);
+    }
+
+    /// Adding is not toggling: typing an address that is already listed must not clear it.
+    #[test]
+    fn adding_an_address_twice_leaves_one_breakpoint() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(0xC000);
+        breakpoints.add(0xC000);
+        assert_eq!(breakpoints.armed(), [0xC000]);
+    }
+
+    /// Disabling keeps a breakpoint in the list and out of what the console is told to stop at.
+    #[test]
+    fn a_disabled_breakpoint_stays_listed_but_is_not_armed() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(0xC000);
+        breakpoints.add(0xD000);
+        for breakpoint in breakpoints.iter_mut() {
+            breakpoint.enabled = breakpoint.addr != 0xC000;
+        }
+
+        assert_eq!(breakpoints.armed(), [0xD000]);
+        assert!(
+            breakpoints.get(0xC000).is_some_and(|bp| !bp.enabled),
+            "a disabled breakpoint was dropped rather than kept"
+        );
+    }
 
     /// With no cart loaded nothing is disassembled, which makes this a test of the sweep itself:
     /// that it covers every address exactly once and terminates at `$FFFF` rather than wrapping.

@@ -342,6 +342,11 @@ pub struct State {
     /// What the code map recorded before the debugger closed, held so that reopening it does not
     /// start over. Only recording stops; the marks stay true for as long as the cart is loaded.
     debug_code_map: Option<CodeMap>,
+    /// Addresses to stop the console at, empty unless the Debugger has armed some.
+    ///
+    /// Checking them means clocking the console an instruction at a time, so an empty list is what
+    /// keeps a console with no breakpoints on the frame-at-a-time path.
+    debug_breakpoints: Vec<u16>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -516,6 +521,7 @@ impl State {
             debug_pages: None,
             debug_generation: None,
             debug_code_map: None,
+            debug_breakpoints: Vec::new(),
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -615,6 +621,10 @@ impl State {
                     self.control_deck.attach_code_map(recorded);
                 } else {
                     self.debug_code_map = self.control_deck.detach_code_map();
+                    // Nothing would report a stop with the Debugger closed, so the console would
+                    // sit paused with no way to see why. The list itself is the Debugger's, and
+                    // comes back when it reopens.
+                    self.debug_breakpoints.clear();
                 }
                 // A fresh subscription has nothing to compare against, so ensure an updated address
                 // space is sent.
@@ -622,6 +632,9 @@ impl State {
                 self.debug_generation = None;
                 self.send_address_space();
                 self.send_debug_snapshot();
+            }
+            EmulationEvent::DebugBreakpoints(addrs) => {
+                self.debug_breakpoints.clone_from(addrs);
             }
             EmulationEvent::AddDebugger(debugger) => {
                 self.control_deck.set_debugger(debugger.clone());
@@ -986,6 +999,17 @@ impl State {
             .event(DebugEvent::AddressSpace(Box::new(address_space)));
     }
 
+    /// Stop the console at a breakpoint and tell the UI which one it was.
+    fn on_breakpoint(&mut self, addr: u16) {
+        // Stopped here rather than by asking the UI to pause us: that request would have to go
+        // round the event loop, and on the threaded backend the console would run on - past the
+        // breakpoint by however many frames the round trip took - before it arrived.
+        self.set_run_state(RunState::ManuallyPaused);
+        // Half a frame's worth of pixels, which is what the console has drawn at this point.
+        self.send_frame();
+        self.tx.event(DebugEvent::Breakpoint(addr));
+    }
+
     fn set_run_state(&mut self, mode: RunState) {
         if !self.control_deck.cpu_corrupted() {
             self.run_state = mode;
@@ -1307,15 +1331,27 @@ impl State {
         })
     }
 
-    /// Clocks the NES frames this display frame owes, snapshotting each one for rewind.
+    /// Clocks the NES frames this display frame owes, snapshotting each one for rewind, and
+    /// reports the breakpoint it stopped at if it reached one.
     ///
     /// The emulation speed decides how many that is - two at 2x, none every other display frame at
     /// 0.5x - and taking them one at a time is what keeps the rewind buffer evenly spaced in game
     /// time. Recording per display frame instead made a fast-forwarded stretch rewind at the speed
     /// it was recorded at.
-    fn clock_display_frame(&mut self) -> control_deck::Result<()> {
+    fn clock_display_frame(&mut self) -> control_deck::Result<Option<u16>> {
         loop {
-            let clocked = self.control_deck.clock_frame()?;
+            let clocked = if self.debug_breakpoints.is_empty() {
+                self.control_deck.clock_frame()?
+            } else {
+                let breakpoints = &self.debug_breakpoints;
+                self.control_deck
+                    .clock_frame_until(|pc| breakpoints.contains(&pc))?
+            };
+            if clocked == Clocked::Stopped {
+                // Part way through a frame, so there is nothing to snapshot: the frame the display
+                // frame owes has not been clocked, and resuming finishes it.
+                return Ok(Some(self.control_deck.bus().cpu.pc));
+            }
             if clocked != Clocked::Idle
                 && let Err(err) = self.rewind.push(&self.control_deck)
             {
@@ -1323,7 +1359,7 @@ impl State {
                 self.on_error(err);
             }
             if clocked != Clocked::Continue {
-                return Ok(());
+                return Ok(None);
             }
         }
     }
@@ -1376,7 +1412,8 @@ impl State {
             }
 
             match self.clock_display_frame() {
-                Ok(()) => {
+                Ok(Some(addr)) => self.on_breakpoint(addr),
+                Ok(None) => {
                     self.audio.process(self.control_deck.audio_samples());
                     self.update_audio_rate();
                     self.send_frame();

@@ -364,6 +364,10 @@ pub enum Clocked {
     Complete,
     /// Clocked nothing: this display frame owed none. Only reachable below 1x speed.
     Idle,
+    /// Stopped between two instructions, part way through a frame, because the stop condition
+    /// given to [`ControlDeck::clock_frame_until`] accepted the program counter. The display frame
+    /// still owes the frame this interrupted, and the next call resumes it.
+    Stopped,
 }
 
 /// Represents a loaded ROM [`Cart`].
@@ -1316,6 +1320,32 @@ impl ControlDeck {
         Ok(())
     }
 
+    /// [`ControlDeck::clock_one_frame`] that can stop between instructions, reporting whether it
+    /// stopped.
+    ///
+    /// `stop` is asked about the program counter an instruction leaves behind, so a console that
+    /// stops is sitting on the instruction it was stopped at rather than past it - and resuming
+    /// runs that instruction before asking again, so the same condition does not stop it twice.
+    //
+    // A separate loop rather than a condition inside `clock_one_frame`, so the path that clocks
+    // every frame of normal play carries nothing for a feature that is almost always off.
+    fn clock_one_frame_until(&mut self, stop: &impl Fn(u16) -> bool) -> Result<bool> {
+        let frame = self.frame_number();
+        while frame == self.frame_number() {
+            self.step_instr()?;
+            if stop(self.bus.cpu.pc) {
+                // The instruction may have been the last of the frame, which still has to be
+                // wound up before the caller is told anything.
+                if frame != self.frame_number() {
+                    self.bus.clock_sync();
+                }
+                return Ok(true);
+            }
+        }
+        self.bus.clock_sync();
+        Ok(false)
+    }
+
     /// Clocks at most one NES frame, reporting what it did.
     ///
     /// This is the default way to drive the emulator. One *display* frame is however many NES
@@ -1361,6 +1391,41 @@ impl ControlDeck {
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_frame(&mut self) -> Result<Clocked> {
+        self.clock_frame_with(|deck| deck.clock_one_frame().map(|()| false))
+    }
+
+    /// [`ControlDeck::clock_frame`] that stops as soon as `stop` accepts the program counter
+    /// reached, reporting [`Clocked::Stopped`].
+    ///
+    /// This is how a debugger runs the console with breakpoints armed: a frame is tens of
+    /// thousands of instructions, and stopping at one of them usually means stopping part way
+    /// through one. What the display frame accounts for - audio, run-ahead, the frame buffer -
+    /// then waits for the call that finishes the frame, so a stop costs nothing but the pause and
+    /// is resumed by calling again.
+    ///
+    /// `stop` is asked about the program counter each instruction leaves behind, so a console that
+    /// stops is sitting on the instruction rather than past it, and resuming runs that instruction
+    /// before asking again.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
+    pub fn clock_frame_until(&mut self, stop: impl Fn(u16) -> bool) -> Result<Clocked> {
+        self.clock_frame_with(|deck| deck.clock_one_frame_until(&stop))
+    }
+
+    /// The display frame accounting [`ControlDeck::clock_frame`] and
+    /// [`ControlDeck::clock_frame_until`] share, where `frame` clocks the NES frame itself and
+    /// reports whether it stopped short.
+    //
+    // Always inlined: measured at 1.77 ms/frame against 1.75 without the shared body, and 1.755
+    // with this attribute. A whole frame's worth of work hangs off one call here, so what costs
+    // that 1% is the code around it, not the call.
+    #[inline(always)]
+    fn clock_frame_with(
+        &mut self,
+        frame: impl FnOnce(&mut Self) -> Result<bool>,
+    ) -> Result<Clocked> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
@@ -1381,8 +1446,17 @@ impl ControlDeck {
             }
         }
 
-        self.clock_one_frame()?;
-        self.frames_to_clock -= 1;
+        // The frame number is what says a frame was clocked, not the call returning: a stop can
+        // land on the instruction that ends one, and a display frame that still owes the frame it
+        // was interrupted in has to resume it rather than start another.
+        let number = self.frame_number();
+        let stopped = frame(self)?;
+        if self.frame_number() != number {
+            self.frames_to_clock -= 1;
+        }
+        if stopped {
+            return Ok(Clocked::Stopped);
+        }
         if self.frames_to_clock > 0 {
             return Ok(Clocked::Continue);
         }
@@ -1848,7 +1922,7 @@ impl ControlDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::JoypadBtnState;
+    use crate::{cpu::Cpu, input::JoypadBtnState};
     use std::{
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
@@ -1875,6 +1949,7 @@ mod tests {
                 Clocked::Continue => clocked += 1,
                 Clocked::Complete => return clocked + 1,
                 Clocked::Idle => return clocked,
+                Clocked::Stopped => unreachable!("nothing here asks the console to stop"),
             }
         }
     }
@@ -2315,5 +2390,102 @@ mod tests {
             &restored.bus().memory.region_ref(Src::PrgRam)[..4],
             &[1, 2, 3, 4]
         );
+    }
+
+    /// The program counter a fresh console reaches after `instrs` instructions, which the same
+    /// console reaches again from reset however it is clocked there.
+    fn pc_after(instrs: usize) -> u16 {
+        let mut deck = spritecans();
+        for _ in 0..instrs {
+            deck.clock_instr().expect("clocks");
+        }
+        deck.bus().cpu.pc
+    }
+
+    #[test]
+    fn a_stop_condition_that_never_fires_clocks_the_frame_as_usual() {
+        let mut deck = spritecans();
+        let frame = deck.frame_number();
+        assert_eq!(
+            deck.clock_frame_until(|_| false).expect("clocks"),
+            Clocked::Complete
+        );
+        assert_eq!(deck.frame_number(), frame + 1);
+    }
+
+    /// A breakpoint stops the console *on* the instruction, not past it: what the debugger shows
+    /// is the instruction about to run.
+    #[test]
+    fn clocking_stops_before_the_instruction_it_was_asked_to_stop_at() {
+        let target = pc_after(100);
+
+        let mut deck = spritecans();
+        assert_eq!(
+            deck.clock_frame_until(|pc| pc == target).expect("clocks"),
+            Clocked::Stopped
+        );
+        assert_eq!(deck.bus().cpu.pc, target);
+        assert_eq!(deck.frame_number(), 0, "the frame was clocked to the end");
+    }
+
+    /// A stop leaves the display frame owing the frame it interrupted, so resuming finishes that
+    /// one rather than starting another. Resuming runs the instruction stopped at before asking
+    /// again, or the same address would stop the console for ever.
+    #[test]
+    fn resuming_after_a_stop_finishes_the_frame_it_stopped_in() {
+        let target = pc_after(100);
+
+        let mut deck = spritecans();
+        assert_eq!(
+            deck.clock_frame_until(|pc| pc == target).expect("clocks"),
+            Clocked::Stopped
+        );
+
+        let mut cycle = deck.bus().cpu.cycle;
+        while deck.frame_number() == 0
+            && deck.clock_frame_until(|pc| pc == target).expect("clocks") == Clocked::Stopped
+        {
+            assert!(
+                deck.bus().cpu.cycle > cycle,
+                "resuming stopped at ${target:04X} again having run nothing"
+            );
+            cycle = deck.bus().cpu.cycle;
+        }
+        assert_eq!(
+            deck.frame_number(),
+            1,
+            "resuming started another frame instead of finishing the one it stopped in"
+        );
+    }
+
+    /// Stopping is between instructions and nothing else, so a run broken in the middle ends up
+    /// exactly where an unbroken one does.
+    #[test]
+    fn stopping_and_resuming_leaves_the_same_console_as_running_through() {
+        let target = pc_after(100);
+
+        let mut unbroken = spritecans();
+        for _ in 0..3 {
+            let _ = unbroken.clock_frame().expect("clocks");
+        }
+
+        let mut broken = spritecans();
+        for _ in 0..3 {
+            while broken.clock_frame_until(|pc| pc == target).expect("clocks") == Clocked::Stopped {
+            }
+        }
+
+        let &Cpu {
+            pc, acc, x, y, sp, ..
+        } = &unbroken.bus().cpu;
+        assert_eq!(broken.bus().cpu.pc, pc);
+        assert_eq!(
+            (broken.bus().cpu.acc, broken.bus().cpu.x, broken.bus().cpu.y),
+            (acc, x, y)
+        );
+        assert_eq!(broken.bus().cpu.sp, sp);
+        assert_eq!(broken.bus().cpu.cycle, unbroken.bus().cpu.cycle);
+        assert_eq!(broken.frame_number(), unbroken.frame_number());
+        assert_eq!(broken.frame_buffer(), unbroken.frame_buffer());
     }
 }

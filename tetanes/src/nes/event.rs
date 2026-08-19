@@ -191,6 +191,8 @@ pub enum DebugEvent {
     AddressSpace(Box<AddressSpace>),
     /// A PPU snapshot of registers, PPU and CHR memory.
     Ppu(Box<PpuSnapshot>),
+    /// The console stopped at the breakpoint on this address, and is already paused.
+    Breakpoint(u16),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -210,6 +212,11 @@ pub enum EmulationEvent {
     },
     /// Subscribe on `Some`, unsubscribe on `None`.
     DebugSubscribe(Option<DebugRequest>),
+    /// The addresses to stop the console at, replacing whatever was armed before.
+    ///
+    /// The whole set rather than one change at a time: the debugger owns the list, and what the
+    /// console needs is only which addresses are armed right now.
+    DebugBreakpoints(Vec<u16>),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),

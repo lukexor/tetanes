@@ -311,6 +311,15 @@ impl Gui {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());
             }
+            NesEvent::Debug(DebugEvent::Breakpoint(addr)) => {
+                // The console stopped itself, so this only mirrors the state the UI keeps -
+                // `ManuallyPaused` like opening the Debugger, since `AutoPaused` would resume on
+                // the next focus change and run straight past where the player wanted to look.
+                self.run_state = RunState::ManuallyPaused;
+                self.add_message(MessageType::Info, format!("Breakpoint at ${addr:04X}"));
+                self.ctx
+                    .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);
+            }
             _ => (),
         }
     }
