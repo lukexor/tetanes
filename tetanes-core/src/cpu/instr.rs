@@ -455,11 +455,15 @@ pub struct InstrRef {
 impl InstrRef {
     /// [`AddrMode::name`], resolved for the opcodes that share [`AddrMode::OTH`].
     ///
-    /// `JSR` reaches an absolute address. The unofficial stores that AND the target's high byte
-    /// into what they write index by Y.
+    /// `JSR` reaches an absolute address. Of the unofficial stores that AND the target's high
+    /// byte into what they write, `SYA` indexes by X and the rest by Y.
     pub const fn mode_name(self) -> &'static str {
         match self.addr_mode {
-            AddrMode::OTH if !matches!(self.instr, Instr::JSR) => "absolute,Y",
+            AddrMode::OTH => match self.instr {
+                Instr::JSR => "absolute",
+                Instr::SYA => "absolute,X",
+                _ => "absolute,Y",
+            },
             mode => mode.name(),
         }
     }
@@ -2083,7 +2087,9 @@ mod tests {
     fn the_catch_all_addressing_mode_is_named_per_opcode() {
         let named = |opcode: u8| Cpu::INSTR_REF[usize::from(opcode)].mode_name();
         assert_eq!(named(0x20), "absolute", "JSR");
-        for opcode in [0x9B, 0x9C, 0x9E, 0x9F] {
+        // SYA adds X to its operand and stores Y, where the other three add Y.
+        assert_eq!(named(0x9C), "absolute,X", "SYA");
+        for opcode in [0x9B, 0x9E, 0x9F] {
             assert_eq!(named(opcode), "absolute,Y", "${opcode:02X}");
         }
     }

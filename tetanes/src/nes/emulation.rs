@@ -664,6 +664,9 @@ impl State {
             }
             EmulationEvent::DebugWatches(watches) => {
                 self.debug_watches.clone_from(watches);
+                // Answered now rather than on the next frame. A watch is usually typed at a
+                // breakpoint, where a paused console clocks nothing and would leave it blank.
+                self.send_debug_snapshot();
             }
             EmulationEvent::DebugBreakpoints(breakpoints) => {
                 self.debug_breakpoints.clone_from(breakpoints);

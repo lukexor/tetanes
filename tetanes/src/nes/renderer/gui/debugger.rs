@@ -235,6 +235,14 @@ impl Breakpoints {
         self.list.iter_mut()
     }
 
+    /// Put the list back in address order, so it reads like the disassembly again.
+    ///
+    /// [`Breakpoints::add`] inserts in order, which an edit to a breakpoint's address moves out
+    /// from under. Stable, so breakpoints sharing an address keep the order they were added in.
+    pub fn sort(&mut self) {
+        self.list.sort_by_key(|breakpoint| breakpoint.addr);
+    }
+
     /// Drop the breakpoints pinned to a cart, keeping the ones any cart shares.
     pub fn retain_without_cart(&mut self) {
         self.list.retain(|breakpoint| breakpoint.offset.is_none());
@@ -1288,7 +1296,10 @@ impl State {
         let mut armed_changed = false;
         let mut removed = false;
         let mut range = std::mem::take(&mut self.editing_range);
-        let offset = self.prg_offset(parse_range(&range).map_or(0, |(addr, _)| addr));
+        let mut moved = false;
+        // Copied out because the closure borrows the breakpoint mutably and still has to resolve
+        // an address.
+        let pages = self.snapshot.prg_pages;
         let response = egui::Window::new("Edit breakpoint")
             // Resizable, and wide enough by default that the syntax below reads without
             // wrapping, since a condition can run well past one line.
@@ -1316,7 +1327,11 @@ impl State {
                         {
                             breakpoint.addr = addr;
                             breakpoint.end = end;
-                            breakpoint.offset = offset;
+                            // Resolved from the address just typed. Taking it from the one the
+                            // box held when the frame began pins the breakpoint to the bank it
+                            // has left, where nothing can ever match it.
+                            breakpoint.offset = prg_offset(&pages, addr);
+                            moved = true;
                             armed_changed = true;
                         }
                         ui.end_row();
@@ -1388,6 +1403,10 @@ impl State {
             });
 
         self.editing_range = range;
+        if moved {
+            // `add` inserts in address order and an edit moves one out from under that.
+            self.breakpoints.sort();
+        }
         if let Some(response) = &response {
             // Focused and on top the way the keybind window is, since it is opened by a click on
             // the row behind it.

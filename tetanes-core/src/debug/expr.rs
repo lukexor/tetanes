@@ -86,8 +86,8 @@ pub enum ParseError {
     /// A number too wide to hold.
     #[error("`{0}` is too large")]
     TooLarge(String),
-    /// More nesting than the evaluation stack holds.
-    #[error("the expression nests more than {} deep", Expr::MAX_DEPTH)]
+    /// More nesting than the evaluation stack holds, or than parsing will follow.
+    #[error("the expression nests too deeply")]
     TooDeep,
 }
 
@@ -129,6 +129,14 @@ impl Expr {
     /// past what anyone types, and refusing it at parse time means `eval` cannot overrun.
     pub const MAX_DEPTH: usize = 16;
 
+    /// How far the grammar may nest before parsing gives up.
+    ///
+    /// Parentheses and `!` recurse without growing the evaluation stack, so [`Expr::MAX_DEPTH`]
+    /// does not bound them. Pasting thousands of `(` into a condition box would otherwise
+    /// recurse until the thread's stack ran out, which aborts rather than errors, and the box
+    /// re-parses on every frame it is shown.
+    pub const MAX_NESTING: usize = 64;
+
     /// Parse `source`, reporting what stopped it.
     ///
     /// # Errors
@@ -141,6 +149,7 @@ impl Expr {
             ops: Vec::new(),
             depth: 0,
             max_depth: 0,
+            nesting: 0,
         };
         parser.or()?;
         parser.skip_space();
@@ -284,6 +293,8 @@ struct Parser {
     ops: Vec<Op>,
     depth: usize,
     max_depth: usize,
+    /// How many rules are on the stack right now. See [`Expr::MAX_NESTING`].
+    nesting: usize,
 }
 
 impl Parser {
@@ -383,6 +394,19 @@ impl Parser {
 
     /// A number, a name, a parenthesized expression, or a memory read.
     fn primary(&mut self) -> Result<(), ParseError> {
+        // Counted here because every way back into the grammar - a paren, a bracket's index, a
+        // `!` - reaches it, so one check bounds the recursion whatever nests.
+        self.nesting += 1;
+        if self.nesting > Expr::MAX_NESTING {
+            return Err(ParseError::TooDeep);
+        }
+        let result = self.primary_inner();
+        self.nesting -= 1;
+        result
+    }
+
+    /// [`Parser::primary`] once the nesting is accounted for.
+    fn primary_inner(&mut self) -> Result<(), ParseError> {
         self.skip_space();
         let Some(&c) = self.chars.get(self.at) else {
             return Err(ParseError::UnexpectedEnd);
@@ -638,6 +662,20 @@ mod tests {
             .join(" && ")
             + &")".repeat(Expr::MAX_DEPTH + 1);
         assert_eq!(Expr::parse(&wide), Err(ParseError::TooDeep));
+    }
+
+    /// Parens recurse without growing the evaluation stack, so nothing else bounds them. A box
+    /// pasted full of them would recurse until the thread's stack ran out, which aborts rather
+    /// than errors, and the box re-parses on every frame it is shown.
+    #[test]
+    fn nesting_past_what_parsing_will_follow_is_refused() {
+        let nested = |count: usize| format!("{}1{}", "(".repeat(count), ")".repeat(count));
+        assert!(Expr::parse(&nested(Expr::MAX_NESTING - 1)).is_ok());
+        assert_eq!(
+            Expr::parse(&nested(Expr::MAX_NESTING + 1)),
+            Err(ParseError::TooDeep)
+        );
+        assert_eq!(Expr::parse(&nested(100_000)), Err(ParseError::TooDeep));
     }
 
     /// The text survives parsing, since a watch list shows what was typed rather than a
