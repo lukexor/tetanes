@@ -228,6 +228,18 @@ impl Expr {
     pub fn is_true(&self, bus: &Bus) -> bool {
         self.eval(bus) != 0
     }
+
+    /// Whether the expression answers true or false rather than naming a number.
+    ///
+    /// The comparisons and the logical operators are the ones that come to 0 or 1, and the last
+    /// step decides what the whole expression comes to. A view showing `a == 0xFF` as `1` makes
+    /// the reader work out which of the two it means.
+    pub fn is_boolean(&self) -> bool {
+        matches!(
+            self.ops.last(),
+            Some(Op::Cmp(_) | Op::And | Op::Or | Op::Not)
+        )
+    }
 }
 
 impl fmt::Display for Expr {
@@ -561,6 +573,18 @@ mod tests {
         assert_eq!(eval("A >= X", &bus), 0);
         assert_eq!(eval("!(A == 1)", &bus), 0);
         assert_eq!(eval("(A == 9 || X == 2) && A == 1", &bus), 1);
+    }
+
+    /// Reading the last step is the whole trick, so it is worth pinning that the operators that
+    /// answer 0 or 1 are exactly the ones reported.
+    #[test]
+    fn a_comparison_answers_true_or_false_where_a_read_names_a_number() {
+        for source in ["a == 1", "a < 1", "!a", "a == 1 && x == 2", "z || c"] {
+            assert!(Expr::parse(source).expect(source).is_boolean(), "{source}");
+        }
+        for source in ["a", "mem[0x300]", "mem16[0xFFFC]", "0xFF", "p"] {
+            assert!(!Expr::parse(source).expect(source).is_boolean(), "{source}");
+        }
     }
 
     #[test]

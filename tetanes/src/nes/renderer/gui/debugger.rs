@@ -786,12 +786,15 @@ fn syntax_help(ui: &mut Ui) {
     ui.label(Expr::SYNTAX_NOTE);
 }
 
-/// A watched expression's value, in hex and decimal.
+/// A watched expression's value.
 ///
-/// Width follows the value: a byte reads as two digits and an address as four, so a column of
-/// bytes does not pretend to be addresses. A negative comes only from a comparison or a
-/// subtraction, where hex says nothing, so it is written in decimal alone.
-fn watch_value(value: i32) -> String {
+/// A comparison answers true or false, so it says so rather than leaving `0` and `1` to be worked
+/// out. Anything else names a number, and its width follows the value: a byte reads as two digits
+/// and an address as four, so a column of bytes does not pretend to be addresses.
+fn watch_value(value: i32, boolean: bool) -> String {
+    if boolean {
+        return if value == 0 { "false" } else { "true" }.to_string();
+    }
     match u16::try_from(value) {
         Ok(value) if value <= 0xFF => format!("${value:02X} {value}"),
         Ok(value) => format!("${value:04X} {value}"),
@@ -1726,14 +1729,13 @@ impl State {
                         // The value leads the row, so a column of them reads down the pane rather
                         // than being hunted for past expressions of every length.
                         match Expr::parse(watch.trim()) {
-                            Ok(_) => {
+                            Ok(expr) => {
                                 // A value arrives a frame after the expression it answers, so a
                                 // row that has just been typed has none yet.
-                                let text = values
-                                    .get(index)
-                                    .copied()
-                                    .flatten()
-                                    .map_or_else(|| "…".to_string(), watch_value);
+                                let text = values.get(index).copied().flatten().map_or_else(
+                                    || "…".to_string(),
+                                    |value| watch_value(value, expr.is_boolean()),
+                                );
                                 ui.monospace(text);
                             }
                             Err(error) => {
@@ -2710,11 +2712,13 @@ mod tests {
     /// comparison or a subtraction goes negative, where hex says nothing.
     #[test]
     fn a_watch_is_written_at_the_width_of_its_value() {
-        assert_eq!(watch_value(0x42), "$42 66");
-        assert_eq!(watch_value(0xFF), "$FF 255");
-        assert_eq!(watch_value(0x0100), "$0100 256");
-        assert_eq!(watch_value(0xFFFF), "$FFFF 65535");
-        assert_eq!(watch_value(-1), "-1");
+        assert_eq!(watch_value(0x42, false), "$42 66");
+        assert_eq!(watch_value(0xFF, false), "$FF 255");
+        assert_eq!(watch_value(0x0100, false), "$0100 256");
+        assert_eq!(watch_value(0xFFFF, false), "$FFFF 65535");
+        assert_eq!(watch_value(-1, false), "-1");
+        assert_eq!(watch_value(0, true), "false");
+        assert_eq!(watch_value(1, true), "true");
     }
 
     /// The editor's address box round-trips a breakpoint's own range, so opening the editor and
