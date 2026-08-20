@@ -648,40 +648,75 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
 fn instruction_tooltip(ui: &mut Ui, instr: &InstrRef) {
     ui.strong(format!("{instr} - {}", instr.instr.name()));
     ui.label(instr.instr.describe());
-    ui.label(format!(
-        "Opcode ${:02X}, {}, {} cycles.",
-        instr.opcode,
-        instr.addr_mode.name(),
-        instr.cycles,
-    ));
     let affects = instr.instr.affects();
-    ui.label(if affects.is_empty() {
-        "Sets no flags.".to_string()
-    } else {
-        format!(
-            "Sets {}.",
-            [
-                (Status::N, "N"),
-                (Status::V, "V"),
-                (Status::U, "U"),
-                (Status::B, "B"),
-                (Status::D, "D"),
-                (Status::I, "I"),
-                (Status::Z, "Z"),
-                (Status::C, "C"),
-            ]
-            .into_iter()
-            .filter(|(flag, _)| affects.contains(*flag))
-            .map(|(_, name)| name)
-            .collect::<Vec<_>>()
-            .join(" ")
-        )
-    });
+    detail_rows(
+        ui,
+        "instruction",
+        &[
+            ("Opcode", format!("${:02X}", instr.opcode)),
+            ("Mode", instr.addr_mode.name().to_string()),
+            ("Cycles", instr.cycles.to_string()),
+            (
+                "Flags",
+                if affects.is_empty() {
+                    "none".to_string()
+                } else {
+                    FLAGS
+                        .iter()
+                        .filter(|(flag, _)| affects.contains(*flag))
+                        .map(|(_, name)| *name)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                },
+            ),
+        ],
+    );
 }
 
-/// A register's hover: what it is, and its value in the three bases worth reading it in.
-fn byte_hover(name: &str, value: u8) -> String {
-    format!("{name} - ${value:02X}, {value} decimal, %{value:08b}.")
+/// The status flags in the order the register prints them.
+const FLAGS: [(Status, &str); 8] = [
+    (Status::N, "N"),
+    (Status::V, "V"),
+    (Status::U, "U"),
+    (Status::B, "B"),
+    (Status::D, "D"),
+    (Status::I, "I"),
+    (Status::Z, "Z"),
+    (Status::C, "C"),
+];
+
+/// A byte's value in the three bases worth reading it in.
+fn byte_rows(value: u8) -> Vec<(&'static str, String)> {
+    vec![
+        ("Hex", format!("${value:02X}")),
+        ("Decimal", value.to_string()),
+        ("Binary", format!("%{value:08b}")),
+    ]
+}
+
+/// Lay a hover out as one label and value per line, so several readings of the same thing can be
+/// compared down the column rather than picked out of a sentence.
+fn detail_rows(ui: &mut Ui, id: &str, rows: &[(&str, String)]) {
+    Grid::new(("hover", id))
+        .num_columns(2)
+        .spacing([12.0, 2.0])
+        .show(ui, |ui| {
+            for (label, value) in rows {
+                ui.label(*label);
+                ui.monospace(value);
+                ui.end_row();
+            }
+        });
+}
+
+/// A register cell, where the name and the value both hover with `rows`.
+fn register_cell(ui: &mut Ui, name: &str, value: &str, heading: &str, rows: &[(&str, String)]) {
+    let hover = |ui: &mut Ui| {
+        ui.strong(heading);
+        detail_rows(ui, name, rows);
+    };
+    ui.strong(name).on_hover_ui(hover);
+    ui.monospace(value).on_hover_ui(hover);
 }
 
 /// Where `addr` sits in the cart arena under `pages`, the mapping the window is drawing.
@@ -1098,50 +1133,56 @@ impl State {
 
     fn register_grid(&mut self, ui: &mut Ui) {
         let cpu = &self.snapshot.cpu;
-        // Both halves of a cell hover, since the name is as likely a target as the value.
-        let cell = |ui: &mut Ui, name: &str, value: String, hover: String| {
-            ui.strong(name).on_hover_text(hover.clone());
-            ui.monospace(value).on_hover_text(hover);
-        };
         Grid::new("cpu_registers")
             .num_columns(6)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                cell(
+                register_cell(
                     ui,
                     "PC",
-                    format!("${:04X}", cpu.pc),
-                    "Program counter - the address of the instruction about to run.".to_string(),
+                    &format!("${:04X}", cpu.pc),
+                    "Program counter - the instruction about to run",
+                    &self.address_rows(cpu.pc),
                 );
-                cell(
+                register_cell(
                     ui,
                     "A",
-                    format!("${:02X}", cpu.acc),
-                    byte_hover("Accumulator", cpu.acc),
+                    &format!("${:02X}", cpu.acc),
+                    "Accumulator",
+                    &byte_rows(cpu.acc),
                 );
-                cell(ui, "SP", format!("${:02X}", cpu.sp), self.stack_hover());
+                register_cell(
+                    ui,
+                    "SP",
+                    &format!("${:02X}", cpu.sp),
+                    "Stack pointer",
+                    &self.stack_rows(),
+                );
                 ui.end_row();
 
-                cell(
+                register_cell(
                     ui,
                     "X",
-                    format!("${:02X}", cpu.x),
-                    byte_hover("Index register X", cpu.x),
+                    &format!("${:02X}", cpu.x),
+                    "Index register X",
+                    &byte_rows(cpu.x),
                 );
-                cell(
+                register_cell(
                     ui,
                     "Y",
-                    format!("${:02X}", cpu.y),
-                    byte_hover("Index register Y", cpu.y),
+                    &format!("${:02X}", cpu.y),
+                    "Index register Y",
+                    &byte_rows(cpu.y),
                 );
-                cell(
+                register_cell(
                     ui,
                     "Cycle",
-                    cpu.cycle.to_string(),
-                    format!(
-                        "CPU cycles since power on, and the frame they have reached.\nFrame {}.",
-                        self.snapshot.frame
-                    ),
+                    &cpu.cycle.to_string(),
+                    "CPU cycles since power on",
+                    &[
+                        ("Cycles", cpu.cycle.to_string()),
+                        ("Frame", self.snapshot.frame.to_string()),
+                    ],
                 );
                 ui.end_row();
             });
@@ -1179,22 +1220,34 @@ impl State {
         });
     }
 
+    /// An address in both the terms it can be named in: where the CPU sees it, and where the byte
+    /// it reaches sits in the cart. Only cart memory has the second.
+    fn address_rows(&self, addr: u16) -> Vec<(&'static str, String)> {
+        let mut rows = vec![("CPU", format!("${addr:04X}"))];
+        if let Some(offset) = self.prg_offset(addr) {
+            rows.push(("Cart", format!("${offset:06X}")));
+        }
+        rows
+    }
+
     /// What the stack pointer says about the stack, for its hover.
     ///
     /// SP names the next free slot, so what a pull would take sits one above it. With the Stack
-    /// pane closed nothing has been captured to name, and the hover says what the register is and
-    /// stops.
-    fn stack_hover(&self) -> String {
+    /// pane closed nothing has been captured to name, so only the push address is listed.
+    fn stack_rows(&self) -> Vec<(&'static str, String)> {
         let cpu = &self.snapshot.cpu;
-        let next = Cpu::SP_BASE | u16::from(cpu.sp);
         let pull = cpu.sp.wrapping_add(1);
-        match self.snapshot.stack.get(usize::from(pull)) {
-            Some(value) => format!(
-                "Stack pointer - a push writes ${next:04X}, and a pull takes ${:04X} = ${value:02X}.",
-                Cpu::SP_BASE | u16::from(pull)
-            ),
-            None => format!("Stack pointer - a push writes ${next:04X}."),
+        let mut rows = vec![(
+            "Next push",
+            format!("${:04X}", Cpu::SP_BASE | u16::from(cpu.sp)),
+        )];
+        if let Some(value) = self.snapshot.stack.get(usize::from(pull)) {
+            rows.push((
+                "Next pull",
+                format!("${:04X} = ${value:02X}", Cpu::SP_BASE | u16::from(pull)),
+            ));
         }
+        rows
     }
 
     /// The instructions that ran most recently, oldest first, ending just before PC.
@@ -1781,8 +1834,8 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::{
-        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, PRG_PAGES, Page, Pane, Row,
-        is_mapped, parse_addr, parse_range, request, row_is_visible,
+        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, PRG_PAGES, Page,
+        Pane, Row, is_mapped, parse_addr, parse_range, prg_offset, request, row_is_visible,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -1971,6 +2024,28 @@ mod tests {
             Some(Some(0x8000)),
             "removing one bank's breakpoint took the other bank's with it"
         );
+    }
+
+    /// The window keys a breakpoint by the offset it resolves from its own copy of the page
+    /// table, and the console checks it against the arena. A copy that disagreed would arm
+    /// breakpoints on bytes the console never maps there.
+    #[test]
+    fn the_window_resolves_the_same_offsets_the_console_does() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        let snapshot = CpuSnapshot::capture(deck.bus(), &request(&Pane::ALL, 8));
+
+        for addr in [0x0300u16, 0x2000, 0x6000, 0x8000, 0xC000, 0xFFFF] {
+            assert_eq!(
+                prg_offset(&snapshot.prg_pages, addr),
+                deck.bus()
+                    .memory
+                    .prg_offset(addr)
+                    .map(|offset| u32::try_from(offset).expect("fits the arena")),
+                "${addr:04X}"
+            );
+        }
     }
 
     /// A bank that is no longer mapped resolves to no offset, so the list greys the breakpoint
