@@ -167,6 +167,12 @@ bitflags! {
         /// Checked between instructions, since a fetch and an operand read look alike on the bus.
         /// The console stops *before* running the instruction, where a read or a write stops
         /// after it.
+        ///
+        /// Which splits the two halves of a breakpoint over `EXEC` in two. One that records is
+        /// served by `Bus::check_exec` as each instruction starts. One that stops is the
+        /// driver's, through
+        /// [`ControlDeck::clock_frame_until`](crate::control_deck::ControlDeck::clock_frame_until),
+        /// so that a stop unwinds to whoever is clocking rather than landing mid-instruction.
         const EXEC = 1;
         /// Read by an instruction, other than the fetch.
         const READ = 1 << 1;
@@ -280,8 +286,10 @@ impl Breakpoints {
     }
 
     /// Whether any breakpoint covers `addr`, whatever the access.
+    ///
+    /// One bit test, so asking per access, and per instruction, stays affordable.
     #[inline]
-    fn covers(&self, addr: u16) -> bool {
+    pub fn watches(&self, addr: u16) -> bool {
         let addr = usize::from(addr);
         self.covered[addr / 64] & (1 << (addr % 64)) != 0
     }
@@ -292,7 +300,7 @@ impl Breakpoints {
     /// `memory` is read only past the bitmap, so an unwatched address pays for the bit and nothing
     /// else.
     pub fn hit(&mut self, memory: &Memory, pc: u16, addr: u16, access: Access, value: u8) -> bool {
-        if !self.covers(addr) {
+        if !self.watches(addr) {
             return false;
         }
         let mut stop = false;
@@ -733,6 +741,33 @@ mod tests {
             hit.pc, 0x0000,
             "the hit names where PC reached, not the instruction that wrote"
         );
+    }
+
+    /// A breakpoint that records rather than stops is the only one served on execution, and
+    /// nothing else on the bus can tell an instruction fetch from an operand read.
+    #[test]
+    fn a_recording_breakpoint_logs_each_execution() {
+        let mut bus = bus_with_cart();
+        // `LDA #$42`, run twice from the same address.
+        bus.cpu_bus_write(0x0000, 0xA9);
+        bus.cpu_bus_write(0x0001, 0x42);
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([Breakpoint {
+            breaks: false,
+            ..breakpoint(0x0000, 0x0000, Access::EXEC)
+        }])));
+
+        for _ in 0..2 {
+            bus.cpu.pc = 0x0000;
+            bus.clock_instr();
+        }
+
+        let hits = bus.breakpoints.as_mut().expect("armed").drain_hits();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].access, Access::EXEC);
+        assert_eq!(hits[0].addr, 0x0000);
+        assert_eq!(hits[0].value, 0xA9, "the opcode is what executed");
+        assert_eq!(bus.access_hit, None, "a breakpoint that records stopped it");
     }
 
     /// `Access::EXEC` covers fetches, so a read breakpoint over a bank holding both code and data

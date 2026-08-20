@@ -918,6 +918,31 @@ impl Bus {
         }
     }
 
+    /// Record the instruction at `pc` against the breakpoints that watch execution.
+    ///
+    /// Only the breakpoints that record are served here. Stopping on execution belongs to whoever
+    /// drives the console, through [`ControlDeck::clock_frame_until`](crate::control_deck::ControlDeck::clock_frame_until),
+    /// because a stop part way through an instruction has no clean way to unwind. So the answer
+    /// [`Breakpoints::hit`](crate::debug::Breakpoints::hit) gives is dropped. A breakpoint that
+    /// stops is checked between
+    /// instructions instead.
+    ///
+    /// Out of line and behind the bitmap, so an instruction nothing watches tests one bit.
+    #[cold]
+    #[inline(never)]
+    fn check_exec(&mut self, pc: u16) {
+        if self
+            .breakpoints
+            .as_ref()
+            .is_some_and(|breakpoints| breakpoints.watches(pc))
+        {
+            let opcode = self.peek(pc);
+            if let Some(breakpoints) = self.breakpoints.as_mut() {
+                breakpoints.hit(&self.memory, pc, pc, Access::EXEC, opcode);
+            }
+        }
+    }
+
     /// Read a byte without side effects, and without moving the console.
     #[inline(always)]
     #[must_use]
@@ -1208,6 +1233,7 @@ impl Bus {
         // hit that named that would point at no instruction at all.
         if self.breakpoints_active {
             self.instr_addr = prev_pc;
+            self.check_exec(prev_pc);
         }
         let opcode = self.fetch_byte(); // Cycle 1
         let op = Cpu::OPS[usize::from(opcode)];

@@ -1433,20 +1433,24 @@ impl State {
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         for hit in log {
-                            let verb = if hit.access.contains(Access::WRITE) {
-                                "wrote"
-                            } else {
-                                "read"
-                            };
                             // The instruction first, since "what touches this address" is the
                             // question a recording breakpoint is set to answer.
-                            ui.label(
-                                RichText::new(format!(
+                            let text = if hit.access.contains(Access::EXEC) {
+                                // An execution names one address, and the disassembly already
+                                // says what sits there.
+                                format!("${:04X}  ran", hit.pc)
+                            } else {
+                                let verb = if hit.access.contains(Access::WRITE) {
+                                    "wrote"
+                                } else {
+                                    "read"
+                                };
+                                format!(
                                     "${:04X}  {verb} ${:04X} = ${:02X}",
                                     hit.pc, hit.addr, hit.value
-                                ))
-                                .monospace(),
-                            );
+                                )
+                            };
+                            ui.label(RichText::new(text).monospace());
                         }
                     });
             });
