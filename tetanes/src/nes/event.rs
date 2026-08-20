@@ -1234,9 +1234,7 @@ impl Running {
                         }
                     }
                     // Held rather than tapped, so both edges matter: 2x while down, 1x on release.
-                    Setting::FastForward
-                        if !repeat && is_root_window && self.renderer.rom_loaded() =>
-                    {
+                    Setting::FastForward if !repeat && self.renderer.rom_loaded() => {
                         let new_speed = if released { 1.0 } else { 2.0 };
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
@@ -1263,7 +1261,7 @@ impl Running {
                     DeckAction::Reset(kind) if activated => {
                         self.event(EmulationEvent::Reset(kind));
                     }
-                    DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
+                    DeckAction::Joypad((player, button)) if !repeat => {
                         self.event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
@@ -1286,7 +1284,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::SaveState if activated && is_root_window => {
+                    DeckAction::SaveState if activated => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
@@ -1296,7 +1294,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::LoadState if activated && is_root_window => {
+                    DeckAction::LoadState if activated => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {

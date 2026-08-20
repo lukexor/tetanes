@@ -1590,6 +1590,25 @@ mod tests {
         assert!(breaks_here(&bus, &breakpoints));
     }
 
+    /// A range breakpoint asks its condition at every address it covers, not only at the one it
+    /// starts on.
+    #[test]
+    fn a_range_breakpoint_honors_its_condition_across_the_range() {
+        let mut bus = bus();
+        let breakpoints = [Breakpoint {
+            end: 0x7FFF,
+            ..execute(0x6000, Some("a == 0xFF"))
+        }];
+
+        for pc in [0x6000, 0x6500, 0x7FFF] {
+            bus.cpu.pc = pc;
+            bus.cpu.acc = 0x01;
+            assert!(!breaks_here(&bus, &breakpoints), "${pc:04X} with a = $01");
+            bus.cpu.acc = 0xFF;
+            assert!(breaks_here(&bus, &breakpoints), "${pc:04X} with a = $FF");
+        }
+    }
+
     #[test]
     fn an_execution_breakpoint_with_no_condition_stops_wherever_it_covers() {
         let mut bus = bus();

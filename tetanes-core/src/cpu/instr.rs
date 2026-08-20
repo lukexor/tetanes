@@ -739,7 +739,7 @@ impl Bus {
     pub fn zpx(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
         self.read_unwatched(addr); // Cycle 3, dummy read
-                                   // High byte is always zero
+        // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.x)) & 0x00FF
     }
 
@@ -782,7 +782,7 @@ impl Bus {
     pub fn zpy(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
         self.read_unwatched(addr); // Cycle 3, dummy read
-                                   // High byte is always zero
+        // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.y)) & 0x00FF
     }
 
