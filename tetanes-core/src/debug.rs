@@ -176,8 +176,14 @@ bitflags! {
         /// so that a stop unwinds to whoever is clocking rather than landing mid-instruction.
         const EXEC = 1;
         /// Read by an instruction, other than the fetch.
+        ///
+        /// A DMA moves its bytes without an instruction asking, through `Bus::cpu_bus_read`, so
+        /// the 256 reads an OAM transfer makes are not reported.
         const READ = 1 << 1;
         /// Written by an instruction.
+        ///
+        /// The write half of a DMA is likewise unreported: `$2004` takes 256 bytes during an OAM
+        /// transfer without a `STA` behind any of them.
         const WRITE = 1 << 2;
     }
 }
@@ -355,6 +361,15 @@ impl Breakpoints {
         if self.hits.len() < Self::MAX_HITS {
             self.hits.push(hit);
         }
+    }
+
+    /// Take over what `previous` caught, for a set replacing it.
+    ///
+    /// A caught access is a record of what the console did, so it outlives the breakpoints that
+    /// were armed when it happened.
+    pub fn adopt_hits(&mut self, previous: &mut Self) {
+        self.hits = std::mem::take(&mut previous.hits);
+        self.hits.truncate(Self::MAX_HITS);
     }
 
     /// Take the accesses recorded since the last drain.

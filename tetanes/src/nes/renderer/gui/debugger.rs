@@ -163,6 +163,11 @@ impl Breakpoints {
         self.0.iter_mut()
     }
 
+    /// Drop the breakpoints pinned to a cart, keeping the ones any cart shares.
+    pub fn retain_without_cart(&mut self) {
+        self.0.retain(|breakpoint| breakpoint.offset.is_none());
+    }
+
     /// Whether no breakpoint is listed, enabled or not.
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
@@ -707,7 +712,7 @@ fn instruction_tooltip(ui: &mut Ui, instr: &InstrRef) {
         "instruction",
         &[
             ("Opcode", format!("${:02X}", instr.opcode)),
-            ("Mode", instr.addr_mode.name().to_string()),
+            ("Mode", instr.mode_name().to_string()),
             ("Cycles", instr.cycles.to_string()),
             (
                 "Flags",
@@ -915,6 +920,18 @@ impl CpuDebugger {
     pub fn center_on_pc(&mut self) {
         let mut state = self.state.lock();
         state.scroll_to = Some(state.snapshot.cpu.pc);
+    }
+
+    /// Forget the breakpoints that name the cart being unloaded.
+    ///
+    /// An `offset` indexes the arena of the cart it was set against, so against the next one it
+    /// names an unrelated byte and would stop wherever that byte happens to be mapped. The ones
+    /// with no offset cover work RAM and the registers, which every cart shares, so those stay.
+    pub fn drop_cart_breakpoints(&mut self) {
+        let mut state = self.state.lock();
+        state.breakpoints.retain_without_cart();
+        state.access_log.clear();
+        state.send_breakpoints();
     }
 
     /// Take a new address space, keeping PC centered for a view that was following it.
@@ -2071,6 +2088,19 @@ mod tests {
         assert_eq!(parse_range("$C000-$C0FF"), Some((0xC000, 0xC0FF)));
         assert_eq!(parse_range("0xC0FF-0xC000"), Some((0xC000, 0xC0FF)));
         assert_eq!(parse_range("$C000-"), None);
+    }
+
+    /// An `offset` indexes one cart's arena, so a breakpoint carrying one means nothing against
+    /// the next cart. A breakpoint on work RAM or the registers is as true for one cart as the
+    /// next.
+    #[test]
+    fn a_cart_change_drops_the_breakpoints_that_named_it() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::execute(0x8000, Some(0x4000)));
+        breakpoints.add(Breakpoint::execute(0x0300, None));
+
+        breakpoints.retain_without_cart();
+        assert_eq!(armed_at(&breakpoints), [0x0300]);
     }
 
     /// A condition still being typed does not parse, and arming the breakpoint without it would

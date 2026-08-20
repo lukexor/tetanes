@@ -277,6 +277,7 @@ impl Gui {
                     self.tx.event(EmulationEvent::RunState(self.run_state));
                     self.loaded_rom = None;
                     self.title = Config::WINDOW_TITLE.to_string();
+                    self.debugger.drop_cart_breakpoints();
                 }
                 RendererEvent::RomLoaded(rom) => {
                     self.run_state = RunState::Running;

@@ -178,9 +178,9 @@ fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
 /// on the bus.
 fn breaks_here(bus: &Bus, breakpoints: &[Breakpoint]) -> bool {
     bus.access_hit.is_some()
-        || breakpoints.iter().any(|breakpoint| {
-            breakpoint.breaks && breakpoint.matches(&bus.memory, bus.cpu.pc, Access::EXEC)
-        })
+        || breakpoints
+            .iter()
+            .any(|breakpoint| breakpoint.breaks && breakpoint.fires(bus, bus.cpu.pc, Access::EXEC))
 }
 
 #[derive(Debug)]
@@ -1148,9 +1148,12 @@ impl State {
             }
             self.replay_record(false);
             self.rewind.clear();
-            // Marks are offsets into this cart's memory. Both load paths come through here, so a
-            // kept map cannot outlive the cart it describes.
+            // Marks and breakpoint offsets both index this cart's memory. Both load paths come
+            // through here, so neither can outlive the cart it describes. The window keeps the
+            // breakpoints it can and resends them.
             self.debug_code_map = None;
+            self.debug_breakpoints.clear();
+            self.control_deck.set_breakpoints([]);
             let _ = self.audio.stop();
             if let Err(err) = self.control_deck.unload_rom() {
                 self.on_error(err);
@@ -1422,6 +1425,7 @@ impl State {
             // Only a breakpoint that stops needs the check between instructions. One that records
             // is caught on the bus, and an `access_hit` is only ever set by one that stops, so a
             // list of recording breakpoints alone keeps the frame-at-a-time path.
+            let frame = self.control_deck.frame_number();
             let clocked = if !self.debug_breakpoints.iter().any(|b| b.breaks) {
                 self.control_deck.clock_frame()?
             } else {
@@ -1429,16 +1433,18 @@ impl State {
                 self.control_deck
                     .clock_frame_until(|bus| breaks_here(bus, breakpoints))?
             };
-            if clocked == Clocked::Stopped {
-                // Part way through a frame, so there is nothing to snapshot: the frame the display
-                // frame owes has not been clocked, and resuming finishes it.
-                return Ok(Some(self.control_deck.bus().cpu.pc));
-            }
-            if clocked != Clocked::Idle
-                && let Err(err) = self.rewind.push(&self.control_deck)
-            {
+            // A stop usually lands part way through a frame, where there is nothing to snapshot.
+            // It can also land on the instruction that ends one, and that frame is finished and
+            // worth a snapshot however the call reported it, or rewind gets a hole wherever a
+            // breakpoint happens to sit on a frame boundary.
+            let clocked_a_frame =
+                clocked != Clocked::Idle && self.control_deck.frame_number() != frame;
+            if clocked_a_frame && let Err(err) = self.rewind.push(&self.control_deck) {
                 self.rewind.set_enabled(false);
                 self.on_error(err);
+            }
+            if clocked == Clocked::Stopped {
+                return Ok(Some(self.control_deck.bus().cpu.pc));
             }
             if clocked != Clocked::Continue {
                 return Ok(None);
@@ -1544,6 +1550,53 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tetanes_core::{cart::Cart, common::ResetKind, debug::expr::Expr, mapper::Nrom};
+
+    /// A console with a cart in, for the breakpoint conditions to read.
+    fn bus() -> Bus {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus
+    }
+
+    /// A breakpoint on `addr` that stops before it executes, the shape a gutter click makes.
+    fn execute(addr: u16, condition: Option<&str>) -> Breakpoint {
+        Breakpoint {
+            start: addr,
+            end: addr,
+            offset: None,
+            access: Access::EXEC,
+            breaks: true,
+            condition: condition.map(|text| Expr::parse(text).expect("parses")),
+        }
+    }
+
+    /// Execution is the one access the bus cannot catch, so it is checked here rather than in
+    /// `Breakpoints::check`. Asking a narrower question here than that does would make a
+    /// condition hold on a read and be ignored on the instruction that made it.
+    #[test]
+    fn an_execution_breakpoint_honors_its_condition() {
+        let mut bus = bus();
+        bus.cpu.pc = 0xC000;
+        let breakpoints = [execute(0xC000, Some("a == 0x42"))];
+
+        bus.cpu.acc = 0x01;
+        assert!(!breaks_here(&bus, &breakpoints));
+
+        bus.cpu.acc = 0x42;
+        assert!(breaks_here(&bus, &breakpoints));
+    }
+
+    #[test]
+    fn an_execution_breakpoint_with_no_condition_stops_wherever_it_covers() {
+        let mut bus = bus();
+        bus.cpu.pc = 0xC000;
+        assert!(breaks_here(&bus, &[execute(0xC000, None)]));
+        assert!(!breaks_here(&bus, &[execute(0xC001, None)]));
+    }
 
     /// Simulate the closed loop: each frame the emulator pushes `produced * ratio` samples and the
     /// sound card takes `consumed`, both as a fraction of buffer capacity.

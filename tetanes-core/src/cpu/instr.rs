@@ -389,6 +389,10 @@ impl AddrMode {
     ///
     /// The read and write variants of a mode share a name. They differ in whether a page cross
     /// always spends its extra cycle, which is timing rather than addressing.
+    ///
+    /// [`AddrMode::OTH`] gathers the opcodes the table does not describe, and they do not share
+    /// one mode, so it answers with the 16-bit operand they do share.
+    /// [`InstrRef::mode_name`] resolves it per opcode.
     pub const fn name(self) -> &'static str {
         match self {
             Self::ACC => "accumulator",
@@ -403,7 +407,8 @@ impl AddrMode {
             Self::IDX => "(indirect,X)",
             Self::IDY | Self::IDYW => "(indirect),Y",
             Self::ABX | Self::ABXW => "absolute,X",
-            Self::ABY | Self::ABYW | Self::OTH => "absolute,Y",
+            Self::ABY | Self::ABYW => "absolute,Y",
+            Self::OTH => "absolute",
         }
     }
 }
@@ -445,6 +450,19 @@ pub struct InstrRef {
     pub instr: Instr,
     pub addr_mode: AddrMode,
     pub cycles: u8,
+}
+
+impl InstrRef {
+    /// [`AddrMode::name`], resolved for the opcodes that share [`AddrMode::OTH`].
+    ///
+    /// `JSR` reaches an absolute address. The unofficial stores that AND the target's high byte
+    /// into what they write index by Y.
+    pub const fn mode_name(self) -> &'static str {
+        match self.addr_mode {
+            AddrMode::OTH if !matches!(self.instr, Instr::JSR) => "absolute,Y",
+            mode => mode.name(),
+        }
+    }
 }
 
 impl std::fmt::Display for InstrRef {
@@ -721,7 +739,7 @@ impl Bus {
     pub fn zpx(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
         self.read_unwatched(addr); // Cycle 3, dummy read
-        // High byte is always zero
+                                   // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.x)) & 0x00FF
     }
 
@@ -764,7 +782,7 @@ impl Bus {
     pub fn zpy(&mut self) -> u16 {
         let addr = u16::from(self.fetch_byte()); // Cycle 2
         self.read_unwatched(addr); // Cycle 3, dummy read
-        // High byte is always zero
+                                   // High byte is always zero
         addr.wrapping_add(u16::from(self.cpu.y)) & 0x00FF
     }
 
@@ -2051,5 +2069,44 @@ impl Bus {
         // ORA
         self.cpu.set_acc(self.cpu.acc | shifted_val);
         self.write(addr, shifted_val);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddrMode, Instr};
+    use crate::cpu::Cpu;
+
+    /// `AddrMode::OTH` gathers opcodes that do not share a mode, so naming it from the mode alone
+    /// would report `JSR` and the unofficial stores as the same thing.
+    #[test]
+    fn the_catch_all_addressing_mode_is_named_per_opcode() {
+        let named = |opcode: u8| Cpu::INSTR_REF[usize::from(opcode)].mode_name();
+        assert_eq!(named(0x20), "absolute", "JSR");
+        for opcode in [0x9B, 0x9C, 0x9E, 0x9F] {
+            assert_eq!(named(opcode), "absolute,Y", "${opcode:02X}");
+        }
+    }
+
+    /// Every opcode names its mode, so the tooltip never shows a blank.
+    #[test]
+    fn every_opcode_names_an_addressing_mode() {
+        for opcode in 0..=u8::MAX {
+            assert!(
+                !Cpu::INSTR_REF[usize::from(opcode)].mode_name().is_empty(),
+                "${opcode:02X}"
+            );
+        }
+    }
+
+    /// The unofficial stores are the only opcodes sharing the catch-all, so a new one landing
+    /// there would silently be named after them.
+    #[test]
+    fn only_the_known_opcodes_use_the_catch_all_mode() {
+        let catch_all = (0..=u8::MAX)
+            .filter(|opcode| Cpu::INSTR_REF[usize::from(*opcode)].addr_mode == AddrMode::OTH)
+            .collect::<Vec<_>>();
+        assert_eq!(catch_all, [0x20, 0x9B, 0x9C, 0x9E, 0x9F]);
+        assert_eq!(Cpu::INSTR_REF[0x20].instr, Instr::JSR);
     }
 }

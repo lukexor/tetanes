@@ -800,7 +800,13 @@ impl ControlDeck {
     /// An empty set disarms, which puts the read and write paths back to one `bool` test. At most
     /// [`Breakpoints::MAX`] are kept, so a caller that allows more has to say so itself.
     pub fn set_breakpoints(&mut self, breakpoints: impl IntoIterator<Item = Breakpoint>) {
-        let breakpoints = Breakpoints::new(breakpoints);
+        let mut breakpoints = Breakpoints::new(breakpoints);
+        // What the old set caught belongs to the console, not to the set. Re-arming happens on
+        // every edit, down to each keystroke in a condition, and dropping the log there would
+        // empty the list of caught accesses whenever a setting was touched.
+        if let Some(armed) = self.bus.breakpoints.as_mut() {
+            breakpoints.adopt_hits(armed);
+        }
         self.bus.breakpoints_active = !breakpoints.is_empty();
         self.bus.breakpoints = (!breakpoints.is_empty()).then(|| Box::new(breakpoints));
         self.bus.access_hit = None;
