@@ -318,6 +318,10 @@ impl Gui {
                     .update_address_space(std::mem::take(address_space));
                 self.ctx.request_repaint_of(self.debugger.id());
             }
+            NesEvent::Debug(DebugEvent::Marks(marks)) => {
+                self.debugger.adopt_marks(std::mem::take(marks));
+                self.ctx.request_repaint_of(self.debugger.id());
+            }
             NesEvent::Debug(DebugEvent::Ppu(ppu)) => {
                 self.ppu_viewer.update_ppu(queue, std::mem::take(ppu));
                 self.ctx.request_repaint_of(self.ppu_viewer.id());

@@ -1,6 +1,7 @@
 use crate::nes::{
     action::{Debug, DebugStep},
     config::Config,
+    debug::Marks,
     event::{ConfigEvent, DebugRequest, DebugWrite, EmulationEvent, NesEventProxy, UiEvent},
     renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
 };
@@ -16,6 +17,7 @@ use egui::{
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     ops::Range,
     sync::{
         Arc,
@@ -34,13 +36,15 @@ use tetanes_core::{
 };
 
 /// A range of addresses the console stops at when one is accessed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use]
 pub struct Breakpoint {
     /// Names this breakpoint for as long as it is listed.
     ///
     /// An address does not, since several breakpoints can cover one - a range and a single
-    /// address, or two accesses of the same byte under different conditions.
+    /// address, or two accesses of the same byte under different conditions. Handed out by
+    /// [`Breakpoints::add`], so one read back from a file is renumbered as it is listed.
+    #[serde(skip)]
     pub id: u32,
     /// First address covered.
     pub addr: u16,
@@ -239,6 +243,11 @@ impl Breakpoints {
     /// The breakpoints in address order, for the window to edit in place.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
         self.list.iter_mut()
+    }
+
+    /// Every breakpoint listed, in address order.
+    pub fn iter(&self) -> impl Iterator<Item = &Breakpoint> {
+        self.list.iter()
     }
 
     /// Put the list back in address order, so it reads like the disassembly again.
@@ -775,6 +784,11 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
+    /// A name per cart offset, keyed the way a [`CodeMap`](tetanes_core::debug::CodeMap) is.
+    ///
+    /// Empty until something names an address. Kept beside the breakpoints because the ROM's
+    /// session file holds the two together.
+    labels: HashMap<u32, String>,
     /// The watched expressions as typed, in the order the pane lists them.
     watches: Vec<String>,
     /// What is typed in the watch box, which is not a watch until it is added.
@@ -1266,6 +1280,7 @@ impl CpuDebugger {
                 access_log: Vec::new(),
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
+                labels: HashMap::new(),
                 watches: Vec::new(),
                 watch_entry: String::new(),
                 editing: None,
@@ -1345,6 +1360,11 @@ impl CpuDebugger {
     /// An `offset` indexes the arena of the cart it was set against, so against the next one it
     /// names an unrelated byte and would stop wherever that byte happens to be mapped. The ones
     /// with no offset cover work RAM and the registers, which every cart shares, so those stay.
+    /// Take what the ROM that has just loaded left behind last session.
+    pub fn adopt_marks(&mut self, marks: Marks) {
+        self.state.lock().adopt_marks(marks);
+    }
+
     pub fn drop_cart_breakpoints(&mut self) {
         let mut state = self.state.lock();
         state.breakpoints.retain_without_cart();
@@ -1419,8 +1439,36 @@ impl State {
         )));
     }
 
-    /// Tell the console which addresses to stop at.
+    /// Tell the console which addresses to stop at, and what to keep for this ROM.
+    ///
+    /// The console is armed with what parses and is enabled, and the session file takes the list
+    /// as it stands, so a breakpoint left disarmed or half-written is still there next session.
     fn send_breakpoints(&self) {
+        self.tx
+            .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
+        self.send_marks();
+    }
+
+    /// Tell the console what this ROM's session file should keep.
+    fn send_marks(&self) {
+        self.tx.event(EmulationEvent::DebugMarks(Box::new(Marks {
+            breakpoints: self.breakpoints.iter().cloned().collect(),
+            labels: self.labels.clone(),
+        })));
+    }
+
+    /// Take what the session file kept for the ROM that has just loaded.
+    ///
+    /// The ids are handed out again as the breakpoints are listed, since they name a breakpoint
+    /// for one run of the window and a file cannot know what this run has already used.
+    fn adopt_marks(&mut self, marks: Marks) {
+        self.breakpoints = Breakpoints::default();
+        for breakpoint in marks.breakpoints {
+            self.breakpoints.add(breakpoint);
+        }
+        self.labels = marks.labels;
+        // Armed straight away, so a breakpoint left enabled last session stops the console this
+        // one without being ticked again.
         self.tx
             .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
     }
@@ -1765,8 +1813,8 @@ impl State {
     ///
     /// The caller measures `height`, the space the column has to work in. Each pane scrolls its
     /// own content, so a fixed height loses nothing, and a window too short for all of them
-    /// scrolls the column rather than cutting the last ones off. The last pane takes any slack, so
-    /// a column with room to spare looks the same as one laid out to fit.
+    /// scrolls the column rather than cutting the last ones off. The last pane takes whatever the
+    /// ones above it left, so a column with room to spare looks the same as one laid out to fit.
     ///
     /// Panes here are plain sections rather than nested [`Panel`]s: a `Panel` sets a clip rect of
     /// its own and would draw straight through the scroll area around it.
@@ -1775,13 +1823,7 @@ impl State {
         let Some((sized, filling)) = column.tiling(&self.panes) else {
             return;
         };
-        let panes = sized
-            .into_iter()
-            .chain([filling])
-            .map(|pane| (pane, pane.default_size()))
-            .collect::<Vec<_>>();
-        let gaps = ui.spacing().item_spacing.y * panes.len() as f32;
-        let slack = (height - gaps - panes.iter().map(|(_, size)| size).sum::<f32>()).max(0.0);
+        let panes = sized.into_iter().chain([filling]).collect::<Vec<_>>();
         let mut closed = None;
         Panel::right(column.id())
             .default_size(column.default_size())
@@ -1799,8 +1841,17 @@ impl State {
                         let bar =
                             ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
                         let last = panes.len() - 1;
-                        for (index, (pane, size)) in panes.into_iter().enumerate() {
-                            let size = if index == last { size + slack } else { size };
+                        for (index, pane) in panes.into_iter().enumerate() {
+                            // The last pane takes what the ones above it left, measured rather
+                            // than worked out: a separator's own height is easy to be a few pixels
+                            // out on, and a stack that overshoots puts a scrollbar on a column
+                            // with room to spare. Its own height wins where the column is too
+                            // short, leaving the stack something to scroll.
+                            let size = if index == last {
+                                ui.available_height().max(pane.default_size())
+                            } else {
+                                pane.default_size()
+                            };
                             let width = ui.available_width() - bar;
                             ui.allocate_ui(Vec2::new(width, size), |ui| {
                                 ui.set_min_height(size);

@@ -6,6 +6,7 @@
 
 use crate::{bus::Bus, memory::Memory};
 use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub mod expr;
@@ -167,7 +168,7 @@ impl CallStack {
 
 bitflags! {
     /// What execution has shown a byte to be.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct ByteKind: u8 {
         /// Ran as the first byte of an instruction.
         const CODE = 1;
@@ -185,10 +186,14 @@ bitflags! {
 ///
 /// Keyed by [`Memory`] offset instead of CPU address, so a mark survives bank switches to another
 /// address. Two banks that share an address do not share marks. See [`Memory::prg_offset`].
-#[derive(Debug, Clone)]
+///
+/// Saved per ROM, so a session opens knowing what earlier ones ran. The generation is left out of
+/// that: it numbers changes for a view watching this map, and one just read has none to number.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
 pub struct CodeMap {
     kinds: Box<[ByteKind]>,
+    #[serde(skip)]
     generation: u64,
     /// Which cart the offsets address. See [`CodeMap::covers`].
     rom_crc32: u32,
@@ -256,7 +261,7 @@ bitflags! {
     ///
     /// A breakpoint has the set it stops on, so one range covers reads, writes and execution in
     /// whatever combination the user ticked.
-    #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[must_use]
     pub struct Access: u8 {
         /// Fetched as an instruction.

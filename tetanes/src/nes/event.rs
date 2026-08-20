@@ -4,6 +4,7 @@ use crate::{
         Nes, RunState, Running, State,
         action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
         config::{Config, RecentRom},
+        debug::Marks,
         emulation::FrameStats,
         input::{ActionBindings, AxisDirection, Gamepads, Input, InputBindings},
         renderer::{
@@ -224,6 +225,8 @@ pub enum DebugEvent {
     /// The console stopped after an instruction accessed a watched address, and is already
     /// paused. PC has moved past the instruction that made the access.
     AccessBreak(AccessHit),
+    /// What the session file kept for the ROM that has just loaded, for the window to adopt.
+    Marks(Box<Marks>),
 }
 
 impl From<DebugEvent> for NesEvent {
@@ -255,6 +258,11 @@ pub enum EmulationEvent {
     DebugWatches(Vec<Option<Expr>>),
     /// A register or a byte of RAM the Debugger typed over.
     DebugWrite(DebugWrite),
+    /// What the Debugger's window has set on this ROM, for the session file to keep.
+    ///
+    /// Sent whenever the window changes one. The emulation thread owns the file because it owns
+    /// the code map, which is the half too large to send.
+    DebugMarks(Box<Marks>),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
@@ -1205,7 +1213,7 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Setting(setting) if is_root_window => match setting {
+                Action::Setting(setting) => match setting {
                     Setting::ToggleFullscreen if activated => {
                         self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
                         self.renderer.set_fullscreen(
@@ -1268,7 +1276,9 @@ impl Running {
                         }
                     }
                     // Held rather than tapped, so both edges matter: 2x while down, 1x on release.
-                    Setting::FastForward if !repeat && self.renderer.rom_loaded() => {
+                    Setting::FastForward
+                        if !repeat && is_root_window && self.renderer.rom_loaded() =>
+                    {
                         let new_speed = if released { 1.0 } else { 2.0 };
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
@@ -1291,11 +1301,11 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Deck(action) if is_root_window => match action {
+                Action::Deck(action) => match action {
                     DeckAction::Reset(kind) if activated => {
                         self.event(EmulationEvent::Reset(kind));
                     }
-                    DeckAction::Joypad((player, button)) if !repeat => {
+                    DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
                         self.event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
@@ -1318,7 +1328,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::SaveState if activated => {
+                    DeckAction::SaveState if activated && is_root_window => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
@@ -1328,7 +1338,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::LoadState if activated => {
+                    DeckAction::LoadState if activated && is_root_window => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {

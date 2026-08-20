@@ -3,6 +3,7 @@ use crate::nes::{
     action::DebugStep,
     audio::{Audio, State as AudioState},
     config::{Config, FrameRate},
+    debug::{Marks, Session},
     emulation::{replay::Record, rewind::Rewind},
     event::{
         ConfigEvent, DebugEvent, DebugRequest, DebugWrite, EmulationEvent, NesEvent, NesEventProxy,
@@ -355,6 +356,11 @@ pub struct State {
     /// What the code map recorded before the debugger closed, kept so that reopening it does not
     /// start over. Only recording stops. The marks stay true for as long as the cart is loaded.
     debug_code_map: Option<CodeMap>,
+    /// What the Debugger's window has set on the loaded ROM, as the session file keeps it.
+    ///
+    /// Held here rather than in the window because this side owns the code map, and one file
+    /// holds both. Replaced whenever the window sends a change.
+    debug_marks: Marks,
     /// Addresses to stop the console at, empty unless the Debugger has armed some.
     ///
     /// Checking them means clocking the console an instruction at a time, so an empty list is what
@@ -537,6 +543,7 @@ impl State {
             debug_pages: None,
             debug_generation: None,
             debug_code_map: None,
+            debug_marks: Marks::default(),
             debug_breakpoints: Vec::new(),
             debug_watches: Vec::new(),
             threaded: cfg.emulation.threaded
@@ -676,6 +683,7 @@ impl State {
                 self.send_debug_snapshot();
             }
             EmulationEvent::DebugWrite(write) => self.debug_write(*write),
+            EmulationEvent::DebugMarks(marks) => self.debug_marks = (**marks).clone(),
             EmulationEvent::DebugBreakpoints(breakpoints) => {
                 self.debug_breakpoints.clone_from(breakpoints);
                 // Reads and writes are caught on the bus, execution between instructions, so the
@@ -1189,19 +1197,22 @@ impl State {
     }
 
     fn unload_rom(&mut self) {
-        if let Some(rom) = self.control_deck.loaded_rom() {
+        // Taken by value, since everything below writes through the console the name came from.
+        if let Some(name) = self.control_deck.loaded_rom().map(|rom| rom.name.clone()) {
             if self.auto_save {
-                let save_path = Config::save_path(&rom.name, self.save_slot);
+                let save_path = Config::save_path(&name, self.save_slot);
                 if let Err(err) = self.control_deck.save_state_path(save_path) {
                     self.on_error(err);
                 }
             }
             self.replay_record(false);
             self.rewind.clear();
+            self.save_debug_session(&name);
             // Marks and breakpoint offsets both index this cart's memory. Both load paths come
             // through here, so neither can outlive the cart it describes. The window keeps the
             // breakpoints it can and resends them.
             self.debug_code_map = None;
+            self.debug_marks = Marks::default();
             self.debug_breakpoints.clear();
             self.control_deck.set_breakpoints([]);
             let _ = self.audio.stop();
@@ -1247,6 +1258,7 @@ impl State {
             self.tx.event(ConfigEvent::AudioEnabled(false));
             self.on_error(err);
         }
+        self.load_debug_session(&rom.name);
         self.tx.event(RendererEvent::RomLoaded(rom));
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -1254,6 +1266,39 @@ impl State {
         });
         self.reset_frame_stats();
         self.last_auto_save = Instant::now();
+    }
+
+    /// Read what an earlier session left for this ROM, and hand the window its half.
+    ///
+    /// The code map waits in `debug_code_map` for a subscription to attach it, which is where a
+    /// map kept across a closed Debugger waits too, so opening the window is the one path that
+    /// starts recording.
+    fn load_debug_session(&mut self, name: &str) {
+        let mut session = Session::load(name);
+        session.accept(&self.control_deck.bus().memory);
+        self.debug_code_map = session.code_map;
+        self.debug_marks = session.marks;
+        self.tx
+            .event(DebugEvent::Marks(Box::new(self.debug_marks.clone())));
+    }
+
+    /// Write what this session has learned about `name`, code map and window marks together.
+    ///
+    /// The map is read back off the console when the Debugger is open, since that is where it
+    /// lives while it is recording.
+    fn save_debug_session(&mut self, name: &str) {
+        let code_map = self
+            .control_deck
+            .code_map()
+            .cloned()
+            .or_else(|| self.debug_code_map.clone());
+        let session = Session {
+            code_map,
+            marks: self.debug_marks.clone(),
+        };
+        if let Err(err) = session.save(name) {
+            error!("failed to save debug session: {err:?}");
+        }
     }
 
     fn load_rom_path(&mut self, path: impl AsRef<std::path::Path>) {

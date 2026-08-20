@@ -30,6 +30,7 @@ use winit::{
 pub mod action;
 pub mod audio;
 pub mod config;
+pub mod debug;
 pub mod emulation;
 pub mod event;
 pub mod input;
