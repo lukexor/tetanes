@@ -768,6 +768,24 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
     }
 }
 
+/// The expression grammar, laid out in real columns.
+///
+/// A grid rather than one preformatted block, since the monospace font is a pixel font whose
+/// advance widths round differently at scaled sizes, and columns padded with spaces drift.
+fn syntax_help(ui: &mut Ui) {
+    Grid::new("expression_syntax")
+        .num_columns(2)
+        .spacing([12.0, 2.0])
+        .show(ui, |ui| {
+            for (name, detail) in Expr::SYNTAX {
+                ui.label(*name);
+                ui.monospace(*detail);
+                ui.end_row();
+            }
+        });
+    ui.label(Expr::SYNTAX_NOTE);
+}
+
 /// A watched expression's value, in hex and decimal.
 ///
 /// Width follows the value: a byte reads as two digits and an address as four, so a column of
@@ -1270,7 +1288,10 @@ impl State {
         let offset = self.prg_offset(parse_range(&range).map_or(0, |(addr, _)| addr));
         let response = egui::Window::new("Edit breakpoint")
             .collapsible(false)
-            .resizable(false)
+            // Resizable, and wide enough by default that the syntax below reads without
+            // wrapping, since a condition can run well past one line.
+            .resizable(true)
+            .default_width(420.0)
             .open(&mut open)
             .show(ctx, |ui| {
                 let Some(breakpoint) = self.breakpoints.get_mut(id) else {
@@ -1280,7 +1301,7 @@ impl State {
                     .num_columns(2)
                     .spacing([12.0, 6.0])
                     .show(ui, |ui| {
-                        ui.strong("Address");
+                        ui.strong("Address or range");
                         let response = ui.add(
                             egui::TextEdit::singleline(&mut range)
                                 .hint_text("$addr or $lo-$hi")
@@ -1320,11 +1341,12 @@ impl State {
 
                         ui.strong("Condition");
                         ui.vertical(|ui| {
+                            let width = ui.available_width();
                             let response = ui.add(
                                 egui::TextEdit::multiline(&mut breakpoint.condition)
                                     .font(egui::TextStyle::Monospace)
                                     .hint_text("a == 0xFF && mem[0x300] != 0")
-                                    .desired_width(320.0)
+                                    .desired_width(width)
                                     .desired_rows(3),
                             );
                             armed_changed |= response.changed();
@@ -1342,7 +1364,7 @@ impl State {
                         ui.vertical(|ui| {
                             let mut logs = !breakpoint.breaks;
                             if ui
-                                .checkbox(&mut logs, "Log the access and keep running")
+                                .checkbox(&mut logs, "Log and keep running")
                                 .on_hover_text("Cleared, the console stops instead")
                                 .changed()
                             {
@@ -1355,9 +1377,7 @@ impl State {
                         ui.end_row();
                     });
 
-                ui.collapsing("Expression syntax", |ui| {
-                    ui.label(RichText::new(Expr::SYNTAX).monospace().small());
-                });
+                ui.collapsing("Expression syntax", syntax_help);
 
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -1683,11 +1703,9 @@ impl State {
                 self.watches.push(std::mem::take(&mut self.watch_entry));
                 self.send_watches();
             }
-            ui.menu_button("?", |ui| {
-                ui.label(RichText::new(Expr::SYNTAX).monospace().small());
-            })
-            .response
-            .on_hover_text("Expression syntax");
+            ui.menu_button("?", syntax_help)
+                .response
+                .on_hover_text("Expression syntax");
         });
 
         if self.watches.is_empty() {
@@ -1705,11 +1723,8 @@ impl State {
             .show(ui, |ui| {
                 for (index, watch) in watches.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("✖").clicked() {
-                            removed = Some(index);
-                        }
-                        // The value column first at a fixed width, so a column of them reads down
-                        // however wide the expressions beside them are.
+                        // The value leads the row, so a column of them reads down the pane rather
+                        // than being hunted for past expressions of every length.
                         match Expr::parse(watch.trim()) {
                             Ok(_) => {
                                 // A value arrives a frame after the expression it answers, so a
@@ -1726,13 +1741,23 @@ impl State {
                                     .on_hover_text(error.to_string());
                             }
                         }
-                        changed |= ui
-                            .add(
-                                egui::TextEdit::singleline(watch)
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .changed();
+                        // Laid right to left so ✖ ends the row the way it ends a breakpoint's,
+                        // with the box taking what is left rather than pushing it off.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✖").clicked() {
+                                removed = Some(index);
+                            }
+                            // Sized from what the button left, rather than asked to fill, so a
+                            // long expression cannot push it back off the row.
+                            let width = ui.available_width();
+                            changed |= ui
+                                .add(
+                                    egui::TextEdit::singleline(watch)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(width),
+                                )
+                                .changed();
+                        });
                     });
                 }
             });

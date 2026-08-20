@@ -103,23 +103,25 @@ pub struct Expr {
 }
 
 impl Expr {
-    /// The grammar, for a window to show beside the box an expression is typed into.
+    /// The grammar, as name and detail pairs for a window to lay out in columns.
     ///
-    /// Kept here rather than written out again in the UI, so the two cannot drift apart.
-    pub const SYNTAX: &'static str = "\
-registers   a  x  y  sp  pc  p
-flags       n  v  u  b  d  i  z  c
-memory      mem[addr]        one byte
-            mem16[addr]      a little-endian word
-numbers     0xFF  $FF  0b1010  255
-compare     ==  !=  <  <=  >  >=
-logic       &&  ||  !  ( )
+    /// Pairs rather than one block of preformatted text, so the window aligns the columns itself
+    /// rather than leaning on a font's advance widths. Kept here next to the parser that defines
+    /// it, so the two cannot drift apart.
+    pub const SYNTAX: &'static [(&'static str, &'static str)] = &[
+        ("registers", "a  x  y  sp  pc  p"),
+        ("flags", "n  v  u  b  d  i  z  c"),
+        ("memory", "mem[addr] for a byte, mem16[addr] for a word"),
+        ("numbers", "0xFF   $FF   0b1010   255"),
+        ("compare", "==  !=  <  <=  >  >="),
+        ("logic", "&&  ||  !  ( )"),
+        ("example", "a == 0xFF && mem[0x300] != 0"),
+        ("", "mem16[0xFFFC] == pc"),
+    ];
 
-Names are case-insensitive. Anything other than zero is true.
-
-  a == 0xFF && mem[0x300] != 0
-  mem16[0xFFFC] == pc
-  z || x < y";
+    /// How an expression is read, for a window to show under [`Expr::SYNTAX`].
+    pub const SYNTAX_NOTE: &'static str =
+        "Names are case-insensitive. Anything other than zero is true.";
 
     /// How deep the evaluation stack goes, which bounds how far an expression may nest.
     ///
