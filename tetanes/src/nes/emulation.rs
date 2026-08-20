@@ -635,6 +635,13 @@ impl State {
                     self.control_deck
                         .set_pc_history((history_lines > 0).then(|| usize::from(history_lines)));
                 }
+                // Calls are recorded as they are made, on the same terms, so the pane opening is
+                // what starts the stack. Attaching again would throw away the frames execution is
+                // already inside.
+                let call_stack = request.is_some_and(|request| request.call_stack);
+                if call_stack != self.control_deck.call_stack().is_some() {
+                    self.control_deck.set_call_stack(call_stack);
+                }
                 // Which bytes are instructions is marked by running them, so the map starts here
                 // too. A first subscription starts empty until the game runs, leaving the
                 // disassembly one large unknown block plus whatever PC points at. Closing the

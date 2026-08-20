@@ -70,6 +70,101 @@ impl PcHistory {
     }
 }
 
+/// Why a call frame was pushed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum FrameKind {
+    /// A `JSR`.
+    Call,
+    /// The NMI vector, taken when the PPU asserts it.
+    Nmi,
+    /// The IRQ vector, taken when the board or the APU pulls the line low.
+    Irq,
+    /// A `BRK`, which reaches the IRQ vector by executing rather than by a line going low.
+    Brk,
+}
+
+/// One call execution is currently inside.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct CallFrame {
+    /// The `JSR`, or the instruction an interrupt arrived before.
+    pub caller: u16,
+    /// The subroutine, or the handler the vector named.
+    pub entry: u16,
+    /// The stack pointer once the return address was pushed. The frame is live while the stack
+    /// pointer is no higher than this.
+    pub sp: u8,
+    /// Why the frame was pushed.
+    pub kind: FrameKind,
+}
+
+/// The calls execution is currently inside, outermost first.
+///
+/// [`PcHistory`] says what has run, this says how the console reached where it is. A frame is
+/// pushed by a `JSR` and by an interrupt taking a vector, and dropped by watching the stack
+/// pointer rather than by watching for an `RTS`: a return address is often discarded (`PLA`,
+/// `PLA`) or reached by a jump, and the stack pointer catches all of those the same way.
+#[derive(Debug, Default, Clone)]
+#[must_use]
+pub struct CallStack {
+    frames: Vec<CallFrame>,
+}
+
+impl CallStack {
+    /// How many frames the stack records. A frame takes at least the two bytes a `JSR` pushes,
+    /// out of a 256 byte stack page.
+    const MAX_DEPTH: usize = 128;
+
+    /// Create an empty call stack.
+    pub fn new() -> Self {
+        Self {
+            frames: Vec::with_capacity(16),
+        }
+    }
+
+    /// Drop the frames the stack pointer has risen past. An `RTS` raises it back over the frame
+    /// it returns from.
+    #[inline]
+    pub fn unwind_to(&mut self, sp: u8) {
+        while self.frames.last().is_some_and(|frame| sp > frame.sp) {
+            self.frames.pop();
+        }
+    }
+
+    /// Record a call.
+    ///
+    /// Each frame sits below the one before it, so the depth is bounded by the stack page and
+    /// only a stack pointer that wrapped can reach the limit.
+    pub fn push(&mut self, frame: CallFrame) {
+        if self.frames.len() < Self::MAX_DEPTH {
+            self.frames.push(frame);
+        }
+    }
+
+    /// The frames execution is inside, outermost first.
+    pub fn frames(&self) -> &[CallFrame] {
+        &self.frames
+    }
+
+    /// How deep the stack is.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// Whether the stack has no frames.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    /// Forget the recorded frames, keeping the capacity.
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+}
+
 bitflags! {
     /// What execution has shown a byte to be.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -377,6 +472,14 @@ impl Breakpoints {
         std::mem::take(&mut self.hits)
     }
 
+    /// Put back what [`Breakpoints::drain_hits`] took, dropping anything caught in between.
+    ///
+    /// Run-ahead drains before it speculates and restores once it has rewound, so the accesses
+    /// its discarded frames caught are discarded with them instead of being reported twice.
+    pub fn restore_hits(&mut self, hits: Vec<AccessHit>) {
+        self.hits = hits;
+    }
+
     /// Whether nothing is armed, in which case the console keeps the unwatched path.
     pub const fn is_empty(&self) -> bool {
         self.list.is_empty()
@@ -451,7 +554,8 @@ impl std::fmt::Debug for Debugger {
 #[cfg(test)]
 mod tests {
     use super::{
-        Access, AccessHit, Breakpoint, Breakpoints, ByteKind, CodeMap, PcHistory, expr::Expr,
+        Access, AccessHit, Breakpoint, Breakpoints, ByteKind, CallStack, CodeMap, FrameKind,
+        PcHistory, expr::Expr,
     };
     use crate::{
         bus::Bus, cart::Cart, common::ResetKind, control_deck::ControlDeck, cpu::Cpu, mapper::Nrom,
@@ -497,6 +601,106 @@ mod tests {
         assert!(history.is_empty());
         history.push(0xE001);
         assert_eq!(history.iter().collect::<Vec<_>>(), [0xE001]);
+    }
+
+    /// A console running `program` from `$0700`, recording the calls it makes.
+    fn running(program: &[u8]) -> Bus {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).expect("mapper");
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        for (offset, byte) in program.iter().enumerate() {
+            bus.cpu_bus_write(0x0700 + offset as u16, *byte);
+        }
+        bus.cpu.pc = 0x0700;
+        bus.call_stack = Some(CallStack::new());
+        bus
+    }
+
+    #[test]
+    fn a_call_is_recorded_and_its_return_drops_it() {
+        // JSR $0710, landing on an RTS.
+        let mut bus = running(&[Cpu::JSR, 0x10, 0x07]);
+        bus.cpu_bus_write(0x0710, Cpu::RTS);
+
+        bus.clock_instr();
+        let frames = bus.call_stack.as_ref().expect("recording").frames();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].caller, 0x0700);
+        assert_eq!(frames[0].entry, 0x0710);
+        assert_eq!(frames[0].kind, FrameKind::Call);
+
+        bus.clock_instr();
+        assert!(bus.call_stack.expect("recording").is_empty());
+    }
+
+    /// The case that watching for an `RTS` would miss: a subroutine that pulls its own return
+    /// address off and jumps elsewhere. Half a return address is already unusable, so the frame
+    /// goes with the first `PLA`.
+    #[test]
+    fn discarding_a_return_address_drops_the_frame() {
+        // JSR $0710, landing on PLA, PLA.
+        let mut bus = running(&[Cpu::JSR, 0x10, 0x07]);
+        for (addr, byte) in [(0x0710u16, 0x68u8), (0x0711, 0x68)] {
+            bus.cpu_bus_write(addr, byte);
+        }
+
+        bus.clock_instr();
+        assert_eq!(bus.call_stack.as_ref().expect("recording").len(), 1);
+        bus.clock_instr();
+        bus.clock_instr();
+        assert!(bus.call_stack.expect("recording").is_empty());
+    }
+
+    /// Each frame sits below the one that called it, which is the order the stack pointer
+    /// unwinds them in.
+    #[test]
+    fn frames_descend_from_the_outermost_call() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.set_call_stack(true);
+
+        let mut deepest = 0;
+        for _ in 0..100_000 {
+            deck.clock_instr().expect("clock instruction");
+            let frames = deck.call_stack().expect("recording").frames();
+            deepest = deepest.max(frames.len());
+            for pair in frames.windows(2) {
+                assert!(
+                    pair[1].sp < pair[0].sp,
+                    "${:04X} sits at ${:02X}, above the ${:02X} it was called from",
+                    pair[1].entry,
+                    pair[1].sp,
+                    pair[0].sp
+                );
+            }
+        }
+        assert!(deepest > 1, "no nested call ran, so nothing was proven");
+    }
+
+    /// An NMI arriving part way through an IRQ sequence takes the other vector, so which one was
+    /// taken is read back from PC rather than from the flags.
+    #[test]
+    fn an_interrupt_is_recorded_as_the_vector_it_took() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+        deck.set_call_stack(true);
+
+        let handler = deck.bus().peek_word(Cpu::NMI_VECTOR);
+        let mut taken = 0;
+        for _ in 0..100_000 {
+            deck.clock_instr().expect("clock instruction");
+            for frame in deck.call_stack().expect("recording").frames() {
+                if frame.kind == FrameKind::Nmi {
+                    assert_eq!(frame.entry, handler);
+                    taken += 1;
+                }
+            }
+        }
+        assert!(taken > 0, "no NMI ran, so nothing was proven");
     }
 
     #[test]

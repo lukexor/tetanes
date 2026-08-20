@@ -46,7 +46,7 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::{AccessHit, Breakpoint, Breakpoints, CodeMap, Debugger, PcHistory},
+    debug::{AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, PcHistory},
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -777,6 +777,21 @@ impl ControlDeck {
     #[must_use]
     pub const fn pc_history(&self) -> Option<&PcHistory> {
         self.bus.pc_history.as_ref()
+    }
+
+    /// Start or stop recording the calls execution is inside.
+    ///
+    /// See [`CallStack`]. A stack can only be built as the calls are made, so switching this on
+    /// leaves it empty until the game runs into its next `JSR` or interrupt.
+    pub fn set_call_stack(&mut self, recording: bool) {
+        self.bus.call_stack = recording.then(CallStack::new);
+    }
+
+    /// The calls execution is inside, if [`ControlDeck::set_call_stack`] asked for them.
+    #[inline]
+    #[must_use]
+    pub const fn call_stack(&self) -> Option<&CallStack> {
+        self.bus.call_stack.as_ref()
     }
 
     /// Start recording what executes into a [`CodeMap`], resuming `code_map` when it was built for
@@ -1532,6 +1547,16 @@ impl ControlDeck {
             None => Box::new(self.bus.clone()),
         };
 
+        // A debugger must not see the frames about to be rewound. `swap_state` drops what they
+        // pushed and caught, and these put back what was there before them, since only this
+        // caller knows the position being restored to.
+        let call_stack = self.bus.call_stack.clone();
+        let hits = self
+            .bus
+            .breakpoints
+            .as_mut()
+            .map(|breakpoints| breakpoints.drain_hits());
+
         // Clock the intermediate frames, whose video is never seen. Restored rather than set back
         // to `false`, so this does not quietly turn rendering on for a headless deck.
         let skip_rendering = self.bus.ppu.skip_rendering;
@@ -1556,6 +1581,10 @@ impl ControlDeck {
         // Rewind, and give the console back the frame it had rendered. Through the same funnel
         // every other restore uses, so that the debugger and the cart's ROM are handled once.
         self.bus.swap_state(&mut saved)?;
+        self.bus.call_stack = call_stack;
+        if let (Some(breakpoints), Some(hits)) = (self.bus.breakpoints.as_mut(), hits) {
+            breakpoints.restore_hits(hits);
+        }
         std::mem::swap(&mut self.bus.ppu.frame.buffer, &mut frames.spare);
 
         // `saved` is now the console the run-ahead frames left behind, which is next frame's
@@ -1969,7 +1998,7 @@ impl ControlDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cpu::Cpu, input::JoypadBtnState};
+    use crate::{cpu::Cpu, debug::Access, input::JoypadBtnState};
     use std::{
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
@@ -2570,5 +2599,47 @@ mod tests {
         assert_eq!(broken.bus().cpu.cycle, unbroken.bus().cpu.cycle);
         assert_eq!(broken.frame_number(), unbroken.frame_number());
         assert_eq!(broken.frame_buffer(), unbroken.frame_buffer());
+    }
+
+    /// Run-ahead clocks frames it then rewinds. The calls they made and the accesses they caught
+    /// belong to a timeline the console never took, so a debugger has to see the same thing with
+    /// run-ahead on as with it off.
+    #[test]
+    fn run_ahead_hides_the_frames_it_rewinds_from_a_debugger() {
+        let watched = Breakpoint {
+            start: 0x0000,
+            end: 0x00FF,
+            offset: None,
+            access: Access::WRITE,
+            breaks: false,
+            condition: None,
+        };
+        let debugged = |run_ahead: usize| {
+            let mut deck = spritecans();
+            deck.set_run_ahead(run_ahead);
+            deck.set_call_stack(true);
+            deck.set_breakpoints([watched.clone()]);
+            let mut caught = 0;
+            for _ in 0..8 {
+                clock_display_frame(&mut deck);
+                caught += deck.drain_access_log().len();
+            }
+            let frames = deck.call_stack().expect("recording").frames().to_vec();
+            (caught, frames)
+        };
+
+        let (plain_caught, plain_frames) = debugged(0);
+        assert!(plain_caught > 0, "the ROM writes to zero page");
+        assert!(!plain_frames.is_empty(), "the ROM makes calls");
+
+        let (ahead_caught, ahead_frames) = debugged(2);
+        assert_eq!(
+            ahead_caught, plain_caught,
+            "accesses the rewound frames caught were reported"
+        );
+        assert_eq!(
+            ahead_frames, plain_frames,
+            "calls the rewound frames made were kept"
+        );
     }
 }

@@ -18,7 +18,7 @@
 use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
-    debug::{Access, AccessHit, ByteKind, Verdict},
+    debug::{Access, AccessHit, ByteKind, CallFrame, FrameKind, Verdict},
 };
 use crate::{
     cpu::instr::{
@@ -278,6 +278,8 @@ impl Cpu {
     /// Stack Pointer base address.
     pub const SP_BASE: u16 = 0x0100;
 
+    /// `BRK` opcode, takes the IRQ vector.
+    pub const BRK: u8 = 0x00;
     /// `JSR` opcode, jumps to location, save return address.
     pub const JSR: u8 = 0x20;
     /// `RTI` opcode, return from interrupt.
@@ -500,11 +502,24 @@ impl Bus {
         // still address the same bytes.
         state.pc_history = self.pc_history.take();
         state.code_map = self.code_map.take();
-        // Breakpoints belong to the session too, and what they caught belongs to the timeline
-        // being discarded. Run-ahead restores over speculative frames, so a hit from one of those
-        // would otherwise stop the console at a PC it never reached.
+        // A call stack says where execution is, not what the session has learned, so the recorder
+        // survives the restore and its frames do not. `unwind_to` cannot stand in for that: it
+        // pops what the stack pointer has risen past, which neither puts back a frame returned
+        // from nor drops one pushed at a shallower depth. Run-ahead puts its own frames back,
+        // since it is the one caller that knows the position it restored to.
+        state.call_stack = self.call_stack.take().map(|mut call_stack| {
+            call_stack.clear();
+            call_stack
+        });
+        // Breakpoints belong to the session, and what they caught to the timeline being
+        // discarded. Run-ahead restores over speculative frames, so a hit from one of those would
+        // otherwise stop the console at a PC it never reached, or be reported twice once the
+        // frame is really clocked.
         state.breakpoints_active = self.breakpoints_active;
-        state.breakpoints = self.breakpoints.take();
+        state.breakpoints = self.breakpoints.take().map(|mut breakpoints| {
+            breakpoints.drain_hits();
+            breakpoints
+        });
         state.access_hit = None;
         // The pixel path compares against thresholds derived from $2001 rather than reading its
         // flags, and they are not part of the save format.
@@ -1274,12 +1289,53 @@ impl Bus {
             code_map.mark(offset, ByteKind::SUB_ENTRY);
         }
 
+        if let Some(call_stack) = &mut self.call_stack {
+            // Every way of discarding a return address raises the stack pointer back over the
+            // frame that pushed it, an `RTS` included.
+            call_stack.unwind_to(self.cpu.sp);
+        }
+        // The return address is on the stack by now, so the frame records a stack pointer the
+        // matching return raises back over.
+        if self.call_stack.is_some() {
+            match opcode {
+                Cpu::JSR => self.push_call_frame(prev_pc, FrameKind::Call),
+                Cpu::BRK => self.push_call_frame(prev_pc, FrameKind::Brk),
+                _ => (),
+            }
+        }
+
         if self
             .cpu
             .irq_flags
             .intersects(IrqFlags::PREV_RUN_IRQ | IrqFlags::PREV_NMI)
         {
+            let interrupted = self.cpu.pc;
             self.irq();
+            if self.call_stack.is_some() {
+                // Which vector was taken is read back from PC rather than from the flags, since
+                // an NMI arriving mid-sequence hijacks the IRQ.
+                let kind = if self.cpu.pc == self.peek_word(Cpu::NMI_VECTOR) {
+                    FrameKind::Nmi
+                } else {
+                    FrameKind::Irq
+                };
+                self.push_call_frame(interrupted, kind);
+            }
+        }
+    }
+
+    /// Record the call the instruction just run made, once it has pushed its return address.
+    #[cold]
+    #[inline(never)]
+    fn push_call_frame(&mut self, caller: u16, kind: FrameKind) {
+        let frame = CallFrame {
+            caller,
+            entry: self.cpu.pc,
+            sp: self.cpu.sp,
+            kind,
+        };
+        if let Some(call_stack) = &mut self.call_stack {
+            call_stack.push(frame);
         }
     }
 }

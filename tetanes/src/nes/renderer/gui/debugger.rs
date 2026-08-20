@@ -21,7 +21,8 @@ use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Disasm, Status, instr::InstrRef},
     debug::{
-        Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints,
+        Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints, CallFrame,
+        FrameKind,
         expr::{Expr, ParseError},
     },
     memory::{Memory, PRG_PAGES, Page},
@@ -323,6 +324,8 @@ pub struct CpuSnapshot {
     pub cpu: Cpu,
     /// CPU stack.
     pub stack: Vec<u8>,
+    /// The calls execution is inside, outermost first, from [`DebugRequest::call_stack`].
+    pub call_stack: Vec<CallFrame>,
     /// Previously executed instructions, oldest first, ending just before PC from
     /// [`DebugRequest::history_lines`].
     pub history: Vec<Disasm>,
@@ -350,6 +353,7 @@ impl Default for CpuSnapshot {
         Self {
             cpu: Cpu::default(),
             stack: Vec::new(),
+            call_stack: Vec::new(),
             history: Vec::new(),
             memory: Vec::new(),
             access_log: Vec::new(),
@@ -389,6 +393,10 @@ impl CpuSnapshot {
                     .collect()
             } else {
                 Vec::new()
+            },
+            call_stack: match (request.call_stack, &bus.call_stack) {
+                (true, Some(call_stack)) => call_stack.frames().to_vec(),
+                _ => Vec::new(),
             },
             history,
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
@@ -570,6 +578,8 @@ pub enum Pane {
     Registers,
     /// The stack page, top of stack first.
     Stack,
+    /// The calls execution is inside, innermost first.
+    CallStack,
     /// The breakpoint list, and the box that adds one.
     Breakpoints,
     /// The instructions that ran most recently.
@@ -580,13 +590,28 @@ pub enum Pane {
 
 impl Pane {
     /// Every pane, in the order a column stacks them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Disassembly,
         Self::Registers,
         Self::Stack,
+        Self::CallStack,
         Self::Watches,
         Self::Breakpoints,
         Self::History,
+    ];
+
+    /// The panes a window opens with.
+    ///
+    /// Everything but the history. It answers what has run, where the call stack answers how
+    /// execution got here, and it takes a ring buffer plus the bottom of the window to do it, so
+    /// it waits for the View menu to ask.
+    pub const DEFAULT: [Self; 6] = [
+        Self::Disassembly,
+        Self::Registers,
+        Self::Stack,
+        Self::CallStack,
+        Self::Watches,
+        Self::Breakpoints,
     ];
 
     /// The heading the pane draws above its view.
@@ -595,6 +620,7 @@ impl Pane {
             Self::Disassembly => "Disassembly",
             Self::Registers => "Registers",
             Self::Stack => "Stack",
+            Self::CallStack => "Call stack",
             Self::Breakpoints => "Breakpoints",
             Self::History => "Recently executed",
             Self::Watches => "Watches",
@@ -605,7 +631,9 @@ impl Pane {
     pub const fn column(self) -> Column {
         match self {
             Self::Disassembly => Column::Center,
-            Self::Registers | Self::Stack | Self::Watches | Self::Breakpoints => Column::Right,
+            Self::Registers | Self::Stack | Self::CallStack | Self::Watches | Self::Breakpoints => {
+                Column::Right
+            }
             Self::History => Column::Bottom,
         }
     }
@@ -617,10 +645,11 @@ impl Pane {
         match self {
             Self::Disassembly => 0.0,
             Self::Registers => 92.0,
-            Self::Stack => 220.0,
+            Self::Stack => 160.0,
+            Self::CallStack => 120.0,
             Self::Breakpoints => 160.0,
             Self::History => 140.0,
-            Self::Watches => 140.0,
+            Self::Watches => 120.0,
         }
     }
 
@@ -630,6 +659,7 @@ impl Pane {
             Self::Disassembly => "debugger_pane_disassembly",
             Self::Registers => "debugger_pane_registers",
             Self::Stack => "debugger_pane_stack",
+            Self::CallStack => "debugger_pane_call_stack",
             Self::Breakpoints => "debugger_pane_breakpoints",
             Self::History => "debugger_pane_history",
             Self::Watches => "debugger_pane_watches",
@@ -1015,6 +1045,7 @@ fn request(open: &[Pane], history_lines: u16) -> DebugRequest {
             0
         },
         stack: open.contains(&Pane::Stack),
+        call_stack: open.contains(&Pane::CallStack),
         memory: None,
     }
 }
@@ -1538,6 +1569,7 @@ impl State {
             Pane::Disassembly => self.disassembly(ui),
             Pane::Registers => self.registers(ui),
             Pane::Stack => self.stack(ui),
+            Pane::CallStack => self.call_stack(ui),
             Pane::Breakpoints => self.breakpoint_list(ui),
             Pane::Watches => self.watch_list(ui),
             // Its own pane rather than inline above PC: the disassembly is ordered by address and
@@ -1705,6 +1737,72 @@ impl State {
                 line.to_string()
             };
             ui.label(RichText::new(text).monospace().color(Color32::DARK_GRAY));
+        }
+    }
+
+    /// How the console reached where it is, innermost call first.
+    ///
+    /// The frames are recorded as the calls are made, so the pane fills in from wherever it was
+    /// opened rather than from the game's first `JSR`.
+    fn call_stack(&mut self, ui: &mut Ui) {
+        ScrollArea::vertical()
+            .id_salt("call_stack")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.call_stack_rows(ui));
+    }
+
+    fn call_stack_rows(&mut self, ui: &mut Ui) {
+        // PC first, so the column reads as one path from where execution is out to whoever
+        // started it.
+        let pc = self.snapshot.cpu.pc;
+        let mut scroll_to = None;
+        let executing = Label::new(
+            RichText::new(format!("     ${pc:04X}"))
+                .monospace()
+                .color(Color32::LIGHT_GRAY),
+        )
+        .sense(Sense::click());
+        if ui
+            .add(executing)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text("Executing here - go to it")
+            .clicked()
+        {
+            scroll_to = Some(pc);
+        }
+
+        if self.snapshot.call_stack.is_empty() {
+            ui.weak("No call recorded - step or resume to enter one.");
+        }
+        for frame in self.snapshot.call_stack.iter().rev() {
+            let kind = match frame.kind {
+                FrameKind::Call => "JSR",
+                FrameKind::Nmi => "NMI",
+                FrameKind::Irq => "IRQ",
+                FrameKind::Brk => "BRK",
+            };
+            let label = Label::new(
+                RichText::new(format!(
+                    "{kind}  ${:04X} from ${:04X}",
+                    frame.entry, frame.caller
+                ))
+                .monospace()
+                .color(Color32::DARK_GRAY),
+            )
+            .sense(Sense::click());
+            if ui
+                .add(label)
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Go to the call")
+                .clicked()
+            {
+                scroll_to = Some(frame.caller);
+            }
+        }
+
+        if let Some(addr) = scroll_to {
+            self.scroll_to = scroll_to;
+            self.selected = Some(addr);
         }
     }
 
@@ -2519,14 +2617,16 @@ mod tests {
         let all = request(&Pane::ALL, HISTORY_LINES);
         assert_eq!(all.history_lines, HISTORY_LINES);
         assert!(all.stack);
+        assert!(all.call_stack);
 
         let closed = Pane::ALL
             .into_iter()
-            .filter(|pane| !matches!(pane, Pane::History | Pane::Stack))
+            .filter(|pane| !matches!(pane, Pane::History | Pane::Stack | Pane::CallStack))
             .collect::<Vec<_>>();
         let request = request(&closed, HISTORY_LINES);
         assert_eq!(request.history_lines, 0);
         assert!(!request.stack);
+        assert!(!request.call_stack);
     }
 
     #[test]

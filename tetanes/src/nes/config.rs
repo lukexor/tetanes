@@ -162,7 +162,7 @@ impl Default for RendererConfig {
             dark_theme: true,
             shader: Shader::default(),
             show_updates: true,
-            debugger_panes: Pane::ALL.to_vec(),
+            debugger_panes: Pane::DEFAULT.to_vec(),
             open_debugger: false,
         }
     }

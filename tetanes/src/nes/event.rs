@@ -179,6 +179,8 @@ pub struct DebugRequest {
     pub history_lines: u16,
     /// Whether to copy the stack page.
     pub stack: bool,
+    /// Whether to copy the calls execution is inside.
+    pub call_stack: bool,
     /// A CPU-bus address range to copy, as `(start, len)`.
     pub memory: Option<(u16, u16)>,
 }

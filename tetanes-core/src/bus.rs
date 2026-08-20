@@ -38,7 +38,7 @@ use crate::{
     cart::Cart,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
-    debug::{AccessHit, Breakpoints, CodeMap, Debugger, PcHistory},
+    debug::{AccessHit, Breakpoints, CallStack, CodeMap, Debugger, PcHistory},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -139,6 +139,9 @@ pub struct Bus {
     /// debugger is open.
     #[serde(skip)]
     pub code_map: Option<CodeMap>,
+    /// The calls execution is inside, recorded only while a debugger is open and asks for them.
+    #[serde(skip)]
+    pub call_stack: Option<CallStack>,
     /// Whether any breakpoint is armed, cached so the read and write paths test a bool rather
     /// than an `Option` on every access.
     #[serde(skip)]
@@ -207,6 +210,7 @@ impl Bus {
             access_hit: None,
             pc_history: None,
             code_map: None,
+            call_stack: None,
         }
     }
 
@@ -256,6 +260,7 @@ impl Bus {
             debugger: _,
             pc_history: _,
             code_map: _,
+            call_stack: _,
             breakpoints_active: _,
             breakpoints: _,
             instr_addr: _,
