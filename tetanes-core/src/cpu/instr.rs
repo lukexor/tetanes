@@ -1,4 +1,4 @@
-//! CPU Asddressing cmps and Operations
+//! CPU addressing modes and operations.
 
 // The 6502 instruction tables: one variant per opcode and addressing mode, named after the
 // hardware. Documenting each would restate its name.
@@ -41,6 +41,305 @@ impl Instr {
             self,
             Self::JMP | Self::JSR | Self::RTS | Self::RTI | Self::BRK | Self::HLT
         )
+    }
+
+    /// The instruction's full name, for a debugger to show beside the mnemonic.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ADC => "Add with Carry",
+            Self::AND => "Logical AND",
+            Self::ASL => "Arithmetic Shift Left",
+            Self::BCC => "Branch if Carry Clear",
+            Self::BCS => "Branch if Carry Set",
+            Self::BEQ => "Branch if Equal",
+            Self::BIT => "Bit Test",
+            Self::BMI => "Branch if Minus",
+            Self::BNE => "Branch if Not Equal",
+            Self::BPL => "Branch if Plus",
+            Self::BRK => "Force Interrupt",
+            Self::BVC => "Branch if Overflow Clear",
+            Self::BVS => "Branch if Overflow Set",
+            Self::CLC => "Clear Carry Flag",
+            Self::CLD => "Clear Decimal Mode",
+            Self::CLI => "Clear Interrupt Disable",
+            Self::CLV => "Clear Overflow Flag",
+            Self::CMP => "Compare Accumulator",
+            Self::CPX => "Compare X Register",
+            Self::CPY => "Compare Y Register",
+            Self::DEC => "Decrement Memory",
+            Self::DEX => "Decrement X Register",
+            Self::DEY => "Decrement Y Register",
+            Self::EOR => "Exclusive OR",
+            Self::INC => "Increment Memory",
+            Self::INX => "Increment X Register",
+            Self::INY => "Increment Y Register",
+            Self::JMP => "Jump",
+            Self::JSR => "Jump to Subroutine",
+            Self::LDA => "Load Accumulator",
+            Self::LDX => "Load X Register",
+            Self::LDY => "Load Y Register",
+            Self::LSR => "Logical Shift Right",
+            Self::NOP => "No Operation",
+            Self::ORA => "Logical Inclusive OR",
+            Self::PHA => "Push Accumulator",
+            Self::PHP => "Push Processor Status",
+            Self::PLA => "Pull Accumulator",
+            Self::PLP => "Pull Processor Status",
+            Self::ROL => "Rotate Left",
+            Self::ROR => "Rotate Right",
+            Self::RTI => "Return from Interrupt",
+            Self::RTS => "Return from Subroutine",
+            Self::SBC => "Subtract with Carry",
+            Self::SEC => "Set Carry Flag",
+            Self::SED => "Set Decimal Mode",
+            Self::SEI => "Set Interrupt Disable",
+            Self::STA => "Store Accumulator",
+            Self::STX => "Store X Register",
+            Self::STY => "Store Y Register",
+            Self::TAX => "Transfer Accumulator to X",
+            Self::TAY => "Transfer Accumulator to Y",
+            Self::TSX => "Transfer Stack Pointer to X",
+            Self::TXA => "Transfer X to Accumulator",
+            Self::TXS => "Transfer X to Stack Pointer",
+            Self::TYA => "Transfer Y to Accumulator",
+            Self::ISB => "Increment Memory and Subtract",
+            Self::DCP => "Decrement Memory and Compare",
+            Self::AXS => "Subtract from Accumulator AND X",
+            Self::LAS => "Load Accumulator, X and Stack Pointer",
+            Self::LAX => "Load Accumulator and X",
+            Self::AHX | Self::SHAA | Self::SHAZ => "Store Accumulator AND X AND High Byte",
+            Self::SAX => "Store Accumulator AND X",
+            Self::XAA => "AND X into Accumulator",
+            Self::SXA => "Store X AND High Byte",
+            Self::RRA => "Rotate Right and Add",
+            Self::TAS => "Store and Transfer to Stack Pointer",
+            Self::SYA => "Store Y AND High Byte",
+            Self::ARR => "AND and Rotate Right",
+            Self::SRE => "Shift Right and Exclusive OR",
+            Self::ALR => "AND and Shift Right",
+            Self::RLA => "Rotate Left and AND",
+            Self::ANC => "AND and Copy Bit 7 to Carry",
+            Self::ATX => "Load Accumulator and X",
+            Self::SLO => "Shift Left and OR",
+            Self::HLT => "Jam",
+        }
+    }
+
+    /// One sentence on what the instruction does.
+    ///
+    /// The unofficial opcodes marked unstable behave differently between CPUs, or depend on what
+    /// the address bus was left holding, so a program relying on one is relying on the machine it
+    /// was written for.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::ADC => "Adds the operand and the carry flag to the accumulator.",
+            Self::AND => "ANDs the operand into the accumulator.",
+            Self::ASL => "Shifts the operand left one bit, moving bit 7 into the carry flag.",
+            Self::BCC => "Branches when the carry flag is clear.",
+            Self::BCS => "Branches when the carry flag is set.",
+            Self::BEQ => "Branches when the zero flag is set.",
+            Self::BIT => {
+                "Sets the zero flag from the accumulator AND the operand, and copies the operand's \
+                 bits 7 and 6 into the negative and overflow flags."
+            }
+            Self::BMI => "Branches when the negative flag is set.",
+            Self::BNE => "Branches when the zero flag is clear.",
+            Self::BPL => "Branches when the negative flag is clear.",
+            Self::BRK => {
+                "Pushes the program counter and the status with the break flag set, then jumps \
+                 through the IRQ vector."
+            }
+            Self::BVC => "Branches when the overflow flag is clear.",
+            Self::BVS => "Branches when the overflow flag is set.",
+            Self::CLC => "Clears the carry flag.",
+            Self::CLD => "Clears the decimal flag, which the NES CPU's ADC and SBC ignore.",
+            Self::CLI => "Clears the interrupt disable flag, letting IRQs through.",
+            Self::CLV => "Clears the overflow flag.",
+            Self::CMP => {
+                "Subtracts the operand from the accumulator to set the flags, keeping neither the \
+                 difference nor the accumulator."
+            }
+            Self::CPX => "Subtracts the operand from X to set the flags, keeping neither result.",
+            Self::CPY => "Subtracts the operand from Y to set the flags, keeping neither result.",
+            Self::DEC => "Subtracts one from the operand in memory.",
+            Self::DEX => "Subtracts one from X.",
+            Self::DEY => "Subtracts one from Y.",
+            Self::EOR => "Exclusive ORs the operand into the accumulator.",
+            Self::INC => "Adds one to the operand in memory.",
+            Self::INX => "Adds one to X.",
+            Self::INY => "Adds one to Y.",
+            Self::JMP => "Sets the program counter to the operand.",
+            Self::JSR => {
+                "Pushes the address of this instruction's last byte, then sets the program counter \
+                 to the operand."
+            }
+            Self::LDA => "Loads the operand into the accumulator.",
+            Self::LDX => "Loads the operand into X.",
+            Self::LDY => "Loads the operand into Y.",
+            Self::LSR => "Shifts the operand right one bit, moving bit 0 into the carry flag.",
+            Self::NOP => "Spends its cycles and changes nothing.",
+            Self::ORA => "ORs the operand into the accumulator.",
+            Self::PHA => "Pushes the accumulator onto the stack.",
+            Self::PHP => "Pushes the status onto the stack with the break flag set.",
+            Self::PLA => "Pulls the accumulator off the stack.",
+            Self::PLP => "Pulls the status off the stack, leaving the break and unused flags be.",
+            Self::ROL => {
+                "Shifts the operand left one bit, moving the carry flag into bit 0 and bit 7 into \
+                 the carry flag."
+            }
+            Self::ROR => {
+                "Shifts the operand right one bit, moving the carry flag into bit 7 and bit 0 into \
+                 the carry flag."
+            }
+            Self::RTI => "Pulls the status and the program counter off the stack.",
+            Self::RTS => "Pulls the return address off the stack and resumes at the byte after it.",
+            Self::SBC => "Subtracts the operand and the borrow from the accumulator.",
+            Self::SEC => "Sets the carry flag.",
+            Self::SED => "Sets the decimal flag, which the NES CPU's ADC and SBC ignore.",
+            Self::SEI => "Sets the interrupt disable flag, holding IRQs off.",
+            Self::STA => "Stores the accumulator at the operand's address.",
+            Self::STX => "Stores X at the operand's address.",
+            Self::STY => "Stores Y at the operand's address.",
+            Self::TAX => "Copies the accumulator into X.",
+            Self::TAY => "Copies the accumulator into Y.",
+            Self::TSX => "Copies the stack pointer into X.",
+            Self::TXA => "Copies X into the accumulator.",
+            Self::TXS => "Copies X into the stack pointer, setting no flags.",
+            Self::TYA => "Copies Y into the accumulator.",
+            Self::ISB => {
+                "Adds one to the operand in memory, then subtracts it from the accumulator."
+            }
+            Self::DCP => {
+                "Subtracts one from the operand in memory, then compares it against the \
+                 accumulator."
+            }
+            Self::AXS => {
+                "Subtracts the operand from the accumulator AND X, leaving the result in X."
+            }
+            Self::LAS => {
+                "ANDs the operand with the stack pointer and loads the result into the \
+                 accumulator, X and the stack pointer."
+            }
+            Self::LAX | Self::ATX => "Loads the operand into the accumulator and X.",
+            Self::AHX | Self::SHAA | Self::SHAZ => {
+                "Stores the accumulator AND X AND the target address's high byte plus one. \
+                 Unstable: crossing a page writes to the un-fixed address instead."
+            }
+            Self::SAX => "Stores the accumulator AND X, setting no flags.",
+            Self::XAA => {
+                "ANDs X and the operand into the accumulator. Unstable: the accumulator is first \
+                 ORed with a mask the hardware decides."
+            }
+            Self::SXA => {
+                "Stores X AND the target address's high byte plus one. Unstable: crossing a page \
+                 writes to the un-fixed address instead."
+            }
+            Self::RRA => "Rotates the operand in memory right, then adds it to the accumulator.",
+            Self::TAS => {
+                "Stores the accumulator AND X AND the target address's high byte plus one, then \
+                 loads the accumulator AND X into the stack pointer."
+            }
+            Self::SYA => {
+                "Stores Y AND the target address's high byte plus one. Unstable: crossing a page \
+                 writes to the un-fixed address instead."
+            }
+            Self::ARR => {
+                "ANDs the operand into the accumulator and rotates it right, taking the carry flag \
+                 from bit 6 and the overflow flag from bits 6 and 5."
+            }
+            Self::SRE => {
+                "Shifts the operand in memory right, then exclusive ORs it into the accumulator."
+            }
+            Self::ALR => {
+                "ANDs the operand into the accumulator, then shifts the accumulator right."
+            }
+            Self::RLA => "Rotates the operand in memory left, then ANDs it into the accumulator.",
+            Self::ANC => {
+                "ANDs the operand into the accumulator, then copies bit 7 into the carry \
+                 flag."
+            }
+            Self::SLO => "Shifts the operand in memory left, then ORs it into the accumulator.",
+            Self::HLT => "Stops the CPU. Nothing but a reset gets it running again.",
+        }
+    }
+
+    /// The status flags the instruction writes.
+    pub const fn affects(self) -> Status {
+        match self {
+            Self::ADC | Self::SBC | Self::ISB | Self::RRA | Self::ARR => {
+                Status::N.union(Status::V).union(Status::Z).union(Status::C)
+            }
+            Self::BIT => Status::N.union(Status::V).union(Status::Z),
+            Self::ASL
+            | Self::LSR
+            | Self::ROL
+            | Self::ROR
+            | Self::CMP
+            | Self::CPX
+            | Self::CPY
+            | Self::AXS
+            | Self::DCP
+            | Self::SLO
+            | Self::SRE
+            | Self::RLA
+            | Self::ALR
+            | Self::ANC => Status::N.union(Status::Z).union(Status::C),
+            Self::AND
+            | Self::EOR
+            | Self::ORA
+            | Self::LDA
+            | Self::LDX
+            | Self::LDY
+            | Self::PLA
+            | Self::DEC
+            | Self::DEX
+            | Self::DEY
+            | Self::INC
+            | Self::INX
+            | Self::INY
+            | Self::TAX
+            | Self::TAY
+            | Self::TSX
+            | Self::TXA
+            | Self::TYA
+            | Self::LAX
+            | Self::ATX
+            | Self::LAS
+            | Self::XAA => Status::N.union(Status::Z),
+            Self::CLC | Self::SEC => Status::C,
+            Self::CLD | Self::SED => Status::D,
+            Self::CLI | Self::SEI | Self::BRK => Status::I,
+            Self::CLV => Status::V,
+            Self::PLP | Self::RTI => Status::all(),
+            // Spelled out rather than left to a wildcard, so a new instruction is a compile error
+            // here instead of quietly claiming to set nothing.
+            Self::BCC
+            | Self::BCS
+            | Self::BEQ
+            | Self::BMI
+            | Self::BNE
+            | Self::BPL
+            | Self::BVC
+            | Self::BVS
+            | Self::JMP
+            | Self::JSR
+            | Self::RTS
+            | Self::NOP
+            | Self::PHA
+            | Self::PHP
+            | Self::STA
+            | Self::STX
+            | Self::STY
+            | Self::TXS
+            | Self::AHX
+            | Self::SAX
+            | Self::SXA
+            | Self::TAS
+            | Self::SYA
+            | Self::SHAZ
+            | Self::SHAA
+            | Self::HLT => Status::empty(),
+        }
     }
 }
 
