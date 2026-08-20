@@ -554,7 +554,7 @@ impl Column {
     const fn default_size(self) -> f32 {
         match self {
             // Wide enough for the register grid's six columns without wrapping.
-            Self::Center | Self::Right => 340.0,
+            Self::Center | Self::Right => 380.0,
             Self::Bottom => 160.0,
         }
     }
