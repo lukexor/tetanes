@@ -5,8 +5,8 @@ use crate::nes::{
     renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
 };
 use egui::{
-    CentralPanel, Color32, Context, Grid, Label, Panel, RichText, ScrollArea, Sense, Ui, Vec2,
-    ViewportClass, ViewportId,
+    CentralPanel, Color32, Context, Grid, Label, Panel, Rect, RichText, ScrollArea, Sense, Ui,
+    Vec2, ViewportClass, ViewportId, text::CCursor,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,7 @@ use std::{
 };
 use tetanes_core::{
     bus::Bus,
-    cpu::{Cpu, Disasm, Status},
+    cpu::{Cpu, Disasm, Status, instr::InstrRef},
     debug::{Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
     memory::{Memory, PRG_PAGES, Page},
 };
@@ -642,6 +642,41 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
             Some((addr, addr))
         }
     }
+}
+
+/// What the mnemonic stands for, what it does, and how the console runs it.
+fn instruction_tooltip(ui: &mut Ui, instr: &InstrRef) {
+    ui.strong(format!("{instr} - {}", instr.instr.name()));
+    ui.label(instr.instr.describe());
+    ui.label(format!(
+        "Opcode ${:02X}, {}, {} cycles.",
+        instr.opcode,
+        instr.addr_mode.name(),
+        instr.cycles,
+    ));
+    let affects = instr.instr.affects();
+    ui.label(if affects.is_empty() {
+        "Sets no flags.".to_string()
+    } else {
+        format!(
+            "Sets {}.",
+            [
+                (Status::N, "N"),
+                (Status::V, "V"),
+                (Status::U, "U"),
+                (Status::B, "B"),
+                (Status::D, "D"),
+                (Status::I, "I"),
+                (Status::Z, "Z"),
+                (Status::C, "C"),
+            ]
+            .into_iter()
+            .filter(|(flag, _)| affects.contains(*flag))
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>()
+            .join(" ")
+        )
+    });
 }
 
 /// A register's hover: what it is, and its value in the three bases worth reading it in.
@@ -1486,7 +1521,7 @@ impl State {
         font: &egui::FontId,
         row_height: f32,
     ) -> (egui::Response, Option<RowAction>) {
-        let galley = self.row_galley(ui, row, pc, palette, font);
+        let (galley, mnemonic_span) = self.row_galley(ui, row, pc, palette, font);
         // At least the viewport's width, so the gutter and the row highlights span it, and at
         // least the text's, so the scroll area learns how far right the disassembly reaches.
         let width = (GUTTER_WIDTH + galley.size().x).max(ui.available_width());
@@ -1527,6 +1562,19 @@ impl State {
             // marks.
             painter.rect_stroke(text, 0.0, palette.selection, egui::StrokeKind::Inside);
         }
+        // Where the mnemonic was laid, measured before the galley is handed to the painter, so
+        // its span can be hovered over. The row is painted from `text.left()`.
+        let mnemonic = Rect::from_x_y_ranges(
+            text.left()
+                + galley
+                    .pos_from_cursor(CCursor::new(mnemonic_span.start))
+                    .left()
+                ..=text.left()
+                    + galley
+                        .pos_from_cursor(CCursor::new(mnemonic_span.end))
+                        .left(),
+            text.y_range(),
+        );
         painter.galley(
             text.left_center() - Vec2::new(0.0, font.size / 2.0),
             galley,
@@ -1593,6 +1641,16 @@ impl State {
         if row_response.clicked() {
             action = Some(RowAction::Select(addr));
         }
+        // Hung off the row rather than given a widget of its own, so nothing overlays the row and
+        // takes the click that selects it.
+        let row_response = if row_response
+            .hover_pos()
+            .is_some_and(|pos| mnemonic.contains(pos))
+        {
+            row_response.on_hover_ui(|ui| instruction_tooltip(ui, &disasm.instr))
+        } else {
+            row_response
+        };
         // Every address the row names is worth copying, not only the one it starts at: the
         // effective address is where an indexed operand actually landed.
         row_response.context_menu(|ui| {
@@ -1624,7 +1682,7 @@ impl State {
         pc: u16,
         palette: &Palette,
         font: &egui::FontId,
-    ) -> Arc<egui::Galley> {
+    ) -> (Arc<egui::Galley>, Range<usize>) {
         let mut job = egui::text::LayoutJob::default();
         let disasm = match row {
             Row::Instruction(disasm) => disasm,
@@ -1638,14 +1696,19 @@ impl State {
                         ..Default::default()
                     },
                 );
-                return ui.painter().layout_job(job);
+                return (ui.painter().layout_job(job), 0..0);
             }
         };
 
         // The console is about to run the row at PC, so it reads as one line rather than as a
         // handful of tinted parts.
         let at_pc = disasm.addr == pc;
+        // Each part reports the characters it laid down, so the mnemonic's own span can be found
+        // again to hover over.
+        let mut laid = 0;
         let mut part = |text: String, color: Color32| {
+            let start = laid;
+            laid += text.chars().count();
             job.append(
                 &text,
                 0.0,
@@ -1655,9 +1718,10 @@ impl State {
                     ..Default::default()
                 },
             );
+            start..laid
         };
 
-        part(format!("${:04X} ", disasm.addr), palette.address);
+        let _ = part(format!("${:04X} ", disasm.addr), palette.address);
         let mut bytes = format!("${:02X} ", disasm.instr.opcode);
         let mut columns = 0;
         for byte in disasm.operands() {
@@ -1667,10 +1731,10 @@ impl State {
         for _ in columns..Disasm::BYTE_COLUMNS {
             bytes.push(' ');
         }
-        part(bytes, palette.bytes);
+        let _ = part(bytes, palette.bytes);
         let mnemonic = disasm.instr.to_string();
         let unofficial = mnemonic.starts_with('*');
-        part(
+        let mnemonic_span = part(
             mnemonic,
             if unofficial {
                 palette.mnemonic_unofficial
@@ -1679,17 +1743,17 @@ impl State {
             },
         );
         if !disasm.operand.is_empty() {
-            part(format!(" {}", disasm.operand), palette.operand);
+            let _ = part(format!(" {}", disasm.operand), palette.operand);
         }
         // Bracketed and tinted apart from the operand that computed it, since it names a second
         // address the row did not write down.
         if let Some(effective) = disasm.effective_text() {
-            part(format!(" [{effective}]"), palette.effective);
+            let _ = part(format!(" [{effective}]"), palette.effective);
         }
         if let Some(value) = disasm.value {
-            part(format!(" = {value}"), palette.resolved);
+            let _ = part(format!(" = {value}"), palette.resolved);
         }
-        ui.painter().layout_job(job)
+        (ui.painter().layout_job(job), mnemonic_span)
     }
 
     fn stack(&mut self, ui: &mut Ui) {

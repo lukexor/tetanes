@@ -384,6 +384,28 @@ impl AddrMode {
             }
         }
     }
+
+    /// How the mode is named, for a debugger to show beside the operand it wrote.
+    ///
+    /// The read and write variants of a mode share a name. They differ in whether a page cross
+    /// always spends its extra cycle, which is timing rather than addressing.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ACC => "accumulator",
+            Self::IMP => "implied",
+            Self::IMM => "immediate",
+            Self::REL => "relative",
+            Self::ZP0 => "zero page",
+            Self::ABS => "absolute",
+            Self::ZPX => "zero page,X",
+            Self::ZPY => "zero page,Y",
+            Self::IND => "indirect",
+            Self::IDX => "(indirect,X)",
+            Self::IDY | Self::IDYW => "(indirect),Y",
+            Self::ABX | Self::ABXW => "absolute,X",
+            Self::ABY | Self::ABYW | Self::OTH => "absolute,Y",
+        }
+    }
 }
 
 /// CPU Opcode.
