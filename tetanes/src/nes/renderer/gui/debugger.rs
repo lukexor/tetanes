@@ -788,9 +788,9 @@ fn syntax_help(ui: &mut Ui) {
 
 /// A watched expression's value.
 ///
-/// A comparison answers true or false, so it says so rather than leaving `0` and `1` to be worked
-/// out. Anything else names a number, and its width follows the value: a byte reads as two digits
-/// and an address as four, so a column of bytes does not pretend to be addresses.
+/// A comparison reads as true or false. Anything else names a number, at the width the value
+/// asks for: a byte reads as two digits and an address as four, so a column of bytes does not
+/// pretend to be addresses.
 fn watch_value(value: i32, boolean: bool) -> String {
     if boolean {
         return if value == 0 { "false" } else { "true" }.to_string();
@@ -1290,11 +1290,10 @@ impl State {
         let mut range = std::mem::take(&mut self.editing_range);
         let offset = self.prg_offset(parse_range(&range).map_or(0, |(addr, _)| addr));
         let response = egui::Window::new("Edit breakpoint")
-            .collapsible(false)
             // Resizable, and wide enough by default that the syntax below reads without
             // wrapping, since a condition can run well past one line.
             .resizable(true)
-            .default_width(420.0)
+            .default_width(400.0)
             .open(&mut open)
             .show(ctx, |ui| {
                 let Some(breakpoint) = self.breakpoints.get_mut(id) else {
@@ -1774,8 +1773,8 @@ impl State {
 
     /// Tell the console which expressions to evaluate each snapshot.
     ///
-    /// Nothing while the pane is closed, so a closed pane evaluates nothing, the way a closed pane
-    /// captures nothing.
+    /// Nothing while the pane is closed, which leaves the console evaluating nothing, the way a
+    /// closed pane captures nothing.
     fn send_watches(&self) {
         if !self.is_open(Pane::Watches) {
             self.tx.event(EmulationEvent::DebugWatches(Vec::new()));
@@ -2640,8 +2639,8 @@ mod tests {
         assert_eq!(breakpoints.covering(0x8000, &unmapped).count(), 0);
     }
 
-    /// A gutter click owns the breakpoint on exactly its address. Taking a range away because a
-    /// row inside it was clicked would remove far more than the click landed on.
+    /// A gutter click owns the breakpoint on exactly its address, and a range covering the row
+    /// is not it.
     #[test]
     fn a_gutter_toggle_leaves_a_range_covering_the_row_alone() {
         let mut breakpoints = Breakpoints::default();
