@@ -231,6 +231,8 @@ pub struct CpuSnapshot {
     /// the window was drawing when it was set, and a row draws the mark only while that bank is
     /// still in.
     pub prg_pages: [Page; PRG_PAGES],
+    /// The frame the console is on, which scales the cycle count into something readable.
+    pub frame: u32,
 }
 
 impl Default for CpuSnapshot {
@@ -242,6 +244,7 @@ impl Default for CpuSnapshot {
             memory: Vec::new(),
             access_log: Vec::new(),
             prg_pages: [Page::UNMAPPED; PRG_PAGES],
+            frame: 0,
         }
     }
 }
@@ -283,6 +286,7 @@ impl CpuSnapshot {
             // Filled by the caller, which owns the console the log is drained from.
             access_log: Vec::new(),
             prg_pages: *bus.memory.prg_pages(),
+            frame: bus.ppu.frame_number(),
         }
     }
 }
@@ -638,6 +642,11 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
             Some((addr, addr))
         }
     }
+}
+
+/// A register's hover: what it is, and its value in the three bases worth reading it in.
+fn byte_hover(name: &str, value: u8) -> String {
+    format!("{name} - ${value:02X}, {value} decimal, %{value:08b}.")
 }
 
 /// Where `addr` sits in the cart arena under `pages`, the mapping the window is drawing.
@@ -1054,39 +1063,72 @@ impl State {
 
     fn register_grid(&mut self, ui: &mut Ui) {
         let cpu = &self.snapshot.cpu;
+        // Both halves of a cell hover, since the name is as likely a target as the value.
+        let cell = |ui: &mut Ui, name: &str, value: String, hover: String| {
+            ui.strong(name).on_hover_text(hover.clone());
+            ui.monospace(value).on_hover_text(hover);
+        };
         Grid::new("cpu_registers")
             .num_columns(6)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                ui.strong("PC");
-                ui.monospace(format!("${:04X}", cpu.pc));
-                ui.strong("A");
-                ui.monospace(format!("${:02X}", cpu.acc));
-                ui.strong("SP");
-                ui.monospace(format!("${:02X}", cpu.sp));
+                cell(
+                    ui,
+                    "PC",
+                    format!("${:04X}", cpu.pc),
+                    "Program counter - the address of the instruction about to run.".to_string(),
+                );
+                cell(
+                    ui,
+                    "A",
+                    format!("${:02X}", cpu.acc),
+                    byte_hover("Accumulator", cpu.acc),
+                );
+                cell(ui, "SP", format!("${:02X}", cpu.sp), self.stack_hover());
                 ui.end_row();
 
-                ui.strong("X");
-                ui.monospace(format!("${:02X}", cpu.x));
-                ui.strong("Y");
-                ui.monospace(format!("${:02X}", cpu.y));
-                ui.strong("Cycle");
-                ui.monospace(cpu.cycle.to_string());
+                cell(
+                    ui,
+                    "X",
+                    format!("${:02X}", cpu.x),
+                    byte_hover("Index register X", cpu.x),
+                );
+                cell(
+                    ui,
+                    "Y",
+                    format!("${:02X}", cpu.y),
+                    byte_hover("Index register Y", cpu.y),
+                );
+                cell(
+                    ui,
+                    "Cycle",
+                    cpu.cycle.to_string(),
+                    format!(
+                        "CPU cycles since power on, and the frame they have reached.\nFrame {}.",
+                        self.snapshot.frame
+                    ),
+                );
                 ui.end_row();
             });
 
         ui.horizontal(|ui| {
-            ui.strong("P");
+            ui.strong("P").on_hover_text(
+                "Status register - the flags the last instruction to write one left behind.",
+            );
             // Uppercase for set, lowercase and dimmed for clear, in NVUBDIZC order.
-            for (flag, name) in [
-                (Status::N, 'N'),
-                (Status::V, 'V'),
-                (Status::U, 'U'),
-                (Status::B, 'B'),
-                (Status::D, 'D'),
-                (Status::I, 'I'),
-                (Status::Z, 'Z'),
-                (Status::C, 'C'),
+            for (flag, name, meaning) in [
+                (Status::N, 'N', "Negative"),
+                (Status::V, 'V', "Overflow"),
+                (Status::U, 'U', "Unused - set whenever the status is pushed"),
+                (Status::B, 'B', "Break - set by the status PHP and BRK push"),
+                (
+                    Status::D,
+                    'D',
+                    "Decimal - the NES CPU's ADC and SBC ignore it",
+                ),
+                (Status::I, 'I', "Interrupt disable"),
+                (Status::Z, 'Z', "Zero"),
+                (Status::C, 'C', "Carry"),
             ] {
                 let set = cpu.status.contains(flag);
                 let text = if set {
@@ -1096,9 +1138,28 @@ impl State {
                         .monospace()
                         .color(Color32::DARK_GRAY)
                 };
-                ui.label(text);
+                ui.label(text)
+                    .on_hover_text(format!("{meaning}: {}", if set { "set" } else { "clear" }));
             }
         });
+    }
+
+    /// What the stack pointer says about the stack, for its hover.
+    ///
+    /// SP names the next free slot, so what a pull would take sits one above it. With the Stack
+    /// pane closed nothing has been captured to name, and the hover says what the register is and
+    /// stops.
+    fn stack_hover(&self) -> String {
+        let cpu = &self.snapshot.cpu;
+        let next = Cpu::SP_BASE | u16::from(cpu.sp);
+        let pull = cpu.sp.wrapping_add(1);
+        match self.snapshot.stack.get(usize::from(pull)) {
+            Some(value) => format!(
+                "Stack pointer - a push writes ${next:04X}, and a pull takes ${:04X} = ${value:02X}.",
+                Cpu::SP_BASE | u16::from(pull)
+            ),
+            None => format!("Stack pointer - a push writes ${next:04X}."),
+        }
     }
 
     /// The instructions that ran most recently, oldest first, ending just before PC.
