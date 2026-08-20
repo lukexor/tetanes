@@ -8,6 +8,8 @@ use crate::{bus::Bus, memory::Memory};
 use bitflags::bitflags;
 use std::sync::Arc;
 
+pub mod expr;
+
 /// A ring buffer of the program counters most recently executed.
 ///
 /// Executed instructions have to be recorded as the console runs: 6502 instructions are one to

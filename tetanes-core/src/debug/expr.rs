@@ -1,0 +1,586 @@
+//! Expressions over console state.
+//!
+//! A breakpoint condition and a watch ask the same question: read something off the console and
+//! reduce it to a number. [`Expr::parse`] turns the text into a form with no strings left in it,
+//! and [`Expr::eval`] runs that form against a [`Bus`] without allocating, because a condition is
+//! asked on the emulation thread at the moment of the access.
+//!
+//! ```text
+//! A == $FF && [$0300] != 0
+//! [$FFFC].w
+//! Z || X < Y
+//! ```
+
+use crate::{bus::Bus, cpu::Status};
+use std::fmt;
+use thiserror::Error;
+
+/// A CPU register an expression can name.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Reg {
+    A,
+    X,
+    Y,
+    Sp,
+    Pc,
+    P,
+}
+
+/// How two values are compared.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Cmp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// One step of a compiled expression, in the order a stack machine runs them.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Op {
+    /// Push a constant.
+    Push(i32),
+    /// Push a register.
+    Reg(Reg),
+    /// Push a status flag as 0 or 1.
+    Flag(Status),
+    /// Replace the address on top with the byte at it.
+    Peek8,
+    /// Replace the address on top with the little-endian word at it.
+    Peek16,
+    /// Replace the top with 1 when it is zero, 0 otherwise.
+    Not,
+    /// Pop two and push the comparison.
+    Cmp(Cmp),
+    /// Pop two and push 1 when both are non-zero.
+    And,
+    /// Pop two and push 1 when either is non-zero.
+    Or,
+}
+
+/// Why an expression would not parse.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParseError {
+    /// The expression ran out part way through.
+    #[error("the expression ends early")]
+    UnexpectedEnd,
+    /// A character that starts nothing.
+    #[error("`{0}` does not belong here")]
+    Unexpected(String),
+    /// A name that is not a register or a flag.
+    #[error("`{0}` is not a register or a flag")]
+    UnknownName(String),
+    /// A bracket or paren with no partner.
+    #[error("expected `{0}`")]
+    Expected(&'static str),
+    /// A number too wide to hold.
+    #[error("`{0}` is too large")]
+    TooLarge(String),
+    /// More nesting than the evaluation stack holds.
+    #[error("the expression nests more than {} deep", Expr::MAX_DEPTH)]
+    TooDeep,
+}
+
+/// An expression compiled to a stack machine, plus the text it was written as.
+///
+/// Parsing happens once, when the expression is set. Evaluation happens per access, so the
+/// compiled form holds no strings and the stack is a fixed array.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Expr {
+    ops: Vec<Op>,
+    source: String,
+}
+
+impl Expr {
+    /// How deep the evaluation stack goes, which bounds how far an expression may nest.
+    ///
+    /// A fixed array rather than a `Vec`, so evaluating allocates nothing. Nesting this deep is
+    /// past what anyone types, and refusing it at parse time means `eval` cannot overrun.
+    pub const MAX_DEPTH: usize = 16;
+
+    /// Parse `source`, reporting what stopped it.
+    ///
+    /// # Errors
+    ///
+    /// If `source` is not an expression, or nests deeper than [`Expr::MAX_DEPTH`].
+    pub fn parse(source: &str) -> Result<Self, ParseError> {
+        let mut parser = Parser {
+            chars: source.chars().collect(),
+            at: 0,
+            ops: Vec::new(),
+            depth: 0,
+            max_depth: 0,
+        };
+        parser.or()?;
+        parser.skip_space();
+        if parser.at < parser.chars.len() {
+            return Err(ParseError::Unexpected(parser.chars[parser.at].to_string()));
+        }
+        if parser.max_depth > Self::MAX_DEPTH {
+            return Err(ParseError::TooDeep);
+        }
+        Ok(Self {
+            ops: parser.ops,
+            source: source.trim().to_string(),
+        })
+    }
+
+    /// The text the expression was written as, for a list to show.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// Evaluate against `bus`.
+    ///
+    /// Memory is read through [`Bus::peek`], so evaluating moves nothing and trips no breakpoint
+    /// of its own.
+    pub fn eval(&self, bus: &Bus) -> i32 {
+        let mut stack = Stack::default();
+        for op in &self.ops {
+            match *op {
+                Op::Push(value) => stack.push(value),
+                Op::Reg(reg) => {
+                    let cpu = &bus.cpu;
+                    stack.push(match reg {
+                        Reg::A => i32::from(cpu.acc),
+                        Reg::X => i32::from(cpu.x),
+                        Reg::Y => i32::from(cpu.y),
+                        Reg::Sp => i32::from(cpu.sp),
+                        Reg::Pc => i32::from(cpu.pc),
+                        Reg::P => i32::from(cpu.status.bits()),
+                    });
+                }
+                Op::Flag(flag) => stack.push(i32::from(bus.cpu.status.contains(flag))),
+                Op::Peek8 => {
+                    let addr = stack.pop() as u16;
+                    stack.push(i32::from(bus.peek(addr)));
+                }
+                Op::Peek16 => {
+                    let addr = stack.pop() as u16;
+                    let lo = bus.peek(addr);
+                    let hi = bus.peek(addr.wrapping_add(1));
+                    stack.push(i32::from(u16::from_le_bytes([lo, hi])));
+                }
+                Op::Not => {
+                    let value = stack.pop();
+                    stack.push(i32::from(value == 0));
+                }
+                Op::Cmp(cmp) => {
+                    let rhs = stack.pop();
+                    let lhs = stack.pop();
+                    stack.push(i32::from(match cmp {
+                        Cmp::Eq => lhs == rhs,
+                        Cmp::Ne => lhs != rhs,
+                        Cmp::Lt => lhs < rhs,
+                        Cmp::Le => lhs <= rhs,
+                        Cmp::Gt => lhs > rhs,
+                        Cmp::Ge => lhs >= rhs,
+                    }));
+                }
+                Op::And => {
+                    let rhs = stack.pop();
+                    let lhs = stack.pop();
+                    stack.push(i32::from(lhs != 0 && rhs != 0));
+                }
+                Op::Or => {
+                    let rhs = stack.pop();
+                    let lhs = stack.pop();
+                    stack.push(i32::from(lhs != 0 || rhs != 0));
+                }
+            }
+        }
+        stack.slots[0]
+    }
+
+    /// Whether the expression comes to something other than zero, the question a condition asks.
+    pub fn is_true(&self, bus: &Bus) -> bool {
+        self.eval(bus) != 0
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.source)
+    }
+}
+
+/// The evaluation stack, a fixed array so evaluating allocates nothing.
+///
+/// A push past the top is dropped and a pop past the bottom reads zero. Neither happens:
+/// [`Expr::parse`] measures how deep an expression goes and refuses one that would outgrow this.
+#[derive(Default)]
+struct Stack {
+    slots: [i32; Expr::MAX_DEPTH],
+    top: usize,
+}
+
+impl Stack {
+    /// Put `value` on top.
+    const fn push(&mut self, value: i32) {
+        if self.top < self.slots.len() {
+            self.slots[self.top] = value;
+            self.top += 1;
+        }
+    }
+
+    /// Take the top value off.
+    const fn pop(&mut self) -> i32 {
+        self.top = self.top.saturating_sub(1);
+        self.slots[self.top]
+    }
+}
+
+/// Recursive descent over the characters, emitting the compiled form as it goes.
+///
+/// Postfix falls out of the recursion: each rule emits its operands and then its operator, so
+/// there is no tree to walk a second time.
+struct Parser {
+    chars: Vec<char>,
+    at: usize,
+    ops: Vec<Op>,
+    depth: usize,
+    max_depth: usize,
+}
+
+impl Parser {
+    /// Emit `op` and track what it does to the stack.
+    fn emit(&mut self, op: Op, pushes: usize, pops: usize) {
+        self.ops.push(op);
+        self.depth = self.depth.saturating_sub(pops) + pushes;
+        self.max_depth = self.max_depth.max(self.depth);
+    }
+
+    fn skip_space(&mut self) {
+        while self.chars.get(self.at).is_some_and(|c| c.is_whitespace()) {
+            self.at += 1;
+        }
+    }
+
+    /// Whether `text` follows, consuming it when it does.
+    fn eat(&mut self, text: &str) -> bool {
+        self.skip_space();
+        if self.chars[self.at..].starts_with(&text.chars().collect::<Vec<_>>()[..]) {
+            self.at += text.chars().count();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// `and` (`||` `and`)*
+    fn or(&mut self) -> Result<(), ParseError> {
+        self.and()?;
+        while self.eat("||") {
+            self.and()?;
+            self.emit(Op::Or, 1, 2);
+        }
+        Ok(())
+    }
+
+    /// `equality` (`&&` `equality`)*
+    fn and(&mut self) -> Result<(), ParseError> {
+        self.equality()?;
+        while self.eat("&&") {
+            self.equality()?;
+            self.emit(Op::And, 1, 2);
+        }
+        Ok(())
+    }
+
+    /// `relational` ((`==` | `!=`) `relational`)*
+    fn equality(&mut self) -> Result<(), ParseError> {
+        self.relational()?;
+        loop {
+            // `!=` before `!`, and `==` before `=`, so the longer operator wins.
+            let cmp = if self.eat("==") {
+                Cmp::Eq
+            } else if self.eat("!=") {
+                Cmp::Ne
+            } else {
+                return Ok(());
+            };
+            self.relational()?;
+            self.emit(Op::Cmp(cmp), 1, 2);
+        }
+    }
+
+    /// `unary` ((`<=` | `>=` | `<` | `>`) `unary`)*
+    fn relational(&mut self) -> Result<(), ParseError> {
+        self.unary()?;
+        loop {
+            let cmp = if self.eat("<=") {
+                Cmp::Le
+            } else if self.eat(">=") {
+                Cmp::Ge
+            } else if self.eat("<") {
+                Cmp::Lt
+            } else if self.eat(">") {
+                Cmp::Gt
+            } else {
+                return Ok(());
+            };
+            self.unary()?;
+            self.emit(Op::Cmp(cmp), 1, 2);
+        }
+    }
+
+    /// `!`* `primary`
+    fn unary(&mut self) -> Result<(), ParseError> {
+        self.skip_space();
+        // Not `!=`, which belongs to `equality`.
+        if self.chars.get(self.at) == Some(&'!') && self.chars.get(self.at + 1) != Some(&'=') {
+            self.at += 1;
+            self.unary()?;
+            self.emit(Op::Not, 1, 1);
+            return Ok(());
+        }
+        self.primary()
+    }
+
+    /// A number, a name, a parenthesized expression, or a memory read.
+    fn primary(&mut self) -> Result<(), ParseError> {
+        self.skip_space();
+        let Some(&c) = self.chars.get(self.at) else {
+            return Err(ParseError::UnexpectedEnd);
+        };
+        match c {
+            '(' => {
+                self.at += 1;
+                self.or()?;
+                if !self.eat(")") {
+                    return Err(ParseError::Expected(")"));
+                }
+                Ok(())
+            }
+            '[' => {
+                self.at += 1;
+                self.or()?;
+                if !self.eat("]") {
+                    return Err(ParseError::Expected("]"));
+                }
+                // `.w` reads the word at the address, `.b` the byte it reads without a suffix.
+                let op = if self.eat(".w") || self.eat(".W") {
+                    Op::Peek16
+                } else {
+                    let _ = self.eat(".b") || self.eat(".B");
+                    Op::Peek8
+                };
+                self.emit(op, 1, 1);
+                Ok(())
+            }
+            '$' | '%' => {
+                self.at += 1;
+                let radix = if c == '$' { 16 } else { 2 };
+                self.number(radix)
+            }
+            '0' if matches!(self.chars.get(self.at + 1), Some('x' | 'X')) => {
+                self.at += 2;
+                self.number(16)
+            }
+            '0'..='9' => self.number(10),
+            c if c.is_ascii_alphabetic() => self.name(),
+            c => Err(ParseError::Unexpected(c.to_string())),
+        }
+    }
+
+    /// Digits in `radix`, at least one.
+    fn number(&mut self, radix: u32) -> Result<(), ParseError> {
+        let start = self.at;
+        while self
+            .chars
+            .get(self.at)
+            .is_some_and(|c| c.is_digit(radix) || *c == '_')
+        {
+            self.at += 1;
+        }
+        let text = self.chars[start..self.at]
+            .iter()
+            .filter(|c| **c != '_')
+            .collect::<String>();
+        if text.is_empty() {
+            return match self.chars.get(self.at) {
+                Some(c) => Err(ParseError::Unexpected(c.to_string())),
+                None => Err(ParseError::UnexpectedEnd),
+            };
+        }
+        let value = i32::from_str_radix(&text, radix).map_err(|_| ParseError::TooLarge(text))?;
+        self.emit(Op::Push(value), 1, 0);
+        Ok(())
+    }
+
+    /// A register or a flag, either case.
+    fn name(&mut self) -> Result<(), ParseError> {
+        let start = self.at;
+        while self
+            .chars
+            .get(self.at)
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            self.at += 1;
+        }
+        let name = self.chars[start..self.at].iter().collect::<String>();
+        let op = match name.to_ascii_lowercase().as_str() {
+            "a" => Op::Reg(Reg::A),
+            "x" => Op::Reg(Reg::X),
+            "y" => Op::Reg(Reg::Y),
+            "sp" => Op::Reg(Reg::Sp),
+            "pc" => Op::Reg(Reg::Pc),
+            "p" => Op::Reg(Reg::P),
+            "n" => Op::Flag(Status::N),
+            "v" => Op::Flag(Status::V),
+            "u" => Op::Flag(Status::U),
+            "b" => Op::Flag(Status::B),
+            "d" => Op::Flag(Status::D),
+            "i" => Op::Flag(Status::I),
+            "z" => Op::Flag(Status::Z),
+            "c" => Op::Flag(Status::C),
+            _ => return Err(ParseError::UnknownName(name)),
+        };
+        self.emit(op, 1, 0);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Expr, ParseError};
+    use crate::{bus::Bus, cart::Cart, common::ResetKind, cpu::Status, mapper::Nrom};
+
+    fn bus() -> Bus {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty();
+        cart.mapper = Nrom::load(&mut cart).unwrap();
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+        bus
+    }
+
+    fn eval(source: &str, bus: &Bus) -> i32 {
+        Expr::parse(source).expect(source).eval(bus)
+    }
+
+    #[test]
+    fn registers_and_flags_read_off_the_cpu() {
+        let mut bus = bus();
+        bus.cpu.acc = 0x42;
+        bus.cpu.x = 0x10;
+        bus.cpu.sp = 0xFD;
+        bus.cpu.status.set(Status::Z, true);
+        bus.cpu.status.set(Status::C, false);
+
+        assert_eq!(eval("A", &bus), 0x42);
+        assert_eq!(eval("x", &bus), 0x10);
+        assert_eq!(eval("SP", &bus), 0xFD);
+        assert_eq!(eval("Z", &bus), 1);
+        assert_eq!(eval("C", &bus), 0);
+        assert_eq!(eval("P", &bus), i32::from(bus.cpu.status.bits()));
+    }
+
+    #[test]
+    fn numbers_parse_in_every_base_the_debugger_writes() {
+        let bus = bus();
+        assert_eq!(eval("$FF", &bus), 255);
+        assert_eq!(eval("0xff", &bus), 255);
+        assert_eq!(eval("255", &bus), 255);
+        assert_eq!(eval("%1111_1111", &bus), 255);
+    }
+
+    /// A byte read by default and a word with `.w`, which is how a vector is read.
+    #[test]
+    fn brackets_read_memory_and_a_suffix_widens_it() {
+        let mut bus = bus();
+        bus.cpu_bus_write(0x0300, 0x34);
+        bus.cpu_bus_write(0x0301, 0x12);
+
+        assert_eq!(eval("[$0300]", &bus), 0x34);
+        assert_eq!(eval("[$0300].w", &bus), 0x1234);
+        assert_eq!(eval("[$0300].b", &bus), 0x34);
+    }
+
+    /// The address is an expression of its own, so a pointer held in a register can be followed.
+    #[test]
+    fn a_bracket_takes_an_expression_for_its_address() {
+        let mut bus = bus();
+        bus.cpu.x = 0x05;
+        bus.cpu_bus_write(0x0005, 0x99);
+        assert_eq!(eval("[X]", &bus), 0x99);
+    }
+
+    /// Loosest to tightest: `||`, `&&`, equality, relational. Getting this wrong makes
+    /// `A == 1 && X == 2` mean something else entirely.
+    #[test]
+    fn operators_bind_in_the_usual_order() {
+        let mut bus = bus();
+        bus.cpu.acc = 1;
+        bus.cpu.x = 2;
+
+        assert_eq!(eval("A == 1 && X == 2", &bus), 1);
+        assert_eq!(eval("A == 1 && X == 3", &bus), 0);
+        assert_eq!(eval("A == 9 || X == 2", &bus), 1);
+        assert_eq!(eval("A < X", &bus), 1);
+        assert_eq!(eval("A >= X", &bus), 0);
+        assert_eq!(eval("!(A == 1)", &bus), 0);
+        assert_eq!(eval("(A == 9 || X == 2) && A == 1", &bus), 1);
+    }
+
+    #[test]
+    fn a_condition_is_true_when_it_comes_to_anything_but_zero() {
+        let mut bus = bus();
+        bus.cpu.acc = 0x42;
+        assert!(Expr::parse("A").expect("parses").is_true(&bus));
+        assert!(!Expr::parse("A == 0").expect("parses").is_true(&bus));
+    }
+
+    #[test]
+    fn what_is_not_an_expression_is_refused() {
+        assert_eq!(Expr::parse(""), Err(ParseError::UnexpectedEnd));
+        assert_eq!(Expr::parse("A =="), Err(ParseError::UnexpectedEnd));
+        assert_eq!(Expr::parse("[$00"), Err(ParseError::Expected("]")));
+        assert_eq!(Expr::parse("(A"), Err(ParseError::Expected(")")));
+        assert_eq!(
+            Expr::parse("foo"),
+            Err(ParseError::UnknownName("foo".to_string()))
+        );
+        assert_eq!(
+            Expr::parse("A @ 1"),
+            Err(ParseError::Unexpected("@".to_string()))
+        );
+        assert_eq!(
+            Expr::parse("$FFFFFFFFFF"),
+            Err(ParseError::TooLarge("FFFFFFFFFF".to_string()))
+        );
+    }
+
+    /// `eval` indexes a fixed array, so anything that would outgrow it has to be refused at parse
+    /// time rather than saturating at run time.
+    #[test]
+    fn nesting_past_the_evaluation_stack_is_refused() {
+        let deep = format!(
+            "{}1{}",
+            "!(".repeat(Expr::MAX_DEPTH + 4),
+            ")".repeat(Expr::MAX_DEPTH + 4)
+        );
+        assert!(Expr::parse(&deep).is_ok(), "unary nesting stays one deep");
+
+        let wide = (0..=Expr::MAX_DEPTH)
+            .map(|_| "(1 == 1")
+            .collect::<Vec<_>>()
+            .join(" && ")
+            + &")".repeat(Expr::MAX_DEPTH + 1);
+        assert_eq!(Expr::parse(&wide), Err(ParseError::TooDeep));
+    }
+
+    /// The text survives parsing, since a watch list shows what was typed rather than a
+    /// reconstruction of it.
+    #[test]
+    fn the_source_text_is_kept() {
+        let expr = Expr::parse("  A == $FF  ").expect("parses");
+        assert_eq!(expr.source(), "A == $FF");
+        assert_eq!(expr.to_string(), "A == $FF");
+    }
+}

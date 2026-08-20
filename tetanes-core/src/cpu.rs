@@ -77,7 +77,7 @@ bitflags! {
 // +--------- Negative
 bitflags! {
     /// CPU Status Registers.
-    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone)]
+    #[derive(Default, Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
     #[must_use]
     pub struct Status: u8 {
         /// Carry.
