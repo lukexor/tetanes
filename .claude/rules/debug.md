@@ -27,6 +27,19 @@ with a predicate that never fires, and `clock_frame` shares its display-frame ac
 `clock_frame_with`. The UI owns the list of addresses (`renderer/gui/debugger.rs`), and an empty
 list keeps a console with no breakpoints on the frame-at-a-time path.
 
+**A condition is parsed once and evaluated per access.** `debug/expr.rs` compiles the text to a
+stack machine with no strings in it, and `Expr::eval` walks that against a `Bus` with a fixed-size
+stack, since a condition is asked on the emulation thread at the moment of the access. Memory is
+read through `peek`, so asking moves nothing. The grammar is a JavaScript subset - `mem[addr]`,
+`mem16[addr]`, lowercase registers and flags, `0x`/`0b` literals - because plugins are meant to
+drive these same hooks from outside through a JS engine, and one surface syntax beats two. `$FF`
+parses as well, since every other box in the debugger writes an address that way.
+
+Deciding is split from recording (`Breakpoints::check` and `record`) because a condition reads the
+whole console and the console owns the breakpoints. The window leaves a breakpoint whose condition
+does not parse **unarmed**, rather than arming it without the condition, since the second stops on
+far more than was asked for.
+
 **Every way of running the console asks one condition,** `emulation.rs`'s `breaks_here`, so a step
 stops at a breakpoint the way a resume does. Step into and step over clock an instruction, step out
 and step over's tail run `step_until`, and stepping a scanline or a frame goes through the `_until`

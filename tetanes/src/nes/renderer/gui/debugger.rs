@@ -20,12 +20,15 @@ use std::{
 use tetanes_core::{
     bus::Bus,
     cpu::{Cpu, Disasm, Status, instr::InstrRef},
-    debug::{Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints},
+    debug::{
+        Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints,
+        expr::{Expr, ParseError},
+    },
     memory::{Memory, PRG_PAGES, Page},
 };
 
 /// A range of addresses the console stops at when one is accessed.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
     /// First address covered.
@@ -41,6 +44,11 @@ pub struct Breakpoint {
     pub enabled: bool,
     /// Cleared to record the access in the list and let the console run on.
     pub breaks: bool,
+    /// An expression that has to hold as well, as typed. Empty to trip on every access.
+    ///
+    /// Kept as text rather than as a parsed [`Expr`], since the box holds whatever is being typed
+    /// and half an expression is not one yet.
+    pub condition: String,
 }
 
 impl Breakpoint {
@@ -55,6 +63,7 @@ impl Breakpoint {
             access: Access::EXEC,
             enabled: true,
             breaks: true,
+            condition: String::new(),
         }
     }
 
@@ -67,16 +76,26 @@ impl Breakpoint {
         }
     }
 
+    /// The condition as parsed, or `None` when the box is empty.
+    pub fn condition(&self) -> Option<Result<Expr, ParseError>> {
+        let text = self.condition.trim();
+        (!text.is_empty()).then(|| Expr::parse(text))
+    }
+
     /// What the console is told, which drops the parts only the list draws.
-    const fn armed(&self) -> DeckBreakpoint {
-        DeckBreakpoint {
+    ///
+    /// `None` for a condition that does not parse. Arming it without the condition would stop on
+    /// far more than was asked for, so the breakpoint stays listed and unarmed until the
+    /// expression is one.
+    fn armed(&self) -> Option<DeckBreakpoint> {
+        Some(DeckBreakpoint {
             start: self.addr,
             end: self.end,
             offset: self.offset,
             access: self.access,
             breaks: self.breaks,
-            condition: None,
-        }
+            condition: self.condition().transpose().ok()?,
+        })
     }
 }
 
@@ -135,7 +154,7 @@ impl Breakpoints {
         self.0
             .iter()
             .filter(|breakpoint| breakpoint.enabled && !breakpoint.access.is_empty())
-            .map(Breakpoint::armed)
+            .filter_map(Breakpoint::armed)
             .collect()
     }
 
@@ -605,6 +624,11 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
+    /// Which breakpoint has its condition box open, keyed the way the list is.
+    ///
+    /// Only the empty ones need remembering. One with a condition in it shows its box whether or
+    /// not this names it, since hiding a condition would hide why a breakpoint is not firing.
+    condition_open: Option<(u16, Option<u32>)>,
     history_lines: u16,
     /// The panes that are open, in [`Pane::ALL`] order.
     panes: Vec<Pane>,
@@ -643,6 +667,34 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
             Some((addr, addr))
         }
     }
+}
+
+/// The condition box under a breakpoint, reporting whether what is armed has changed.
+///
+/// An expression that does not parse tints the box and says why on hover. See
+/// [`Breakpoint::armed`] for what that does to the breakpoint.
+fn condition_row(ui: &mut Ui, breakpoint: &mut Breakpoint) -> bool {
+    ui.horizontal(|ui| {
+        // Indented under the row it belongs to, so a list of several still reads down the
+        // addresses.
+        ui.add_space(GUTTER_WIDTH);
+        let error = match breakpoint.condition() {
+            Some(Err(error)) => Some(error),
+            Some(Ok(_)) | None => None,
+        };
+        let edit = egui::TextEdit::singleline(&mut breakpoint.condition)
+            .hint_text("a == 0xFF && mem[0x300] != 0")
+            .desired_width(f32::INFINITY)
+            .text_color_opt(error.as_ref().map(|_| Color32::LIGHT_RED));
+        let response = ui.add(edit);
+        if let Some(error) = &error {
+            response.clone().on_hover_text(error.to_string());
+        }
+        // Re-armed on each keystroke rather than on Enter, so a condition takes hold as it is
+        // written.
+        response.changed()
+    })
+    .inner
 }
 
 /// What the mnemonic stands for, what it does, and how the console runs it.
@@ -800,6 +852,7 @@ impl CpuDebugger {
                 access_log: Vec::new(),
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
+                condition_open: None,
                 history_lines: Self::HISTORY_LINES,
                 panes,
             })),
@@ -1324,6 +1377,7 @@ impl State {
         let mut removed = None;
         let mut scroll_to = None;
         let pages = &self.snapshot.prg_pages;
+        let mut condition_open = self.condition_open;
         let breakpoints = &mut self.breakpoints;
         ScrollArea::vertical()
             .id_salt("breakpoints")
@@ -1390,12 +1444,32 @@ impl State {
                                 "Break execution"
                             })
                             .changed();
+                        let key = (breakpoint.addr, breakpoint.offset);
+                        let mut open =
+                            condition_open == Some(key) || !breakpoint.condition.trim().is_empty();
+                        if ui
+                            .toggle_value(&mut open, "if")
+                            .on_hover_text("Stop only while an expression holds")
+                            .clicked()
+                        {
+                            // A condition still in the box keeps its row open whatever the
+                            // toggle says, so closing it means clearing it.
+                            breakpoint.condition.clear();
+                            condition_open = open.then_some(key);
+                            armed_changed = true;
+                        }
                         if ui.small_button("✖").clicked() {
-                            removed = Some((breakpoint.addr, breakpoint.offset));
+                            removed = Some(key);
                         }
                     });
+                    if condition_open == Some((breakpoint.addr, breakpoint.offset))
+                        || !breakpoint.condition.trim().is_empty()
+                    {
+                        armed_changed |= condition_row(ui, breakpoint);
+                    }
                 }
             });
+        self.condition_open = condition_open;
         if let Some((addr, offset)) = removed {
             self.breakpoints.remove(addr, offset);
             armed_changed = true;
@@ -1997,6 +2071,27 @@ mod tests {
         assert_eq!(parse_range("$C000-$C0FF"), Some((0xC000, 0xC0FF)));
         assert_eq!(parse_range("0xC0FF-0xC000"), Some((0xC000, 0xC0FF)));
         assert_eq!(parse_range("$C000-"), None);
+    }
+
+    /// A condition still being typed does not parse, and arming the breakpoint without it would
+    /// stop on every access the range covers rather than the few that were asked for.
+    #[test]
+    fn a_breakpoint_whose_condition_does_not_parse_is_not_armed() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::execute(0xC000, None));
+        for breakpoint in breakpoints.iter_mut() {
+            breakpoint.condition = "a ==".to_string();
+        }
+        assert!(breakpoints.armed().is_empty());
+        assert!(
+            !breakpoints.is_empty(),
+            "it stays listed so the rest can be typed"
+        );
+
+        for breakpoint in breakpoints.iter_mut() {
+            breakpoint.condition = "a == 0x42".to_string();
+        }
+        assert_eq!(armed_at(&breakpoints), [0xC000]);
     }
 
     /// A breakpoint with no access ticked stops nothing, so the console is not told about it.
