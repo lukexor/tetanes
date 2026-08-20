@@ -27,6 +27,13 @@ with a predicate that never fires, and `clock_frame` shares its display-frame ac
 `clock_frame_with`. The UI owns the list of addresses (`renderer/gui/debugger.rs`), and an empty
 list keeps a console with no breakpoints on the frame-at-a-time path.
 
+**A watch is the same expression asked once per snapshot.** The window owns the text and sends
+`EmulationEvent::DebugWatches(Vec<Option<Expr>>)`, `None` for a row still being typed, so the
+`Vec<Option<i32>>` that comes back on `CpuSnapshot` lines up with the rows however many are
+half-written. Values follow the console for free: a snapshot is pushed every frame while it runs
+and after every step. A closed pane sends an empty list, so it evaluates nothing, the way a closed
+pane captures nothing.
+
 **A condition is parsed once and evaluated per access.** `debug/expr.rs` compiles the text to a
 stack machine with no strings in it, and `Expr::eval` walks that against a `Bus` with a fixed-size
 stack, since a condition is asked on the emulation thread at the moment of the access. Memory is

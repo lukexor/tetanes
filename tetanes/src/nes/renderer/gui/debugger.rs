@@ -322,6 +322,11 @@ pub struct CpuSnapshot {
     pub memory: Vec<u8>,
     /// Accesses that breakpoints recorded without stopping, oldest first.
     pub access_log: Vec<AccessHit>,
+    /// What the Watches pane's expressions came to, in the order it listed them.
+    ///
+    /// `None` where the row holds something that does not parse, so the values line up with the
+    /// rows whatever is half-written.
+    pub watches: Vec<Option<i32>>,
     /// The PRG page table, which resolves an address to the cart byte currently mapped there.
     ///
     /// Sent every frame while running and after every step, so a breakpoint is pinned to the bank
@@ -340,6 +345,7 @@ impl Default for CpuSnapshot {
             history: Vec::new(),
             memory: Vec::new(),
             access_log: Vec::new(),
+            watches: Vec::new(),
             prg_pages: [Page::UNMAPPED; PRG_PAGES],
             frame: 0,
         }
@@ -382,6 +388,8 @@ impl CpuSnapshot {
             }),
             // Filled by the caller, which owns the console the log is drained from.
             access_log: Vec::new(),
+            // Filled by the caller, which owns the expressions the window asked for.
+            watches: Vec::new(),
             prg_pages: *bus.memory.prg_pages(),
             frame: bus.ppu.frame_number(),
         }
@@ -558,14 +566,17 @@ pub enum Pane {
     Breakpoints,
     /// The instructions that ran most recently.
     History,
+    /// Expressions and what they come to on the console as it stands.
+    Watches,
 }
 
 impl Pane {
     /// Every pane, in the order a column stacks them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Disassembly,
         Self::Registers,
         Self::Stack,
+        Self::Watches,
         Self::Breakpoints,
         Self::History,
     ];
@@ -578,6 +589,7 @@ impl Pane {
             Self::Stack => "Stack",
             Self::Breakpoints => "Breakpoints",
             Self::History => "Recently executed",
+            Self::Watches => "Watches",
         }
     }
 
@@ -585,7 +597,7 @@ impl Pane {
     pub const fn column(self) -> Column {
         match self {
             Self::Disassembly => Column::Center,
-            Self::Registers | Self::Stack | Self::Breakpoints => Column::Right,
+            Self::Registers | Self::Stack | Self::Watches | Self::Breakpoints => Column::Right,
             Self::History => Column::Bottom,
         }
     }
@@ -600,6 +612,7 @@ impl Pane {
             Self::Stack => 220.0,
             Self::Breakpoints => 160.0,
             Self::History => 140.0,
+            Self::Watches => 140.0,
         }
     }
 
@@ -611,6 +624,7 @@ impl Pane {
             Self::Stack => "debugger_pane_stack",
             Self::Breakpoints => "debugger_pane_breakpoints",
             Self::History => "debugger_pane_history",
+            Self::Watches => "debugger_pane_watches",
         }
     }
 }
@@ -703,6 +717,10 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
+    /// The watched expressions as typed, in the order the pane lists them.
+    watches: Vec<String>,
+    /// What is typed in the watch box, which is not a watch until it is added.
+    watch_entry: String,
     /// Which breakpoint the editor window is open on, by [`Breakpoint::id`].
     ///
     /// An id rather than an index, so removing another breakpoint while the editor is open cannot
@@ -747,6 +765,19 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
             let addr = parse_addr(text)?;
             Some((addr, addr))
         }
+    }
+}
+
+/// A watched expression's value, in hex and decimal.
+///
+/// Width follows the value: a byte reads as two digits and an address as four, so a column of
+/// bytes does not pretend to be addresses. A negative comes only from a comparison or a
+/// subtraction, where hex says nothing, so it is written in decimal alone.
+fn watch_value(value: i32) -> String {
+    match u16::try_from(value) {
+        Ok(value) if value <= 0xFF => format!("${value:02X} {value}"),
+        Ok(value) => format!("${value:04X} {value}"),
+        Err(_) => value.to_string(),
     }
 }
 
@@ -997,6 +1028,8 @@ impl CpuDebugger {
                 access_log: Vec::new(),
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
+                watches: Vec::new(),
+                watch_entry: String::new(),
                 editing: None,
                 editing_range: String::new(),
                 history_lines: Self::HISTORY_LINES,
@@ -1131,6 +1164,7 @@ impl State {
         if open {
             self.send_breakpoints();
         }
+        self.send_watches();
     }
 
     /// Say that the list is full, which is the one reason adding a breakpoint does nothing.
@@ -1184,6 +1218,7 @@ impl State {
             .event(ConfigEvent::DebuggerPanes(self.panes.clone()));
         self.tx
             .event(EmulationEvent::DebugSubscribe(Some(self.request())));
+        self.send_watches();
     }
 
     /// What the console is asked to capture for the panes that are open.
@@ -1463,6 +1498,7 @@ impl State {
             Pane::Registers => self.registers(ui),
             Pane::Stack => self.stack(ui),
             Pane::Breakpoints => self.breakpoint_list(ui),
+            Pane::Watches => self.watch_list(ui),
             // Its own pane rather than inline above PC: the disassembly is ordered by address and
             // this is ordered by time, so the two only coincide in straight-line code.
             Pane::History => self.history(ui),
@@ -1629,6 +1665,101 @@ impl State {
             };
             ui.label(RichText::new(text).monospace().color(Color32::DARK_GRAY));
         }
+    }
+
+    /// The watched expressions and what each comes to, with the box that adds one.
+    ///
+    /// Values arrive on the snapshot, so they follow the console: they refresh every frame while
+    /// it runs and after every step.
+    fn watch_list(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.watch_entry)
+                    .hint_text("expression")
+                    .desired_width(140.0),
+            );
+            let add = submitted(ui, &response) | ui.button("Add").clicked();
+            if add && !self.watch_entry.trim().is_empty() {
+                self.watches.push(std::mem::take(&mut self.watch_entry));
+                self.send_watches();
+            }
+            ui.menu_button("?", |ui| {
+                ui.label(RichText::new(Expr::SYNTAX).monospace().small());
+            })
+            .response
+            .on_hover_text("Expression syntax");
+        });
+
+        if self.watches.is_empty() {
+            ui.weak("None. Add an expression above, like `a` or `mem16[0xFFFC]`.");
+            return;
+        }
+
+        let mut changed = false;
+        let mut removed = None;
+        let values = &self.snapshot.watches;
+        let watches = &mut self.watches;
+        ScrollArea::vertical()
+            .id_salt("watches")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (index, watch) in watches.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.small_button("✖").clicked() {
+                            removed = Some(index);
+                        }
+                        // The value column first at a fixed width, so a column of them reads down
+                        // however wide the expressions beside them are.
+                        match Expr::parse(watch.trim()) {
+                            Ok(_) => {
+                                // A value arrives a frame after the expression it answers, so a
+                                // row that has just been typed has none yet.
+                                let text = values
+                                    .get(index)
+                                    .copied()
+                                    .flatten()
+                                    .map_or_else(|| "…".to_string(), watch_value);
+                                ui.monospace(text);
+                            }
+                            Err(error) => {
+                                ui.label(RichText::new("error").monospace().color(Color32::RED))
+                                    .on_hover_text(error.to_string());
+                            }
+                        }
+                        changed |= ui
+                            .add(
+                                egui::TextEdit::singleline(watch)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_width(f32::INFINITY),
+                            )
+                            .changed();
+                    });
+                }
+            });
+        if let Some(index) = removed {
+            self.watches.remove(index);
+            changed = true;
+        }
+        if changed {
+            self.send_watches();
+        }
+    }
+
+    /// Tell the console which expressions to evaluate each snapshot.
+    ///
+    /// Nothing while the pane is closed, so a closed pane evaluates nothing, the way a closed pane
+    /// captures nothing.
+    fn send_watches(&self) {
+        if !self.is_open(Pane::Watches) {
+            self.tx.event(EmulationEvent::DebugWatches(Vec::new()));
+            return;
+        }
+        self.tx.event(EmulationEvent::DebugWatches(
+            self.watches
+                .iter()
+                .map(|watch| Expr::parse(watch.trim()).ok())
+                .collect(),
+        ));
     }
 
     /// The breakpoints, and the box that adds one.
@@ -2225,6 +2356,7 @@ mod tests {
     use super::{
         AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, PRG_PAGES, Page,
         Pane, Row, is_mapped, parse_addr, parse_range, prg_offset, request, row_is_visible,
+        watch_value,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -2246,8 +2378,17 @@ mod tests {
         let (sized, filling) = Column::Right
             .tiling(&Pane::ALL)
             .expect("the right column has panes");
-        assert_eq!(sized, [Pane::Registers, Pane::Stack]);
-        assert_eq!(filling, Pane::Breakpoints);
+        // Read off `Pane::ALL` rather than written out, so this pins the rule and adding a pane
+        // does not rewrite it.
+        let (last, rest) = Pane::ALL
+            .into_iter()
+            .filter(|pane| pane.column() == Column::Right)
+            .collect::<Vec<_>>()
+            .split_last()
+            .map(|(last, rest)| (*last, rest.to_vec()))
+            .expect("the right column has panes");
+        assert_eq!(sized, rest);
+        assert_eq!(filling, last);
     }
 
     /// A column that reports nothing is not drawn, so it takes no width or height from the rest.
@@ -2538,6 +2679,17 @@ mod tests {
 
         assert_eq!(armed_at(&breakpoints), [0xC000, 0xC000]);
         assert_ne!(first, second, "the second took the first one's name");
+    }
+
+    /// A watch's width follows its value, so a column of bytes does not read as addresses. Only a
+    /// comparison or a subtraction goes negative, where hex says nothing.
+    #[test]
+    fn a_watch_is_written_at_the_width_of_its_value() {
+        assert_eq!(watch_value(0x42), "$42 66");
+        assert_eq!(watch_value(0xFF), "$FF 255");
+        assert_eq!(watch_value(0x0100), "$0100 256");
+        assert_eq!(watch_value(0xFFFF), "$FFFF 65535");
+        assert_eq!(watch_value(-1), "-1");
     }
 
     /// The editor's address box round-trips a breakpoint's own range, so opening the editor and

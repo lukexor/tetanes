@@ -32,7 +32,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
-    debug::{Access, Breakpoint, CodeMap},
+    debug::{Access, Breakpoint, CodeMap, expr::Expr},
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -360,6 +360,9 @@ pub struct State {
     /// Checking them means clocking the console an instruction at a time, so an empty list is what
     /// keeps a console with no breakpoints on the frame-at-a-time path.
     debug_breakpoints: Vec<Breakpoint>,
+    /// The expressions the Watches pane wants, in the order it lists them. Empty while the pane
+    /// is closed, so a closed pane evaluates nothing.
+    debug_watches: Vec<Option<Expr>>,
     threaded: bool,
     rewinding: bool,
     rewind: Rewind,
@@ -535,6 +538,7 @@ impl State {
             debug_generation: None,
             debug_code_map: None,
             debug_breakpoints: Vec::new(),
+            debug_watches: Vec::new(),
             threaded: cfg.emulation.threaded
                 && std::thread::available_parallelism().is_ok_and(|count| count.get() > 1),
             rewinding: false,
@@ -657,6 +661,9 @@ impl State {
                 self.debug_generation = None;
                 self.send_address_space();
                 self.send_debug_snapshot();
+            }
+            EmulationEvent::DebugWatches(watches) => {
+                self.debug_watches.clone_from(watches);
             }
             EmulationEvent::DebugBreakpoints(breakpoints) => {
                 self.debug_breakpoints.clone_from(breakpoints);
@@ -1050,6 +1057,14 @@ impl State {
         if let Some(request) = &self.debug_request {
             let mut snapshot = CpuSnapshot::capture(self.control_deck.bus(), request);
             snapshot.access_log = self.control_deck.drain_access_log();
+            // Evaluated here rather than in `capture`, since the expressions belong to the window
+            // and the console is only asked to read them.
+            let bus = self.control_deck.bus();
+            snapshot.watches = self
+                .debug_watches
+                .iter()
+                .map(|watch| watch.as_ref().map(|expr| expr.eval(bus)))
+                .collect();
             self.tx.event(DebugEvent::Cpu(Box::new(snapshot)));
         }
     }

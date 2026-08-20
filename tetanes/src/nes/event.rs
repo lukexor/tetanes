@@ -27,7 +27,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
     cpu::instr::InstrRef,
-    debug::{AccessHit, Breakpoint, Debugger},
+    debug::{AccessHit, Breakpoint, Debugger, expr::Expr},
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     memory::RamState,
@@ -221,6 +221,11 @@ pub enum EmulationEvent {
     /// The whole set rather than one change at a time: the debugger owns the list, and the
     /// console needs only what is armed right now.
     DebugBreakpoints(Vec<Breakpoint>),
+    /// The expressions the Watches pane wants evaluated, in the order it lists them.
+    ///
+    /// `None` where what is typed does not parse yet, so the values that come back line up with
+    /// the rows however many of them are half-written.
+    DebugWatches(Vec<Option<Expr>>),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
