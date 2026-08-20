@@ -103,6 +103,24 @@ pub struct Expr {
 }
 
 impl Expr {
+    /// The grammar, for a window to show beside the box an expression is typed into.
+    ///
+    /// Kept here rather than written out again in the UI, so the two cannot drift apart.
+    pub const SYNTAX: &'static str = "\
+registers   a  x  y  sp  pc  p
+flags       n  v  u  b  d  i  z  c
+memory      mem[addr]        one byte
+            mem16[addr]      a little-endian word
+numbers     0xFF  $FF  0b1010  255
+compare     ==  !=  <  <=  >  >=
+logic       &&  ||  !  ( )
+
+Names are case-insensitive. Anything other than zero is true.
+
+  a == 0xFF && mem[0x300] != 0
+  mem16[0xFFFC] == pc
+  z || x < y";
+
     /// How deep the evaluation stack goes, which bounds how far an expression may nest.
     ///
     /// A fixed array rather than a `Vec`, so evaluating allocates nothing. Nesting this deep is

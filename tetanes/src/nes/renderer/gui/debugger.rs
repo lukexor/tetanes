@@ -703,11 +703,13 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
-    /// Which breakpoint has its condition box open, by [`Breakpoint::id`].
+    /// Which breakpoint the editor window is open on, by [`Breakpoint::id`].
     ///
-    /// Only the empty ones need remembering. One with a condition in it shows its box whether or
-    /// not this names it, since hiding a condition would hide why a breakpoint is not firing.
-    condition_open: Option<u32>,
+    /// An id rather than an index, so removing another breakpoint while the editor is open cannot
+    /// slide it onto a different one.
+    editing: Option<u32>,
+    /// What the editor's address box holds, which is not the breakpoint's range until it parses.
+    editing_range: String,
     history_lines: u16,
     /// The panes that are open, in [`Pane::ALL`] order.
     panes: Vec<Pane>,
@@ -838,34 +840,6 @@ impl GutterMark {
             }
         }
     }
-}
-
-/// The condition box under a breakpoint, reporting whether what is armed has changed.
-///
-/// An expression that does not parse tints the box and says why on hover. See
-/// [`Breakpoint::armed`] for what that does to the breakpoint.
-fn condition_row(ui: &mut Ui, breakpoint: &mut Breakpoint) -> bool {
-    ui.horizontal(|ui| {
-        // Indented under the row it belongs to, so a list of several still reads down the
-        // addresses.
-        ui.add_space(GUTTER_WIDTH);
-        let error = match breakpoint.condition() {
-            Some(Err(error)) => Some(error),
-            Some(Ok(_)) | None => None,
-        };
-        let edit = egui::TextEdit::singleline(&mut breakpoint.condition)
-            .hint_text("a == 0xFF && mem[0x300] != 0")
-            .desired_width(f32::INFINITY)
-            .text_color_opt(error.as_ref().map(|_| Color32::LIGHT_RED));
-        let response = ui.add(edit);
-        if let Some(error) = &error {
-            response.clone().on_hover_text(error.to_string());
-        }
-        // Re-armed on each keystroke rather than on Enter, so a condition takes hold as it is
-        // written.
-        response.changed()
-    })
-    .inner
 }
 
 /// What the mnemonic stands for, what it does, and how the console runs it.
@@ -1023,7 +997,8 @@ impl CpuDebugger {
                 access_log: Vec::new(),
                 breakpoints: Breakpoints::default(),
                 breakpoint_goto: String::new(),
-                condition_open: None,
+                editing: None,
+                editing_range: String::new(),
                 history_lines: Self::HISTORY_LINES,
                 panes,
             })),
@@ -1236,6 +1211,141 @@ impl State {
                 self.column(ui, column);
             }
         });
+        self.breakpoint_editor(ui.ctx());
+    }
+
+    /// The window that edits one breakpoint, open while a row's ✏ names it.
+    ///
+    /// A window rather than a modal, so the disassembly stays readable beside it while a
+    /// condition is written against what is on screen.
+    fn breakpoint_editor(&mut self, ctx: &Context) {
+        let Some(id) = self.editing else {
+            return;
+        };
+        // Whatever the editor named has been removed, so there is nothing left to edit.
+        if self.breakpoints.get(id).is_none() {
+            self.editing = None;
+            return;
+        }
+
+        let mut open = true;
+        let mut armed_changed = false;
+        let mut removed = false;
+        let mut range = std::mem::take(&mut self.editing_range);
+        let offset = self.prg_offset(parse_range(&range).map_or(0, |(addr, _)| addr));
+        let response = egui::Window::new("Edit breakpoint")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                let Some(breakpoint) = self.breakpoints.get_mut(id) else {
+                    return;
+                };
+                Grid::new("breakpoint_editor")
+                    .num_columns(2)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.strong("Address");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut range)
+                                .hint_text("$addr or $lo-$hi")
+                                .desired_width(160.0),
+                        );
+                        // Applied as it is typed, and left alone while it is not a range, so
+                        // clearing the box to retype it does not move the breakpoint to $0000.
+                        if response.changed()
+                            && let Some((addr, end)) = parse_range(&range)
+                        {
+                            breakpoint.addr = addr;
+                            breakpoint.end = end;
+                            breakpoint.offset = offset;
+                            armed_changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.strong("Break on");
+                        ui.horizontal(|ui| {
+                            for (access, letter, hover) in [
+                                (Access::EXEC, "X", "Execution"),
+                                (Access::READ, "R", "Reads"),
+                                (Access::WRITE, "W", "Writes"),
+                            ] {
+                                let mut on = breakpoint.access.contains(access);
+                                if ui
+                                    .toggle_value(&mut on, letter)
+                                    .on_hover_text(hover)
+                                    .changed()
+                                {
+                                    breakpoint.access.set(access, on);
+                                    armed_changed = true;
+                                }
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.strong("Condition");
+                        ui.vertical(|ui| {
+                            let response = ui.add(
+                                egui::TextEdit::multiline(&mut breakpoint.condition)
+                                    .font(egui::TextStyle::Monospace)
+                                    .hint_text("a == 0xFF && mem[0x300] != 0")
+                                    .desired_width(320.0)
+                                    .desired_rows(3),
+                            );
+                            armed_changed |= response.changed();
+                            // Reported under the box rather than on a hover: there is room here,
+                            // and a condition that does not parse leaves the breakpoint unarmed.
+                            if let Some(Err(error)) = breakpoint.condition() {
+                                ui.label(
+                                    RichText::new(error.to_string()).small().color(Color32::RED),
+                                );
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.strong("Then");
+                        ui.vertical(|ui| {
+                            let mut logs = !breakpoint.breaks;
+                            if ui
+                                .checkbox(&mut logs, "Log the access and keep running")
+                                .on_hover_text("Cleared, the console stops instead")
+                                .changed()
+                            {
+                                breakpoint.breaks = !logs;
+                                armed_changed = true;
+                            }
+                            armed_changed |=
+                                ui.checkbox(&mut breakpoint.enabled, "Enabled").changed();
+                        });
+                        ui.end_row();
+                    });
+
+                ui.collapsing("Expression syntax", |ui| {
+                    ui.label(RichText::new(Expr::SYNTAX).monospace().small());
+                });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    removed = ui.button("Delete").clicked();
+                });
+            });
+
+        self.editing_range = range;
+        if let Some(response) = &response {
+            // Focused and on top the way the keybind window is, since it is opened by a click on
+            // the row behind it.
+            ctx.move_to_top(response.response.layer_id);
+        }
+        if removed {
+            self.breakpoints.remove(id);
+            armed_changed = true;
+        }
+        if removed || !open {
+            self.editing = None;
+        }
+        if armed_changed {
+            self.send_breakpoints();
+        }
     }
 
     /// The step buttons and the View menu.
@@ -1556,7 +1666,7 @@ impl State {
         let mut removed = None;
         let mut scroll_to = None;
         let pages = &self.snapshot.prg_pages;
-        let mut condition_open = self.condition_open;
+        let mut editing = None;
         let breakpoints = &mut self.breakpoints;
         ScrollArea::vertical()
             .id_salt("breakpoints")
@@ -1614,40 +1724,46 @@ impl State {
                         {
                             scroll_to = Some(breakpoint.addr);
                         }
-                        let breaks = breakpoint.breaks;
-                        armed_changed |= ui
-                            .toggle_value(&mut breakpoint.breaks, "⏸")
-                            .on_hover_text(if breaks {
-                                "Continue execution"
-                            } else {
-                                "Break execution"
-                            })
-                            .changed();
-                        let mut open = condition_open == Some(breakpoint.id)
-                            || !breakpoint.condition.trim().is_empty();
+                        // What only the editor sets still shows here, so the collapsed list
+                        // says which breakpoints are narrowed and which only log.
+                        if !breakpoint.breaks {
+                            ui.label(RichText::new("log").small().color(Color32::DARK_GRAY))
+                                .on_hover_text("Records the access and keeps running");
+                        }
+                        match breakpoint.condition() {
+                            Some(Ok(expr)) => {
+                                ui.label(RichText::new("if").small())
+                                    .on_hover_text(expr.source().to_string());
+                            }
+                            Some(Err(error)) => {
+                                ui.label(RichText::new("if").small().color(Color32::LIGHT_RED))
+                                    .on_hover_text(error.to_string());
+                            }
+                            None => (),
+                        }
                         if ui
-                            .toggle_value(&mut open, "if")
-                            .on_hover_text("Stop only while an expression holds")
+                            .small_button("✏")
+                            .on_hover_text("Edit breakpoint")
                             .clicked()
                         {
-                            // A condition still in the box keeps its row open whatever the
-                            // toggle says, so closing it means clearing it.
-                            breakpoint.condition.clear();
-                            condition_open = open.then_some(breakpoint.id);
-                            armed_changed = true;
+                            editing = Some(breakpoint.id);
                         }
                         if ui.small_button("✖").clicked() {
                             removed = Some(breakpoint.id);
                         }
                     });
-                    if condition_open == Some(breakpoint.id)
-                        || !breakpoint.condition.trim().is_empty()
-                    {
-                        armed_changed |= condition_row(ui, breakpoint);
-                    }
                 }
             });
-        self.condition_open = condition_open;
+        if let Some(id) = editing {
+            // The box starts from the breakpoint's own range, so opening the editor and closing
+            // it again changes nothing.
+            self.editing_range = self
+                .breakpoints
+                .get(id)
+                .map(Breakpoint::range_text)
+                .unwrap_or_default();
+            self.editing = Some(id);
+        }
         if let Some(id) = removed {
             self.breakpoints.remove(id);
             armed_changed = true;
@@ -2422,6 +2538,20 @@ mod tests {
 
         assert_eq!(armed_at(&breakpoints), [0xC000, 0xC000]);
         assert_ne!(first, second, "the second took the first one's name");
+    }
+
+    /// The editor's address box round-trips a breakpoint's own range, so opening the editor and
+    /// closing it again leaves the breakpoint where it was.
+    #[test]
+    fn the_editor_reads_back_the_range_it_writes() {
+        for (addr, end) in [(0xC000, 0xC000), (0x6000, 0x7FFF)] {
+            let breakpoint = Breakpoint::range(addr, end, None);
+            assert_eq!(
+                parse_range(&breakpoint.range_text()),
+                Some((addr, end)),
+                "${addr:04X}-${end:04X}"
+            );
+        }
     }
 
     /// An id names one breakpoint for as long as it is listed. Handing a removed one out again
