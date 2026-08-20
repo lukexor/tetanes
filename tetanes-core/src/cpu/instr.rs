@@ -483,6 +483,9 @@ impl std::fmt::Display for InstrRef {
             | Instr::SAX
             | Instr::XAA
             | Instr::SXA
+            | Instr::SHAA
+            | Instr::ATX
+            | Instr::SHAZ
             | Instr::RRA
             | Instr::TAS
             | Instr::SYA
@@ -2101,6 +2104,25 @@ mod tests {
             assert!(
                 !Cpu::INSTR_REF[usize::from(opcode)].mode_name().is_empty(),
                 "${opcode:02X}"
+            );
+        }
+    }
+
+    /// A trace line is read against other emulators' logs, which mark an unofficial opcode with a
+    /// leading `*`. The mark comes from a list that has to be kept alongside the one
+    /// [`Instr`] itself splits at `ISB`.
+    #[test]
+    fn every_unofficial_opcode_is_marked() {
+        for opcode in 0..=u8::MAX {
+            let instr_ref = Cpu::INSTR_REF[usize::from(opcode)];
+            // 0xEA is the only official NOP, and 0xEB the only unofficial SBC.
+            let unofficial = instr_ref.instr as u8 >= Instr::ISB as u8
+                || (instr_ref.instr == Instr::NOP && opcode != 0xEA)
+                || (instr_ref.instr == Instr::SBC && opcode == 0xEB);
+            assert_eq!(
+                instr_ref.to_string().starts_with('*'),
+                unofficial,
+                "${opcode:02X} {instr_ref}"
             );
         }
     }

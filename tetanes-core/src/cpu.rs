@@ -23,7 +23,7 @@ use crate::{
 use crate::{
     cpu::instr::{
         AddrMode,
-        Instr::{JMP, JSR},
+        Instr::{JMP, JSR, SYA},
         InstrRef,
     },
     mapper::MapperOps,
@@ -1167,26 +1167,34 @@ impl Bus {
                 out.effective = Some(addr);
                 out.value = Some(Resolved::Byte(self.peek(addr)));
             }
-            AddrMode::ABS | AddrMode::OTH => {
+            AddrMode::ABS => {
                 let addr = peek_word(out);
                 let _ = write!(out.operand, "${addr:04X}");
                 // A jump names where it goes, so the byte sitting at the target says nothing about
                 // it.
-                if !matches!(out.instr.instr, JMP | JSR) {
+                if out.instr.instr != JMP {
                     out.value = Some(Resolved::Byte(self.peek(addr)));
                 }
             }
-            AddrMode::ABX | AddrMode::ABXW => {
-                let base_addr = peek_word(out);
-                let addr = base_addr.wrapping_add(self.cpu.x.into());
-                let _ = write!(out.operand, "${base_addr:04X},X");
-                out.effective = Some(addr);
-                out.value = Some(Resolved::Byte(self.peek(addr)));
+            // JSR shares the catch-all mode with the unofficial stores, and is the one of them
+            // that reaches an absolute address.
+            AddrMode::OTH if out.instr.instr == JSR => {
+                let addr = peek_word(out);
+                let _ = write!(out.operand, "${addr:04X}");
             }
-            AddrMode::ABY | AddrMode::ABYW => {
+            // The rest of the catch-all is the unofficial stores, which index the way
+            // `InstrRef::mode_name` reports: SYA by X, the other three by Y.
+            AddrMode::ABX | AddrMode::ABXW | AddrMode::ABY | AddrMode::ABYW | AddrMode::OTH => {
                 let base_addr = peek_word(out);
-                let addr = base_addr.wrapping_add(self.cpu.y.into());
-                let _ = write!(out.operand, "${base_addr:04X},Y");
+                let indexed_by_x = matches!(out.instr.addr_mode, AddrMode::ABX | AddrMode::ABXW)
+                    || out.instr.instr == SYA;
+                let (index, register) = if indexed_by_x {
+                    ('X', self.cpu.x)
+                } else {
+                    ('Y', self.cpu.y)
+                };
+                let addr = base_addr.wrapping_add(register.into());
+                let _ = write!(out.operand, "${base_addr:04X},{index}");
                 out.effective = Some(addr);
                 out.value = Some(Resolved::Byte(self.peek(addr)));
             }
@@ -1298,7 +1306,8 @@ mod tests {
     /// The parts have to join back into the line the instruction trace prints, which is read
     /// against other emulators' logs, and into the columns the debugger draws. One instruction per
     /// addressing mode, plus the cases that turn a part off: a jump resolves nothing, and an
-    /// unofficial opcode takes the `*` the mnemonic column reserves.
+    /// unofficial opcode takes the `*` the mnemonic column reserves. All four unofficial stores
+    /// are here, since the catch-all mode they share names no index of its own.
     #[test]
     fn the_parts_join_back_into_one_aligned_line() {
         use super::*;
@@ -1364,7 +1373,22 @@ mod tests {
                 "$0700 $99 $34 $12  STA $1234,Y @ $1237 = #$BB",
             ),
             (&[0x20, 0x34, 0x12], "$0700 $20 $34 $12  JSR $1234"),
-            (&[0x9B, 0x34, 0x12], "$0700 $9B $34 $12 *TAS $1234 = #$CC"),
+            (
+                &[0x9B, 0x34, 0x12],
+                "$0700 $9B $34 $12 *TAS $1234,Y @ $1237 = #$BB",
+            ),
+            (
+                &[0x9C, 0x34, 0x12],
+                "$0700 $9C $34 $12 *SYA $1234,X @ $1236 = #$00",
+            ),
+            (
+                &[0x9E, 0x34, 0x12],
+                "$0700 $9E $34 $12 *SXA $1234,Y @ $1237 = #$BB",
+            ),
+            (
+                &[0x9F, 0x34, 0x12],
+                "$0700 $9F $34 $12 *SHAA $1234,Y @ $1237 = #$BB",
+            ),
             (&[0x07, 0x10], "$0700 $07 $10     *SLO $10 = #$34"),
             (&[0x1A], "$0700 $1A         *NOP"),
         ] {
