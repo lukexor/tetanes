@@ -404,6 +404,15 @@ impl Gui {
             self.initialize(ui, cfg);
         }
 
+        // Escape gives a text box back, so the next one reaches the emulator.
+        //
+        // Every viewport shares one egui `Context`, so a box focused in the Debugger makes every
+        // window report its keys consumed - and the key never reaches that box to release it
+        // either. Asked here, at the root, since the focus it clears is shared too.
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            ui.memory_mut(egui::Memory::stop_text_input);
+        }
+
         if cfg.renderer.show_menubar {
             Panel::top("menubar").show(ui, |ui| self.menubar(ui, cfg));
         }
