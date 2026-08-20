@@ -380,22 +380,35 @@ impl Parser {
     }
 
     /// `!`* `primary`
+    ///
+    /// The run of `!` is counted rather than recursed through, so a box full of them errors
+    /// instead of running the thread's stack out before any rule bounds it.
     fn unary(&mut self) -> Result<(), ParseError> {
-        self.skip_space();
-        // Not `!=`, which belongs to `equality`.
-        if self.chars.get(self.at) == Some(&'!') && self.chars.get(self.at + 1) != Some(&'=') {
+        let mut nots = 0;
+        loop {
+            self.skip_space();
+            // Not `!=`, which belongs to `equality`.
+            if self.chars.get(self.at) != Some(&'!') || self.chars.get(self.at + 1) == Some(&'=') {
+                break;
+            }
             self.at += 1;
-            self.unary()?;
-            self.emit(Op::Not, 1, 1);
-            return Ok(());
+            nots += 1;
+            if nots > Expr::MAX_NESTING {
+                return Err(ParseError::TooDeep);
+            }
         }
-        self.primary()
+        self.primary()?;
+        for _ in 0..nots {
+            self.emit(Op::Not, 1, 1);
+        }
+        Ok(())
     }
 
     /// A number, a name, a parenthesized expression, or a memory read.
     fn primary(&mut self) -> Result<(), ParseError> {
-        // Counted here because every way back into the grammar - a paren, a bracket's index, a
-        // `!` - reaches it, so one check bounds the recursion whatever nests.
+        // Counted here because every rule that recurses back into the grammar - a paren, a
+        // bracket's index - reaches it, so one check bounds them whatever nests. `unary` counts
+        // its own run of `!`, which never gets this far.
         self.nesting += 1;
         if self.nesting > Expr::MAX_NESTING {
             return Err(ParseError::TooDeep);
@@ -676,6 +689,21 @@ mod tests {
             Err(ParseError::TooDeep)
         );
         assert_eq!(Expr::parse(&nested(100_000)), Err(ParseError::TooDeep));
+    }
+
+    /// A bare run of `!` skips every rule that recurses, so only `unary`'s own count bounds it.
+    /// `"!("` does not stand in for this: the paren routes through `primary`, which counts.
+    #[test]
+    fn a_run_of_nots_is_refused_at_the_same_bound() {
+        assert!(Expr::parse(&format!("{}1", "!".repeat(Expr::MAX_NESTING))).is_ok());
+        assert_eq!(
+            Expr::parse(&format!("{}1", "!".repeat(Expr::MAX_NESTING + 1))),
+            Err(ParseError::TooDeep)
+        );
+        assert_eq!(
+            Expr::parse(&format!("{}1", "!".repeat(100_000))),
+            Err(ParseError::TooDeep)
+        );
     }
 
     /// The text survives parsing, since a watch list shows what was typed rather than a
