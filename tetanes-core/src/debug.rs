@@ -185,8 +185,9 @@ bitflags! {
 
 /// A range of CPU addresses the console stops on, or records, when one is accessed.
 ///
-/// `offset` pins it to the bytes it was set over.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// `offset` pins it to the bytes it was set over, and `condition` narrows it to the accesses that
+/// satisfy an expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
     /// First address covered.
@@ -205,6 +206,12 @@ pub struct Breakpoint {
     pub access: Access,
     /// Cleared to record the access and let the console run on.
     pub breaks: bool,
+    /// An expression that has to hold as well, or `None` to trip on every covered access.
+    ///
+    /// Evaluated at the access, against the console as it stands part way through the
+    /// instruction. Parsing happens when the breakpoint is set, so what is asked here is a
+    /// compiled form. See [`expr`].
+    pub condition: Option<expr::Expr>,
 }
 
 impl Breakpoint {
@@ -229,6 +236,28 @@ impl Breakpoint {
                 None => true,
             }
     }
+
+    /// Whether this trips on `access` to `addr`, condition and all.
+    ///
+    /// The condition is asked last, since it is the only part that can read the whole console.
+    #[inline]
+    pub fn fires(&self, bus: &Bus, addr: u16, access: Access) -> bool {
+        self.matches(&bus.memory, addr, access)
+            && self
+                .condition
+                .as_ref()
+                .is_none_or(|condition| condition.is_true(bus))
+    }
+}
+
+/// What the armed breakpoints make of one access.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Verdict {
+    /// A breakpoint that stops the console tripped.
+    pub stop: bool,
+    /// A breakpoint that keeps the console running tripped, so the access is worth logging.
+    pub record: bool,
 }
 
 /// An access a [`Breakpoint`] caught.
@@ -296,31 +325,37 @@ impl Breakpoints {
         self.covered[addr / 64] & (1 << (addr % 64)) != 0
     }
 
-    /// Record an access, reporting whether the console is to stop.
+    /// What the armed breakpoints make of `access` to `addr`.
     ///
-    /// Returns `false` for the addresses nothing watches, which is the answer almost every time.
-    /// `memory` is read only past the bitmap, so an unwatched address pays for the bit and nothing
+    /// An empty verdict for the addresses nothing watches, which is the answer almost every time.
+    /// `bus` is read only past the bitmap, so an unwatched address pays for the bit and nothing
     /// else.
-    pub fn hit(&mut self, memory: &Memory, pc: u16, addr: u16, access: Access, value: u8) -> bool {
+    ///
+    /// Deciding is separate from [`Breakpoints::record`] because a condition reads the whole
+    /// console, and the console owns the breakpoints. Asking with a shared borrow and recording
+    /// with a mutable one keeps both without handing the breakpoints out.
+    pub fn check(&self, bus: &Bus, addr: u16, access: Access) -> Verdict {
+        let mut verdict = Verdict::default();
         if !self.watches(addr) {
-            return false;
+            return verdict;
         }
-        let mut stop = false;
         for breakpoint in &self.list {
-            if breakpoint.matches(memory, addr, access) {
+            if breakpoint.fires(bus, addr, access) {
                 if breakpoint.breaks {
-                    stop = true;
-                } else if self.hits.len() < Self::MAX_HITS {
-                    self.hits.push(AccessHit {
-                        pc,
-                        addr,
-                        access,
-                        value,
-                    });
+                    verdict.stop = true;
+                } else {
+                    verdict.record = true;
                 }
             }
         }
-        stop
+        verdict
+    }
+
+    /// Log an access a breakpoint that records caught, dropping it once the log is full.
+    pub fn record(&mut self, hit: AccessHit) {
+        if self.hits.len() < Self::MAX_HITS {
+            self.hits.push(hit);
+        }
     }
 
     /// Take the accesses recorded since the last drain.
@@ -401,15 +436,12 @@ impl std::fmt::Debug for Debugger {
 
 #[cfg(test)]
 mod tests {
-    use super::{Access, Breakpoint, Breakpoints, ByteKind, CodeMap, PcHistory};
+    use super::{
+        Access, AccessHit, Breakpoint, Breakpoints, ByteKind, CodeMap, PcHistory, expr::Expr,
+    };
     use crate::{
-        bus::Bus,
-        cart::Cart,
-        common::ResetKind,
-        control_deck::ControlDeck,
-        cpu::Cpu,
-        mapper::Nrom,
-        memory::{Memory, Src},
+        bus::Bus, cart::Cart, common::ResetKind, control_deck::ControlDeck, cpu::Cpu, mapper::Nrom,
+        memory::Src,
     };
 
     /// One 16 KiB PRG bank, which is the window the banked tests swap.
@@ -619,6 +651,7 @@ mod tests {
             offset: None,
             access,
             breaks: true,
+            condition: None,
         }
     }
 
@@ -626,17 +659,17 @@ mod tests {
     /// each. Getting the inclusive end wrong shortens every range by one address.
     #[test]
     fn a_range_covers_both_ends_and_nothing_past_them() {
-        let memory = Memory::default();
-        let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0302, Access::WRITE)]);
+        let bus = bus_with_cart();
+        let breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0302, Access::WRITE)]);
         for addr in [0x0300, 0x0301, 0x0302] {
             assert!(
-                breakpoints.hit(&memory, 0xC000, addr, Access::WRITE, 0),
+                breakpoints.check(&bus, addr, Access::WRITE).stop,
                 "${addr:04X}"
             );
         }
         for addr in [0x02FF, 0x0303] {
             assert!(
-                !breakpoints.hit(&memory, 0xC000, addr, Access::WRITE, 0),
+                !breakpoints.check(&bus, addr, Access::WRITE).stop,
                 "${addr:04X}"
             );
         }
@@ -645,24 +678,54 @@ mod tests {
     /// A breakpoint stops on the accesses it was ticked for and no others.
     #[test]
     fn an_access_the_breakpoint_does_not_watch_is_ignored() {
-        let memory = Memory::default();
-        let mut breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0300, Access::WRITE)]);
-        assert!(breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0));
-        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::READ, 0));
+        let bus = bus_with_cart();
+        let breakpoints = Breakpoints::new([breakpoint(0x0300, 0x0300, Access::WRITE)]);
+        assert!(breakpoints.check(&bus, 0x0300, Access::WRITE).stop);
+        assert!(!breakpoints.check(&bus, 0x0300, Access::READ).stop);
+    }
+
+    /// A condition narrows a breakpoint to the accesses that satisfy it, so a write breakpoint on
+    /// a counter can wait for the one write that matters.
+    #[test]
+    fn a_condition_narrows_what_a_breakpoint_stops_on() {
+        let mut bus = bus_with_cart();
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([Breakpoint {
+            condition: Some(Expr::parse("A == $42").expect("parses")),
+            ..breakpoint(0x0300, 0x0300, Access::WRITE)
+        }])));
+
+        bus.cpu.acc = 0x01;
+        bus.write(0x0300, 0x99);
+        assert_eq!(
+            bus.access_hit, None,
+            "a condition that does not hold stopped it"
+        );
+
+        bus.cpu.acc = 0x42;
+        bus.write(0x0300, 0x99);
+        assert!(
+            bus.access_hit.is_some(),
+            "a condition that holds did not stop it"
+        );
     }
 
     /// A breakpoint that records rather than stops keeps the console running, and the accesses
     /// come back once each.
     #[test]
     fn a_recording_breakpoint_collects_hits_without_stopping() {
-        let memory = Memory::default();
-        let mut breakpoints = Breakpoints::new([Breakpoint {
+        let mut bus = bus_with_cart();
+        bus.breakpoints_active = true;
+        bus.breakpoints = Some(Box::new(Breakpoints::new([Breakpoint {
             breaks: false,
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
-        }]);
-        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0x42));
-        assert!(!breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0x43));
+        }])));
 
+        bus.write(0x0300, 0x42);
+        bus.write(0x0300, 0x43);
+        assert_eq!(bus.access_hit, None, "a breakpoint that records stopped it");
+
+        let breakpoints = bus.breakpoints.as_mut().expect("armed");
         let hits = breakpoints.drain_hits();
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].value, 0x42);
@@ -675,13 +738,17 @@ mod tests {
     /// A breakpoint on a hot address would otherwise grow the log without limit between frames.
     #[test]
     fn a_recording_breakpoint_stops_collecting_at_its_cap() {
-        let memory = Memory::default();
         let mut breakpoints = Breakpoints::new([Breakpoint {
             breaks: false,
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }]);
         for _ in 0..Breakpoints::MAX_HITS * 2 {
-            breakpoints.hit(&memory, 0xC000, 0x0300, Access::WRITE, 0);
+            breakpoints.record(AccessHit {
+                pc: 0xC000,
+                addr: 0x0300,
+                access: Access::WRITE,
+                value: 0,
+            });
         }
         assert_eq!(breakpoints.drain_hits().len(), Breakpoints::MAX_HITS);
     }

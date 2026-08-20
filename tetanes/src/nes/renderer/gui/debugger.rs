@@ -75,6 +75,7 @@ impl Breakpoint {
             offset: self.offset,
             access: self.access,
             breaks: self.breaks,
+            condition: None,
         }
     }
 }

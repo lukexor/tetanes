@@ -18,7 +18,7 @@
 use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
-    debug::{Access, AccessHit, ByteKind},
+    debug::{Access, AccessHit, ByteKind, Verdict},
 };
 use crate::{
     cpu::instr::{
@@ -905,40 +905,55 @@ impl Bus {
     #[inline(never)]
     fn check_access(&mut self, addr: u16, access: Access, val: u8) {
         let pc = self.instr_addr;
-        if let Some(breakpoints) = self.breakpoints.as_mut()
-            && breakpoints.hit(&self.memory, pc, addr, access, val)
-            && self.access_hit.is_none()
+        let hit = AccessHit {
+            pc,
+            addr,
+            access,
+            value: val,
+        };
+        let verdict = self.breakpoint_verdict(addr, access);
+        if verdict.record
+            && let Some(breakpoints) = self.breakpoints.as_mut()
         {
-            self.access_hit = Some(AccessHit {
-                pc,
-                addr,
-                access,
-                value: val,
-            });
+            breakpoints.record(hit);
         }
+        if verdict.stop && self.access_hit.is_none() {
+            self.access_hit = Some(hit);
+        }
+    }
+
+    /// Ask the armed breakpoints about an access, with the whole console in hand.
+    #[inline]
+    fn breakpoint_verdict(&self, addr: u16, access: Access) -> Verdict {
+        self.breakpoints
+            .as_ref()
+            .map_or_else(Verdict::default, |breakpoints| {
+                breakpoints.check(self, addr, access)
+            })
     }
 
     /// Record the instruction at `pc` against the breakpoints that watch execution.
     ///
     /// Only the breakpoints that record are served here. Stopping on execution belongs to whoever
-    /// drives the console, through [`ControlDeck::clock_frame_until`](crate::control_deck::ControlDeck::clock_frame_until),
-    /// because a stop part way through an instruction has no clean way to unwind. So the answer
-    /// [`Breakpoints::hit`](crate::debug::Breakpoints::hit) gives is dropped. A breakpoint that
-    /// stops is checked between
+    /// drives the console, through
+    /// [`ControlDeck::clock_frame_until`](crate::control_deck::ControlDeck::clock_frame_until),
+    /// because a stop part way through an instruction has no clean way to unwind. So
+    /// [`Verdict::stop`] is dropped here and a breakpoint that stops is checked between
     /// instructions instead.
     ///
     /// Out of line and behind the bitmap, so an instruction nothing watches tests one bit.
     #[cold]
     #[inline(never)]
     fn check_exec(&mut self, pc: u16) {
-        if self
-            .breakpoints
-            .as_ref()
-            .is_some_and(|breakpoints| breakpoints.watches(pc))
-        {
+        if self.breakpoint_verdict(pc, Access::EXEC).record {
             let opcode = self.peek(pc);
             if let Some(breakpoints) = self.breakpoints.as_mut() {
-                breakpoints.hit(&self.memory, pc, pc, Access::EXEC, opcode);
+                breakpoints.record(AccessHit {
+                    pc,
+                    addr: pc,
+                    access: Access::EXEC,
+                    value: opcode,
+                });
             }
         }
     }

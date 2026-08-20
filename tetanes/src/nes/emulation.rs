@@ -681,7 +681,7 @@ impl State {
                             } else {
                                 breakpoint.access
                             },
-                            ..*breakpoint
+                            ..breakpoint.clone()
                         }),
                 );
             }
