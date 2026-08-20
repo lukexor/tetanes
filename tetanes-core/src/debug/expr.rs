@@ -6,10 +6,17 @@
 //! asked on the emulation thread at the moment of the access.
 //!
 //! ```text
-//! A == $FF && [$0300] != 0
-//! [$FFFC].w
-//! Z || X < Y
+//! a == 0xFF && mem[0x300] != 0
+//! mem16[0xFFFC] == pc
+//! z || x < y
 //! ```
+//!
+//! The grammar is a subset of JavaScript, so an expression typed here reads the same as one
+//! written against the same hooks from outside. Registers are `a`, `x`, `y`, `sp`, `pc` and `p`,
+//! status flags are `n`, `v`, `u`, `b`, `d`, `i`, `z` and `c`, and memory is `mem[addr]` for a
+//! byte and `mem16[addr]` for a little-endian word. Names are case-insensitive. Literals are
+//! `0x` hex, `0b` binary and decimal, plus `$` hex, which is not JavaScript but is how every
+//! other box in the debugger writes an address.
 
 use crate::{bus::Bus, cpu::Status};
 use std::fmt;
@@ -70,8 +77,8 @@ pub enum ParseError {
     /// A character that starts nothing.
     #[error("`{0}` does not belong here")]
     Unexpected(String),
-    /// A name that is not a register or a flag.
-    #[error("`{0}` is not a register or a flag")]
+    /// A name that is not a register, a flag or a memory read.
+    #[error("`{0}` is not a register, a flag, `mem` or `mem16`")]
     UnknownName(String),
     /// A bracket or paren with no partner.
     #[error("expected `{0}`")]
@@ -357,30 +364,19 @@ impl Parser {
                 }
                 Ok(())
             }
-            '[' => {
+            // Hex the way the rest of the debugger writes an address. Every other box takes `$`,
+            // so refusing it only here would be a wart.
+            '$' => {
                 self.at += 1;
-                self.or()?;
-                if !self.eat("]") {
-                    return Err(ParseError::Expected("]"));
-                }
-                // `.w` reads the word at the address, `.b` the byte it reads without a suffix.
-                let op = if self.eat(".w") || self.eat(".W") {
-                    Op::Peek16
-                } else {
-                    let _ = self.eat(".b") || self.eat(".B");
-                    Op::Peek8
-                };
-                self.emit(op, 1, 1);
-                Ok(())
-            }
-            '$' | '%' => {
-                self.at += 1;
-                let radix = if c == '$' { 16 } else { 2 };
-                self.number(radix)
+                self.number(16)
             }
             '0' if matches!(self.chars.get(self.at + 1), Some('x' | 'X')) => {
                 self.at += 2;
                 self.number(16)
+            }
+            '0' if matches!(self.chars.get(self.at + 1), Some('b' | 'B')) => {
+                self.at += 2;
+                self.number(2)
             }
             '0'..='9' => self.number(10),
             c if c.is_ascii_alphabetic() => self.name(),
@@ -424,7 +420,26 @@ impl Parser {
             self.at += 1;
         }
         let name = self.chars[start..self.at].iter().collect::<String>();
-        let op = match name.to_ascii_lowercase().as_str() {
+        let lower = name.to_ascii_lowercase();
+        // Memory reads as indexing, which is how JavaScript spells it and so how a plugin over
+        // the same hooks will.
+        let peek = match lower.as_str() {
+            "mem" => Some(Op::Peek8),
+            "mem16" => Some(Op::Peek16),
+            _ => None,
+        };
+        if let Some(op) = peek {
+            if !self.eat("[") {
+                return Err(ParseError::Expected("["));
+            }
+            self.or()?;
+            if !self.eat("]") {
+                return Err(ParseError::Expected("]"));
+            }
+            self.emit(op, 1, 1);
+            return Ok(());
+        }
+        let op = match lower.as_str() {
             "a" => Op::Reg(Reg::A),
             "x" => Op::Reg(Reg::X),
             "y" => Op::Reg(Reg::Y),
@@ -487,28 +502,28 @@ mod tests {
         assert_eq!(eval("$FF", &bus), 255);
         assert_eq!(eval("0xff", &bus), 255);
         assert_eq!(eval("255", &bus), 255);
-        assert_eq!(eval("%1111_1111", &bus), 255);
+        assert_eq!(eval("0b1111_1111", &bus), 255);
     }
 
-    /// A byte read by default and a word with `.w`, which is how a vector is read.
+    /// `mem` reads a byte and `mem16` a little-endian word, which is how a vector is read.
     #[test]
-    fn brackets_read_memory_and_a_suffix_widens_it() {
+    fn mem_reads_a_byte_and_mem16_a_word() {
         let mut bus = bus();
         bus.cpu_bus_write(0x0300, 0x34);
         bus.cpu_bus_write(0x0301, 0x12);
 
-        assert_eq!(eval("[$0300]", &bus), 0x34);
-        assert_eq!(eval("[$0300].w", &bus), 0x1234);
-        assert_eq!(eval("[$0300].b", &bus), 0x34);
+        assert_eq!(eval("mem[0x300]", &bus), 0x34);
+        assert_eq!(eval("mem16[0x300]", &bus), 0x1234);
+        assert_eq!(eval("MEM[$0300]", &bus), 0x34);
     }
 
-    /// The address is an expression of its own, so a pointer held in a register can be followed.
+    /// The index is an expression of its own, so a pointer held in a register can be followed.
     #[test]
-    fn a_bracket_takes_an_expression_for_its_address() {
+    fn a_memory_read_takes_an_expression_for_its_address() {
         let mut bus = bus();
         bus.cpu.x = 0x05;
         bus.cpu_bus_write(0x0005, 0x99);
-        assert_eq!(eval("[X]", &bus), 0x99);
+        assert_eq!(eval("mem[x]", &bus), 0x99);
     }
 
     /// Loosest to tightest: `||`, `&&`, equality, relational. Getting this wrong makes
@@ -540,15 +555,21 @@ mod tests {
     fn what_is_not_an_expression_is_refused() {
         assert_eq!(Expr::parse(""), Err(ParseError::UnexpectedEnd));
         assert_eq!(Expr::parse("A =="), Err(ParseError::UnexpectedEnd));
-        assert_eq!(Expr::parse("[$00"), Err(ParseError::Expected("]")));
+        assert_eq!(Expr::parse("mem[0"), Err(ParseError::Expected("]")));
         assert_eq!(Expr::parse("(A"), Err(ParseError::Expected(")")));
         assert_eq!(
             Expr::parse("foo"),
             Err(ParseError::UnknownName("foo".to_string()))
         );
         assert_eq!(
-            Expr::parse("A @ 1"),
+            Expr::parse("a @ 1"),
             Err(ParseError::Unexpected("@".to_string()))
+        );
+        assert_eq!(Expr::parse("mem 0"), Err(ParseError::Expected("[")));
+        assert_eq!(
+            Expr::parse("[0x300]"),
+            Err(ParseError::Unexpected("[".to_string())),
+            "a bare bracket is not a memory read"
         );
         assert_eq!(
             Expr::parse("$FFFFFFFFFF"),
@@ -579,8 +600,8 @@ mod tests {
     /// reconstruction of it.
     #[test]
     fn the_source_text_is_kept() {
-        let expr = Expr::parse("  A == $FF  ").expect("parses");
-        assert_eq!(expr.source(), "A == $FF");
-        assert_eq!(expr.to_string(), "A == $FF");
+        let expr = Expr::parse("  a == 0xFF  ").expect("parses");
+        assert_eq!(expr.source(), "a == 0xFF");
+        assert_eq!(expr.to_string(), "a == 0xFF");
     }
 }

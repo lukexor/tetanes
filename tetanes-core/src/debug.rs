@@ -170,9 +170,8 @@ bitflags! {
         /// The console stops *before* running the instruction, where a read or a write stops
         /// after it.
         ///
-        /// Which splits the two halves of a breakpoint over `EXEC` in two. One that records is
-        /// served by `Bus::check_exec` as each instruction starts. One that stops is the
-        /// driver's, through
+        /// The two halves are served in different places. A breakpoint that records is offered
+        /// each instruction by `Bus::check_exec`. One that stops belongs to the driver, through
         /// [`ControlDeck::clock_frame_until`](crate::control_deck::ControlDeck::clock_frame_until),
         /// so that a stop unwinds to whoever is clocking rather than landing mid-instruction.
         const EXEC = 1;
@@ -691,7 +690,7 @@ mod tests {
         let mut bus = bus_with_cart();
         bus.breakpoints_active = true;
         bus.breakpoints = Some(Box::new(Breakpoints::new([Breakpoint {
-            condition: Some(Expr::parse("A == $42").expect("parses")),
+            condition: Some(Expr::parse("a == 0x42").expect("parses")),
             ..breakpoint(0x0300, 0x0300, Access::WRITE)
         }])));
 
