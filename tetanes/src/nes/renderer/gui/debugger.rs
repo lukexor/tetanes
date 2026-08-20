@@ -31,6 +31,11 @@ use tetanes_core::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Breakpoint {
+    /// Names this breakpoint for as long as it is listed.
+    ///
+    /// An address does not, since several breakpoints can cover one - a range and a single
+    /// address, or two accesses of the same byte under different conditions.
+    pub id: u32,
     /// First address covered.
     pub addr: u16,
     /// Last address covered, inclusive. Equal to `addr` for a single address.
@@ -54,9 +59,11 @@ pub struct Breakpoint {
 impl Breakpoint {
     /// A breakpoint on a single address, stopping before it executes.
     ///
-    /// `offset` pins it to the bank mapped at `addr` as the window draws it.
+    /// `offset` pins it to the bank mapped at `addr` as the window draws it. The id is handed out
+    /// by [`Breakpoints::add`], so one built here carries a placeholder until it is listed.
     pub const fn execute(addr: u16, offset: Option<u32>) -> Self {
         Self {
+            id: 0,
             addr,
             end: addr,
             offset,
@@ -65,6 +72,25 @@ impl Breakpoint {
             breaks: true,
             condition: String::new(),
         }
+    }
+
+    /// A breakpoint over a range, stopping on any access to it.
+    ///
+    /// A range is typed rather than clicked, which usually means data, so it watches reads and
+    /// writes as well as execution.
+    pub fn range(addr: u16, end: u16, offset: Option<u32>) -> Self {
+        Self {
+            end,
+            access: Access::all(),
+            ..Self::execute(addr, offset)
+        }
+    }
+
+    /// Whether `addr` falls in this breakpoint's range.
+    ///
+    /// Says nothing about the bank, which `is_mapped` answers.
+    pub const fn covers(&self, addr: u16) -> bool {
+        self.addr <= addr && addr <= self.end
     }
 
     /// The range as the list writes it, one address or two.
@@ -105,53 +131,99 @@ impl Breakpoint {
 /// window draws the rest.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[must_use]
-pub struct Breakpoints(Vec<Breakpoint>);
+pub struct Breakpoints {
+    list: Vec<Breakpoint>,
+    /// The next id to hand out, which only ever counts up.
+    ///
+    /// Reusing the id of a removed breakpoint would let a stale reference - the open editor, a
+    /// pending row action - land on whatever took its place.
+    next_id: u32,
+}
 
 impl Breakpoints {
-    /// Add `breakpoint`, if there is not one on the same bytes already.
-    pub fn add(&mut self, breakpoint: Breakpoint) {
-        if self.get(breakpoint.addr, breakpoint.offset).is_none()
-            && self.0.len() < DeckBreakpoints::MAX
-        {
-            let index = self.0.partition_point(|other| other.addr < breakpoint.addr);
-            self.0.insert(index, breakpoint);
+    /// Add `breakpoint`, naming it and reporting the id it was given.
+    ///
+    /// Overlap is allowed: one address holds as many breakpoints as are set on it, since a range
+    /// and a single address, or two conditions on one byte, are different questions.
+    pub fn add(&mut self, mut breakpoint: Breakpoint) -> Option<u32> {
+        if self.list.len() >= DeckBreakpoints::MAX {
+            return None;
         }
+        let id = self.next_id;
+        self.next_id += 1;
+        breakpoint.id = id;
+        let index = self
+            .list
+            .partition_point(|other| other.addr < breakpoint.addr);
+        self.list.insert(index, breakpoint);
+        Some(id)
     }
 
-    /// Remove the breakpoint on `addr` in the bank at `offset`, reporting whether there was one.
-    pub fn remove(&mut self, addr: u16, offset: Option<u32>) -> bool {
-        let held = self.0.len();
-        self.0
-            .retain(|breakpoint| breakpoint.addr != addr || breakpoint.offset != offset);
-        self.0.len() != held
+    /// Remove the breakpoint `id` names, reporting whether it was listed.
+    pub fn remove(&mut self, id: u32) -> bool {
+        let held = self.list.len();
+        self.list.retain(|breakpoint| breakpoint.id != id);
+        self.list.len() != held
     }
 
     /// Stop before the instruction at `addr` in the bank at `offset` executes, or clear the
-    /// breakpoint already on it.
+    /// breakpoint already on exactly that address.
+    ///
+    /// A range covering `addr` is left alone. Removing a range by clicking one row inside it
+    /// would take away far more than the row the click landed on.
     pub fn toggle(&mut self, addr: u16, offset: Option<u32>) {
-        if !self.remove(addr, offset) {
-            self.add(Breakpoint::execute(addr, offset));
+        match self.single_at(addr, offset) {
+            Some(id) => {
+                self.remove(id);
+            }
+            None => {
+                self.add(Breakpoint::execute(addr, offset));
+            }
         }
+    }
+
+    /// The breakpoint set on exactly `addr` in the bank at `offset`, which is the one a gutter
+    /// click owns.
+    pub fn single_at(&self, addr: u16, offset: Option<u32>) -> Option<u32> {
+        self.list
+            .iter()
+            .find(|breakpoint| {
+                breakpoint.addr == addr && breakpoint.end == addr && breakpoint.offset == offset
+            })
+            .map(|breakpoint| breakpoint.id)
+    }
+
+    /// Every breakpoint covering `addr` as `pages` has it mapped, in list order.
+    ///
+    /// A range covers every row in it, not only the one it starts on.
+    pub fn covering<'a>(
+        &'a self,
+        addr: u16,
+        pages: &'a [Page; PRG_PAGES],
+    ) -> impl Iterator<Item = &'a Breakpoint> {
+        self.list
+            .iter()
+            .filter(move |breakpoint| breakpoint.covers(addr) && is_mapped(pages, breakpoint))
     }
 
     /// Whether another breakpoint would be refused.
     pub const fn is_full(&self) -> bool {
-        self.0.len() >= DeckBreakpoints::MAX
+        self.list.len() >= DeckBreakpoints::MAX
     }
 
-    /// The breakpoint on `addr` in the bank at `offset`, whether or not it is enabled.
-    ///
-    /// One address holds one breakpoint per bank, since the same address in two banks is two
-    /// different instructions.
-    pub fn get(&self, addr: u16, offset: Option<u32>) -> Option<&Breakpoint> {
-        self.0
-            .iter()
-            .find(|breakpoint| breakpoint.addr == addr && breakpoint.offset == offset)
+    /// The breakpoint `id` names, whether or not it is enabled.
+    pub fn get(&self, id: u32) -> Option<&Breakpoint> {
+        self.list.iter().find(|breakpoint| breakpoint.id == id)
+    }
+
+    /// The breakpoint `id` names, to edit in place.
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut Breakpoint> {
+        self.list.iter_mut().find(|breakpoint| breakpoint.id == id)
     }
 
     /// What the console is to act on, which is the enabled ones with an access selected.
     pub fn armed(&self) -> Vec<DeckBreakpoint> {
-        self.0
+        self.list
             .iter()
             .filter(|breakpoint| breakpoint.enabled && !breakpoint.access.is_empty())
             .filter_map(Breakpoint::armed)
@@ -160,17 +232,17 @@ impl Breakpoints {
 
     /// The breakpoints in address order, for the window to edit in place.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
-        self.0.iter_mut()
+        self.list.iter_mut()
     }
 
     /// Drop the breakpoints pinned to a cart, keeping the ones any cart shares.
     pub fn retain_without_cart(&mut self) {
-        self.0.retain(|breakpoint| breakpoint.offset.is_none());
+        self.list.retain(|breakpoint| breakpoint.offset.is_none());
     }
 
     /// Whether no breakpoint is listed, enabled or not.
     pub const fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.list.is_empty()
     }
 }
 
@@ -549,11 +621,13 @@ impl Pane {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 enum RowAction {
-    /// Add a breakpoint at this address in the bank at this arena offset, or remove the one
-    /// already there.
+    /// Add a breakpoint on this address in the bank at this arena offset, or remove the one
+    /// already on exactly it.
     ToggleBreakpoint(u16, Option<u32>),
-    /// Arm or disarm the breakpoint there, keeping it listed either way.
-    ArmBreakpoint(u16, Option<u32>, bool),
+    /// Remove the breakpoint this id names.
+    RemoveBreakpoint(u32),
+    /// Arm or disarm the breakpoint this id names, keeping it listed either way.
+    ArmBreakpoint(u32, bool),
     /// Make this the row later commands act on.
     Select(u16),
 }
@@ -629,11 +703,11 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
-    /// Which breakpoint has its condition box open, keyed the way the list is.
+    /// Which breakpoint has its condition box open, by [`Breakpoint::id`].
     ///
     /// Only the empty ones need remembering. One with a condition in it shows its box whether or
     /// not this names it, since hiding a condition would hide why a breakpoint is not firing.
-    condition_open: Option<(u16, Option<u32>)>,
+    condition_open: Option<u32>,
     history_lines: u16,
     /// The panes that are open, in [`Pane::ALL`] order.
     panes: Vec<Pane>,
@@ -670,6 +744,98 @@ fn parse_range(text: &str) -> Option<(u16, u16)> {
         None => {
             let addr = parse_addr(text)?;
             Some((addr, addr))
+        }
+    }
+}
+
+/// The three access letters a breakpoint watches, as the list and the hover write them.
+fn access_text(access: Access) -> String {
+    [
+        (Access::EXEC, 'X'),
+        (Access::READ, 'R'),
+        (Access::WRITE, 'W'),
+    ]
+    .into_iter()
+    .filter(|(flag, _)| access.contains(*flag))
+    .map(|(_, letter)| letter)
+    .collect()
+}
+
+/// What the gutter draws for the breakpoints covering a row.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum GutterMark {
+    /// One breakpoint, drawn in the color of the access it watches.
+    One { access: Access, enabled: bool },
+    /// Several, drawn as a cross so a single click is never a surprise.
+    Several { access: Access, enabled: bool },
+}
+
+impl GutterMark {
+    /// What to draw for `covering`, or `None` where nothing covers the row.
+    fn of(covering: &[&Breakpoint]) -> Option<Self> {
+        let (first, rest) = covering.split_first()?;
+        // The strongest access any of them watches, since one mark cannot show three. Execution
+        // is the strongest: it says the row itself runs, where a read or a write says only that
+        // something reaches the byte.
+        let access = covering.iter().fold(Access::empty(), |access, breakpoint| {
+            access | breakpoint.access
+        });
+        let enabled = covering.iter().any(|breakpoint| breakpoint.enabled);
+        Some(if rest.is_empty() {
+            Self::One {
+                access: first.access,
+                enabled,
+            }
+        } else {
+            Self::Several { access, enabled }
+        })
+    }
+
+    /// The color the strongest access is drawn in.
+    const fn color(access: Access, enabled: bool, palette: &Palette) -> Color32 {
+        if !enabled {
+            return palette.breakpoint_disabled;
+        }
+        if access.contains(Access::EXEC) {
+            palette.breakpoint_exec
+        } else if access.contains(Access::WRITE) {
+            palette.breakpoint_write
+        } else {
+            palette.breakpoint_read
+        }
+    }
+
+    /// Paint into `gutter`, filled for armed and hollow for listed.
+    fn paint(self, painter: &egui::Painter, gutter: Rect, palette: &Palette) {
+        let center = gutter.center();
+        let radius = GUTTER_WIDTH / 4.0;
+        match self {
+            Self::One { access, enabled } => {
+                let color = Self::color(access, enabled, palette);
+                if enabled {
+                    painter.circle_filled(center, radius, color);
+                } else {
+                    painter.circle_stroke(center, radius, egui::Stroke::new(1.5, color));
+                }
+            }
+            Self::Several { access, enabled } => {
+                let color = Self::color(access, enabled, palette);
+                let stroke = egui::Stroke::new(1.5, color);
+                painter.line_segment(
+                    [
+                        center - Vec2::new(radius, 0.0),
+                        center + Vec2::new(radius, 0.0),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        center - Vec2::new(0.0, radius),
+                        center + Vec2::new(0.0, radius),
+                    ],
+                    stroke,
+                );
+            }
         }
     }
 }
@@ -1372,11 +1538,7 @@ impl State {
                 } else {
                     self.breakpoint_goto.clear();
                     let offset = self.prg_offset(addr);
-                    self.breakpoints.add(Breakpoint {
-                        addr,
-                        end,
-                        ..Breakpoint::execute(addr, offset)
-                    });
+                    self.breakpoints.add(Breakpoint::range(addr, end, offset));
                     self.send_breakpoints();
                 }
             }
@@ -1461,9 +1623,8 @@ impl State {
                                 "Break execution"
                             })
                             .changed();
-                        let key = (breakpoint.addr, breakpoint.offset);
-                        let mut open =
-                            condition_open == Some(key) || !breakpoint.condition.trim().is_empty();
+                        let mut open = condition_open == Some(breakpoint.id)
+                            || !breakpoint.condition.trim().is_empty();
                         if ui
                             .toggle_value(&mut open, "if")
                             .on_hover_text("Stop only while an expression holds")
@@ -1472,14 +1633,14 @@ impl State {
                             // A condition still in the box keeps its row open whatever the
                             // toggle says, so closing it means clearing it.
                             breakpoint.condition.clear();
-                            condition_open = open.then_some(key);
+                            condition_open = open.then_some(breakpoint.id);
                             armed_changed = true;
                         }
                         if ui.small_button("✖").clicked() {
-                            removed = Some(key);
+                            removed = Some(breakpoint.id);
                         }
                     });
-                    if condition_open == Some((breakpoint.addr, breakpoint.offset))
+                    if condition_open == Some(breakpoint.id)
                         || !breakpoint.condition.trim().is_empty()
                     {
                         armed_changed |= condition_row(ui, breakpoint);
@@ -1487,8 +1648,8 @@ impl State {
                 }
             });
         self.condition_open = condition_open;
-        if let Some((addr, offset)) = removed {
-            self.breakpoints.remove(addr, offset);
+        if let Some(id) = removed {
+            self.breakpoints.remove(id);
             armed_changed = true;
         }
         if let Some(addr) = scroll_to {
@@ -1636,18 +1797,21 @@ impl State {
             Some(RowAction::ToggleBreakpoint(addr, offset)) => {
                 // A full list refuses the add, so say so. Clicking a gutter and having nothing
                 // appear reads as a broken window.
-                if self.breakpoints.is_full() && self.breakpoints.get(addr, offset).is_none() {
+                if self.breakpoints.is_full() && self.breakpoints.single_at(addr, offset).is_none()
+                {
                     self.warn_breakpoints_full();
                 } else {
                     self.breakpoints.toggle(addr, offset);
                     self.send_breakpoints();
                 }
             }
-            Some(RowAction::ArmBreakpoint(addr, offset, enabled)) => {
-                for breakpoint in self.breakpoints.iter_mut() {
-                    if breakpoint.addr == addr && breakpoint.offset == offset {
-                        breakpoint.enabled = enabled;
-                    }
+            Some(RowAction::RemoveBreakpoint(id)) => {
+                self.breakpoints.remove(id);
+                self.send_breakpoints();
+            }
+            Some(RowAction::ArmBreakpoint(id, enabled)) => {
+                if let Some(breakpoint) = self.breakpoints.get_mut(id) {
+                    breakpoint.enabled = enabled;
                 }
                 self.send_breakpoints();
             }
@@ -1739,52 +1903,65 @@ impl State {
                 .then(|| RowAction::Select(row.addr()));
             return (response, selected);
         };
-        // The row draws the breakpoint set on the bank it shows. A breakpoint on the same address
-        // in another bank belongs to code that is not on screen.
+        // Every breakpoint covering this row, so a range marks the whole of itself rather than
+        // the row it starts on. One set on the same address in another bank belongs to code that
+        // is not on screen, which `covering` leaves out.
         let offset = self.prg_offset(addr);
-        if let Some(breakpoint) = self.breakpoints.get(addr, offset) {
-            // Filled for armed and hollow for listed, a difference that reads without the
-            // palette being involved.
-            let center = gutter.center();
-            let radius = GUTTER_WIDTH / 4.0;
-            if breakpoint.enabled {
-                painter.circle_filled(center, radius, palette.breakpoint);
-            } else {
-                painter.circle_stroke(
-                    center,
-                    radius,
-                    egui::Stroke::new(1.5, palette.breakpoint_disabled),
-                );
-            }
+        let covering = self
+            .breakpoints
+            .covering(addr, &self.snapshot.prg_pages)
+            .collect::<Vec<_>>();
+        if let Some(mark) = GutterMark::of(&covering) {
+            mark.paint(painter, gutter, palette);
         }
 
         let gutter_response = gutter_response.expect("an instruction row interacts");
         let mut action = gutter_response
             .clicked()
             .then_some(RowAction::ToggleBreakpoint(addr, offset));
-        match self.breakpoints.get(addr, offset) {
-            Some(breakpoint) => {
+        // The click owns the breakpoint on exactly this address. Anything else covering the row
+        // is reachable from the menu, so one click never means two things.
+        let single = self.breakpoints.single_at(addr, offset);
+        let gutter_response = if covering.is_empty() {
+            gutter_response.on_hover_text("Add breakpoint")
+        } else {
+            gutter_response.on_hover_ui(|ui| {
+                ui.label(if single.is_some() {
+                    "Click to remove the breakpoint on this address"
+                } else {
+                    "Click to add a breakpoint on this address"
+                });
+                for breakpoint in &covering {
+                    ui.monospace(format!(
+                        "{}  {}",
+                        breakpoint.range_text(),
+                        access_text(breakpoint.access)
+                    ));
+                }
+            })
+        };
+        gutter_response.context_menu(|ui| {
+            for breakpoint in &covering {
                 let enabled = breakpoint.enabled;
-                gutter_response
-                    .on_hover_text("Remove breakpoint")
-                    .context_menu(|ui| {
-                        if ui
-                            .button(if enabled { "Disable" } else { "Enable" })
-                            .clicked()
-                        {
-                            action = Some(RowAction::ArmBreakpoint(addr, offset, !enabled));
-                            ui.close();
-                        }
-                        if ui.button("Remove").clicked() {
-                            action = Some(RowAction::ToggleBreakpoint(addr, offset));
-                            ui.close();
-                        }
-                    });
+                ui.menu_button(breakpoint.range_text(), |ui| {
+                    if ui
+                        .button(if enabled { "Disable" } else { "Enable" })
+                        .clicked()
+                    {
+                        action = Some(RowAction::ArmBreakpoint(breakpoint.id, !enabled));
+                        ui.close();
+                    }
+                    if ui.button("Remove").clicked() {
+                        action = Some(RowAction::RemoveBreakpoint(breakpoint.id));
+                        ui.close();
+                    }
+                });
             }
-            None => {
-                gutter_response.on_hover_text("Add breakpoint");
+            if single.is_none() && ui.button("Add breakpoint here").clicked() {
+                action = Some(RowAction::ToggleBreakpoint(addr, offset));
+                ui.close();
             }
-        }
+        });
 
         let row_response = ui.interact(text, ui.id().with(("row", addr)), Sense::click());
         if row_response.clicked() {
@@ -2144,15 +2321,56 @@ mod tests {
     #[test]
     fn an_address_holds_a_breakpoint_for_each_bank() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(Breakpoint::execute(0x8000, Some(0x4000)));
-        breakpoints.add(Breakpoint::execute(0x8000, Some(0x8000)));
+        let first = breakpoints
+            .add(Breakpoint::execute(0x8000, Some(0x4000)))
+            .expect("added");
+        let second = breakpoints
+            .add(Breakpoint::execute(0x8000, Some(0x8000)))
+            .expect("added");
         assert_eq!(armed_at(&breakpoints), [0x8000, 0x8000]);
 
-        assert!(breakpoints.remove(0x8000, Some(0x4000)));
+        assert!(breakpoints.remove(first));
         assert_eq!(
-            breakpoints.get(0x8000, Some(0x8000)).map(|bp| bp.offset),
+            breakpoints.get(second).map(|bp| bp.offset),
             Some(Some(0x8000)),
             "removing one bank's breakpoint took the other bank's with it"
+        );
+    }
+
+    /// One address holds as many breakpoints as are set on it. A range and a single address are
+    /// different questions, and so are two accesses of one byte under different conditions.
+    #[test]
+    fn one_address_holds_as_many_breakpoints_as_are_set_on_it() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::execute(0x6000, None));
+        breakpoints.add(Breakpoint::range(0x6000, 0x7FFF, None));
+        assert_eq!(armed_at(&breakpoints), [0x6000, 0x6000]);
+
+        let unmapped = [Page::UNMAPPED; PRG_PAGES];
+        assert_eq!(breakpoints.covering(0x6000, &unmapped).count(), 2);
+        assert_eq!(
+            breakpoints.covering(0x6500, &unmapped).count(),
+            1,
+            "a range marks every row it covers, not only the one it starts on"
+        );
+        assert_eq!(breakpoints.covering(0x8000, &unmapped).count(), 0);
+    }
+
+    /// A gutter click owns the breakpoint on exactly its address. Taking a range away because a
+    /// row inside it was clicked would remove far more than the click landed on.
+    #[test]
+    fn a_gutter_toggle_leaves_a_range_covering_the_row_alone() {
+        let mut breakpoints = Breakpoints::default();
+        breakpoints.add(Breakpoint::range(0x6000, 0x7FFF, None));
+
+        breakpoints.toggle(0x6000, None);
+        assert_eq!(armed_at(&breakpoints), [0x6000, 0x6000], "added its own");
+
+        breakpoints.toggle(0x6000, None);
+        assert_eq!(armed_at(&breakpoints), [0x6000], "took its own back");
+        assert!(
+            breakpoints.single_at(0x6000, None).is_none(),
+            "the range answered for a single address"
         );
     }
 
@@ -2190,13 +2408,37 @@ mod tests {
         ));
     }
 
-    /// Adding is not toggling: typing an address that is already listed must not clear it.
+    /// Adding is not toggling: typing an address that is already listed adds a second breakpoint
+    /// on it rather than clearing the first.
     #[test]
-    fn adding_an_address_twice_leaves_one_breakpoint() {
+    fn adding_an_address_twice_leaves_both_breakpoints() {
         let mut breakpoints = Breakpoints::default();
-        breakpoints.add(Breakpoint::execute(0xC000, None));
-        breakpoints.add(Breakpoint::execute(0xC000, None));
-        assert_eq!(armed_at(&breakpoints), [0xC000]);
+        let first = breakpoints
+            .add(Breakpoint::execute(0xC000, None))
+            .expect("added");
+        let second = breakpoints
+            .add(Breakpoint::execute(0xC000, None))
+            .expect("added");
+
+        assert_eq!(armed_at(&breakpoints), [0xC000, 0xC000]);
+        assert_ne!(first, second, "the second took the first one's name");
+    }
+
+    /// An id names one breakpoint for as long as it is listed. Handing a removed one out again
+    /// would let the open editor, or a click already in flight, land on whatever took its place.
+    #[test]
+    fn an_id_is_never_handed_out_twice() {
+        let mut breakpoints = Breakpoints::default();
+        let first = breakpoints
+            .add(Breakpoint::execute(0xC000, None))
+            .expect("added");
+        breakpoints.remove(first);
+        let second = breakpoints
+            .add(Breakpoint::execute(0xC000, None))
+            .expect("added");
+
+        assert_ne!(first, second);
+        assert!(breakpoints.get(first).is_none());
     }
 
     /// Disabling keeps a breakpoint in the list and out of what the console is told to stop at.
@@ -2205,13 +2447,12 @@ mod tests {
         let mut breakpoints = Breakpoints::default();
         breakpoints.add(Breakpoint::execute(0xC000, None));
         breakpoints.add(Breakpoint::execute(0xD000, None));
-        for breakpoint in breakpoints.iter_mut() {
-            breakpoint.enabled = breakpoint.addr != 0xC000;
-        }
+        let disabled = breakpoints.single_at(0xC000, None).expect("listed");
+        breakpoints.get_mut(disabled).expect("listed").enabled = false;
 
         assert_eq!(armed_at(&breakpoints), [0xD000]);
         assert!(
-            breakpoints.get(0xC000, None).is_some_and(|bp| !bp.enabled),
+            breakpoints.get(disabled).is_some_and(|bp| !bp.enabled),
             "a disabled breakpoint was dropped rather than kept"
         );
     }

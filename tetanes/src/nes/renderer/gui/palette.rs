@@ -31,8 +31,12 @@ pub struct Palette {
     pub pc_text: Color32,
     /// Around the row the user last clicked.
     pub selection: Stroke,
-    /// A breakpoint the console will stop at.
-    pub breakpoint: Color32,
+    /// A breakpoint watching execution, the strongest access a gutter mark shows.
+    pub breakpoint_exec: Color32,
+    /// One watching writes.
+    pub breakpoint_write: Color32,
+    /// One watching reads.
+    pub breakpoint_read: Color32,
     /// One listed without being armed.
     pub breakpoint_disabled: Color32,
     /// Behind the gutter column, separating it from the disassembly.
@@ -66,7 +70,11 @@ impl Palette {
             pc_background: visuals.selection.bg_fill,
             pc_text: visuals.selection.stroke.color,
             selection: visuals.selection.stroke,
-            breakpoint: visuals.error_fg_color,
+            // Red, green and blue by access, the way Mesen colors them, so a glance at the
+            // gutter says what a mark is watching.
+            breakpoint_exec: visuals.error_fg_color,
+            breakpoint_write: Color32::from_rgb(0x4C, 0xAF, 0x50),
+            breakpoint_read: Color32::from_rgb(0x42, 0xA5, 0xF5),
             breakpoint_disabled: visuals.gray_out(visuals.error_fg_color),
             // Recessed, the way the theme sinks a text box, so the column reads as its own
             // strip rather than as margin.
