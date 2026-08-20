@@ -58,9 +58,11 @@ Try it out in your [browser](https://lukeworks.tech/tetanes-web)!
 - iNES and NES 2.0 ROM header formats supported.
 - Over 30 supported mappers covering >90% of licensed games.
 - Game Genie Codes.
+- CPU Debugger: disassembly, registers, call stack, watch expressions,
+  breakpoints on read/write/execute with conditions, and a hex memory editor.
 - PPU Debugger
 - Runtime performance stats
-- Preference snd keybonding menus using [egui](https://egui.rs).
+- Preference and keybinding menus using [egui](https://egui.rs).
   - Increase/Decrease speed & Fast Forward
   - Visual & Instant Rewind
   - Save & Load States

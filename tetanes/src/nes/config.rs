@@ -109,6 +109,18 @@ impl RecentRom {
     }
 }
 
+/// Read the Debugger's open panes, dropping any name this build does not have.
+///
+/// A whole config that fails to parse reverts to defaults, so without this a config written by a
+/// build with one more pane than this one loses every other setting in the file too.
+fn known_panes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Pane>, D::Error> {
+    let panes = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(panes
+        .into_iter()
+        .filter_map(|pane| serde_json::from_value(pane).ok())
+        .collect())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 #[serde(default)] // Ensures new fields don't break existing configurations
@@ -133,6 +145,7 @@ pub struct RendererConfig {
     #[serde(default)]
     pub show_updates: bool,
     /// Which Debugger panes are open, in draw order.
+    #[serde(default, deserialize_with = "known_panes")]
     pub debugger_panes: Vec<Pane>,
     /// Whether to open the Debugger and stop the console once a ROM is loaded.
     ///
