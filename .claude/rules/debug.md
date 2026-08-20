@@ -34,6 +34,15 @@ half-written. Values follow the console for free: a snapshot is pushed every fra
 and after every step. A closed pane sends an empty list, so it evaluates nothing, the way a closed
 pane captures nothing.
 
+**A debugger write goes through an event and reaches RAM only.** The window sends
+`EmulationEvent::DebugWrite`, so it never holds a handle on the console it is drawing, and the
+emulation thread applies it between instructions and answers with a fresh snapshot - a register
+cell and a hex byte both read back what landed rather than what was typed. `Bus::poke` is the
+memory half: it decodes a CPU address the way `Bus::write` does but stores only into work RAM and
+whatever the board maps writable, so a poke cannot clock a component or trip a mapper register. It
+reports whether the byte landed, and `Memory::writable_in` gives the window the same answer from
+its own copy of the page table, so a byte the console would refuse greys out instead.
+
 **A condition is parsed once and evaluated per access.** `debug/expr.rs` compiles the text to a
 stack machine with no strings in it, and `Expr::eval` walks that against a `Bus` with a fixed-size
 stack, since a condition is asked on the emulation thread at the moment of the access. Memory is
@@ -61,6 +70,15 @@ offset from the `prg_pages` copy on `CpuSnapshot` through `Memory::offset_in`, s
 pinned to the bank that was on screen when it was set, one address lists one breakpoint per bank,
 and a breakpoint whose bank has been switched out greys in the list rather than silently going
 quiet.
+
+**The memory pane asks for a window, not the address space.** `DebugRequest::memory` carries a
+`(start, len)` around the rows on screen, rounded out to whole pages so a scroll of a row or two
+reuses what is in hand, and `CpuSnapshot::memory_start` says where the bytes it answers begin, so
+they line up with the rows however far behind the request the snapshot is. A byte outside the
+window draws as `--`. Scrolling resubscribes rather than waiting for a frame, since a stopped
+console clocks none. Digits are typed straight onto the selected byte rather than into a box of its
+own: `show_rows` maps scroll offset to row index by multiplying, so one row taller than the rest
+desynchronizes the virtual window.
 
 **What a debugger records as it runs lives on `Bus` behind an `Option`,** the way `pc_history` and
 `code_map` (`debug.rs`) both do: `None` by default, so a console with no debugger open pays a

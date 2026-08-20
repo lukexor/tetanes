@@ -21,6 +21,8 @@
 //! | cartridge, through the page tables | [`Bus::chr_peek`] | |
 //!
 //! [`Bus::copy_ppu_bus`] copies `$0000-$2FFF` as currently banked, for reading CHR off-thread.
+//! [`Bus::poke`] is the write with no side effects, storing into RAM alone, for a debugger to
+//! change state with.
 //!
 //! # Stability
 //!
@@ -313,6 +315,30 @@ impl Bus {
         &mut self.wram
     }
 
+    /// Store `val` at `addr` if RAM answers there, reporting whether it landed.
+    ///
+    /// The write a debugger makes, the counterpart of [`Bus::peek`]: it decodes the CPU address
+    /// the way [`Bus::write`] does, but reaches only work RAM and whatever the board maps
+    /// writable, so poking a byte cannot clock a component or trip a mapper register. `false`
+    /// where the address reaches ROM, an unmapped page, or the `$2000-$40FF` registers, none of
+    /// which can be written without moving the console.
+    pub fn poke(&mut self, addr: u16, val: u8) -> bool {
+        match addr {
+            0x0000..=0x1FFF => {
+                self.wram[usize::from(addr & 0x07FF)] = val;
+                true
+            }
+            0x4100..=0xFFFF => {
+                let writable = self.memory.prg_writable(addr);
+                if writable {
+                    self.memory.prg_write(addr, val);
+                }
+                writable
+            }
+            _ => false,
+        }
+    }
+
     /// Apply a Game Genie code, replacing any patch already at its address.
     pub fn add_genie_code(&mut self, genie_code: GenieCode) {
         self.patches.insert(Patch::from(&genie_code));
@@ -589,6 +615,7 @@ mod test {
     use super::*;
     use crate::{
         apu::noise::ShiftMode,
+        debug::{CallFrame, CallStack, FrameKind},
         input::JoypadBtn,
         mapper::{Cnrom, Nrom},
         memory::Src,
@@ -1055,5 +1082,64 @@ mod test {
                 "battery_backed {battery_backed}: cart RAM after a power cycle"
             );
         }
+    }
+
+    /// A restore puts the console somewhere its recorded frames do not describe, and `unwind_to`
+    /// cannot repair them: it pops what the stack pointer has risen past, which neither puts back
+    /// a frame returned from nor drops one pushed at a shallower depth. So the frames go and the
+    /// recorder stays, and a caller that knows the position it restored to puts its own back.
+    #[test]
+    fn a_restore_drops_the_recorded_frames_and_keeps_the_recorder() {
+        let console = || {
+            let mut bus = Bus::default();
+            let mut cart = Cart::empty_sized(0x4000, 0x2000);
+            cart.mapper = Nrom::load(&mut cart).expect("valid mapper");
+            bus.load_cart(cart);
+            bus
+        };
+        let mut bus = console();
+        let mut restored = console();
+        bus.call_stack = Some(CallStack::new());
+        bus.call_stack.as_mut().expect("recording").push(CallFrame {
+            caller: 0x8000,
+            entry: 0x9000,
+            sp: 0xFD,
+            kind: FrameKind::Call,
+        });
+
+        bus.swap_state(&mut restored).expect("the same cart");
+
+        let call_stack = bus.call_stack.as_ref().expect("still recording");
+        assert!(
+            call_stack.is_empty(),
+            "frames recorded before the restore do not describe the console after it"
+        );
+    }
+
+    /// A debugger write must not move the console, so it reaches RAM and refuses everything else
+    /// rather than falling back on the bus write.
+    #[test]
+    fn a_poke_reaches_ram_and_refuses_the_rest() {
+        let mut bus = Bus::default();
+        let mut cart = Cart::empty_sized(0x4000, 0x2000);
+        cart.mapper = Nrom::load(&mut cart).expect("valid mapper");
+        bus.load_cart(cart);
+        bus.reset(ResetKind::Hard);
+
+        assert!(bus.poke(0x0042, 0x5A), "work RAM");
+        assert_eq!(bus.peek(0x0042), 0x5A);
+        assert!(bus.poke(0x1842, 0xA5), "the mirror of it at $1842");
+        assert_eq!(bus.peek(0x0042), 0xA5, "which is the same byte");
+
+        assert!(bus.poke(0x6000, 0x3C), "cart RAM");
+        assert_eq!(bus.peek(0x6000), 0x3C);
+
+        assert!(!bus.poke(0x2000, 0xFF), "PPUCTRL");
+        assert!(!bus.poke(0x4015, 0xFF), "APU status");
+        assert!(!bus.ppu.ctrl_nmi_enabled, "no register took the write");
+
+        let rom = bus.peek(0x8000);
+        assert!(!bus.poke(0x8000, rom.wrapping_add(1)), "PRG-ROM");
+        assert_eq!(bus.peek(0x8000), rom);
     }
 }

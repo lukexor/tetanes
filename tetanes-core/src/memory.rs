@@ -398,6 +398,21 @@ impl Memory {
         }
     }
 
+    /// Whether a write to the CPU `addr` is stored rather than discarded, which is false for ROM
+    /// and for an unmapped page.
+    #[inline(always)]
+    #[must_use]
+    pub const fn prg_writable(&self, addr: u16) -> bool {
+        Self::writable_in(&self.prg_pages, addr)
+    }
+
+    /// [`Memory::prg_writable`] against a page table held apart from the arena, the way
+    /// [`Memory::offset_in`] resolves an offset against one.
+    #[must_use]
+    pub const fn writable_in(pages: &[Page; PRG_PAGES], addr: u16) -> bool {
+        pages[(addr as usize >> PAGE_SHIFT) & PRG_PAGE_MASK].is_writable()
+    }
+
     /// Read a byte from the PPU address space, including the nametable range.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {

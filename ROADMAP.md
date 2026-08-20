@@ -91,10 +91,10 @@
   - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over
     - [x] Step Scanline/Frame
-    - [x] Breakpoints (by address - memory watches and conditions still to come)
-    - [ ] Modify state
+    - [x] Breakpoints (by address, on read/write/execute, with conditions)
+    - [x] Modify state (registers, status flags, and RAM)
     - [ ] Labels
-  - [ ] Hex Memory Editor & Debugger
+  - [x] Hex Memory Editor & Debugger
   - PPU Viewer
     - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
     - [x] Nametable Viewer (background rendering)

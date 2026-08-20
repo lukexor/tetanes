@@ -1,12 +1,17 @@
 use crate::nes::{
     action::{Debug, DebugStep},
     config::Config,
-    event::{ConfigEvent, DebugRequest, EmulationEvent, NesEventProxy, UiEvent},
+    event::{ConfigEvent, DebugRequest, DebugWrite, EmulationEvent, NesEventProxy, UiEvent},
     renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
 };
 use egui::{
-    CentralPanel, Color32, Context, Grid, Label, Panel, Rect, RichText, ScrollArea, Sense, Ui,
-    Vec2, ViewportClass, ViewportId, text::CCursor,
+    CentralPanel, Color32, Context, Grid, Label, Panel, PopupCloseBehavior, Rect, RichText,
+    ScrollArea, Sense, Ui, Vec2, ViewportClass, ViewportId,
+    containers::{
+        PanelState,
+        menu::{MenuButton, MenuConfig},
+    },
+    text::CCursor,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -331,6 +336,9 @@ pub struct CpuSnapshot {
     pub history: Vec<Disasm>,
     /// The range requested from [`DebugRequest::memory`], if any.
     pub memory: Vec<u8>,
+    /// The address [`CpuSnapshot::memory`] starts at, so its bytes line up with the rows however
+    /// far behind the window the snapshot is.
+    pub memory_start: u16,
     /// Accesses that breakpoints recorded without stopping, oldest first.
     pub access_log: Vec<AccessHit>,
     /// What the Watches pane's expressions came to, in the order it listed them.
@@ -356,6 +364,7 @@ impl Default for CpuSnapshot {
             call_stack: Vec::new(),
             history: Vec::new(),
             memory: Vec::new(),
+            memory_start: 0,
             access_log: Vec::new(),
             watches: Vec::new(),
             prg_pages: [Page::UNMAPPED; PRG_PAGES],
@@ -402,6 +411,7 @@ impl CpuSnapshot {
             memory: request.memory.map_or_else(Vec::new, |(start, len)| {
                 (0..len).map(|i| bus.peek(start.wrapping_add(i))).collect()
             }),
+            memory_start: request.memory.map_or(0, |(start, _)| start),
             // Filled by the caller, which owns the console the log is drained from.
             access_log: Vec::new(),
             // Filled by the caller, which owns the expressions the window asked for.
@@ -586,11 +596,13 @@ pub enum Pane {
     History,
     /// Expressions and what they come to on the console as it stands.
     Watches,
+    /// The CPU address space as hex bytes, where RAM can be typed over.
+    Memory,
 }
 
 impl Pane {
     /// Every pane, in the order a column stacks them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Disassembly,
         Self::Registers,
         Self::Stack,
@@ -598,13 +610,15 @@ impl Pane {
         Self::Watches,
         Self::Breakpoints,
         Self::History,
+        Self::Memory,
     ];
 
     /// The panes a window opens with.
     ///
-    /// Everything but the history. It answers what has run, where the call stack answers how
-    /// execution got here, and it takes a ring buffer plus the bottom of the window to do it, so
-    /// it waits for the View menu to ask.
+    /// Everything but the history and the memory. The history answers what has run, where the call
+    /// stack answers how execution got here, and it takes a ring buffer plus the bottom of the
+    /// window to do it. The memory pane takes the same bottom and a copy of the console's bytes
+    /// each frame. Both wait for the View menu to ask.
     pub const DEFAULT: [Self; 6] = [
         Self::Disassembly,
         Self::Registers,
@@ -624,6 +638,7 @@ impl Pane {
             Self::Breakpoints => "Breakpoints",
             Self::History => "Recently executed",
             Self::Watches => "Watches",
+            Self::Memory => "Memory",
         }
     }
 
@@ -634,7 +649,9 @@ impl Pane {
             Self::Registers | Self::Stack | Self::CallStack | Self::Watches | Self::Breakpoints => {
                 Column::Right
             }
-            Self::History => Column::Bottom,
+            // A hex row is sixteen bytes plus their text, which is wider than the right column
+            // and about what the bottom one spans.
+            Self::History | Self::Memory => Column::Bottom,
         }
     }
 
@@ -650,6 +667,7 @@ impl Pane {
             Self::Breakpoints => 160.0,
             Self::History => 140.0,
             Self::Watches => 120.0,
+            Self::Memory => 180.0,
         }
     }
 
@@ -663,6 +681,7 @@ impl Pane {
             Self::Breakpoints => "debugger_pane_breakpoints",
             Self::History => "debugger_pane_history",
             Self::Watches => "debugger_pane_watches",
+            Self::Memory => "debugger_pane_memory",
         }
     }
 }
@@ -698,7 +717,7 @@ pub enum Column {
 
 impl Column {
     /// Every column, in the order it claims space. The center takes what the others leave.
-    const ORDER: [Self; 3] = [Self::Bottom, Self::Right, Self::Center];
+    const ALL: [Self; 3] = [Self::Bottom, Self::Right, Self::Center];
 
     /// The column's own size before anything drags its splitter: a width on the right, a height
     /// along the bottom.
@@ -706,7 +725,8 @@ impl Column {
         match self {
             // Wide enough for the register grid's six columns without wrapping.
             Self::Center | Self::Right => 380.0,
-            Self::Bottom => 160.0,
+            // Tall enough for a screenful of hex rows above the memory pane's address box.
+            Self::Bottom => 200.0,
         }
     }
 
@@ -766,6 +786,22 @@ struct State {
     editing: Option<u32>,
     /// What the editor's address box holds, which is not the breakpoint's range until it parses.
     editing_range: String,
+    /// The register whose cell is open as a box, and what has been typed into it.
+    ///
+    /// One at a time, so clicking a second cell closes the first without writing it.
+    register_edit: Option<(Register, String)>,
+    /// What is typed in the memory pane's address box, which moves the view once it parses.
+    memory_goto: String,
+    /// The address to center the memory pane on, cleared once its row has been drawn.
+    memory_scroll_to: Option<u16>,
+    /// The `(start, len)` the console is asked to copy for the memory pane, as
+    /// [`memory_window()`] works it out.
+    memory_window: Option<(u16, u16)>,
+    /// The byte the memory pane has selected, and the hex digits typed onto it so far.
+    memory_edit: Option<(u16, String)>,
+    /// Rows the last draw of the memory pane put on screen. The window it asks the console for
+    /// covers these, and a selection has to leave them before the view follows it.
+    memory_rows: Range<usize>,
     history_lines: u16,
     /// The panes that are open, in [`Pane::ALL`] order.
     panes: Vec<Pane>,
@@ -998,18 +1034,160 @@ fn detail_rows(ui: &mut Ui, id: &str, rows: &[(&str, String)]) {
 }
 
 /// A register cell, where the name and the value both hover with `rows`.
-fn register_cell(ui: &mut Ui, name: &str, value: &str, heading: &str, rows: &[(&str, String)]) {
+/// How a register's value is written, in the box and out of it.
+fn register_text(value: u16, digits: usize) -> String {
+    format!("{value:0digits$X}")
+}
+
+/// A CPU register the Registers pane draws, and writes when one is typed over.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+enum Register {
+    /// The program counter.
+    Pc,
+    /// The accumulator.
+    Acc,
+    /// The X index register.
+    X,
+    /// The Y index register.
+    Y,
+    /// The stack pointer.
+    Sp,
+}
+
+impl Register {
+    /// The name the cell is labelled with.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Pc => "PC",
+            Self::Acc => "A",
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Sp => "SP",
+        }
+    }
+
+    /// What the cell's hover says the register is.
+    const fn heading(self) -> &'static str {
+        match self {
+            Self::Pc => "Program counter - the instruction about to run",
+            Self::Acc => "Accumulator",
+            Self::X => "Index register X",
+            Self::Y => "Index register Y",
+            Self::Sp => "Stack pointer",
+        }
+    }
+
+    /// How many hex digits the register is written in.
+    const fn digits(self) -> usize {
+        match self {
+            Self::Pc => 4,
+            Self::Acc | Self::X | Self::Y | Self::Sp => 2,
+        }
+    }
+
+    /// The write that sets the register to `val`. Only PC has a high byte to take.
+    const fn write(self, val: u16) -> DebugWrite {
+        match self {
+            Self::Pc => DebugWrite::Pc(val),
+            Self::Acc => DebugWrite::Acc(val as u8),
+            Self::X => DebugWrite::X(val as u8),
+            Self::Y => DebugWrite::Y(val as u8),
+            Self::Sp => DebugWrite::Sp(val as u8),
+        }
+    }
+}
+
+/// A register cell, where the name and the value both hover with `rows`.
+///
+/// Clicking the value opens a box with what the register reads now, so it can be edited in
+/// place, and Enter writes what parses. `edit` names the one register being typed, so opening a
+/// second cell closes the first without committing it.
+fn register_cell(
+    ui: &mut Ui,
+    register: Register,
+    value: u16,
+    rows: &[(&str, String)],
+    edit: &mut Option<(Register, String)>,
+) -> Option<DebugWrite> {
+    let name = register.name();
+    let digits = register.digits();
     let hover = |ui: &mut Ui| {
-        ui.strong(heading);
+        ui.strong(register.heading());
         detail_rows(ui, name, rows);
     };
     ui.strong(name).on_hover_ui(hover);
-    ui.monospace(value).on_hover_ui(hover);
+
+    match edit {
+        Some((editing, text)) if *editing == register => {
+            let response = ui.add(
+                egui::TextEdit::singleline(text)
+                    .font(egui::TextStyle::Monospace)
+                    // Room for the digits plus the longest sigil `parse_addr` takes.
+                    .char_limit(digits + 2)
+                    // No taller than the label it stands in for. A row that grows on the click
+                    // pushes the grid past the pane and scrolls the top of it off.
+                    .margin(egui::Margin::symmetric(2, 0))
+                    .desired_width(60.0),
+            );
+            // Focused on the frame the box opens, and never again, so clicking away can take it.
+            if !response.has_focus() && !response.lost_focus() {
+                response.request_focus();
+            }
+            if !submitted(ui, &response) {
+                // Focus lost to anything but Enter drops what was typed, the way Escape does.
+                if response.lost_focus() {
+                    *edit = None;
+                }
+                return None;
+            }
+            let written = parse_addr(text).map(|val| register.write(val));
+            *edit = None;
+            written
+        }
+        _ => {
+            let text = format!("${}", register_text(value, digits));
+            if ui
+                .add(egui::Label::new(RichText::new(text).monospace()).sense(Sense::click()))
+                .on_hover_ui(hover)
+                .on_hover_text("Click to write it")
+                .clicked()
+            {
+                *edit = Some((register, register_text(value, digits)));
+            }
+            None
+        }
+    }
 }
 
 /// Where `addr` sits in the cart arena under `pages`, the mapping the window is drawing.
 fn prg_offset(pages: &[Page; PRG_PAGES], addr: u16) -> Option<u32> {
     Memory::offset_in(pages, addr).map(|offset| offset as u32)
+}
+
+/// The `(start, len)` the console is asked to copy to cover `rows` of the memory pane.
+///
+/// Widened by [`State::MEMORY_MARGIN`] and rounded out to whole pages, so a scroll of a row or two
+/// reuses the bytes already in hand rather than asking again. Clamped to the address space at
+/// both ends, since a length of 64K has no `u16` to say it in.
+fn memory_window(rows: &Range<usize>) -> (u16, u16) {
+    let start = (rows.start * State::MEMORY_ROW_BYTES).saturating_sub(State::MEMORY_MARGIN) & !0xFF;
+    let end = (rows.end * State::MEMORY_ROW_BYTES + State::MEMORY_MARGIN)
+        .next_multiple_of(0x100)
+        .min(0x1_0000);
+    (start as u16, (end - start).min(0xFF00) as u16)
+}
+
+/// Whether a byte at `addr` can be typed over, under `pages`, the mapping the window is drawing.
+///
+/// The rule [`Bus::poke`] applies, resolved from the page table the window has rather than the one
+/// the console has moved on to, so a cell greys out rather than taking a write that is refused.
+const fn is_writable(pages: &[Page; PRG_PAGES], addr: u16) -> bool {
+    match addr {
+        0x0000..=0x1FFF => true,
+        0x4100..=0xFFFF => Memory::writable_in(pages, addr),
+        _ => false,
+    }
 }
 
 /// Whether the bytes `breakpoint` was set over are still mapped where it was set.
@@ -1037,7 +1215,7 @@ fn row_is_visible(address_space: &AddressSpace, visible: &Range<usize>, addr: u1
 /// What the console is asked to capture, folded over the panes in `open`.
 ///
 /// A closed pane draws nothing, so what feeds it is not captured either.
-fn request(open: &[Pane], history_lines: u16) -> DebugRequest {
+fn request(open: &[Pane], history_lines: u16, memory: Option<(u16, u16)>) -> DebugRequest {
     DebugRequest {
         history_lines: if open.contains(&Pane::History) {
             history_lines
@@ -1046,7 +1224,7 @@ fn request(open: &[Pane], history_lines: u16) -> DebugRequest {
         },
         stack: open.contains(&Pane::Stack),
         call_stack: open.contains(&Pane::CallStack),
-        memory: None,
+        memory: open.contains(&Pane::Memory).then_some(memory).flatten(),
     }
 }
 
@@ -1092,6 +1270,12 @@ impl CpuDebugger {
                 watch_entry: String::new(),
                 editing: None,
                 editing_range: String::new(),
+                register_edit: None,
+                memory_goto: String::new(),
+                memory_scroll_to: None,
+                memory_window: None,
+                memory_edit: None,
+                memory_rows: 0..0,
                 history_lines: Self::HISTORY_LINES,
                 panes,
             })),
@@ -1276,14 +1460,22 @@ impl State {
             .collect();
         self.tx
             .event(ConfigEvent::DebuggerPanes(self.panes.clone()));
-        self.tx
-            .event(EmulationEvent::DebugSubscribe(Some(self.request())));
+        self.resubscribe();
         self.send_watches();
     }
 
     /// What the console is asked to capture for the panes that are open.
     fn request(&self) -> DebugRequest {
-        request(&self.panes, self.history_lines)
+        request(&self.panes, self.history_lines, self.memory_window)
+    }
+
+    /// Ask the console for what the panes now want.
+    ///
+    /// A subscribe answers with a snapshot of its own, so a memory pane scrolled while the console
+    /// is stopped fills from that rather than waiting for a frame that never comes.
+    fn resubscribe(&self) {
+        self.tx
+            .event(EmulationEvent::DebugSubscribe(Some(self.request())));
     }
 
     /// Forget every dragged splitter, so the next frame lays out from the default sizes.
@@ -1292,7 +1484,7 @@ impl State {
             for id in Pane::ALL
                 .into_iter()
                 .map(Pane::id)
-                .chain([Column::Right.id(), Column::Bottom.id()])
+                .chain(Column::ALL.map(Column::id))
             {
                 data.remove::<egui::containers::PanelState>(egui::Id::new(id));
             }
@@ -1302,9 +1494,19 @@ impl State {
     fn ui(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config) {
         ui.add_enabled_ui(enabled, |ui| {
             Panel::top("debugger_toolbar").show(ui, |ui| self.toolbar(ui, cfg));
-            for column in Column::ORDER {
-                self.column(ui, column);
+            // The bottom column claims its strip first. Only the right column is told where that
+            // leaves off: a side panel nested in a `Ui` takes the height of its contents, so an
+            // unbounded one rules its divider down the side of the bottom column.
+            //
+            // A panel stores its rect after drawing its body, so mid-drag that rect names where
+            // the splitter reached, not where the body went. Leaving the center to egui keeps a
+            // drag off the bottom column.
+            let mut rest = ui.available_rect_before_wrap();
+            if let Some(bottom) = self.column(ui, Column::Bottom) {
+                rest.max.y = bottom.top();
             }
+            self.right_column(ui, rest.height());
+            self.column(ui, Column::Center);
         });
         self.breakpoint_editor(ui.ctx());
     }
@@ -1476,7 +1678,11 @@ impl State {
                 }
             }
             ui.separator();
-            ui.menu_button("View", |ui| self.view_menu(ui));
+            // Stays open until the pointer leaves it, so several panes can be toggled in one go
+            // rather than reopening the menu for each.
+            MenuButton::new("View")
+                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
+                .ui(ui, |ui| self.view_menu(ui));
         });
     }
 
@@ -1500,6 +1706,8 @@ impl State {
             .clicked()
         {
             Self::reset_layout(ui.ctx());
+            // The one item here that is done after one click, unlike the checkboxes above.
+            ui.close();
         }
     }
 
@@ -1507,10 +1715,10 @@ impl State {
     ///
     /// Every pane but the last is sized by [`Pane::default_size`], and the last takes what is
     /// left, so a splitter sits between each pair and one between the column and the center.
-    fn column(&mut self, ui: &mut Ui, column: Column) {
-        let Some((sized, filling)) = column.tiling(&self.panes) else {
-            return;
-        };
+    ///
+    /// Reports the rect the column took, or `None` where it had nothing open to draw.
+    fn column(&mut self, ui: &mut Ui, column: Column) -> Option<Rect> {
+        let (sized, filling) = column.tiling(&self.panes)?;
         let mut closed = None;
         let mut tile = |ui: &mut Ui, this: &mut Self| {
             for pane in &sized {
@@ -1532,18 +1740,80 @@ impl State {
         };
         match column {
             Column::Center => tile(ui, self),
-            Column::Right => {
-                Panel::right(column.id())
-                    .default_size(column.default_size())
-                    .show(ui, |ui| tile(ui, self));
-            }
             Column::Bottom => {
                 Panel::bottom(column.id())
                     .resizable(true)
                     .default_size(column.default_size())
                     .show(ui, |ui| tile(ui, self));
             }
+            Column::Right => unreachable!("the right column is drawn by `right_column`"),
         }
+        if let Some(pane) = closed {
+            self.set_pane_open(pane, false);
+        }
+        // What the column claimed, read back from where egui records it and `reset_layout` clears
+        // it. A panel's own response covers what it drew inside, not the strip it took.
+        match column {
+            Column::Center => Some(ui.min_rect()),
+            Column::Right | Column::Bottom => {
+                PanelState::load(ui.ctx(), egui::Id::new(column.id())).map(|state| state.outer_rect)
+            }
+        }
+    }
+
+    /// The right column: its panes at fixed heights, one under the next, scrolling together.
+    ///
+    /// The caller measures `height`, the space the column has to work in. Each pane scrolls its
+    /// own content, so a fixed height loses nothing, and a window too short for all of them
+    /// scrolls the column rather than cutting the last ones off. The last pane takes any slack, so
+    /// a column with room to spare looks the same as one laid out to fit.
+    ///
+    /// Panes here are plain sections rather than nested [`Panel`]s: a `Panel` sets a clip rect of
+    /// its own and would draw straight through the scroll area around it.
+    fn right_column(&mut self, ui: &mut Ui, height: f32) {
+        let column = Column::Right;
+        let Some((sized, filling)) = column.tiling(&self.panes) else {
+            return;
+        };
+        let panes = sized
+            .into_iter()
+            .chain([filling])
+            .map(|pane| (pane, pane.default_size()))
+            .collect::<Vec<_>>();
+        let gaps = ui.spacing().item_spacing.y * panes.len() as f32;
+        let slack = (height - gaps - panes.iter().map(|(_, size)| size).sum::<f32>()).max(0.0);
+        let mut closed = None;
+        Panel::right(column.id())
+            .default_size(column.default_size())
+            .show(ui, |ui| {
+                ScrollArea::vertical()
+                    .id_salt(column.id())
+                    // Bounded by the caller's measurement. The panel takes the height of its
+                    // contents, so asking it how tall it is would answer in a circle.
+                    .max_height(height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // The bar floats over the content rather than taking width of its own, so
+                        // the room for it comes off each pane. Without it a pane's ✖ sits under
+                        // the bar.
+                        let bar =
+                            ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
+                        let last = panes.len() - 1;
+                        for (index, (pane, size)) in panes.into_iter().enumerate() {
+                            let size = if index == last { size + slack } else { size };
+                            let width = ui.available_width() - bar;
+                            ui.allocate_ui(Vec2::new(width, size), |ui| {
+                                ui.set_min_height(size);
+                                if self.pane(ui, pane) {
+                                    closed = Some(pane);
+                                }
+                            });
+                            if index != last {
+                                ui.separator();
+                            }
+                        }
+                    });
+            });
         if let Some(pane) = closed {
             self.set_pane_open(pane, false);
         }
@@ -1575,6 +1845,7 @@ impl State {
             // Its own pane rather than inline above PC: the disassembly is ordered by address and
             // this is ordered by time, so the two only coincide in straight-line code.
             Pane::History => self.history(ui),
+            Pane::Memory => self.memory(ui),
         }
         closed
     }
@@ -1587,59 +1858,43 @@ impl State {
             .show(ui, |ui| self.register_grid(ui));
     }
 
+    /// The registers. Clicking one opens a box that writes it.
+    ///
+    /// The console applies a write between instructions and answers with a fresh snapshot, so a
+    /// cell reads back what actually landed rather than what was typed.
     fn register_grid(&mut self, ui: &mut Ui) {
-        let cpu = &self.snapshot.cpu;
+        // Copied out so the cells can borrow the edit box, which lives beside the snapshot.
+        let cpu = self.snapshot.cpu.clone();
+        let address_rows = self.address_rows(cpu.pc);
+        let stack_rows = self.stack_rows();
+        let cycle_rows = [
+            ("Cycles", cpu.cycle.to_string()),
+            ("Frame", self.snapshot.frame.to_string()),
+        ];
+        let edit = &mut self.register_edit;
+        let mut written = None;
         Grid::new("cpu_registers")
             .num_columns(6)
             .spacing([16.0, 4.0])
             .show(ui, |ui| {
-                register_cell(
-                    ui,
-                    "PC",
-                    &format!("${:04X}", cpu.pc),
-                    "Program counter - the instruction about to run",
-                    &self.address_rows(cpu.pc),
-                );
-                register_cell(
-                    ui,
-                    "A",
-                    &format!("${:02X}", cpu.acc),
-                    "Accumulator",
-                    &byte_rows(cpu.acc),
-                );
-                register_cell(
-                    ui,
-                    "SP",
-                    &format!("${:02X}", cpu.sp),
-                    "Stack pointer",
-                    &self.stack_rows(),
-                );
+                let mut cell = |ui: &mut Ui, register, value, rows: &[(&str, String)]| {
+                    written = register_cell(ui, register, value, rows, edit).or(written);
+                };
+                cell(ui, Register::Pc, cpu.pc, &address_rows);
+                cell(ui, Register::Acc, cpu.acc.into(), &byte_rows(cpu.acc));
+                cell(ui, Register::Sp, cpu.sp.into(), &stack_rows);
                 ui.end_row();
 
-                register_cell(
-                    ui,
-                    "X",
-                    &format!("${:02X}", cpu.x),
-                    "Index register X",
-                    &byte_rows(cpu.x),
-                );
-                register_cell(
-                    ui,
-                    "Y",
-                    &format!("${:02X}", cpu.y),
-                    "Index register Y",
-                    &byte_rows(cpu.y),
-                );
-                register_cell(
-                    ui,
-                    "Cycle",
-                    &cpu.cycle.to_string(),
-                    "CPU cycles since power on",
-                    &[
-                        ("Cycles", cpu.cycle.to_string()),
-                        ("Frame", self.snapshot.frame.to_string()),
-                    ],
-                );
+                cell(ui, Register::X, cpu.x.into(), &byte_rows(cpu.x));
+                cell(ui, Register::Y, cpu.y.into(), &byte_rows(cpu.y));
+                // The cycle count reports how far the console has run rather than naming a
+                // register, so nothing writes it and it draws as a plain pair.
+                let hover = |ui: &mut Ui| {
+                    ui.strong("CPU cycles since power on");
+                    detail_rows(ui, "Cycle", &cycle_rows);
+                };
+                ui.strong("Cycle").on_hover_ui(hover);
+                ui.monospace(cpu.cycle.to_string()).on_hover_ui(hover);
                 ui.end_row();
             });
 
@@ -1670,10 +1925,25 @@ impl State {
                         .monospace()
                         .color(Color32::DARK_GRAY)
                 };
-                ui.label(text)
-                    .on_hover_text(format!("{meaning}: {}", if set { "set" } else { "clear" }));
+                // A flag is one bit, so a click is the whole edit. The other seven come back
+                // unchanged, since the write names the register rather than the bit.
+                if ui
+                    .add(egui::Label::new(text).sense(Sense::click()))
+                    .on_hover_text(format!(
+                        "{meaning}: {}. Click to {}.",
+                        if set { "set" } else { "clear" },
+                        if set { "clear" } else { "set" }
+                    ))
+                    .clicked()
+                {
+                    written = Some(DebugWrite::Status(cpu.status ^ flag));
+                }
             }
         });
+
+        if let Some(write) = written {
+            self.tx.event(EmulationEvent::DebugWrite(write));
+        }
     }
 
     /// An address in both the terms it can be named in: where the CPU sees it, and where the byte
@@ -2278,8 +2548,10 @@ impl State {
                         .left(),
             text.y_range(),
         );
+        // Centered on the galley's own height rather than the font's, which is shorter than the
+        // row and leaves the line sitting low in it, off center inside the selection outline.
         painter.galley(
-            text.left_center() - Vec2::new(0.0, font.size / 2.0),
+            egui::Pos2::new(text.left(), text.center().y - galley.size().y / 2.0),
             galley,
             palette.operand,
         );
@@ -2472,6 +2744,267 @@ impl State {
         (ui.painter().layout_job(job), mnemonic_span)
     }
 
+    /// Bytes on one row of the memory pane.
+    const MEMORY_ROW_BYTES: usize = 16;
+
+    /// Rows the memory pane covers, which is the whole CPU address space.
+    const MEMORY_ROWS: usize = 0x1_0000 / Self::MEMORY_ROW_BYTES;
+
+    /// How far either side of the rows on screen the console is asked to copy.
+    const MEMORY_MARGIN: usize = 0x200;
+
+    /// The CPU address space as hex bytes, sixteen to a row.
+    ///
+    /// The console copies a window around the rows on screen rather than the whole 64K, so a byte
+    /// scrolled to draws as `--` until the snapshot answering the new window arrives.
+    fn memory(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.memory_goto)
+                    .hint_text("$addr")
+                    .desired_width(90.0),
+            );
+            let go = submitted(ui, &response) | ui.button("Go").clicked();
+            if let Some(addr) = parse_addr(&self.memory_goto)
+                && go
+            {
+                self.memory_scroll_to = Some(addr);
+                self.memory_edit = Some((addr, String::new()));
+            }
+            if ui
+                .button("PC")
+                .on_hover_text("Go to the instruction about to run")
+                .clicked()
+            {
+                let pc = self.snapshot.cpu.pc;
+                self.memory_scroll_to = Some(pc);
+                self.memory_edit = Some((pc, String::new()));
+            }
+            ui.weak(match self.memory_edit {
+                Some((addr, _)) => {
+                    format!("${addr:04X} selected - type two hex digits to write it.")
+                }
+                None => "Click a byte to select it.".to_string(),
+            });
+        });
+
+        // Typed straight onto the selected byte rather than into a box of its own, which would
+        // make one row taller than the rest and desynchronize the virtual window below. Skipped
+        // while a text box has focus, since the same keys are meant to land there.
+        if ui.memory(|memory| memory.focused().is_none()) {
+            self.type_memory(ui);
+        }
+
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        let pitch = row_height + ui.spacing().item_spacing.y;
+        let viewport_height = ui.available_height();
+        // Scrolls sideways too, since a row runs to about 74 columns and the pane is resizable
+        // down past that.
+        let mut scroll_area = ScrollArea::both()
+            .id_salt("memory")
+            .auto_shrink([false, false]);
+        // Every row is the same height and covers the same count of bytes, so the offset a row
+        // sits at is exact and one step lands it on the center line.
+        if let Some(addr) = self.memory_scroll_to.take() {
+            let row = usize::from(addr) / Self::MEMORY_ROW_BYTES;
+            let offset = (row as f32).mul_add(pitch, -(viewport_height - row_height) / 2.0);
+            scroll_area = scroll_area.vertical_scroll_offset(offset.max(0.0));
+        }
+
+        let palette = Palette::new(ui.visuals());
+        let font = egui::TextStyle::Monospace.resolve(ui.style());
+        let mut drawn = 0..0;
+        let mut clicked = None;
+        scroll_area.show_rows(ui, row_height, Self::MEMORY_ROWS, |ui, range| {
+            drawn = range.clone();
+            for row in range {
+                let base = (row * Self::MEMORY_ROW_BYTES) as u16;
+                let galley = self.memory_galley(ui, base, &palette, &font);
+                let width = galley.size().x.max(ui.available_width());
+                let (rect, _) =
+                    ui.allocate_exact_size(Vec2::new(width, row_height), Sense::hover());
+                // Centered on the galley's own height rather than the font's, which is shorter
+                // than the row and would leave the bytes sitting low inside the selection box.
+                let origin = egui::Pos2::new(rect.left(), rect.center().y - galley.size().y / 2.0);
+                // Outlined rather than filled, so the digits already typed into it stay readable.
+                // Measured off the galley rather than off a character width, so the box sits on
+                // the two digits whatever the font does with them.
+                if let Some((addr, _)) = self.memory_edit
+                    && (base..base.wrapping_add(Self::MEMORY_ROW_BYTES as u16)).contains(&addr)
+                {
+                    let column = Self::memory_column(usize::from(addr) % Self::MEMORY_ROW_BYTES);
+                    let left = galley.pos_from_cursor(CCursor::new(column)).left();
+                    let right = galley.pos_from_cursor(CCursor::new(column + 2)).left();
+                    let cell =
+                        Rect::from_x_y_ranges(origin.x + left..=origin.x + right, rect.y_range());
+                    ui.painter().rect_stroke(
+                        cell.expand(1.0),
+                        2.0,
+                        palette.selection,
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                let response = ui.interact(rect, ui.id().with(("memory", base)), Sense::click());
+                if let Some(pos) = response
+                    .interact_pointer_pos()
+                    .filter(|_| response.clicked())
+                {
+                    let column = galley.cursor_from_pos(pos - origin).index.into();
+                    clicked = Self::memory_index(column).map(|index| base + index as u16);
+                }
+                ui.painter().galley(origin, galley, palette.memory_writable);
+            }
+        });
+        self.memory_rows = drawn;
+        if let Some(addr) = clicked {
+            self.memory_edit = Some((addr, String::new()));
+        }
+        self.follow_memory_rows();
+    }
+
+    /// Where the hex digits of the `index`th byte of a row start, in characters across it.
+    ///
+    /// Past the address and its two spaces, then two digits and a space each, with the gap after
+    /// the eighth widened so a byte can be counted off in eights.
+    const fn memory_column(index: usize) -> usize {
+        7 + index * 3 + if index >= 8 { 1 } else { 0 }
+    }
+
+    /// Which byte of a row the `column`th character falls on, or `None` between two of them.
+    fn memory_index(column: usize) -> Option<usize> {
+        (0..Self::MEMORY_ROW_BYTES).find(|index| {
+            (Self::memory_column(*index)..Self::memory_column(*index) + 2).contains(&column)
+        })
+    }
+
+    /// Ask the console for a window covering the rows the last draw put on screen.
+    fn follow_memory_rows(&mut self) {
+        let window = memory_window(&self.memory_rows);
+        if self.memory_window != Some(window) {
+            self.memory_window = Some(window);
+            self.resubscribe();
+        }
+    }
+
+    /// Take what was typed onto the selected byte.
+    ///
+    /// Two hex digits write it and step on to the next, the arrows move the selection, and Escape
+    /// drops it. The view follows the selection only on the frame it moves, and only off screen,
+    /// the way the disassembly follows PC. Following it every frame pulls the pane back as soon
+    /// as a scroll carries the selection off screen.
+    fn type_memory(&mut self, ui: &Ui) {
+        if self.memory_edit.is_none() {
+            return;
+        }
+        let (typed, escape, step) = ui.input(|input| {
+            let typed = input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::Text(text) => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<String>();
+            let row = Self::MEMORY_ROW_BYTES as i16;
+            let step = i16::from(input.key_pressed(egui::Key::ArrowRight))
+                - i16::from(input.key_pressed(egui::Key::ArrowLeft))
+                + row * i16::from(input.key_pressed(egui::Key::ArrowDown))
+                - row * i16::from(input.key_pressed(egui::Key::ArrowUp));
+            (typed, input.key_pressed(egui::Key::Escape), step)
+        });
+        if escape {
+            self.memory_edit = None;
+            return;
+        }
+
+        let mut written = Vec::new();
+        let Some((addr, digits)) = self.memory_edit.as_mut() else {
+            return;
+        };
+        let mut moved = step != 0;
+        if step != 0 {
+            *addr = addr.wrapping_add_signed(step);
+            digits.clear();
+        }
+        for digit in typed.chars().filter(char::is_ascii_hexdigit) {
+            digits.push(digit);
+            if digits.len() < 2 {
+                continue;
+            }
+            let val = u8::from_str_radix(digits, 16).expect("two hex digits");
+            written.push(DebugWrite::Memory { addr: *addr, val });
+            *addr = addr.wrapping_add(1);
+            digits.clear();
+            moved = true;
+        }
+
+        let addr = *addr;
+        for write in written {
+            self.tx.event(EmulationEvent::DebugWrite(write));
+        }
+        if moved
+            && !self
+                .memory_rows
+                .contains(&(usize::from(addr) / Self::MEMORY_ROW_BYTES))
+        {
+            self.memory_scroll_to = Some(addr);
+        }
+    }
+
+    /// One row of the memory pane laid out: the address, sixteen bytes, then the same as text.
+    ///
+    /// A byte the console has not copied draws as `--`, and one nothing can write greys.
+    fn memory_galley(
+        &self,
+        ui: &Ui,
+        base: u16,
+        palette: &Palette,
+        font: &egui::FontId,
+    ) -> Arc<egui::Galley> {
+        let mut job = egui::text::LayoutJob::default();
+        let mut part = |text: &str, color: Color32| {
+            job.append(
+                text,
+                0.0,
+                egui::TextFormat {
+                    font_id: font.clone(),
+                    color,
+                    ..Default::default()
+                },
+            );
+        };
+        part(&format!("${base:04X}  "), palette.address);
+        let mut text = String::with_capacity(Self::MEMORY_ROW_BYTES);
+        for index in 0..Self::MEMORY_ROW_BYTES {
+            let addr = base.wrapping_add(index as u16);
+            let byte = self.memory_byte(addr);
+            part(
+                &byte.map_or_else(|| "--".to_string(), |byte| format!("{byte:02X}")),
+                match byte {
+                    None => palette.bytes,
+                    Some(_) if is_writable(&self.snapshot.prg_pages, addr) => {
+                        palette.memory_writable
+                    }
+                    Some(_) => palette.memory_readonly,
+                },
+            );
+            part(if index == 7 { "  " } else { " " }, palette.address);
+            text.push(match byte {
+                Some(byte) if byte.is_ascii_graphic() || byte == b' ' => byte as char,
+                _ => '.',
+            });
+        }
+        part(&format!(" {text}"), palette.resolved);
+        ui.painter().layout_job(job)
+    }
+
+    /// What the last snapshot had at `addr`, or `None` where the window it answered did not reach.
+    fn memory_byte(&self, addr: u16) -> Option<u8> {
+        let offset = addr.wrapping_sub(self.snapshot.memory_start);
+        self.snapshot.memory.get(usize::from(offset)).copied()
+    }
+
     fn stack(&mut self, ui: &mut Ui) {
         ScrollArea::vertical()
             .id_salt("stack")
@@ -2498,8 +3031,8 @@ impl State {
 mod tests {
     use super::{
         AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, PRG_PAGES, Page,
-        Pane, Row, is_mapped, parse_addr, parse_range, prg_offset, request, row_is_visible,
-        watch_value,
+        Pane, Row, State, is_mapped, memory_window, parse_addr, parse_range, prg_offset, request,
+        row_is_visible, watch_value,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -2541,12 +3074,12 @@ mod tests {
         assert_eq!(Column::Right.tiling(&[Pane::Disassembly]), None);
     }
 
-    /// [`Column::ORDER`] reaches every column, and every column places its panes, so no open pane
+    /// [`Column::ALL`] reaches every column, and every column places its panes, so no open pane
     /// goes undrawn.
     #[test]
     fn every_pane_is_laid_out_in_exactly_one_column() {
         let mut placed = Vec::new();
-        for column in Column::ORDER {
+        for column in Column::ALL {
             if let Some((sized, filling)) = column.tiling(&Pane::ALL) {
                 placed.extend(sized);
                 placed.push(filling);
@@ -2614,19 +3147,82 @@ mod tests {
     /// A closed pane draws nothing, so the console is asked for nothing on its behalf.
     #[test]
     fn closing_a_pane_drops_what_only_it_draws() {
-        let all = request(&Pane::ALL, HISTORY_LINES);
+        let window = Some((0x0200, 0x0400));
+        let all = request(&Pane::ALL, HISTORY_LINES, window);
         assert_eq!(all.history_lines, HISTORY_LINES);
         assert!(all.stack);
         assert!(all.call_stack);
+        assert_eq!(all.memory, window);
 
         let closed = Pane::ALL
             .into_iter()
-            .filter(|pane| !matches!(pane, Pane::History | Pane::Stack | Pane::CallStack))
+            .filter(|pane| {
+                !matches!(
+                    pane,
+                    Pane::History | Pane::Stack | Pane::CallStack | Pane::Memory
+                )
+            })
             .collect::<Vec<_>>();
-        let request = request(&closed, HISTORY_LINES);
+        let request = request(&closed, HISTORY_LINES, window);
         assert_eq!(request.history_lines, 0);
         assert!(!request.stack);
         assert!(!request.call_stack);
+        assert_eq!(request.memory, None);
+    }
+
+    /// A click lands on the byte it points at. This is the arithmetic tying the hit test to the
+    /// row `memory_galley` lays out, and one column out of step puts a neighbor into edit.
+    #[test]
+    fn every_hex_cell_hit_tests_back_to_its_own_byte() {
+        assert_eq!(
+            State::memory_column(0),
+            7,
+            "past the address and the two spaces after it"
+        );
+        assert_eq!(
+            State::memory_column(8),
+            32,
+            "past the wider gap down the middle"
+        );
+        for index in 0..State::MEMORY_ROW_BYTES {
+            let column = State::memory_column(index);
+            assert_eq!(State::memory_index(column), Some(index), "byte {index}");
+            assert_eq!(
+                State::memory_index(column + 1),
+                Some(index),
+                "byte {index}, second digit"
+            );
+            assert_eq!(
+                State::memory_index(column + 2),
+                None,
+                "the gap after byte {index}"
+            );
+        }
+        assert_eq!(State::memory_index(0), None, "the address column");
+    }
+
+    /// The window has to cover the rows on screen, or they draw as `--` however long it is looked
+    /// at, and it has to stay inside the address space, since a `u16` length cannot say 64K.
+    #[test]
+    fn the_memory_window_covers_the_rows_on_screen() {
+        for rows in [0..12usize, 0..1, 100..140, 4084..4096, 0..4096] {
+            let (start, len) = memory_window(&rows);
+            let first = rows.start * State::MEMORY_ROW_BYTES;
+            let last = rows.end * State::MEMORY_ROW_BYTES;
+            assert!(
+                usize::from(start) <= first,
+                "{rows:?} starts at ${start:04X}"
+            );
+            assert!(
+                usize::from(start) + usize::from(len) >= last || len == 0xFF00,
+                "{rows:?} runs to ${:04X}",
+                usize::from(start) + usize::from(len)
+            );
+            assert!(
+                usize::from(start) + usize::from(len) <= 0x1_0000,
+                "{rows:?} runs past the address space"
+            );
+        }
     }
 
     #[test]
@@ -2784,7 +3380,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("load rom");
-        let snapshot = CpuSnapshot::capture(deck.bus(), &request(&Pane::ALL, 8));
+        let snapshot = CpuSnapshot::capture(deck.bus(), &request(&Pane::ALL, 8, None));
 
         for addr in [0x0300u16, 0x2000, 0x6000, 0x8000, 0xC000, 0xFFFF] {
             assert_eq!(

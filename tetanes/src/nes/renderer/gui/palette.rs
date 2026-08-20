@@ -39,6 +39,10 @@ pub struct Palette {
     pub breakpoint_read: Color32,
     /// One listed without being armed.
     pub breakpoint_disabled: Color32,
+    /// A byte the memory pane can type over.
+    pub memory_writable: Color32,
+    /// One it cannot: ROM, an unmapped page, or a register.
+    pub memory_readonly: Color32,
     /// Behind the gutter column, separating it from the disassembly.
     pub gutter: Color32,
     /// Behind it while the pointer is over a row's share of it.
@@ -76,6 +80,9 @@ impl Palette {
             breakpoint_write: Color32::from_rgb(0x4C, 0xAF, 0x50),
             breakpoint_read: Color32::from_rgb(0x42, 0xA5, 0xF5),
             breakpoint_disabled: visuals.gray_out(visuals.error_fg_color),
+            // Full strength for a byte a click can change, dimmed for one it cannot.
+            memory_writable: visuals.strong_text_color(),
+            memory_readonly: visuals.gray_out(text),
             // Recessed, the way the theme sinks a text box, so the column reads as its own
             // strip rather than as margin.
             gutter: visuals.extreme_bg_color,

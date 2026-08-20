@@ -5,7 +5,7 @@ use crate::nes::{
     config::{Config, FrameRate},
     emulation::{replay::Record, rewind::Rewind},
     event::{
-        ConfigEvent, DebugEvent, DebugRequest, EmulationEvent, NesEvent, NesEventProxy,
+        ConfigEvent, DebugEvent, DebugRequest, DebugWrite, EmulationEvent, NesEvent, NesEventProxy,
         RendererEvent, UiEvent,
     },
     renderer::{
@@ -675,6 +675,7 @@ impl State {
                 // breakpoint, where a paused console clocks nothing and would leave it blank.
                 self.send_debug_snapshot();
             }
+            EmulationEvent::DebugWrite(write) => self.debug_write(*write),
             EmulationEvent::DebugBreakpoints(breakpoints) => {
                 self.debug_breakpoints.clone_from(breakpoints);
                 // Reads and writes are caught on the bus, execution between instructions, so the
@@ -1077,6 +1078,30 @@ impl State {
                 .collect();
             self.tx.event(DebugEvent::Cpu(Box::new(snapshot)));
         }
+    }
+
+    /// Apply what the Debugger typed over, and show the console it left behind.
+    ///
+    /// The address space is a function of the bytes and of PC, which anchors a row and starts the
+    /// forward decode, so a write to either has to rebuild it. Forgetting what the last send was
+    /// built from forces that, since neither moves the page table or the code map that
+    /// [`State::send_address_space`] otherwise watches.
+    fn debug_write(&mut self, write: DebugWrite) {
+        let bus = self.control_deck.bus_mut();
+        match write {
+            DebugWrite::Pc(pc) => bus.cpu.pc = pc,
+            DebugWrite::Acc(acc) => bus.cpu.acc = acc,
+            DebugWrite::X(x) => bus.cpu.x = x,
+            DebugWrite::Y(y) => bus.cpu.y = y,
+            DebugWrite::Sp(sp) => bus.cpu.sp = sp,
+            DebugWrite::Status(status) => bus.cpu.status = status,
+            DebugWrite::Memory { addr, val } => {
+                bus.poke(addr, val);
+            }
+        }
+        self.debug_pages = None;
+        self.send_address_space();
+        self.send_debug_snapshot();
     }
 
     /// Send the address space if anything it is built from has changed since the last send.

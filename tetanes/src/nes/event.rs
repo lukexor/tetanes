@@ -26,7 +26,7 @@ use tetanes_core::{
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
-    cpu::instr::InstrRef,
+    cpu::{Status, instr::InstrRef},
     debug::{AccessHit, Breakpoint, Debugger, expr::Expr},
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
@@ -185,6 +185,31 @@ pub struct DebugRequest {
     pub memory: Option<(u16, u16)>,
 }
 
+/// A piece of console state the Debugger writes.
+///
+/// Every one goes to the emulation thread as an event, so the Debugger never holds a handle on
+/// the console it is drawing. The console applies them between instructions, where a register is
+/// whole and no half-executed instruction is holding a value in flight.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum DebugWrite {
+    /// The program counter, which is where the next step or resume starts from.
+    Pc(u16),
+    /// The accumulator.
+    Acc(u8),
+    /// The X index register.
+    X(u8),
+    /// The Y index register.
+    Y(u8),
+    /// The stack pointer.
+    Sp(u8),
+    /// The status flags, all eight at once.
+    Status(Status),
+    /// A byte at a CPU address, which lands only where
+    /// [`Bus::poke`](tetanes_core::bus::Bus::poke) finds RAM.
+    Memory { addr: u16, val: u8 },
+}
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum DebugEvent {
@@ -228,6 +253,8 @@ pub enum EmulationEvent {
     /// `None` where what is typed does not parse yet, so the values that come back line up with
     /// the rows however many of them are half-written.
     DebugWatches(Vec<Option<Expr>>),
+    /// A register or a byte of RAM the Debugger typed over.
+    DebugWrite(DebugWrite),
     DebugStep(DebugStep),
     InstantRewind,
     Joypad((Player, JoypadBtn, ElementState)),
