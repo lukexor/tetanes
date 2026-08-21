@@ -353,13 +353,15 @@ pub struct State {
     /// The code map generation the address space was last captured at, so the capture is also
     /// redone when execution has revealed an instruction the last one collapsed as unknown.
     debug_generation: Option<u64>,
+    /// Where PC was for the last address space sent, which anchors a row in it.
+    debug_pc: Option<u16>,
     /// What the code map recorded before the debugger closed, kept so that reopening it does not
     /// start over. Only recording stops. The marks stay true for as long as the cart is loaded.
     debug_code_map: Option<CodeMap>,
     /// What the Debugger's window has set on the loaded ROM, as the session file keeps it.
     ///
-    /// Held here rather than in the window because this side owns the code map, and one file
-    /// holds both. Replaced whenever the window sends a change.
+    /// Kept here rather than in the window because this side owns the code map, and one file has
+    /// both. Replaced whenever the window sends a change.
     debug_marks: Marks,
     /// Addresses to stop the console at, empty unless the Debugger has armed some.
     ///
@@ -542,6 +544,7 @@ impl State {
             debug_request: None,
             debug_pages: None,
             debug_generation: None,
+            debug_pc: None,
             debug_code_map: None,
             debug_marks: Marks::default(),
             debug_breakpoints: Vec::new(),
@@ -1128,6 +1131,10 @@ impl State {
 
     /// Send the address space if anything it is built from has changed since the last send.
     ///
+    /// PC is one of those things: it anchors a row and seeds the forward decode, so a jump into
+    /// the middle of a routine that has already run leaves no row starting where the console now
+    /// is, and nothing to draw the highlight on.
+    ///
     /// Only called when the console is stopped - opening the debugger, stepping, pausing.
     fn send_address_space(&mut self) {
         if self.debug_request.is_none() {
@@ -1135,11 +1142,16 @@ impl State {
         }
         let pages = *self.control_deck.bus().memory.prg_pages();
         let generation = self.control_deck.code_map().map(CodeMap::generation);
-        if self.debug_pages == Some(pages) && self.debug_generation == generation {
+        let pc = self.control_deck.bus().cpu.pc;
+        if self.debug_pages == Some(pages)
+            && self.debug_generation == generation
+            && self.debug_pc == Some(pc)
+        {
             return;
         }
         self.debug_pages = Some(pages);
         self.debug_generation = generation;
+        self.debug_pc = Some(pc);
         let address_space =
             AddressSpace::capture(self.control_deck.bus(), &self.debug_marks.labels);
         self.tx
@@ -1285,16 +1297,31 @@ impl State {
 
     /// Read what an earlier session left for this ROM, and hand the window its half.
     ///
-    /// The code map waits in `debug_code_map` for a subscription to attach it, which is where a
-    /// map kept across a closed Debugger waits too, so opening the window is the one path that
-    /// starts recording.
+    /// A Debugger already watching takes the code map straight away. One that is not leaves it
+    /// in `debug_code_map`, where a map kept across a closed window waits too, and the next
+    /// subscription puts it on.
     fn load_debug_session(&mut self, name: &str) {
         let mut session = Session::load(name);
         session.accept(&self.control_deck.bus().memory);
-        self.debug_code_map = session.code_map;
         self.debug_marks = session.marks;
+        if self.debug_request.is_some() {
+            // Put on straight away for a Debugger that is already watching. Only a fresh
+            // subscription attaches what is waiting, and this cart came up with an empty map that
+            // would otherwise stand until the window was closed and opened again.
+            self.control_deck.attach_code_map(session.code_map);
+            self.debug_code_map = None;
+        } else {
+            self.debug_code_map = session.code_map;
+        }
+        // Ahead of the rows, so the window has the names before the capture that puts them in
+        // arrives and an operand is never drawn against names it does not have yet.
         self.tx
             .event(DebugEvent::Marks(Box::new(self.debug_marks.clone())));
+        // The rows are a function of the names, and neither the page table nor the code map
+        // generation says a name changed, so the rebuild is asked for rather than noticed.
+        self.debug_pages = None;
+        self.send_address_space();
+        self.send_debug_snapshot();
     }
 
     /// Write what this session has learned about `name`, code map and window marks together.

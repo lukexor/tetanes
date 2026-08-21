@@ -1238,6 +1238,14 @@ const fn is_writable(pages: &[Page; PRG_PAGES], addr: u16) -> bool {
     }
 }
 
+/// Whether the row starting at `base` covers `addr`.
+///
+/// Measured as a distance rather than as a range, since the last row starts at `$FFF0` and a range
+/// to one past its end is empty.
+const fn memory_row_holds(base: u16, addr: u16) -> bool {
+    (addr.wrapping_sub(base) as usize) < State::MEMORY_ROW_BYTES
+}
+
 /// The address a formatted operand names, and the span of text writing it.
 ///
 /// Only a four digit address counts. A zero page operand is two digits, and taking those would
@@ -1418,7 +1426,9 @@ impl CpuDebugger {
         let mut state = self.state.lock();
         state.breakpoints.retain_without_cart();
         state.access_log.clear();
-        state.send_breakpoints();
+        // Arming only: the console clears its own marks as the cart comes out and reads the next
+        // one's back in, so writing this list over them would undo that.
+        state.arm_breakpoints();
     }
 
     /// Take a new address space, keeping PC centered for a view that was following it.
@@ -1452,11 +1462,18 @@ impl CpuDebugger {
 
         ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
             if class == ViewportClass::EmbeddedWindow {
-                let mut window_open = open.load(Ordering::Acquire);
+                let was_open = open.load(Ordering::Acquire);
+                let mut window_open = was_open;
                 egui::Window::new(CpuDebugger::TITLE)
                     .open(&mut window_open)
                     .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 open.store(window_open, Ordering::Release);
+                // An embedded window raises no viewport close event, so this ✖ is the only word
+                // that the Debugger has gone. Unsubscribing disarms the breakpoints and stops the
+                // recording, and a console stopped with no window to say why just looks frozen.
+                if was_open && !window_open {
+                    state.lock().subscribe(false);
+                }
             } else {
                 CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ui.input(|i| i.viewport().close_requested()) {
@@ -1475,7 +1492,7 @@ impl State {
         // Closing disarms them, since a console that stopped with nothing to show it would just
         // look frozen. The list is kept here, so opening puts back what was armed.
         if open {
-            self.send_breakpoints();
+            self.arm_breakpoints();
         }
         self.send_watches();
     }
@@ -1488,13 +1505,22 @@ impl State {
         )));
     }
 
-    /// Tell the console which addresses to stop at, and what to keep for this ROM.
+    /// Tell the console which addresses to stop at.
     ///
-    /// The console is armed with what parses and is enabled, and the session file takes the list
-    /// as it stands, so a breakpoint left disarmed or half-written is still there next session.
-    fn send_breakpoints(&self) {
+    /// Arming only. The session file is not written from here, so a lifecycle event that re-arms
+    /// what is listed cannot overwrite the marks a ROM has just been loaded with.
+    fn arm_breakpoints(&self) {
         self.tx
             .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
+    }
+
+    /// Tell the console which addresses to stop at, and what to keep for this ROM.
+    ///
+    /// For a change the user made. The console is armed with what parses and is enabled, and the
+    /// session file takes the list as it stands, so a breakpoint left disarmed or half-written is
+    /// still there next session.
+    fn send_breakpoints(&self) {
+        self.arm_breakpoints();
         self.send_marks();
     }
 
@@ -1517,9 +1543,8 @@ impl State {
         }
         self.labels = marks.labels;
         // Armed straight away, so a breakpoint left enabled last session stops the console this
-        // one without being ticked again.
-        self.tx
-            .event(EmulationEvent::DebugBreakpoints(self.breakpoints.armed()));
+        // one without being ticked again. Not sent back: these came from the console.
+        self.arm_breakpoints();
     }
 
     /// How many recorded accesses the breakpoint pane keeps, oldest dropped first.
@@ -2753,6 +2778,11 @@ impl State {
             palette.operand,
         );
 
+        // A name is a heading over the row below it, not a row to act on, so it interacts with
+        // nothing. Interacting would also collide with that row: both are keyed by the address.
+        if matches!(row, Row::Label { .. }) {
+            return (response, None);
+        }
         let (Some(addr), Some(disasm)) = (addr, instruction) else {
             let row_response =
                 ui.interact(text, ui.id().with(("block", row.addr())), Sense::click());
@@ -3098,7 +3128,7 @@ impl State {
                 // Measured off the galley rather than off a character width, so the box sits on
                 // the two digits whatever the font does with them.
                 if let Some((addr, _)) = self.memory_edit
-                    && (base..base.wrapping_add(Self::MEMORY_ROW_BYTES as u16)).contains(&addr)
+                    && memory_row_holds(base, addr)
                 {
                     let column = Self::memory_column(usize::from(addr) % Self::MEMORY_ROW_BYTES);
                     let left = galley.pos_from_cursor(CCursor::new(column)).left();
@@ -3298,8 +3328,8 @@ impl State {
 mod tests {
     use super::{
         AddrLabel, AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, HashMap,
-        LabelKey, PRG_PAGES, Page, Pane, Row, State, is_mapped, memory_window, operand_address,
-        parse_addr, parse_range, prg_offset, request, row_is_visible, watch_value,
+        LabelKey, PRG_PAGES, Page, Pane, Row, State, is_mapped, memory_row_holds, memory_window,
+        operand_address, parse_addr, parse_range, prg_offset, request, row_is_visible, watch_value,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -3529,6 +3559,21 @@ mod tests {
     /// A name is put into an operand by rewriting the address it names, so what counts as an
     /// address decides which rows get one. Two digits do not: a name over those would rewrite
     /// `$10` in every row that touches zero page.
+    /// The last row starts at `$FFF0`, where one past its end wraps to `$0000`. A range there is
+    /// empty, so the byte a click selects would be written with nothing on screen to say so.
+    #[test]
+    fn the_memory_row_at_the_top_of_the_address_space_still_holds_its_bytes() {
+        assert!(
+            memory_row_holds(0xFFF0, 0xFFF0),
+            "the first of the last row"
+        );
+        assert!(memory_row_holds(0xFFF0, 0xFFFF), "and the last of it");
+        assert!(!memory_row_holds(0xFFF0, 0x0000), "which does not wrap on");
+        assert!(!memory_row_holds(0xFFF0, 0xFFEF), "or reach back");
+        assert!(memory_row_holds(0x0000, 0x000F));
+        assert!(!memory_row_holds(0x0000, 0x0010));
+    }
+
     #[test]
     fn only_a_full_address_in_an_operand_takes_a_name() {
         let found = |operand: &str| {
