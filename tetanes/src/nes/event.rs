@@ -1213,14 +1213,17 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Setting(setting) => match setting {
-                    Setting::ToggleFullscreen if activated => {
-                        self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
-                        self.renderer.set_fullscreen(
-                            self.cfg.renderer.fullscreen,
-                            self.cfg.renderer.embed_viewports,
-                        );
-                    }
+                // Ahead of the arm below, which is scoped to the window the console is drawn in.
+                // Fullscreen rearranges the windows rather than acting on the console, and it
+                // embeds the viewers into the one window, so it answers wherever it is pressed.
+                Action::Setting(Setting::ToggleFullscreen) if activated => {
+                    self.cfg.renderer.fullscreen = !self.cfg.renderer.fullscreen;
+                    self.renderer.set_fullscreen(
+                        self.cfg.renderer.fullscreen,
+                        self.cfg.renderer.embed_viewports,
+                    );
+                }
+                Action::Setting(setting) if is_root_window => match setting {
                     Setting::ToggleEmbedViewports if activated => {
                         self.cfg.renderer.embed_viewports = !self.cfg.renderer.embed_viewports;
                         self.renderer
@@ -1276,9 +1279,7 @@ impl Running {
                         }
                     }
                     // Held rather than tapped, so both edges matter: 2x while down, 1x on release.
-                    Setting::FastForward
-                        if !repeat && is_root_window && self.renderer.rom_loaded() =>
-                    {
+                    Setting::FastForward if !repeat && self.renderer.rom_loaded() => {
                         let new_speed = if released { 1.0 } else { 2.0 };
                         let speed = self.cfg.emulation.speed;
                         if speed != new_speed {
@@ -1301,11 +1302,11 @@ impl Running {
                     }
                     _ => (),
                 },
-                Action::Deck(action) => match action {
+                Action::Deck(action) if is_root_window => match action {
                     DeckAction::Reset(kind) if activated => {
                         self.event(EmulationEvent::Reset(kind));
                     }
-                    DeckAction::Joypad((player, button)) if !repeat && is_root_window => {
+                    DeckAction::Joypad((player, button)) if !repeat => {
                         self.event(EmulationEvent::Joypad((player, button, state)));
                     }
                     // Handled by `gui` module
@@ -1328,7 +1329,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::SaveState if activated && is_root_window => {
+                    DeckAction::SaveState if activated => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::SaveState(self.cfg.emulation.save_slot));
                         } else {
@@ -1338,7 +1339,7 @@ impl Running {
                             );
                         }
                     }
-                    DeckAction::LoadState if activated && is_root_window => {
+                    DeckAction::LoadState if activated => {
                         if feature!(Storage) {
                             self.event(EmulationEvent::LoadState(self.cfg.emulation.save_slot));
                         } else {
