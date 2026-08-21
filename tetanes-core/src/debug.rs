@@ -708,6 +708,52 @@ mod tests {
         assert!(taken > 0, "no NMI ran, so nothing was proven");
     }
 
+    /// A caller waiting on the next interrupt has nothing to see between instructions, since the
+    /// handler's first address can be reached by a jump like any other. The marker says a vector
+    /// was taken, and reports it without a call stack recording.
+    #[test]
+    fn the_vector_an_instruction_took_is_reported_without_a_call_stack() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+
+        let handler = deck.bus().peek_word(Cpu::NMI_VECTOR);
+        let mut taken = 0;
+        for _ in 0..100_000 {
+            deck.clear_interrupt();
+            deck.clock_instr().expect("clock instruction");
+            if let Some(kind) = deck.interrupt_taken() {
+                assert_eq!(kind, FrameKind::Nmi, "spritecans takes only the NMI");
+                assert_eq!(deck.bus().cpu.pc, handler, "PC is at the handler");
+                taken += 1;
+            }
+        }
+        assert!(taken > 0, "no interrupt ran, so nothing was proven");
+        assert!(
+            deck.call_stack().is_none(),
+            "reported with nothing recording"
+        );
+    }
+
+    /// The marker stands until the next interrupt, so a caller that starts waiting after one has
+    /// already been taken clears it rather than stopping on what it missed.
+    #[test]
+    fn clearing_the_marker_forgets_the_interrupt_already_taken() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("test_roms/spritecans.nes")
+            .expect("load rom");
+
+        for _ in 0..100_000 {
+            deck.clock_instr().expect("clock instruction");
+            if deck.interrupt_taken().is_some() {
+                break;
+            }
+        }
+        assert!(deck.interrupt_taken().is_some(), "an interrupt was taken");
+        deck.clear_interrupt();
+        assert!(deck.interrupt_taken().is_none(), "and then forgotten");
+    }
+
     #[test]
     fn a_mark_records_its_kind_and_leaves_its_neighbours_alone() {
         let mut map = CodeMap::new(4, 0);

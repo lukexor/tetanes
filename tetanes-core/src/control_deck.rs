@@ -46,7 +46,9 @@ use crate::{
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::{AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, PcHistory},
+    debug::{
+        AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory,
+    },
     fs,
     genie::{self, GenieCode},
     input::{FourPlayer, Joypad, Player},
@@ -830,6 +832,21 @@ impl ControlDeck {
     /// The access a breakpoint caught, cleared by the taking.
     pub const fn take_access_hit(&mut self) -> Option<AccessHit> {
         self.bus.access_hit.take()
+    }
+
+    /// Which vector the last instruction took, or `None` where it took none.
+    ///
+    /// Reported rather than taken, since a stop condition is asked about the console between
+    /// instructions and reads it without moving anything. Left standing until the next
+    /// interrupt, so a caller waiting for one calls [`ControlDeck::clear_interrupt`] as it starts
+    /// waiting.
+    pub const fn interrupt_taken(&self) -> Option<FrameKind> {
+        self.bus.interrupt_taken
+    }
+
+    /// Forget which vector was taken, so the next one read is one this run reached.
+    pub const fn clear_interrupt(&mut self) {
+        self.bus.interrupt_taken = None;
     }
 
     /// The accesses breakpoints recorded without stopping, cleared by the taking.

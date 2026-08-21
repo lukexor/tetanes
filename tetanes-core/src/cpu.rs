@@ -526,6 +526,9 @@ impl Bus {
             breakpoints
         });
         state.access_hit = None;
+        // Which vector was taken belongs to the timeline being discarded, the way a caught
+        // access does.
+        state.interrupt_taken = None;
         // The pixel path compares against thresholds derived from $2001 rather than reading its
         // flags, and they are not part of the save format.
         state.ppu.update_draw_thresholds();
@@ -1316,14 +1319,18 @@ impl Bus {
         {
             let interrupted = self.cpu.pc;
             self.irq();
+            // Which vector was taken is read back from PC rather than from the flags, since an
+            // NMI arriving mid-sequence hijacks the IRQ. Read whether or not anything is
+            // recording: this is the one place a vector is taken, and a caller waiting on the
+            // next interrupt has nothing to see between instructions. One read per interrupt,
+            // against 1.79M CPU cycles a second, so there is nothing here to gate.
+            let kind = if self.cpu.pc == self.peek_word(Cpu::NMI_VECTOR) {
+                FrameKind::Nmi
+            } else {
+                FrameKind::Irq
+            };
+            self.interrupt_taken = Some(kind);
             if self.call_stack.is_some() {
-                // Which vector was taken is read back from PC rather than from the flags, since
-                // an NMI arriving mid-sequence hijacks the IRQ.
-                let kind = if self.cpu.pc == self.peek_word(Cpu::NMI_VECTOR) {
-                    FrameKind::Nmi
-                } else {
-                    FrameKind::Irq
-                };
                 self.push_call_frame(interrupted, kind);
             }
         }

@@ -40,7 +40,7 @@ use crate::{
     cart::Cart,
     common::{NesRegion, ResetKind},
     cpu::Cpu,
-    debug::{AccessHit, Breakpoints, CallStack, CodeMap, Debugger, PcHistory},
+    debug::{AccessHit, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory},
     fs,
     genie::GenieCode,
     input::{Input, Player},
@@ -160,6 +160,17 @@ pub struct Bus {
     /// so this is left for the instruction boundary to find.
     #[serde(skip)]
     pub access_hit: Option<AccessHit>,
+    /// Which vector the instruction just run took, for a caller waiting on the next interrupt.
+    ///
+    /// An interrupt is not visible between instructions: the handler's first address can be
+    /// reached by a jump like any other. Recorded here because [`Bus::irq`] is the one place a
+    /// vector is taken. A `BRK` is left out: it reaches the IRQ vector by executing, so an
+    /// execute breakpoint already stops on it.
+    ///
+    /// Stale until the next one, so a caller waiting on an interrupt clears it as it starts
+    /// waiting. See [`ControlDeck::clear_interrupt`](crate::control_deck::ControlDeck::clear_interrupt).
+    #[serde(skip)]
+    pub interrupt_taken: Option<FrameKind>,
     /// Cheats: values substituted for what a read would otherwise return.
     ///
     /// Not serialized. A cheat is the player's current choice rather than the machine's - the same
@@ -210,6 +221,7 @@ impl Bus {
             breakpoints: None,
             instr_addr: 0,
             access_hit: None,
+            interrupt_taken: None,
             pc_history: None,
             code_map: None,
             call_stack: None,
@@ -260,6 +272,7 @@ impl Bus {
             debugger_active,
             // These are all session-specific values and are not restored across snapshots.
             debugger: _,
+            interrupt_taken: _,
             pc_history: _,
             code_map: _,
             call_stack: _,
