@@ -496,11 +496,16 @@ impl Bus {
         }
         state.debugger = std::mem::take(&mut self.debugger);
         state.debugger_active = self.debugger_active;
-        // What a debugger has recorded belongs to the session, not to the state. Restoring
-        // previous state does not obsolete which bytes are instructions.
-        // The cart is the same one - `restore_rom_from` above asserted that - so the map's offsets
-        // still address the same bytes.
-        state.pc_history = self.pc_history.take();
+        // Which bytes are instructions belongs to the session, not to the state: restoring
+        // earlier state does not unlearn it. The cart is the same one - `restore_rom_from` above
+        // asserted that - so the map's offsets still address the same bytes.
+        //
+        // What has run is the other way round, so the ring is emptied. Run-ahead puts back what
+        // it recorded before speculating, the way it does the call stack.
+        state.pc_history = self.pc_history.take().map(|mut history| {
+            history.clear();
+            history
+        });
         state.code_map = self.code_map.take();
         // A call stack says where execution is, not what the session has learned, so the recorder
         // survives the restore and its frames do not. `unwind_to` cannot stand in for that: it

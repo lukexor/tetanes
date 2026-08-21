@@ -1547,10 +1547,11 @@ impl ControlDeck {
             None => Box::new(self.bus.clone()),
         };
 
-        // A debugger must not see the frames about to be rewound. `swap_state` drops what they
-        // pushed and caught, and these put back what was there before them, since only this
-        // caller knows the position being restored to.
+        // A debugger must not see the frames about to be rewound. These put back what was
+        // recorded before them, since only this caller knows the position being restored to: the
+        // calls they made, the accesses they caught, and the instructions they ran.
         let call_stack = self.bus.call_stack.clone();
+        let pc_history = self.bus.pc_history.clone();
         let hits = self
             .bus
             .breakpoints
@@ -1582,6 +1583,7 @@ impl ControlDeck {
         // every other restore uses, so that the debugger and the cart's ROM are handled once.
         self.bus.swap_state(&mut saved)?;
         self.bus.call_stack = call_stack;
+        self.bus.pc_history = pc_history;
         if let (Some(breakpoints), Some(hits)) = (self.bus.breakpoints.as_mut(), hits) {
             breakpoints.restore_hits(hits);
         }
@@ -2601,9 +2603,9 @@ mod tests {
         assert_eq!(broken.frame_buffer(), unbroken.frame_buffer());
     }
 
-    /// Run-ahead clocks frames it then rewinds. The calls they made and the accesses they caught
-    /// belong to a timeline the console never took, so a debugger has to see the same thing with
-    /// run-ahead on as with it off.
+    /// Run-ahead clocks frames it then rewinds. What they ran, called and caught belongs to a
+    /// timeline the console never took, so a debugger has to see the same thing with run-ahead on
+    /// as with it off.
     #[test]
     fn run_ahead_hides_the_frames_it_rewinds_from_a_debugger() {
         let watched = Breakpoint {
@@ -2619,20 +2621,27 @@ mod tests {
             deck.set_run_ahead(run_ahead);
             deck.set_call_stack(true);
             deck.set_breakpoints([watched.clone()]);
+            deck.set_pc_history(Some(8));
             let mut caught = 0;
             for _ in 0..8 {
                 clock_display_frame(&mut deck);
                 caught += deck.drain_access_log().len();
             }
             let frames = deck.call_stack().expect("recording").frames().to_vec();
-            (caught, frames)
+            let history = deck
+                .pc_history()
+                .expect("recording")
+                .iter()
+                .collect::<Vec<_>>();
+            (caught, frames, history)
         };
 
-        let (plain_caught, plain_frames) = debugged(0);
+        let (plain_caught, plain_frames, plain_history) = debugged(0);
         assert!(plain_caught > 0, "the ROM writes to zero page");
         assert!(!plain_frames.is_empty(), "the ROM makes calls");
+        assert!(!plain_history.is_empty(), "the ROM runs instructions");
 
-        let (ahead_caught, ahead_frames) = debugged(2);
+        let (ahead_caught, ahead_frames, ahead_history) = debugged(2);
         assert_eq!(
             ahead_caught, plain_caught,
             "accesses the rewound frames caught were reported"
@@ -2640,6 +2649,10 @@ mod tests {
         assert_eq!(
             ahead_frames, plain_frames,
             "calls the rewound frames made were kept"
+        );
+        assert_eq!(
+            ahead_history, plain_history,
+            "instructions the rewound frames ran were listed"
         );
     }
 }
