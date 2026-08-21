@@ -732,6 +732,14 @@ enum RowAction {
     Select(u16),
     /// Open the label editor on this address, filed under this key.
     EditLabel(LabelKey, u16),
+    /// Center the disassembly on this address and select it.
+    GoTo(u16),
+    /// Show this address in the memory pane, opening it if it is closed.
+    ViewInMemory(u16),
+    /// Watch the byte at this address, opening the watch pane if it is closed.
+    AddWatch(u16),
+    /// Start the console running from this address.
+    MovePc(u16),
 }
 
 /// Where a pane is placed. Panes keep their column, and only redistribute height within it.
@@ -2643,6 +2651,28 @@ impl State {
             }
             Some(RowAction::Select(addr)) => self.selected = Some(addr),
             Some(RowAction::EditLabel(key, addr)) => self.editing_label = Some((key, addr)),
+            Some(RowAction::GoTo(addr)) => {
+                self.scroll_to = Some(addr);
+                self.selected = Some(addr);
+            }
+            Some(RowAction::ViewInMemory(addr)) => {
+                if !self.is_open(Pane::Memory) {
+                    self.set_pane_open(Pane::Memory, true);
+                }
+                self.memory_scroll_to = Some(addr);
+                self.memory_edit = Some((addr, String::new()));
+            }
+            Some(RowAction::AddWatch(addr)) => {
+                if !self.is_open(Pane::Watches) {
+                    self.set_pane_open(Pane::Watches, true);
+                }
+                self.watches.push(format!("mem[${addr:04X}]"));
+                self.send_watches();
+            }
+            Some(RowAction::MovePc(addr)) => {
+                self.tx
+                    .event(EmulationEvent::DebugWrite(DebugWrite::Pc(addr)));
+            }
             None => (),
         }
     }
@@ -2815,10 +2845,27 @@ impl State {
                     ui.close();
                 }
             };
-            if ui.button("Edit label").clicked() {
-                action = Some(RowAction::EditLabel(LabelKey::new(addr, offset), addr));
-                ui.close();
-            }
+            let mut act = |ui: &mut Ui, label: &str, row_action: RowAction| {
+                if ui.button(label).clicked() {
+                    action = Some(row_action);
+                    ui.close();
+                }
+            };
+            act(
+                ui,
+                "Toggle breakpoint",
+                RowAction::ToggleBreakpoint(addr, offset),
+            );
+            act(ui, "Add to watch", RowAction::AddWatch(addr));
+            act(
+                ui,
+                "Edit label",
+                RowAction::EditLabel(LabelKey::new(addr, offset), addr),
+            );
+            act(ui, "View in memory", RowAction::ViewInMemory(addr));
+            ui.separator();
+            act(ui, "Move program counter here", RowAction::MovePc(addr));
+            act(ui, "Go to location", RowAction::GoTo(addr));
             ui.separator();
             copy(ui, "Copy address", format!("${addr:04X}"));
             if let Some(effective) = disasm.effective_text() {
@@ -2858,11 +2905,12 @@ impl State {
                 );
                 return (ui.painter().layout_job(job), 0..0);
             }
-            // Indented to where the mnemonics start and closed with a colon, which is how an
-            // assembler listing writes one, so it reads as a heading rather than as a row.
+            // Inset a little from the address column and closed with a colon, which is how an
+            // assembler listing writes one, so it reads as a heading over the rows below it
+            // without lining up with any of their columns.
             Row::Label { name, .. } => {
                 job.append(
-                    &format!("{:width$}{name}:", "", width = Disasm::BYTE_COLUMNS),
+                    &format!("  {name}:"),
                     0.0,
                     egui::TextFormat {
                         font_id: font.clone(),

@@ -692,6 +692,10 @@ impl State {
                 if relabelled {
                     self.debug_pages = None;
                     self.send_address_space();
+                    // Answered with a snapshot as well, the way a typed-over register is. A change
+                    // made by hand has to show on the frame it was made, and a paused console
+                    // clocks none of its own to carry it.
+                    self.send_debug_snapshot();
                 }
             }
             EmulationEvent::DebugBreakpoints(breakpoints) => {
