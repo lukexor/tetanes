@@ -1,8 +1,8 @@
 //! What the Debugger remembers about a ROM between sessions.
 //!
-//! One file per ROM beside its save states and battery RAM, holding what execution has shown its
-//! bytes to be, the breakpoints set on them, and the names given to them. All of it indexes the
-//! cart's memory, so a file recorded against a different cart is refused rather than applied.
+//! One file per ROM beside its save states and battery RAM: what execution has shown the cart's
+//! bytes to be, the breakpoints set on the console, and the names its addresses have been given.
+//! A code map indexes one cart's arena, so one recorded against another is dropped on load.
 //!
 //! The two halves have different owners. The window owns [`Marks`] and the emulation thread owns
 //! the [`CodeMap`], so the marks travel to the emulation thread to be written and come back when
@@ -23,15 +23,59 @@ use tracing::{error, info};
 /// console is serialized says nothing about whether a debug file is still readable.
 const DEBUG_VERSION: &str = "1";
 
+/// What a labelled address is called, and what was written about it.
+// Not `Label`: the window that draws these takes that name from egui.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[must_use]
+pub struct AddrLabel {
+    /// The name the disassembly prints in place of the address.
+    ///
+    /// Empty for an address that only carries a comment, which is a row worth annotating without
+    /// a name for.
+    pub name: String,
+    /// A note about the address, printed after the instruction.
+    pub comment: String,
+}
+
+impl AddrLabel {
+    /// Whether this says nothing, in which case it is dropped rather than stored.
+    pub fn is_empty(&self) -> bool {
+        self.name.trim().is_empty() && self.comment.trim().is_empty()
+    }
+}
+
+/// What a label is filed under.
+///
+/// The split [`Breakpoint::offset`] already makes: cart memory is keyed by where the byte sits in
+/// the arena, so a name follows it through a bank switch, and everything else by CPU address,
+/// since work RAM and the registers do not move.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum LabelKey {
+    /// A byte of the cartridge, by its offset in the [`Memory`] arena.
+    Cart(u32),
+    /// An address the arena does not address: work RAM, the registers, an unmapped page.
+    Cpu(u16),
+}
+
+impl LabelKey {
+    /// How `addr` is filed, given where the mapping the window is drawing puts it.
+    pub const fn new(addr: u16, offset: Option<u32>) -> Self {
+        match offset {
+            Some(offset) => Self::Cart(offset),
+            None => Self::Cpu(addr),
+        }
+    }
+}
+
 /// What the Debugger's window keeps for a ROM.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct Marks {
     /// The breakpoints the window lists, disarmed ones included.
     pub breakpoints: Vec<Breakpoint>,
-    /// A name per cart offset, keyed the way a [`CodeMap`] is so a name follows the bytes it
-    /// belongs to through a bank switch.
-    pub labels: HashMap<u32, String>,
+    /// What the addresses of this ROM have been named and annotated.
+    pub labels: HashMap<LabelKey, AddrLabel>,
 }
 
 impl Marks {
@@ -121,9 +165,9 @@ impl Session {
 
     /// Drop what does not describe `memory`.
     ///
-    /// A code map's offsets and a breakpoint's only mean anything against the arena the loaded
-    /// cart produces, so a file read for one game cannot be applied to another that happens to
-    /// share its name.
+    /// A code map's offsets only address the arena the cart it was recorded against produces, so
+    /// one read for another game is dropped rather than applied to this one. What is keyed by CPU
+    /// address stays: work RAM and the registers are the console's, whatever is in the slot.
     pub fn accept(&mut self, memory: &Memory) {
         if !self
             .code_map
@@ -166,7 +210,13 @@ mod tests {
                     breaks: true,
                     condition: "a == 0x10".to_string(),
                 }],
-                labels: HashMap::from([(0x1234, "reset".to_string())]),
+                labels: HashMap::from([(
+                    LabelKey::Cart(0x1234),
+                    AddrLabel {
+                        name: "reset".to_string(),
+                        comment: "where it all starts".to_string(),
+                    },
+                )]),
             },
         }
     }

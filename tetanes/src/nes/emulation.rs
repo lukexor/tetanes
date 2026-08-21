@@ -683,7 +683,17 @@ impl State {
                 self.send_debug_snapshot();
             }
             EmulationEvent::DebugWrite(write) => self.debug_write(*write),
-            EmulationEvent::DebugMarks(marks) => self.debug_marks = (**marks).clone(),
+            EmulationEvent::DebugMarks(marks) => {
+                // A name gets a row of its own above what it names, so the address space is
+                // rebuilt when one changes. Neither the page table nor the code map moved, which
+                // is all `send_address_space` watches on its own.
+                let relabelled = self.debug_marks.labels != marks.labels;
+                self.debug_marks = (**marks).clone();
+                if relabelled {
+                    self.debug_pages = None;
+                    self.send_address_space();
+                }
+            }
             EmulationEvent::DebugBreakpoints(breakpoints) => {
                 self.debug_breakpoints.clone_from(breakpoints);
                 // Reads and writes are caught on the bus, execution between instructions, so the
@@ -1126,7 +1136,8 @@ impl State {
         }
         self.debug_pages = Some(pages);
         self.debug_generation = generation;
-        let address_space = AddressSpace::capture(self.control_deck.bus());
+        let address_space =
+            AddressSpace::capture(self.control_deck.bus(), &self.debug_marks.labels);
         self.tx
             .event(DebugEvent::AddressSpace(Box::new(address_space)));
     }

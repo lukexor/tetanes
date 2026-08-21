@@ -1,7 +1,7 @@
 use crate::nes::{
     action::{Debug, DebugStep},
     config::Config,
-    debug::Marks,
+    debug::{AddrLabel, LabelKey, Marks},
     event::{ConfigEvent, DebugRequest, DebugWrite, EmulationEvent, NesEventProxy, UiEvent},
     renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
 };
@@ -310,6 +310,8 @@ pub enum Row {
         end: u16,
         kind: BlockKind,
     },
+    /// The name given to the address the next row starts at, on a line of its own above it.
+    Label { addr: u16, name: String },
 }
 
 impl Row {
@@ -317,15 +319,18 @@ impl Row {
     pub const fn addr(&self) -> u16 {
         match self {
             Self::Instruction(disasm) => disasm.addr,
-            Self::Block { start, .. } => *start,
+            Self::Block { start, .. } | Self::Label { addr: start, .. } => *start,
         }
     }
 
     /// Whether `addr` falls in this row, which for a block is anywhere in its range.
+    /// A label covers nothing: it sits above the row that owns its address, so PC and the
+    /// selection mark that row rather than the name over it.
     pub const fn covers(&self, addr: u16) -> bool {
         match self {
             Self::Instruction(disasm) => disasm.addr == addr,
             Self::Block { start, end, .. } => *start <= addr && addr <= *end,
+            Self::Label { .. } => false,
         }
     }
 }
@@ -449,7 +454,7 @@ impl AddressSpace {
     /// Only mapped cart ROM is disassembled, and only where the
     /// [`CodeMap`](tetanes_core::debug::CodeMap) marks instructions or where straight-line flow
     /// from PC reaches. Everything else is a collapsed block.
-    pub fn capture(bus: &Bus) -> Self {
+    pub fn capture(bus: &Bus, labels: &HashMap<LabelKey, AddrLabel>) -> Self {
         let mut rows = Vec::new();
         let mut disasm = Disasm::default();
         let mut addr = 0u32;
@@ -460,6 +465,21 @@ impl AddressSpace {
 
         while addr <= u32::from(u16::MAX) {
             let start = addr as u16;
+            // Ahead of the row that owns the address, so the name reads as a heading over it the
+            // way an assembler listing writes one. A row with only a comment gets no line here,
+            // since the comment is drawn on the instruction itself.
+            //
+            // A board that mirrors one bank into two windows shows the name at both, which is
+            // what filing it by cart offset means: those addresses are the same bytes.
+            let key = LabelKey::new(start, prg_offset(bus.memory.prg_pages(), start));
+            if let Some(name) = labels.get(&key).map(|label| label.name.trim())
+                && !name.is_empty()
+            {
+                rows.push(Row::Label {
+                    addr: start,
+                    name: name.to_string(),
+                });
+            }
             let next = match Self::block_kind(bus, start) {
                 Some(kind) => {
                     following = false;
@@ -710,6 +730,8 @@ enum RowAction {
     ArmBreakpoint(u32, bool),
     /// Make this the row later commands act on.
     Select(u16),
+    /// Open the label editor on this address, filed under this key.
+    EditLabel(LabelKey, u16),
 }
 
 /// Where a pane is placed. Panes keep their column, and only redistribute height within it.
@@ -784,11 +806,10 @@ struct State {
     breakpoints: Breakpoints,
     /// What is typed in the breakpoint box, which is not a breakpoint until it is added.
     breakpoint_goto: String,
-    /// A name per cart offset, keyed the way a [`CodeMap`](tetanes_core::debug::CodeMap) is.
+    /// What the addresses of this ROM have been named and annotated.
     ///
-    /// Empty until something names an address. Kept beside the breakpoints because the ROM's
-    /// session file holds the two together.
-    labels: HashMap<u32, String>,
+    /// Kept beside the breakpoints because the ROM's session file holds the two together.
+    labels: HashMap<LabelKey, AddrLabel>,
     /// The watched expressions as typed, in the order the pane lists them.
     watches: Vec<String>,
     /// What is typed in the watch box, which is not a watch until it is added.
@@ -800,6 +821,11 @@ struct State {
     editing: Option<u32>,
     /// What the editor's address box holds, which is not the breakpoint's range until it parses.
     editing_range: String,
+    /// Which address the label editor is open on, and where the window is drawing it.
+    ///
+    /// The address travels with the key so the editor can name what it is editing, which a cart
+    /// offset on its own does not say.
+    editing_label: Option<(LabelKey, u16)>,
     /// The register whose cell is open as a box, and what has been typed into it.
     ///
     /// One at a time, so clicking a second cell closes the first without writing it.
@@ -1204,6 +1230,20 @@ const fn is_writable(pages: &[Page; PRG_PAGES], addr: u16) -> bool {
     }
 }
 
+/// The address a formatted operand names, and the span of text writing it.
+///
+/// Only a four digit address counts. A zero page operand is two digits, and taking those would
+/// put a name over `$10` in every row that touches zero page.
+fn operand_address(operand: &str) -> Option<(Range<usize>, u16)> {
+    let start = operand.find('$')?;
+    let digits = operand.get(start + 1..start + 5)?;
+    if !digits.chars().all(|digit| digit.is_ascii_hexdigit()) {
+        return None;
+    }
+    let addr = u16::from_str_radix(digits, 16).ok()?;
+    Some((start..start + 5, addr))
+}
+
 /// Whether the bytes `breakpoint` was set over are still mapped where it was set.
 ///
 /// A breakpoint keyed by address alone is always in place, since no bank switch moves work RAM or
@@ -1285,6 +1325,7 @@ impl CpuDebugger {
                 watch_entry: String::new(),
                 editing: None,
                 editing_range: String::new(),
+                editing_label: None,
                 register_edit: None,
                 memory_goto: String::new(),
                 memory_scroll_to: None,
@@ -1557,12 +1598,86 @@ impl State {
             self.column(ui, Column::Center);
         });
         self.breakpoint_editor(ui.ctx());
+        self.label_editor(ui.ctx());
     }
 
     /// The window that edits one breakpoint, open while a row's ✏ names it.
     ///
     /// A window rather than a modal, so the disassembly stays readable beside it while a
     /// condition is written against what is on screen.
+    /// The window that names an address and writes a note about it.
+    ///
+    /// Edits land as they are typed rather than behind an OK, the way the watch and condition
+    /// boxes do. An entry emptied back out is dropped, so clearing both fields removes it.
+    fn label_editor(&mut self, ctx: &Context) {
+        let Some((key, addr)) = self.editing_label else {
+            return;
+        };
+        let mut open = true;
+        let mut label = self.labels.get(&key).cloned().unwrap_or_default();
+        let before = label.clone();
+        egui::Window::new("Edit label")
+            .resizable(true)
+            .default_width(320.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                Grid::new("label_editor")
+                    .num_columns(2)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.strong("Address");
+                        ui.monospace(match key {
+                            LabelKey::Cart(offset) => format!("${addr:04X}  cart ${offset:06X}"),
+                            LabelKey::Cpu(addr) => format!("${addr:04X}"),
+                        })
+                        .on_hover_text(match key {
+                            LabelKey::Cart(_) => {
+                                "Filed by cart offset, so the name follows these bytes when the \
+                                 board switches banks"
+                            }
+                            LabelKey::Cpu(_) => {
+                                "Filed by address, which is what work RAM and the registers have"
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.strong("Name");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut label.name)
+                                .hint_text("what to call it")
+                                .desired_width(f32::INFINITY),
+                        );
+                        ui.end_row();
+
+                        ui.strong("Comment");
+                        ui.add(
+                            egui::TextEdit::multiline(&mut label.comment)
+                                .hint_text("what to remember about it")
+                                .desired_rows(3)
+                                .desired_width(f32::INFINITY),
+                        );
+                        ui.end_row();
+                    });
+                ui.separator();
+                ui.weak(
+                    "The name replaces the address wherever an operand reaches it, and heads the \
+                     row it names. The comment follows the instruction.",
+                );
+            });
+
+        if label != before {
+            if label.is_empty() {
+                self.labels.remove(&key);
+            } else {
+                self.labels.insert(key, label);
+            }
+            self.send_marks();
+        }
+        if !open {
+            self.editing_label = None;
+        }
+    }
+
     fn breakpoint_editor(&mut self, ctx: &Context) {
         let Some(id) = self.editing else {
             return;
@@ -2527,6 +2642,7 @@ impl State {
                 self.send_breakpoints();
             }
             Some(RowAction::Select(addr)) => self.selected = Some(addr),
+            Some(RowAction::EditLabel(key, addr)) => self.editing_label = Some((key, addr)),
             None => (),
         }
     }
@@ -2556,7 +2672,7 @@ impl State {
         // inert and the address box stays the way to break inside it.
         let instruction = match row {
             Row::Instruction(disasm) => Some(disasm),
-            Row::Block { .. } => None,
+            Row::Block { .. } | Row::Label { .. } => None,
         };
         let addr = instruction.map(|disasm| disasm.addr);
         // A block holds PC and the selection by covering their address, so a console stopped
@@ -2699,6 +2815,11 @@ impl State {
                     ui.close();
                 }
             };
+            if ui.button("Edit label").clicked() {
+                action = Some(RowAction::EditLabel(LabelKey::new(addr, offset), addr));
+                ui.close();
+            }
+            ui.separator();
             copy(ui, "Copy address", format!("${addr:04X}"));
             if let Some(effective) = disasm.effective_text() {
                 copy(ui, "Copy effective address", effective);
@@ -2732,6 +2853,20 @@ impl State {
                     egui::TextFormat {
                         font_id: font.clone(),
                         color: palette.block,
+                        ..Default::default()
+                    },
+                );
+                return (ui.painter().layout_job(job), 0..0);
+            }
+            // Indented to where the mnemonics start and closed with a colon, which is how an
+            // assembler listing writes one, so it reads as a heading rather than as a row.
+            Row::Label { name, .. } => {
+                job.append(
+                    &format!("{:width$}{name}:", "", width = Disasm::BYTE_COLUMNS),
+                    0.0,
+                    egui::TextFormat {
+                        font_id: font.clone(),
+                        color: palette.label,
                         ..Default::default()
                     },
                 );
@@ -2782,7 +2917,10 @@ impl State {
             },
         );
         if !disasm.operand.is_empty() {
-            let _ = part(format!(" {}", disasm.operand), palette.operand);
+            let _ = part(
+                format!(" {}", self.named_operand(&disasm.operand)),
+                palette.operand,
+            );
         }
         // Bracketed and tinted apart from the operand that computed it, since it names a second
         // address the row did not write down.
@@ -2792,7 +2930,37 @@ impl State {
         if let Some(value) = disasm.value {
             let _ = part(format!(" = {value}"), palette.resolved);
         }
+        // Last on the line, the way an assembler listing writes one, so the columns before it
+        // stay where they are whatever was written.
+        if let Some(comment) = self
+            .label_at(disasm.addr)
+            .map(|label| label.comment.trim())
+            .filter(|comment| !comment.is_empty())
+        {
+            let _ = part(format!("  ;{comment}"), palette.comment);
+        }
         (ui.painter().layout_job(job), mnemonic_span)
+    }
+
+    /// What was written about `addr`, under the mapping the window is drawing.
+    fn label_at(&self, addr: u16) -> Option<&AddrLabel> {
+        self.labels.get(&LabelKey::new(addr, self.prg_offset(addr)))
+    }
+
+    /// `operand` with the address it names replaced by that address's name.
+    ///
+    /// Rewritten as text because the operand is already formatted, so `$D094,X` becomes
+    /// `handler,X` and the addressing mode's punctuation stays where the disassembler put it.
+    fn named_operand(&self, operand: &str) -> String {
+        let Some((span, addr)) = operand_address(operand) else {
+            return operand.to_string();
+        };
+        match self.label_at(addr).map(|label| label.name.trim()) {
+            Some(name) if !name.is_empty() => {
+                format!("{}{name}{}", &operand[..span.start], &operand[span.end..])
+            }
+            _ => operand.to_string(),
+        }
     }
 
     /// Bytes on one row of the memory pane.
@@ -3081,9 +3249,9 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::{
-        AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, PRG_PAGES, Page,
-        Pane, Row, State, is_mapped, memory_window, parse_addr, parse_range, prg_offset, request,
-        row_is_visible, watch_value,
+        AddrLabel, AddressSpace, BlockKind, Breakpoint, Breakpoints, Column, CpuSnapshot, HashMap,
+        LabelKey, PRG_PAGES, Page, Pane, Row, State, is_mapped, memory_window, operand_address,
+        parse_addr, parse_range, prg_offset, request, row_is_visible, watch_value,
     };
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
@@ -3160,7 +3328,7 @@ mod tests {
         deck.bus_mut().cpu.pc = 0x6000;
         deck.bus_mut().clock_instr();
 
-        let space = AddressSpace::capture(deck.bus());
+        let space = AddressSpace::capture(deck.bus(), &HashMap::new());
         let row = space.row_at(0x6000).expect("covered");
         assert!(
             matches!(space.rows[row], Row::Instruction(_)),
@@ -3184,7 +3352,7 @@ mod tests {
     #[test]
     fn only_a_pc_off_screen_moves_the_disassembly() {
         let deck = ControlDeck::new();
-        let address_space = AddressSpace::capture(deck.bus());
+        let address_space = AddressSpace::capture(deck.bus(), &HashMap::new());
         let row = address_space.row_at(0x1234).expect("covered");
 
         assert!(row_is_visible(&address_space, &(row..row + 4), 0x1234));
@@ -3274,6 +3442,64 @@ mod tests {
                 "{rows:?} runs past the address space"
             );
         }
+    }
+
+    /// A name heads the row it belongs to rather than replacing it, and `row_at` still lands on
+    /// the row that owns the address, so a go-to selects the instruction and not the name over it.
+    #[test]
+    fn a_named_address_gains_a_row_above_the_one_it_names() {
+        let mut deck = ControlDeck::new();
+        deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
+            .expect("load rom");
+        let plain = AddressSpace::capture(deck.bus(), &HashMap::new());
+        let pc = deck.bus().cpu.pc;
+
+        let key = LabelKey::new(pc, prg_offset(deck.bus().memory.prg_pages(), pc));
+        let labels = HashMap::from([(
+            key,
+            AddrLabel {
+                name: "entry".to_string(),
+                comment: String::new(),
+            },
+        )]);
+        let named = AddressSpace::capture(deck.bus(), &labels);
+
+        // At least one: a board that mirrors a bank into two windows puts the same cart bytes at
+        // two addresses, and a name filed by offset belongs to both of them.
+        assert!(named.rows.len() > plain.rows.len(), "rows were added");
+        let row = named.row_at(pc).expect("covered");
+        assert!(
+            named.rows[row].covers(pc),
+            "a go-to lands on the row the name is over, not the name"
+        );
+        assert!(
+            matches!(&named.rows[row - 1], Row::Label { name, .. } if name == "entry"),
+            "the name sits directly above it"
+        );
+    }
+
+    /// A name is put into an operand by rewriting the address it names, so what counts as an
+    /// address decides which rows get one. Two digits do not: a name over those would rewrite
+    /// `$10` in every row that touches zero page.
+    #[test]
+    fn only_a_full_address_in_an_operand_takes_a_name() {
+        let found = |operand: &str| {
+            operand_address(operand).map(|(span, addr)| (span.start, span.end, addr))
+        };
+        assert_eq!(found("$D094"), Some((0, 5, 0xD094)));
+        assert_eq!(
+            found("$D094,X"),
+            Some((0, 5, 0xD094)),
+            "the index stays outside the span"
+        );
+        assert_eq!(
+            found("($D094),Y"),
+            Some((1, 6, 0xD094)),
+            "and so do the brackets"
+        );
+        assert_eq!(found("$94"), None, "a zero page operand");
+        assert_eq!(found("#$42"), None, "an immediate");
+        assert_eq!(found(""), None, "no operand at all");
     }
 
     #[test]
@@ -3538,14 +3764,14 @@ mod tests {
     #[test]
     fn the_sweep_covers_the_whole_address_space_in_order() {
         let deck = ControlDeck::new();
-        let address_space = AddressSpace::capture(deck.bus());
+        let address_space = AddressSpace::capture(deck.bus(), &HashMap::new());
 
         let mut next = 0u32;
         for row in &address_space.rows {
             assert_eq!(u32::from(row.addr()), next, "gap or overlap at ${next:04X}");
             next = match row {
                 Row::Block { end, .. } => u32::from(*end) + 1,
-                Row::Instruction(_) => u32::from(row.addr()) + 1,
+                Row::Instruction(_) | Row::Label { .. } => u32::from(row.addr()) + 1,
             };
         }
         assert_eq!(next, 0x1_0000, "sweep stopped short of the end");
@@ -3554,13 +3780,13 @@ mod tests {
     #[test]
     fn ram_and_registers_are_blocks_rather_than_disassembly() {
         let deck = ControlDeck::new();
-        let address_space = AddressSpace::capture(deck.bus());
+        let address_space = AddressSpace::capture(deck.bus(), &HashMap::new());
 
         let kind_at = |addr: u16| {
             let row = address_space.row_at(addr).expect("covered");
             match address_space.rows[row] {
                 Row::Block { kind, .. } => Some(kind),
-                Row::Instruction(_) => None,
+                Row::Instruction(_) | Row::Label { .. } => None,
             }
         };
         assert_eq!(kind_at(0x0000), Some(BlockKind::Ram));
@@ -3584,7 +3810,7 @@ mod tests {
 
         // An address strictly inside a multi-byte instruction: the sweep decoded across it, so
         // without a pc anchor there is no row that starts there and nothing for the view to mark.
-        let swept = AddressSpace::capture(deck.bus());
+        let swept = AddressSpace::capture(deck.bus(), &HashMap::new());
         let interior = swept
             .rows
             .windows(2)
@@ -3602,7 +3828,7 @@ mod tests {
         // Landing there is what stepping into a call does when the sweep is out of step with the
         // real instruction boundaries.
         deck.bus_mut().cpu.pc = interior;
-        let anchored = AddressSpace::capture(deck.bus());
+        let anchored = AddressSpace::capture(deck.bus(), &HashMap::new());
         let row = anchored.row_at(interior).expect("covered");
         assert_eq!(
             anchored.rows[row].addr(),
@@ -3622,18 +3848,18 @@ mod tests {
             let _ = deck.clock_frame().expect("clock frame");
         }
 
-        let swept = AddressSpace::capture(deck.bus());
+        let swept = AddressSpace::capture(deck.bus(), &HashMap::new());
         let aligned = swept
             .rows
             .iter()
             .find_map(|row| match row {
                 Row::Instruction(line) => Some(line.addr),
-                Row::Block { .. } => None,
+                Row::Block { .. } | Row::Label { .. } => None,
             })
             .expect("a disassembled row");
 
         deck.bus_mut().cpu.pc = aligned;
-        let anchored = AddressSpace::capture(deck.bus());
+        let anchored = AddressSpace::capture(deck.bus(), &HashMap::new());
         let row = anchored.row_at(aligned).expect("covered");
         assert_eq!(anchored.rows[row].addr(), aligned);
         // One row per address at worst, so anything beyond that means rows were emitted without
@@ -3654,7 +3880,7 @@ mod tests {
             let _ = deck.clock_frame().expect("clock frame");
         }
 
-        let mapped = AddressSpace::capture(deck.bus());
+        let mapped = AddressSpace::capture(deck.bus(), &HashMap::new());
         let pc = deck.bus().cpu.pc;
         let code_map = deck.code_map().expect("recording");
         for row in &mapped.rows {
@@ -3682,7 +3908,7 @@ mod tests {
 
         // The same console with the map taken away, which leaves the sweep decoding all of it.
         deck.detach_code_map();
-        let blind = AddressSpace::capture(deck.bus());
+        let blind = AddressSpace::capture(deck.bus(), &HashMap::new());
         let instructions = |space: &AddressSpace| {
             space
                 .rows
@@ -3705,7 +3931,7 @@ mod tests {
             .expect("load rom");
         deck.attach_code_map(None);
 
-        let rows = AddressSpace::capture(deck.bus()).rows;
+        let rows = AddressSpace::capture(deck.bus(), &HashMap::new()).rows;
         let pc = deck.bus().cpu.pc;
         let from_pc = rows
             .iter()
@@ -3750,7 +3976,7 @@ mod tests {
         }
 
         // Strictly inside an unknown block, so nothing but PC itself can start a row there.
-        let unexecuted = AddressSpace::capture(deck.bus())
+        let unexecuted = AddressSpace::capture(deck.bus(), &HashMap::new())
             .rows
             .iter()
             .find_map(|row| match row {
@@ -3764,7 +3990,7 @@ mod tests {
             .expect("some of the ROM has not run");
 
         deck.bus_mut().cpu.pc = unexecuted;
-        let anchored = AddressSpace::capture(deck.bus());
+        let anchored = AddressSpace::capture(deck.bus(), &HashMap::new());
         let row = anchored.row_at(unexecuted).expect("covered");
         assert_eq!(
             anchored.rows[row].addr(),
@@ -3776,12 +4002,12 @@ mod tests {
     #[test]
     fn an_address_inside_a_block_finds_that_block() {
         let deck = ControlDeck::new();
-        let address_space = AddressSpace::capture(deck.bus());
+        let address_space = AddressSpace::capture(deck.bus(), &HashMap::new());
 
         let row = address_space.row_at(0x1234).expect("covered");
         match address_space.rows[row] {
             Row::Block { start, end, .. } => assert!(start <= 0x1234 && 0x1234 <= end),
-            Row::Instruction(_) => panic!("work ram should be a block"),
+            Row::Instruction(_) | Row::Label { .. } => panic!("work ram should be a block"),
         }
     }
 }

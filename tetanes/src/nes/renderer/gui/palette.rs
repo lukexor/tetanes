@@ -39,6 +39,10 @@ pub struct Palette {
     pub breakpoint_read: Color32,
     /// One listed without being armed.
     pub breakpoint_disabled: Color32,
+    /// A name given to an address, on its own line above the row it names.
+    pub label: Color32,
+    /// A note written about a row, after the instruction.
+    pub comment: Color32,
     /// A byte the memory pane can type over.
     pub memory_writable: Color32,
     /// One it cannot: ROM, an unmapped page, or a register.
@@ -80,6 +84,10 @@ impl Palette {
             breakpoint_write: Color32::from_rgb(0x4C, 0xAF, 0x50),
             breakpoint_read: Color32::from_rgb(0x42, 0xA5, 0xF5),
             breakpoint_disabled: visuals.gray_out(visuals.error_fg_color),
+            // A name is the reader's own word for the address, so it takes the accent the theme
+            // points at things with. A comment sits behind the code it annotates.
+            label: visuals.hyperlink_color,
+            comment: visuals.gray_out(visuals.text_color()),
             // Full strength for a byte a click can change, dimmed for one it cannot.
             memory_writable: visuals.strong_text_color(),
             memory_readonly: visuals.gray_out(text),
