@@ -2,7 +2,7 @@ use crate::{
     feature,
     nes::{
         Nes, RunState, Running, State,
-        action::{Action, Debug, DebugKind, DebugStep, Feature, Setting, Ui},
+        action::{Action, Debug, DebugInterrupt, DebugKind, DebugStep, Feature, Setting, Ui},
         config::{Config, RecentRom},
         debug::Marks,
         emulation::FrameStats,
@@ -28,7 +28,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{LoadedRom, MapperRevisionsConfig},
     cpu::{Status, instr::InstrRef},
-    debug::{AccessHit, Breakpoint, Debugger, expr::Expr},
+    debug::{AccessHit, Breakpoint, Debugger, RunTo, expr::Expr},
     genie::GenieCode,
     input::{FourPlayer, JoypadBtn, Player},
     memory::RamState,
@@ -225,6 +225,8 @@ pub enum DebugEvent {
     /// The console stopped after an instruction accessed a watched address, and is already
     /// paused. PC has moved past the instruction that made the access.
     AccessBreak(AccessHit),
+    /// The console reached a one-shot stop and is already paused, at this address.
+    RanTo(RunTo, u16),
     /// What the session file kept for the ROM that has just loaded, for the window to adopt.
     Marks(Box<Marks>),
 }
@@ -258,6 +260,11 @@ pub enum EmulationEvent {
     DebugWatches(Vec<Option<Expr>>),
     /// A register or a byte of RAM the Debugger typed over.
     DebugWrite(DebugWrite),
+    /// Run until this is reached, on top of whatever breakpoints are armed.
+    ///
+    /// One shot: the console drops it as it stops, so resuming afterwards runs on. `None`
+    /// abandons one that was armed and never reached.
+    DebugRunTo(Option<RunTo>),
     /// What the Debugger's window has set on this ROM, for the session file to keep.
     ///
     /// Sent whenever the window changes one. The emulation thread owns the file because it owns
@@ -1397,6 +1404,14 @@ impl Running {
                     // walks the debugger forward.
                     Debug::Step(step) if !released && is_debug_window => {
                         self.event(EmulationEvent::DebugStep(step));
+                    }
+                    Debug::RunTo(interrupt) if activated && is_debug_window => {
+                        let run_to = match interrupt {
+                            DebugInterrupt::Nmi => RunTo::Nmi,
+                            DebugInterrupt::Irq => RunTo::Irq,
+                            DebugInterrupt::Any => RunTo::Interrupt,
+                        };
+                        self.event(EmulationEvent::DebugRunTo(Some(run_to)));
                     }
                     _ => (),
                 },

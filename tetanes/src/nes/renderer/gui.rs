@@ -54,7 +54,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::LoadedRom,
     cpu::instr::InstrRef,
-    debug::Access,
+    debug::{Access, RunTo},
     ppu,
     time::{Duration, Instant},
 };
@@ -351,6 +351,21 @@ impl Gui {
                 self.run_state = RunState::ManuallyPaused;
                 self.debugger.center_on_pc();
                 self.add_message(MessageType::Info, format!("Breakpoint at ${addr:04X}"));
+                self.ctx
+                    .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);
+            }
+            NesEvent::Debug(DebugEvent::RanTo(run_to, addr)) => {
+                // Reported the way a breakpoint is, since the console stopped itself either way.
+                // Only the message differs, naming what was waited for.
+                self.run_state = RunState::ManuallyPaused;
+                self.debugger.center_on_pc();
+                let reached = match run_to {
+                    RunTo::Address(_) => "Ran to".to_string(),
+                    RunTo::Nmi => "NMI at".to_string(),
+                    RunTo::Irq => "IRQ at".to_string(),
+                    RunTo::Interrupt => "Interrupt at".to_string(),
+                };
+                self.add_message(MessageType::Info, format!("{reached} ${addr:04X}"));
                 self.ctx
                     .send_viewport_cmd_to(self.debugger.id(), egui::ViewportCommand::Focus);
             }

@@ -288,6 +288,40 @@ bitflags! {
     }
 }
 
+/// A one-shot stop, asked alongside the breakpoints and dropped once it is reached.
+///
+/// What "run to here" and "run to the next interrupt" both are. Passed in by the caller the way
+/// a breakpoint is, so the console stops without knowing why anyone wanted it to.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub enum RunTo {
+    /// An address, however execution reaches it.
+    Address(u16),
+    /// The next NMI.
+    Nmi,
+    /// The next IRQ.
+    Irq,
+    /// Whichever of the two comes first.
+    Interrupt,
+}
+
+impl RunTo {
+    /// Whether the console has reached it.
+    ///
+    /// Asked between instructions, like every other stop condition. An interrupt is read from
+    /// [`Bus::interrupt_taken`] rather than from PC, since a handler's first address can be
+    /// jumped to like any other. A caller clears that as it arms this, so what is read belongs to
+    /// the run it started.
+    pub fn reached(self, bus: &Bus) -> bool {
+        match self {
+            Self::Address(addr) => bus.cpu.pc == addr,
+            Self::Nmi => bus.interrupt_taken == Some(FrameKind::Nmi),
+            Self::Irq => bus.interrupt_taken == Some(FrameKind::Irq),
+            Self::Interrupt => bus.interrupt_taken.is_some(),
+        }
+    }
+}
+
 /// A range of CPU addresses the console stops on, or records, when one is accessed.
 ///
 /// `offset` pins it to the bytes it was set over, and `condition` narrows it to the accesses that

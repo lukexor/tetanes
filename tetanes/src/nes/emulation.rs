@@ -33,7 +33,7 @@ use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
-    debug::{Access, Breakpoint, CodeMap, expr::Expr},
+    debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -177,8 +177,9 @@ fn shutdown(tx: &NesEventProxy, err: impl std::fmt::Display) {
 /// same way a resume does. Reads and writes are caught on the bus and left in `access_hit`.
 /// Execution is checked here, between instructions, since a fetch and an operand read look alike
 /// on the bus.
-fn breaks_here(bus: &Bus, breakpoints: &[Breakpoint]) -> bool {
-    bus.access_hit.is_some()
+fn breaks_here(bus: &Bus, breakpoints: &[Breakpoint], run_to: Option<RunTo>) -> bool {
+    run_to.is_some_and(|run_to| run_to.reached(bus))
+        || bus.access_hit.is_some()
         || breakpoints
             .iter()
             .any(|breakpoint| breakpoint.breaks && breakpoint.fires(bus, bus.cpu.pc, Access::EXEC))
@@ -363,6 +364,12 @@ pub struct State {
     /// Kept here rather than in the window because this side owns the code map, and one file has
     /// both. Replaced whenever the window sends a change.
     debug_marks: Marks,
+    /// A one-shot stop asked alongside the breakpoints, dropped as it is reached.
+    ///
+    /// What "run to here" and "run to the next interrupt" both arm. It forces the same
+    /// instruction-at-a-time path an armed breakpoint does, so a resume with one pending is as
+    /// slow as one with a breakpoint, and as brief.
+    debug_run_to: Option<RunTo>,
     /// Addresses to stop the console at, empty unless the Debugger has armed some.
     ///
     /// Checking them means clocking the console an instruction at a time, so an empty list is what
@@ -547,6 +554,7 @@ impl State {
             debug_pc: None,
             debug_code_map: None,
             debug_marks: Marks::default(),
+            debug_run_to: None,
             debug_breakpoints: Vec::new(),
             debug_watches: Vec::new(),
             threaded: cfg.emulation.threaded
@@ -686,6 +694,15 @@ impl State {
                 self.send_debug_snapshot();
             }
             EmulationEvent::DebugWrite(write) => self.debug_write(*write),
+            EmulationEvent::DebugRunTo(run_to) => {
+                self.debug_run_to = *run_to;
+                // Cleared as the waiting starts, so an interrupt taken before this was armed does
+                // not stop the console the moment it resumes.
+                self.control_deck.clear_interrupt();
+                if run_to.is_some() {
+                    self.set_run_state(RunState::Running);
+                }
+            }
             EmulationEvent::DebugMarks(marks) => {
                 // A name gets a row of its own above what it names, so the address space is
                 // rebuilt when one changes. Neither the page table nor the code map moved, which
@@ -747,6 +764,9 @@ impl State {
                     // the armed set. At most `Breakpoints::MAX` `Copy` structs, and only on a
                     // step.
                     let breakpoints = self.debug_breakpoints.clone();
+                    // Asked by a step too, so a step that reaches what a resume was waiting for
+                    // stops on it the same way.
+                    let run_to = self.debug_run_to;
                     let stopped = match step {
                         // A step of exactly one instruction lands where it was asked to, so
                         // announcing a breakpoint at the address it was aimed at says nothing.
@@ -779,13 +799,13 @@ impl State {
                             })
                         }
                         DebugStep::Scanline => self.write_deck(|deck| {
-                            deck.clock_scanline_until(|bus| breaks_here(bus, &breakpoints))
+                            deck.clock_scanline_until(|bus| breaks_here(bus, &breakpoints, run_to))
                         }),
                         DebugStep::Frame => {
                             // One NES frame, which stepping means regardless of the speed a
                             // display frame would clock.
                             self.write_deck(|deck| {
-                                deck.clock_frame_until(|bus| breaks_here(bus, &breakpoints))
+                                deck.clock_frame_until(|bus| breaks_here(bus, &breakpoints, run_to))
                                     .map(|clocked| clocked == Clocked::Stopped)
                             })
                         }
@@ -1074,7 +1094,7 @@ impl State {
             }
             // Asked before `done`, so a step that both returns and lands on a breakpoint reports
             // the breakpoint. Either way the console stops in the same place.
-            if breaks_here(self.control_deck.bus(), breakpoints) {
+            if breaks_here(self.control_deck.bus(), breakpoints, self.debug_run_to) {
                 return true;
             }
             if done(&self.control_deck, opcode) {
@@ -1166,11 +1186,18 @@ impl State {
         self.set_run_state(RunState::ManuallyPaused);
         // Half a frame's worth of pixels, which the console has drawn at this point.
         self.send_frame();
+        // One shot, so what was waited for is dropped as it arrives and a resume runs on. Taken
+        // before the report, which names what the console reached.
+        let run_to = self
+            .debug_run_to
+            .take()
+            .filter(|run_to| run_to.reached(self.control_deck.bus()));
         // An access is caught part way through an instruction and reported at the boundary after
         // it, so it names what was touched rather than where PC now sits.
-        match self.control_deck.take_access_hit() {
-            Some(hit) => self.tx.event(DebugEvent::AccessBreak(hit)),
-            None => self.tx.event(DebugEvent::Breakpoint(addr)),
+        match (run_to, self.control_deck.take_access_hit()) {
+            (Some(run_to), _) => self.tx.event(DebugEvent::RanTo(run_to, addr)),
+            (None, Some(hit)) => self.tx.event(DebugEvent::AccessBreak(hit)),
+            (None, None) => self.tx.event(DebugEvent::Breakpoint(addr)),
         }
     }
 
@@ -1561,14 +1588,19 @@ impl State {
         loop {
             // Only a breakpoint that stops needs the check between instructions. One that records
             // is caught on the bus, and an `access_hit` is only ever set by one that stops, so a
-            // list of recording breakpoints alone keeps the frame-at-a-time path.
+            // list of recording breakpoints alone keeps the frame-at-a-time path. A pending
+            // one-shot is asked between instructions too, so it leaves that path the same way,
+            // and a console with neither never takes it.
             let frame = self.control_deck.frame_number();
-            let clocked = if !self.debug_breakpoints.iter().any(|b| b.breaks) {
+            let clocked = if self.debug_run_to.is_none()
+                && !self.debug_breakpoints.iter().any(|b| b.breaks)
+            {
                 self.control_deck.clock_frame()?
             } else {
                 let breakpoints = &self.debug_breakpoints;
+                let run_to = self.debug_run_to;
                 self.control_deck
-                    .clock_frame_until(|bus| breaks_here(bus, breakpoints))?
+                    .clock_frame_until(|bus| breaks_here(bus, breakpoints, run_to))?
             };
             // A stop usually lands part way through a frame, where there is nothing to snapshot.
             // It can also land on the instruction that ends one, and that frame is finished and
@@ -1687,7 +1719,12 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tetanes_core::{cart::Cart, common::ResetKind, debug::expr::Expr, mapper::Nrom};
+    use tetanes_core::{
+        cart::Cart,
+        common::ResetKind,
+        debug::{FrameKind, expr::Expr},
+        mapper::Nrom,
+    };
 
     /// A console with a cart in, for the breakpoint conditions to read.
     fn bus() -> Bus {
@@ -1697,6 +1734,43 @@ mod tests {
         bus.load_cart(cart);
         bus.reset(ResetKind::Hard);
         bus
+    }
+
+    /// A one-shot is asked beside the breakpoints, so a console with none still stops on it.
+    #[test]
+    fn a_one_shot_stops_where_no_breakpoint_does() {
+        let mut bus = bus();
+        bus.cpu.pc = 0xC000;
+
+        assert!(!breaks_here(&bus, &[], None), "nothing armed at all");
+        assert!(
+            breaks_here(&bus, &[], Some(RunTo::Address(0xC000))),
+            "the address the console is sitting on"
+        );
+        assert!(
+            !breaks_here(&bus, &[], Some(RunTo::Address(0xC001))),
+            "and not the one after it"
+        );
+    }
+
+    /// An interrupt is read from what the console recorded taking a vector, not from PC: a
+    /// handler's first address can be jumped to like any other.
+    #[test]
+    fn a_one_shot_on_an_interrupt_reads_the_vector_that_was_taken() {
+        let mut bus = bus();
+        assert!(!breaks_here(&bus, &[], Some(RunTo::Interrupt)), "none yet");
+
+        bus.interrupt_taken = Some(FrameKind::Irq);
+        assert!(breaks_here(&bus, &[], Some(RunTo::Irq)));
+        assert!(breaks_here(&bus, &[], Some(RunTo::Interrupt)));
+        assert!(
+            !breaks_here(&bus, &[], Some(RunTo::Nmi)),
+            "the other vector does not answer for it"
+        );
+
+        bus.interrupt_taken = Some(FrameKind::Nmi);
+        assert!(breaks_here(&bus, &[], Some(RunTo::Nmi)));
+        assert!(!breaks_here(&bus, &[], Some(RunTo::Irq)));
     }
 
     /// A breakpoint on `addr` that stops before it executes, the shape a gutter click makes.
@@ -1721,10 +1795,10 @@ mod tests {
         let breakpoints = [execute(0xC000, Some("a == 0x42"))];
 
         bus.cpu.acc = 0x01;
-        assert!(!breaks_here(&bus, &breakpoints));
+        assert!(!breaks_here(&bus, &breakpoints, None));
 
         bus.cpu.acc = 0x42;
-        assert!(breaks_here(&bus, &breakpoints));
+        assert!(breaks_here(&bus, &breakpoints, None));
     }
 
     /// A range breakpoint asks its condition at every address it covers, not only at the one it
@@ -1740,9 +1814,15 @@ mod tests {
         for pc in [0x6000, 0x6500, 0x7FFF] {
             bus.cpu.pc = pc;
             bus.cpu.acc = 0x01;
-            assert!(!breaks_here(&bus, &breakpoints), "${pc:04X} with a = $01");
+            assert!(
+                !breaks_here(&bus, &breakpoints, None),
+                "${pc:04X} with a = $01"
+            );
             bus.cpu.acc = 0xFF;
-            assert!(breaks_here(&bus, &breakpoints), "${pc:04X} with a = $FF");
+            assert!(
+                breaks_here(&bus, &breakpoints, None),
+                "${pc:04X} with a = $FF"
+            );
         }
     }
 
@@ -1750,8 +1830,8 @@ mod tests {
     fn an_execution_breakpoint_with_no_condition_stops_wherever_it_covers() {
         let mut bus = bus();
         bus.cpu.pc = 0xC000;
-        assert!(breaks_here(&bus, &[execute(0xC000, None)]));
-        assert!(!breaks_here(&bus, &[execute(0xC001, None)]));
+        assert!(breaks_here(&bus, &[execute(0xC000, None)], None));
+        assert!(!breaks_here(&bus, &[execute(0xC001, None)], None));
     }
 
     /// Simulate the closed loop: each frame the emulator pushes `produced * ratio` samples and the

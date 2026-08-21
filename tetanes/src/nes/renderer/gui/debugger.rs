@@ -1,5 +1,5 @@
 use crate::nes::{
-    action::{Debug, DebugStep},
+    action::{Debug, DebugInterrupt, DebugStep},
     config::Config,
     debug::{AddrLabel, LabelKey, Marks},
     event::{ConfigEvent, DebugRequest, DebugWrite, EmulationEvent, NesEventProxy, UiEvent},
@@ -29,7 +29,7 @@ use tetanes_core::{
     cpu::{Cpu, Disasm, Status, instr::InstrRef},
     debug::{
         Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints, CallFrame,
-        FrameKind,
+        FrameKind, RunTo,
         expr::{Expr, ParseError},
     },
     memory::{Memory, PRG_PAGES, Page},
@@ -740,6 +740,8 @@ enum RowAction {
     AddWatch(u16),
     /// Start the console running from this address.
     MovePc(u16),
+    /// Resume until execution reaches this address.
+    RunTo(u16),
 }
 
 /// Where a pane is placed. Panes keep their column, and only redistribute height within it.
@@ -1874,6 +1876,31 @@ impl State {
                 }
             }
             ui.separator();
+            for (interrupt, run_to, label, hover) in [
+                (
+                    DebugInterrupt::Nmi,
+                    RunTo::Nmi,
+                    "NMI",
+                    "Resume until the console takes the NMI vector.",
+                ),
+                (
+                    DebugInterrupt::Irq,
+                    RunTo::Irq,
+                    "IRQ",
+                    "Resume until the console takes the IRQ vector. A `BRK` reaches it by \
+                     executing, so break on one with an execute breakpoint.",
+                ),
+            ] {
+                let shortcut = cfg.shortcut(Debug::RunTo(interrupt));
+                if ui
+                    .add(egui::Button::new(label))
+                    .on_hover_text(format!("{hover} ({shortcut})"))
+                    .clicked()
+                {
+                    self.tx.event(EmulationEvent::DebugRunTo(Some(run_to)));
+                }
+            }
+            ui.separator();
             // Stays open until the pointer leaves it, so several panes can be toggled in one go
             // rather than reopening the menu for each.
             MenuButton::new("View")
@@ -2698,6 +2725,10 @@ impl State {
                 self.tx
                     .event(EmulationEvent::DebugWrite(DebugWrite::Pc(addr)));
             }
+            Some(RowAction::RunTo(addr)) => {
+                self.tx
+                    .event(EmulationEvent::DebugRunTo(Some(RunTo::Address(addr))));
+            }
             None => (),
         }
     }
@@ -2894,6 +2925,7 @@ impl State {
             );
             act(ui, "View in memory", RowAction::ViewInMemory(addr));
             ui.separator();
+            act(ui, "Run to location", RowAction::RunTo(addr));
             act(ui, "Move program counter here", RowAction::MovePc(addr));
             act(ui, "Go to location", RowAction::GoTo(addr));
             ui.separator();

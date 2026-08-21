@@ -2017,7 +2017,11 @@ impl ControlDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cpu::Cpu, debug::Access, input::JoypadBtnState};
+    use crate::{
+        cpu::Cpu,
+        debug::{Access, RunTo},
+        input::JoypadBtnState,
+    };
     use std::{
         fs::File,
         hash::{DefaultHasher, Hash, Hasher},
@@ -2618,6 +2622,37 @@ mod tests {
         assert_eq!(broken.bus().cpu.cycle, unbroken.bus().cpu.cycle);
         assert_eq!(broken.frame_number(), unbroken.frame_number());
         assert_eq!(broken.frame_buffer(), unbroken.frame_buffer());
+    }
+
+    /// A one-shot on an interrupt stops where the vector was taken, which is the handler's first
+    /// instruction. Nothing else in the run says an interrupt happened: the handler's address can
+    /// be jumped to like any other.
+    #[test]
+    fn running_to_an_interrupt_stops_at_the_handler() {
+        let mut deck = spritecans();
+        let handler = deck.bus().peek_word(Cpu::NMI_VECTOR);
+        // Cleared as the waiting starts, so what stops the console is an interrupt this run
+        // reached rather than one taken before it was asked for.
+        deck.clear_interrupt();
+
+        // A game enables the NMI when it is ready for one, which is a few frames in, so the wait
+        // runs frames until it is answered rather than assuming the first one carries it.
+        let mut stopped = false;
+        for _ in 0..30 {
+            deck.clear_interrupt();
+            if deck
+                .clock_frame_until(|bus| RunTo::Nmi.reached(bus))
+                .expect("clocks")
+                == Clocked::Stopped
+            {
+                stopped = true;
+                break;
+            }
+        }
+
+        assert!(stopped, "no NMI arrived, so nothing was proven");
+        assert_eq!(deck.bus().cpu.pc, handler, "stopped at the NMI handler");
+        assert_eq!(deck.interrupt_taken(), Some(FrameKind::Nmi));
     }
 
     /// Run-ahead clocks frames it then rewinds. What they ran, called and caught belongs to a

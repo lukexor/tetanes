@@ -37,7 +37,8 @@ impl Ord for Action {
 }
 
 impl Action {
-    pub const BINDABLE: [Self; 112] = [
+    /// Every action a key can be bound to. The keybind menu lists these.
+    pub const BINDABLE: [Self; 115] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -162,6 +163,9 @@ impl Action {
         Self::Debug(Debug::Step(DebugStep::Over)),
         Self::Debug(Debug::Step(DebugStep::Scanline)),
         Self::Debug(Debug::Step(DebugStep::Frame)),
+        Self::Debug(Debug::RunTo(DebugInterrupt::Nmi)),
+        Self::Debug(Debug::RunTo(DebugInterrupt::Irq)),
+        Self::Debug(Debug::RunTo(DebugInterrupt::Any)),
     ];
 
     pub const fn is_joypad(&self) -> bool {
@@ -307,6 +311,11 @@ impl AsRef<str> for Action {
                     DebugStep::Scanline => "Debug Step Scanline",
                     DebugStep::Frame => "Debug Step Frame",
                 },
+                Debug::RunTo(interrupt) => match interrupt {
+                    DebugInterrupt::Nmi => "Debug Run To NMI",
+                    DebugInterrupt::Irq => "Debug Run To IRQ",
+                    DebugInterrupt::Any => "Debug Run To Interrupt",
+                },
             },
         }
     }
@@ -427,6 +436,9 @@ impl TryFrom<&str> for Action {
             "Step Over (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Over)),
             "Step Scanline (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Scanline)),
             "Step Frame (CPU Debugger)" => Self::Debug(Debug::Step(DebugStep::Frame)),
+            "Run To NMI (CPU Debugger)" => Self::Debug(Debug::RunTo(DebugInterrupt::Nmi)),
+            "Run To IRQ (CPU Debugger)" => Self::Debug(Debug::RunTo(DebugInterrupt::Irq)),
+            "Run To Interrupt (CPU Debugger)" => Self::Debug(Debug::RunTo(DebugInterrupt::Any)),
             _ => return Err(anyhow::anyhow!("Invalid action string")),
         })
     }
@@ -530,8 +542,22 @@ pub enum DebugStep {
     Frame,
 }
 
+/// An interrupt the console can be run up to.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[must_use]
+pub enum DebugInterrupt {
+    /// The next NMI.
+    Nmi,
+    /// The next IRQ.
+    Irq,
+    /// Whichever comes first.
+    Any,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Debug {
     Toggle(DebugKind),
     Step(DebugStep),
+    /// Resume until the next interrupt of this kind.
+    RunTo(DebugInterrupt),
 }
