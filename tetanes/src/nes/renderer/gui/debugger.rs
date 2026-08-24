@@ -3,16 +3,16 @@ use crate::nes::{
     config::Config,
     debug::{AddrLabel, LabelKey, Marks},
     event::{ConfigEvent, DebugRequest, DebugWrite, EmulationEvent, NesEventProxy, UiEvent},
-    renderer::gui::{MessageType, lib::ViewportOptions, palette::Palette},
+    renderer::gui::{
+        MessageType,
+        lib::ViewportOptions,
+        palette::Palette,
+        panes::{self, Column, Pane as _},
+    },
 };
 use egui::{
-    CentralPanel, Color32, Context, Grid, Label, Panel, PopupCloseBehavior, Rect, RichText,
-    ScrollArea, Sense, Ui, Vec2, ViewportClass, ViewportId,
-    containers::{
-        PanelState,
-        menu::{MenuButton, MenuConfig},
-    },
-    text::CCursor,
+    CentralPanel, Color32, Context, Grid, Label, Panel, Rect, RichText, ScrollArea, Sense, Ui,
+    Vec2, ViewportClass, ViewportId, text::CCursor,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -630,17 +630,9 @@ pub enum Pane {
 }
 
 impl Pane {
-    /// Every pane, in the order a column stacks them.
-    pub const ALL: [Self; 8] = [
-        Self::Disassembly,
-        Self::Registers,
-        Self::Stack,
-        Self::CallStack,
-        Self::Watches,
-        Self::Breakpoints,
-        Self::History,
-        Self::Memory,
-    ];
+    /// The id the window's panes and columns are keyed by, which keeps them apart from another
+    /// window's.
+    const WINDOW: &'static str = "debugger";
 
     /// The panes a window opens with.
     ///
@@ -656,9 +648,21 @@ impl Pane {
         Self::Watches,
         Self::Breakpoints,
     ];
+}
 
-    /// The heading the pane draws above its view.
-    pub const fn title(self) -> &'static str {
+impl panes::Pane for Pane {
+    const ALL: &'static [Self] = &[
+        Self::Disassembly,
+        Self::Registers,
+        Self::Stack,
+        Self::CallStack,
+        Self::Watches,
+        Self::Breakpoints,
+        Self::History,
+        Self::Memory,
+    ];
+
+    fn title(self) -> &'static str {
         match self {
             Self::Disassembly => "Disassembly",
             Self::Registers => "Registers",
@@ -671,8 +675,7 @@ impl Pane {
         }
     }
 
-    /// Where the pane is placed.
-    pub const fn column(self) -> Column {
+    fn column(self) -> Column {
         match self {
             Self::Disassembly => Column::Center,
             Self::Registers | Self::Stack | Self::CallStack | Self::Watches | Self::Breakpoints => {
@@ -684,10 +687,7 @@ impl Pane {
         }
     }
 
-    /// The pane's height before anything drags its splitter.
-    ///
-    /// The center column's single pane takes what is left, so its height is never asked for.
-    pub const fn default_size(self) -> f32 {
+    fn default_size(self) -> f32 {
         match self {
             Self::Disassembly => 0.0,
             Self::Registers => 92.0,
@@ -700,17 +700,16 @@ impl Pane {
         }
     }
 
-    /// The [`egui::Id`] the pane's [`Panel`] and its stored size are keyed by.
-    pub const fn id(self) -> &'static str {
+    fn id(self) -> &'static str {
         match self {
-            Self::Disassembly => "debugger_pane_disassembly",
-            Self::Registers => "debugger_pane_registers",
-            Self::Stack => "debugger_pane_stack",
-            Self::CallStack => "debugger_pane_call_stack",
-            Self::Breakpoints => "debugger_pane_breakpoints",
-            Self::History => "debugger_pane_history",
-            Self::Watches => "debugger_pane_watches",
-            Self::Memory => "debugger_pane_memory",
+            Self::Disassembly => "pane_disassembly",
+            Self::Registers => "pane_registers",
+            Self::Stack => "pane_stack",
+            Self::CallStack => "pane_call_stack",
+            Self::Breakpoints => "pane_breakpoints",
+            Self::History => "pane_history",
+            Self::Watches => "pane_watches",
+            Self::Memory => "pane_memory",
         }
     }
 }
@@ -742,57 +741,6 @@ enum RowAction {
     MovePc(u16),
     /// Resume until execution reaches this address.
     RunTo(u16),
-}
-
-/// Where a pane is placed. Panes keep their column, and only redistribute height within it.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[must_use]
-pub enum Column {
-    /// What is left once the other columns have taken their space.
-    Center,
-    /// Down the right edge, above the bottom column.
-    Right,
-    /// Across the full width of the window.
-    Bottom,
-}
-
-impl Column {
-    /// Every column, in the order it claims space. The center takes what the others leave.
-    const ALL: [Self; 3] = [Self::Bottom, Self::Right, Self::Center];
-
-    /// The column's own size before anything drags its splitter: a width on the right, a height
-    /// along the bottom.
-    const fn default_size(self) -> f32 {
-        match self {
-            // Wide enough for the register grid's six columns without wrapping.
-            Self::Center | Self::Right => 380.0,
-            // Tall enough for a screenful of hex rows above the memory pane's address box.
-            Self::Bottom => 200.0,
-        }
-    }
-
-    /// How the column divides its space among the panes of `open` that belong to it: those sized
-    /// by [`Pane::default_size`], then the one taking what is left.
-    ///
-    /// `None` when none of them are open, which is when the column is not drawn and so takes no
-    /// space.
-    fn tiling(self, open: &[Pane]) -> Option<(Vec<Pane>, Pane)> {
-        let mut panes = Pane::ALL
-            .into_iter()
-            .filter(|pane| pane.column() == self && open.contains(pane))
-            .collect::<Vec<_>>();
-        let filling = panes.pop()?;
-        Some((panes, filling))
-    }
-
-    /// The [`egui::Id`] the column's [`Panel`] and its stored size are keyed by.
-    const fn id(self) -> &'static str {
-        match self {
-            Self::Center => "debugger_column_center",
-            Self::Right => "debugger_column_right",
-            Self::Bottom => "debugger_column_bottom",
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1318,7 +1266,8 @@ impl CpuDebugger {
         // The center pane cannot be closed, so a config that lost it gets it back rather than an
         // empty center with the columns still drawn.
         let mut panes = Pane::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|pane| panes.contains(pane))
             .collect::<Vec<_>>();
         if !panes.contains(&Pane::Disassembly) {
@@ -1573,7 +1522,8 @@ impl State {
     fn set_pane_open(&mut self, pane: Pane, open: bool) {
         // Rebuilt in `Pane::ALL` order, so a reopened pane goes back where it was in its column.
         self.panes = Pane::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|other| {
                 if *other == pane {
                     open
@@ -1602,36 +1552,24 @@ impl State {
             .event(EmulationEvent::DebugSubscribe(Some(self.request())));
     }
 
-    /// Forget every dragged splitter, so the next frame lays out from the default sizes.
-    fn reset_layout(ctx: &Context) {
-        ctx.data_mut(|data| {
-            for id in Pane::ALL
-                .into_iter()
-                .map(Pane::id)
-                .chain(Column::ALL.map(Column::id))
-            {
-                data.remove::<egui::containers::PanelState>(egui::Id::new(id));
-            }
-        });
-    }
-
     fn ui(&mut self, ui: &mut Ui, enabled: bool, cfg: &Config) {
+        let mut closed = None;
         ui.add_enabled_ui(enabled, |ui| {
             Panel::top("debugger_toolbar").show(ui, |ui| self.toolbar(ui, cfg));
-            // The bottom column claims its strip first. Only the right column is told where that
-            // leaves off: a side panel nested in a `Ui` takes the height of its contents, so an
-            // unbounded one rules its divider down the side of the bottom column.
-            //
-            // A panel stores its rect after drawing its body, so mid-drag that rect names where
-            // the splitter reached, not where the body went. Leaving the center to egui keeps a
-            // drag off the bottom column.
-            let mut rest = ui.available_rect_before_wrap();
-            if let Some(bottom) = self.column(ui, Column::Bottom) {
-                rest.max.y = bottom.top();
-            }
-            self.right_column(ui, rest.height());
-            self.column(ui, Column::Center);
+            // Drawn through a closure rather than by the layout, since a body reads the window's
+            // own state. The pane the closure cannot reach is the one it reports closed.
+            let open = self.panes.clone();
+            closed = panes::columns(
+                ui,
+                Pane::WINDOW,
+                &open,
+                &Pane::default_size,
+                &mut |ui, pane| self.pane(ui, pane),
+            );
         });
+        if let Some(pane) = closed {
+            self.set_pane_open(pane, false);
+        }
         self.breakpoint_editor(ui.ctx());
         self.label_editor(ui.ctx());
     }
@@ -1901,166 +1839,14 @@ impl State {
                 }
             }
             ui.separator();
-            // Stays open until the pointer leaves it, so several panes can be toggled in one go
-            // rather than reopening the menu for each.
-            MenuButton::new("View")
-                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
-                .ui(ui, |ui| self.view_menu(ui));
+            if let Some((pane, open)) = panes::view_menu(ui, Pane::WINDOW, &self.panes) {
+                self.set_pane_open(pane, open);
+            }
         });
     }
 
-    /// Which panes are open, and the button that undoes every splitter drag.
-    fn view_menu(&mut self, ui: &mut Ui) {
-        for pane in Pane::ALL {
-            // The center pane has no toggle: an empty center with the columns still drawn reads
-            // as a broken window.
-            if pane.column() == Column::Center {
-                continue;
-            }
-            let mut open = self.is_open(pane);
-            if ui.checkbox(&mut open, pane.title()).changed() {
-                self.set_pane_open(pane, open);
-            }
-        }
-        ui.separator();
-        if ui
-            .button("Reset layout")
-            .on_hover_text("Restore panes to their default sizes")
-            .clicked()
-        {
-            Self::reset_layout(ui.ctx());
-            // The one item here that is done after one click, unlike the checkboxes above.
-            ui.close();
-        }
-    }
-
-    /// Stack `column`'s open panes inside a panel of its own, drawing nothing when it is empty.
-    ///
-    /// Every pane but the last is sized by [`Pane::default_size`], and the last takes what is
-    /// left, so a splitter sits between each pair and one between the column and the center.
-    ///
-    /// Reports the rect the column took, or `None` where it had nothing open to draw.
-    fn column(&mut self, ui: &mut Ui, column: Column) -> Option<Rect> {
-        let (sized, filling) = column.tiling(&self.panes)?;
-        let mut closed = None;
-        let mut tile = |ui: &mut Ui, this: &mut Self| {
-            for pane in &sized {
-                let close = Panel::top(pane.id())
-                    .resizable(true)
-                    .default_size(pane.default_size())
-                    .show(ui, |ui| this.pane(ui, *pane))
-                    .inner;
-                if close {
-                    closed = Some(*pane);
-                }
-            }
-            if CentralPanel::default()
-                .show(ui, |ui| this.pane(ui, filling))
-                .inner
-            {
-                closed = Some(filling);
-            }
-        };
-        match column {
-            Column::Center => tile(ui, self),
-            Column::Bottom => {
-                Panel::bottom(column.id())
-                    .resizable(true)
-                    .default_size(column.default_size())
-                    .show(ui, |ui| tile(ui, self));
-            }
-            Column::Right => unreachable!("the right column is drawn by `right_column`"),
-        }
-        if let Some(pane) = closed {
-            self.set_pane_open(pane, false);
-        }
-        // What the column claimed, read back from where egui records it and `reset_layout` clears
-        // it. A panel's own response covers what it drew inside, not the strip it took.
-        match column {
-            Column::Center => Some(ui.min_rect()),
-            Column::Right | Column::Bottom => {
-                PanelState::load(ui.ctx(), egui::Id::new(column.id())).map(|state| state.outer_rect)
-            }
-        }
-    }
-
-    /// The right column: its panes at fixed heights, one under the next, scrolling together.
-    ///
-    /// The caller measures `height`, the space the column has to work in. Each pane scrolls its
-    /// own content, so a fixed height loses nothing, and a window too short for all of them
-    /// scrolls the column rather than cutting the last ones off. The last pane takes whatever the
-    /// ones above it left, so a column with room to spare looks the same as one laid out to fit.
-    ///
-    /// Panes here are plain sections rather than nested [`Panel`]s: a `Panel` sets a clip rect of
-    /// its own and would draw straight through the scroll area around it.
-    fn right_column(&mut self, ui: &mut Ui, height: f32) {
-        let column = Column::Right;
-        let Some((sized, filling)) = column.tiling(&self.panes) else {
-            return;
-        };
-        let panes = sized.into_iter().chain([filling]).collect::<Vec<_>>();
-        let mut closed = None;
-        Panel::right(column.id())
-            .default_size(column.default_size())
-            .show(ui, |ui| {
-                ScrollArea::vertical()
-                    .id_salt(column.id())
-                    // Bounded by the caller's measurement. The panel takes the height of its
-                    // contents, so asking it how tall it is would answer in a circle.
-                    .max_height(height)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        // The bar floats over the content rather than taking width of its own, so
-                        // the room for it comes off each pane. Without it a pane's ✖ sits under
-                        // the bar.
-                        let bar =
-                            ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
-                        let last = panes.len() - 1;
-                        for (index, pane) in panes.into_iter().enumerate() {
-                            // The last pane takes what the ones above it left, measured rather
-                            // than worked out: a separator's own height is easy to be a few pixels
-                            // out on, and a stack that overshoots puts a scrollbar on a column
-                            // with room to spare. Its own height wins where the column is too
-                            // short, leaving the stack something to scroll.
-                            let size = if index == last {
-                                ui.available_height().max(pane.default_size())
-                            } else {
-                                pane.default_size()
-                            };
-                            let width = ui.available_width() - bar;
-                            ui.allocate_ui(Vec2::new(width, size), |ui| {
-                                ui.set_min_height(size);
-                                if self.pane(ui, pane) {
-                                    closed = Some(pane);
-                                }
-                            });
-                            if index != last {
-                                ui.separator();
-                            }
-                        }
-                    });
-            });
-        if let Some(pane) = closed {
-            self.set_pane_open(pane, false);
-        }
-    }
-
-    /// Draw `pane`'s heading and its view, reporting whether the heading's ✖ was clicked.
-    ///
-    /// A panel has no title bar of its own, so the heading is part of what the pane draws.
-    fn pane(&mut self, ui: &mut Ui, pane: Pane) -> bool {
-        let closed = ui
-            .horizontal(|ui| {
-                ui.strong(pane.title());
-                if pane.column() == Column::Center {
-                    return false;
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.small_button("✖").on_hover_text("Close pane").clicked()
-                })
-                .inner
-            })
-            .inner;
+    /// Draw `pane`'s view. The layout draws the heading above it.
+    fn pane(&mut self, ui: &mut Ui, pane: Pane) {
         match pane {
             Pane::Disassembly => self.disassembly(ui),
             Pane::Registers => self.registers(ui),
@@ -2073,7 +1859,6 @@ impl State {
             Pane::History => self.history(ui),
             Pane::Memory => self.memory(ui),
         }
-        closed
     }
 
     fn registers(&mut self, ui: &mut Ui) {
@@ -3363,6 +3148,7 @@ mod tests {
         LabelKey, PRG_PAGES, Page, Pane, Row, State, is_mapped, memory_row_holds, memory_window,
         operand_address, parse_addr, parse_range, prg_offset, request, row_is_visible, watch_value,
     };
+    use crate::nes::renderer::gui::panes::Pane as _;
 
     /// The addresses of what the console was told to arm, which is all these tests look at.
     fn armed_at(breakpoints: &Breakpoints) -> Vec<u16> {
@@ -3381,12 +3167,13 @@ mod tests {
     #[test]
     fn the_last_open_pane_in_a_column_takes_what_is_left() {
         let (sized, filling) = Column::Right
-            .tiling(&Pane::ALL)
+            .tiling(Pane::ALL)
             .expect("the right column has panes");
         // Read off `Pane::ALL` rather than written out, so this pins the rule and adding a pane
         // does not rewrite it.
         let (last, rest) = Pane::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|pane| pane.column() == Column::Right)
             .collect::<Vec<_>>()
             .split_last()
@@ -3409,12 +3196,12 @@ mod tests {
     fn every_pane_is_laid_out_in_exactly_one_column() {
         let mut placed = Vec::new();
         for column in Column::ALL {
-            if let Some((sized, filling)) = column.tiling(&Pane::ALL) {
+            if let Some((sized, filling)) = column.tiling(Pane::ALL) {
                 placed.extend(sized);
                 placed.push(filling);
             }
         }
-        for pane in Pane::ALL {
+        for pane in Pane::ALL.iter().copied() {
             let times = placed.iter().filter(|other| **other == pane).count();
             assert_eq!(times, 1, "{pane:?} was laid out {times} times");
         }
@@ -3477,14 +3264,15 @@ mod tests {
     #[test]
     fn closing_a_pane_drops_what_only_it_draws() {
         let window = Some((0x0200, 0x0400));
-        let all = request(&Pane::ALL, HISTORY_LINES, window);
+        let all = request(Pane::ALL, HISTORY_LINES, window);
         assert_eq!(all.history_lines, HISTORY_LINES);
         assert!(all.stack);
         assert!(all.call_stack);
         assert_eq!(all.memory, window);
 
         let closed = Pane::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|pane| {
                 !matches!(
                     pane,
@@ -3782,7 +3570,7 @@ mod tests {
         let mut deck = ControlDeck::new();
         deck.load_rom_path("../tetanes-core/test_roms/spritecans.nes")
             .expect("load rom");
-        let snapshot = CpuSnapshot::capture(deck.bus(), &request(&Pane::ALL, 8, None));
+        let snapshot = CpuSnapshot::capture(deck.bus(), &request(Pane::ALL, 8, None));
 
         for addr in [0x0300u16, 0x2000, 0x6000, 0x8000, 0xC000, 0xFFFF] {
             assert_eq!(

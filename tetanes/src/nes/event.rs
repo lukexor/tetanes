@@ -11,7 +11,7 @@ use crate::{
             gui::{
                 Menu, MessageType,
                 debugger::{AddressSpace, CpuSnapshot, Pane},
-                ppu_viewer::PpuSnapshot,
+                ppu_viewer::{Pane as PpuPane, PpuSnapshot},
             },
             shader::Shader,
         },
@@ -134,6 +134,7 @@ pub enum ConfigEvent {
     ConcurrentDpad(bool),
     DarkTheme(bool),
     DebuggerPanes(Vec<Pane>),
+    PpuViewerPanes(Vec<PpuPane>),
     EmbedViewports(bool),
     EmulatePpuWarmup(bool),
     FourPlayer(FourPlayer),
@@ -566,6 +567,9 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::DarkTheme(enabled) => renderer.dark_theme = *enabled,
                     ConfigEvent::DebuggerPanes(panes) => {
                         renderer.debugger_panes.clone_from(panes);
+                    }
+                    ConfigEvent::PpuViewerPanes(panes) => {
+                        renderer.ppu_viewer_panes.clone_from(panes);
                     }
                     ConfigEvent::EmbedViewports(embed) => renderer.embed_viewports = *embed,
                     ConfigEvent::EmulatePpuWarmup(enabled) => deck.emulate_ppu_warmup = *enabled,

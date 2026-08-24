@@ -1,7 +1,10 @@
 use crate::nes::{
     action::Action,
     input::{ActionBindings, Gamepads, Input},
-    renderer::{gui::debugger::Pane, shader::Shader},
+    renderer::{
+        gui::{debugger::Pane, ppu_viewer::Pane as PpuPane},
+        shader::Shader,
+    },
     rom::HOMEBREW_ROMS,
 };
 use ahash::HashSet;
@@ -109,11 +112,15 @@ impl RecentRom {
     }
 }
 
-/// Read the Debugger's open panes, dropping any name this build does not have.
+/// Read a window's open panes, dropping any name this build does not have.
 ///
 /// A whole config that fails to parse reverts to defaults, so without this a config written by a
 /// build with one more pane than this one loses every other setting in the file too.
-fn known_panes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Pane>, D::Error> {
+fn known_panes<'de, D, P>(deserializer: D) -> Result<Vec<P>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    P: serde::de::DeserializeOwned,
+{
     let panes = Vec::<serde_json::Value>::deserialize(deserializer)?;
     Ok(panes
         .into_iter()
@@ -145,8 +152,11 @@ pub struct RendererConfig {
     #[serde(default)]
     pub show_updates: bool,
     /// Which Debugger panes are open, in draw order.
-    #[serde(default, deserialize_with = "known_panes")]
+    #[serde(deserialize_with = "known_panes")]
     pub debugger_panes: Vec<Pane>,
+    /// Which PPU Viewer panes are open, in draw order.
+    #[serde(deserialize_with = "known_panes")]
+    pub ppu_viewer_panes: Vec<PpuPane>,
     /// Whether to open the Debugger and stop the console once a ROM is loaded.
     ///
     /// Skipped rather than stored: `--debug` says how to start one run, and a launch that saved
@@ -176,6 +186,7 @@ impl Default for RendererConfig {
             shader: Shader::default(),
             show_updates: true,
             debugger_panes: Pane::DEFAULT.to_vec(),
+            ppu_viewer_panes: PpuPane::DEFAULT.to_vec(),
             open_debugger: false,
         }
     }

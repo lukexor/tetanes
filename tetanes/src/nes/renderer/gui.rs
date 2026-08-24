@@ -65,6 +65,7 @@ pub mod debugger;
 mod keybinds;
 pub mod lib;
 pub mod palette;
+pub mod panes;
 pub mod ppu_viewer;
 mod preferences;
 
@@ -195,7 +196,7 @@ impl Gui {
             keybinds: Keybinds::new(tx.clone()),
             preferences: Preferences::new(tx.clone()),
             debugger: CpuDebugger::new(tx.clone(), &cfg.renderer.debugger_panes),
-            ppu_viewer: PpuViewer::new(tx, render_state),
+            ppu_viewer: PpuViewer::new(tx, &cfg.renderer.ppu_viewer_panes, render_state),
             apu_mixer_open: false,
             viewport_info_open: false,
             replay_recording: false,

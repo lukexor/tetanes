@@ -1,16 +1,22 @@
 use crate::nes::{
-    event::{DebugEvent, EmulationEvent, NesEventProxy},
+    event::{ConfigEvent, DebugEvent, EmulationEvent, NesEventProxy},
     renderer::{
-        gui::lib::{ViewportOptions, animated_dashed_rect},
+        gui::{
+            lib::{ViewportOptions, animated_dashed_rect},
+            panes::{self, Column, Pane as _},
+        },
         painter::RenderState,
         texture::Texture,
     },
 };
 use egui::{
-    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Panel, Pos2, Rect,
-    ScrollArea, Sense, Slider, StrokeKind, Ui, Vec2, ViewportClass, ViewportId,
+    CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Panel,
+    PopupCloseBehavior, Pos2, Rect, ScrollArea, Sense, Slider, StrokeKind, Ui, Vec2, ViewportClass,
+    ViewportId,
+    containers::menu::{MenuButton, MenuConfig},
 };
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -24,6 +30,25 @@ use tetanes_core::{
 /// Bytes of the PPU address space a snapshot carries: `$0000-$2FFF`, pattern tables plus
 /// nametables.
 const CHR_WINDOW: usize = 0x3000;
+
+/// What a pane spends above its image: the heading, the header row, and the separator under it.
+const PANE_CHROME: f32 = 62.0;
+
+/// The row naming the background and sprite halves of the palette grid.
+const PALETTE_LABELS: f32 = 20.0;
+
+/// Which of a pane header's two menus is being drawn.
+///
+/// Both reach the pane's own state, so they arrive as one closure rather than two, which a single
+/// `&mut self` can serve.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+enum HeaderMenu {
+    /// The toggles that change how the view draws.
+    Settings,
+    /// What the pane knows about the tile or color the last click selected.
+    Detail,
+}
 
 /// What this viewer takes from the console when the debugger fires.
 ///
@@ -66,7 +91,7 @@ impl PpuSnapshot {
 #[must_use]
 struct State {
     tx: NesEventProxy,
-    tab: Tab,
+    panes: Vec<Pane>,
     // TODO: persist in config
     refresh_cycle: u16,
     refresh_scanline: u16,
@@ -205,25 +230,94 @@ pub struct PpuViewer {
     state: Arc<Mutex<State>>,
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Tab {
-    #[default]
+/// A view in the PPU viewer.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[must_use]
+pub enum Pane {
+    /// The four nametables as the background they describe.
     Nametables,
+    /// Both pattern tables as tiles.
     PatternTables,
+    /// The OAM entries as tiles, beside the screen they place.
     Oam,
+    /// The background and sprite palettes as swatches.
     Palette,
+}
+
+impl Pane {
+    /// The id the window's panes and columns are keyed by, which keeps them apart from another
+    /// window's.
+    const WINDOW: &'static str = "ppu_viewer";
+
+    /// The panes a window opens with.
+    ///
+    /// All of them. The window exists to show the four at once, and each is cheap enough that
+    /// none of them waits to be asked for.
+    pub const DEFAULT: [Self; 4] = [
+        Self::Nametables,
+        Self::PatternTables,
+        Self::Oam,
+        Self::Palette,
+    ];
+}
+
+impl panes::Pane for Pane {
+    const ALL: &'static [Self] = &Self::DEFAULT;
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Nametables => "Nametables",
+            Self::PatternTables => "Pattern tables",
+            Self::Oam => "OAM",
+            Self::Palette => "Palette",
+        }
+    }
+
+    fn column(self) -> Column {
+        match self {
+            // A nametable pair is 512x480, which is more than the right column spans.
+            Self::Nametables => Column::Center,
+            Self::PatternTables | Self::Oam | Self::Palette => Column::Right,
+        }
+    }
+
+    fn default_size(self) -> f32 {
+        // Every pane here draws an image whose height follows its zoom, so `State::pane_size`
+        // measures it and this is only the floor a pane will not go under.
+        120.0
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Nametables => "pane_nametables",
+            Self::PatternTables => "pane_pattern_tables",
+            Self::Oam => "pane_oam",
+            Self::Palette => "pane_palette",
+        }
+    }
 }
 
 impl PpuViewer {
     const TITLE: &'static str = "TetaNES - PPU Viewer";
 
-    pub fn new(tx: NesEventProxy, render_state: &mut RenderState) -> Self {
+    /// Build the viewer with `panes` open, closed and waiting for the console to be shown.
+    pub fn new(tx: NesEventProxy, panes: &[Pane], render_state: &mut RenderState) -> Self {
+        // The center pane has no close button, so a config that lost it gets it back rather than
+        // a window with the toolbar and nothing under it.
+        let mut panes = Pane::ALL
+            .iter()
+            .copied()
+            .filter(|pane| panes.contains(pane))
+            .collect::<Vec<_>>();
+        if !panes.contains(&Pane::Nametables) {
+            panes.insert(0, Pane::Nametables);
+        }
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),
             state: Arc::new(Mutex::new(State {
                 tx,
-                tab: Tab::default(),
+                panes,
                 refresh_cycle: 0,
                 refresh_scanline: scanline::VBLANK_NTSC,
                 show_refresh_lines: false,
@@ -253,7 +347,8 @@ impl PpuViewer {
                         1.0,
                         Some("nes pattern tables"),
                     ),
-                    zoom: 3.0,
+                    // 256 wide at 1x, which fits the right column without scrolling it.
+                    zoom: 1.0,
                     selected: None,
                 },
                 oam: OamState {
@@ -275,7 +370,9 @@ impl PpuViewer {
                         1.0,
                         Some("nes sprites"),
                     ),
-                    zoom: 3.0,
+                    // Sets a display height both textures scale to, so the pair spans roughly
+                    // the right column.
+                    zoom: 1.0,
                     oam_selected: None,
                 },
                 palette: PalettesState {
@@ -285,6 +382,7 @@ impl PpuViewer {
                     pixels: vec![0x00; 4 * 32],
                     // 32 colors
                     colors: vec![0x00; 32],
+                    // 64x32 at 1x. Thirty-two swatches read fine at 192x96.
                     zoom: 3.0,
                     selected: None,
                 },
@@ -325,62 +423,62 @@ impl PpuViewer {
     pub fn update_ppu(&mut self, queue: &wgpu::Queue, snapshot: PpuSnapshot) {
         let mut state = self.state.lock();
         let PpuSnapshot { ppu, chr, .. } = &snapshot;
-        match state.tab {
-            Tab::Nametables => {
-                ppu.load_nametables(chr.as_slice(), &mut state.nametables.pixels);
-                let mut pixels = std::mem::take(&mut state.palette.pixels);
-                let mut colors = std::mem::take(&mut state.palette.colors);
-                ppu.load_palettes(&mut pixels, &mut colors);
-                state.palette.pixels = pixels;
-                state.palette.colors = colors;
-                state
-                    .nametables
-                    .texture
-                    .update(queue, &state.nametables.pixels);
-            }
-            Tab::PatternTables => {
-                ppu.load_pattern_tables(chr.as_slice(), &mut state.pattern_tables.pixels);
-                state
-                    .pattern_tables
-                    .texture
-                    .update(queue, &state.pattern_tables.pixels);
-            }
-            Tab::Oam => {
-                let mut oam_pixels = std::mem::take(&mut state.oam.oam_pixels);
-                let mut sprite_pixels = std::mem::take(&mut state.oam.sprite_pixels);
-                let mut sprites = std::mem::take(&mut state.oam.sprites);
+        // Rendering a view walks its pixels once per frame, so a closed pane is not drawn into.
+        let nametables = state.panes.contains(&Pane::Nametables);
+        let pattern_tables = state.panes.contains(&Pane::PatternTables);
+        let oam = state.panes.contains(&Pane::Oam);
+        // The nametable view colors its tiles from the palettes, so it needs them loaded whether
+        // or not the palette pane is showing them.
+        let palette = nametables || state.panes.contains(&Pane::Palette);
+        if nametables {
+            ppu.load_nametables(chr.as_slice(), &mut state.nametables.pixels);
+            state
+                .nametables
+                .texture
+                .update(queue, &state.nametables.pixels);
+        }
+        if pattern_tables {
+            ppu.load_pattern_tables(chr.as_slice(), &mut state.pattern_tables.pixels);
+            state
+                .pattern_tables
+                .texture
+                .update(queue, &state.pattern_tables.pixels);
+        }
+        if oam {
+            let mut oam_pixels = std::mem::take(&mut state.oam.oam_pixels);
+            let mut sprite_pixels = std::mem::take(&mut state.oam.sprite_pixels);
+            let mut sprites = std::mem::take(&mut state.oam.sprites);
 
-                // Clear to black each frame
-                sprite_pixels.chunks_mut(4).for_each(|chunk| {
-                    chunk[0] = 0;
-                    chunk[1] = 0;
-                    chunk[2] = 0;
-                    chunk[3] = 255;
-                });
-                ppu.load_oam(
-                    chr.as_slice(),
-                    &mut oam_pixels,
-                    &mut sprite_pixels,
-                    &mut sprites,
-                );
+            // Clear to black each frame
+            sprite_pixels.chunks_mut(4).for_each(|chunk| {
+                chunk[0] = 0;
+                chunk[1] = 0;
+                chunk[2] = 0;
+                chunk[3] = 255;
+            });
+            ppu.load_oam(
+                chr.as_slice(),
+                &mut oam_pixels,
+                &mut sprite_pixels,
+                &mut sprites,
+            );
 
-                state.oam.oam_pixels = oam_pixels;
-                state.oam.sprite_pixels = sprite_pixels;
-                state.oam.sprites = sprites;
+            state.oam.oam_pixels = oam_pixels;
+            state.oam.sprite_pixels = sprite_pixels;
+            state.oam.sprites = sprites;
 
-                state.oam.oam_texture.update(queue, &state.oam.oam_pixels);
-                state
-                    .oam
-                    .sprites_texture
-                    .update(queue, &state.oam.sprite_pixels);
-            }
-            Tab::Palette => {
-                let mut pixels = std::mem::take(&mut state.palette.pixels);
-                let mut colors = std::mem::take(&mut state.palette.colors);
-                ppu.load_palettes(&mut pixels, &mut colors);
-                state.palette.pixels = pixels;
-                state.palette.colors = colors;
-            }
+            state.oam.oam_texture.update(queue, &state.oam.oam_pixels);
+            state
+                .oam
+                .sprites_texture
+                .update(queue, &state.oam.sprite_pixels);
+        }
+        if palette {
+            let mut pixels = std::mem::take(&mut state.palette.pixels);
+            let mut colors = std::mem::take(&mut state.palette.colors);
+            ppu.load_palettes(&mut pixels, &mut colors);
+            state.palette.pixels = pixels;
+            state.palette.colors = colors;
         }
         state.snapshot = snapshot;
     }
@@ -395,7 +493,9 @@ impl PpuViewer {
 
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_title(Self::TITLE)
-            .with_inner_size(Vec2::new(1024.0, 768.0));
+            // Wide and tall enough for all four nametables at their default zoom, with the right
+            // column beside them.
+            .with_inner_size(Vec2::new(1180.0, 850.0));
         if opts.always_on_top {
             viewport_builder = viewport_builder.with_always_on_top();
         }
@@ -434,23 +534,93 @@ impl State {
     }
 
     fn ui(&mut self, ui: &mut Ui, enabled: bool) {
+        let mut closed = None;
         ui.add_enabled_ui(enabled, |ui| {
-            Panel::top("ppu_viewer_menubar").show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.tab, Tab::Nametables, "Nametables");
-                    ui.selectable_value(&mut self.tab, Tab::PatternTables, "Pattern Tables");
-                    ui.selectable_value(&mut self.tab, Tab::Oam, "OAM");
-                    ui.selectable_value(&mut self.tab, Tab::Palette, "Palette");
-                });
+            Panel::top("ppu_viewer_toolbar").show(ui, |ui| self.toolbar(ui));
+            // Drawn through a closure rather than by the layout, since a body reads the window's
+            // own state. The pane the closure cannot reach is the one it reports closed.
+            let open = self.panes.clone();
+            // Measured before the bodies borrow `self` to draw.
+            let sizes = Pane::ALL
+                .iter()
+                .map(|pane| (*pane, self.pane_size(*pane)))
+                .collect::<Vec<_>>();
+            let size = |pane| {
+                sizes
+                    .iter()
+                    .find_map(|(other, size)| (*other == pane).then_some(*size))
+                    .unwrap_or_default()
+            };
+            closed = panes::columns(ui, Pane::WINDOW, &open, &size, &mut |ui, pane| {
+                self.pane(ui, pane)
             });
+        });
+        if let Some(pane) = closed {
+            self.set_pane_open(pane, false);
+        }
+    }
 
-            match self.tab {
-                Tab::Nametables => self.nametables_tab(ui),
-                Tab::PatternTables => self.pattern_tables_tab(ui),
-                Tab::Oam => self.oam_tab(ui),
-                Tab::Palette => self.palette_tab(ui),
+    /// The dot every pane refreshes on, and which panes are open.
+    ///
+    /// One [`Debugger`] fires the snapshot all four views read, so the cycle and scanline belong
+    /// to the window rather than to any one pane.
+    fn toolbar(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            self.refresh_settings(ui);
+            ui.separator();
+            ui.strong("Mirroring:");
+            ui.label(format!("{:?}", self.snapshot.mirroring));
+            ui.separator();
+            if let Some((pane, open)) = panes::view_menu(ui, Pane::WINDOW, &self.panes) {
+                self.set_pane_open(pane, open);
             }
         });
+    }
+
+    /// Open or close `pane`, rebuilding the open list in [`Pane::ALL`] order so a reopened pane
+    /// goes back where it was in its column.
+    fn set_pane_open(&mut self, pane: Pane, open: bool) {
+        self.panes = Pane::ALL
+            .iter()
+            .copied()
+            .filter(|other| {
+                if *other == pane {
+                    open
+                } else {
+                    self.panes.contains(other)
+                }
+            })
+            .collect();
+        self.tx
+            .event(ConfigEvent::PpuViewerPanes(self.panes.clone()));
+    }
+
+    /// How tall `pane` needs to be to show its view whole.
+    ///
+    /// The right column has no splitters between its panes, so a fixed height would leave every
+    /// image scrolled and no way to grow it. Measuring the image instead makes the zoom slider the
+    /// resize control, and a pane is exactly as tall as what it draws.
+    fn pane_size(&self, pane: Pane) -> f32 {
+        let image = match pane {
+            // The center column's pane takes what is left, so its height is never asked for.
+            Pane::Nametables => 0.0,
+            Pane::PatternTables => self.pattern_tables.zoom * self.pattern_tables.texture.size.y,
+            // The view scales both textures to one shared display height.
+            Pane::Oam => 2.0 * self.oam.zoom * self.oam.oam_texture.size.y,
+            // Plus the row naming the two halves.
+            Pane::Palette => self.palette.zoom * self.palette.size.y + PALETTE_LABELS,
+        };
+        image + PANE_CHROME
+    }
+
+    /// Draw `pane`'s view. The layout draws the heading above it.
+    fn pane(&mut self, ui: &mut Ui, pane: Pane) {
+        match pane {
+            Pane::Nametables => self.nametables(ui),
+            Pane::PatternTables => self.pattern_tables(ui),
+            Pane::Oam => self.oam(ui),
+            Pane::Palette => self.palette_pane(ui),
+        }
     }
 
     fn grid_settings(&mut self, ui: &mut Ui) {
@@ -469,101 +639,79 @@ impl State {
         }
     }
 
-    fn general_settings(&mut self, ui: &mut Ui) {
+    /// The PPU dot the snapshot every pane reads is taken at.
+    fn refresh_settings(&mut self, ui: &mut Ui) {
         ui.strong("Refresh on:")
             .on_hover_cursor(CursorIcon::Help)
             .on_hover_text("Change which PPU cycle/scanline viewer state refreshes on.");
 
-        ui.indent("refresh_settings", |ui| {
-            ui.horizontal(|ui| {
-                let drag = DragValue::new(&mut self.refresh_cycle)
-                    .range(0..=cycle::END)
-                    .suffix(" cycle");
-                let res = ui.add(drag);
-                if res.changed() {
-                    self.update_debugger(true);
-                }
-            });
+        let drag = DragValue::new(&mut self.refresh_cycle)
+            .range(0..=cycle::END)
+            .suffix(" cycle");
+        let res = ui.add(drag);
+        if res.changed() {
+            self.update_debugger(true);
+        }
 
-            ui.horizontal(|ui| {
-                let drag = DragValue::new(&mut self.refresh_scanline)
-                    .range(0..=self.snapshot.ppu.prerender_scanline)
-                    .suffix(" scanline");
-                let res = ui.add(drag);
-                if res.changed() {
-                    self.update_debugger(true);
-                }
-            });
-        });
+        let drag = DragValue::new(&mut self.refresh_scanline)
+            .range(0..=self.snapshot.ppu.prerender_scanline)
+            .suffix(" scanline");
+        let res = ui.add(drag);
+        if res.changed() {
+            self.update_debugger(true);
+        }
     }
 
-    fn nametables_tab(&mut self, ui: &mut Ui) {
-        Panel::right("nametable_panel").show(ui, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.heading("Nametable Info");
-                ui.separator();
+    fn nametables(&mut self, ui: &mut Ui) {
+        let mut zoom = self.nametables.zoom;
+        let selected = self.nametables.selected;
+        pane_header(
+            ui,
+            "nametables",
+            &mut zoom,
+            selected.is_some(),
+            |ui, menu| {
+                if menu == HeaderMenu::Detail {
+                    self.nametable_tile(ui, "nametable_tile_selected", selected);
+                    return;
+                }
+                let res = ui
+                    .checkbox(&mut self.show_refresh_lines, "Refresh Markers")
+                    .on_hover_text("Show lines indicating the current refresh cycle and scanline.");
+                if res.changed() {
+                    // TODO: update config
+                }
 
-                let grid = Grid::new("nametables_info")
-                    .num_columns(2)
-                    .spacing([40.0, 6.0]);
-                grid.show(ui, |ui| {
-                    ui.strong("Mirroring:");
-                    ui.label(format!("{:?}", self.snapshot.mirroring));
-                    ui.end_row();
-                });
+                self.grid_settings(ui);
 
-                ui.add_space(16.0);
-                ui.heading("Selected Tile");
-                ui.separator();
-                self.nametable_tile(ui, "nametable_tile_selected", self.nametables.selected);
+                let res = ui
+                    .checkbox(&mut self.show_scroll_overlay, "Scroll Overlay")
+                    .on_hover_text("Show scroll position overlay.");
+                if res.changed() {
+                    // TODO: update config
+                }
 
-                ui.add_space(16.0);
-                ui.separator();
+                let res = ui
+                    .checkbox(&mut self.show_attr_grid_16x, "Attribute Grid (16x16)")
+                    .on_hover_text("Show grid lines within each attribute block.");
+                if res.changed() {
+                    // TODO: update config
+                }
 
-                ui.collapsing("Settings", |ui| {
-                    self.general_settings(ui);
-
-                    let res = ui
-                        .checkbox(&mut self.show_refresh_lines, "Refresh Markers")
-                        .on_hover_text(
-                            "Show lines indicating the current refresh cycle and scanline.",
-                        );
-                    if res.changed() {
-                        // TODO: update config
-                    }
-
-                    self.grid_settings(ui);
-
-                    let res = ui
-                        .checkbox(&mut self.show_scroll_overlay, "Scroll Overlay")
-                        .on_hover_text("Show scroll position overlay.");
-                    if res.changed() {
-                        // TODO: update config
-                    }
-
-                    let res = ui
-                        .checkbox(&mut self.show_attr_grid_16x, "Attribute Grid (16x16)")
-                        .on_hover_text("Show grid lines within each attribute block.");
-                    if res.changed() {
-                        // TODO: update config
-                    }
-
-                    let res = ui
-                        .checkbox(&mut self.show_attr_grid_32x, "Attribute Grid (32x32)")
-                        .on_hover_text("Show grid lines between attribute blocks.");
-                    if res.changed() {
-                        // TODO: update config
-                    }
-
-                    zoom_slider(ui, &mut self.nametables.zoom);
-                });
-            });
-        });
+                let res = ui
+                    .checkbox(&mut self.show_attr_grid_32x, "Attribute Grid (32x32)")
+                    .on_hover_text("Show grid lines between attribute blocks.");
+                if res.changed() {
+                    // TODO: update config
+                }
+            },
+        );
+        self.nametables.zoom = zoom;
 
         let texture_size = self.nametables.texture.size;
-        CentralPanel::default().show(ui, |ui| {
+        {
             let scroll = ScrollArea::both()
+                .id_salt("nametables_image")
                 .min_scrolled_width(texture_size.x)
                 .min_scrolled_height(texture_size.y);
             scroll.show(ui, |ui| {
@@ -657,7 +805,7 @@ impl State {
                     animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
                 }
             });
-        });
+        }
     }
 
     fn nametable_hover(&mut self, ui: &mut Ui, res: &egui::Response, pos: Pos2) {
@@ -910,33 +1058,28 @@ impl State {
         }
     }
 
-    fn pattern_tables_tab(&mut self, ui: &mut Ui) {
-        Panel::right("pattern_tables_panel").show(ui, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.heading("Selected Tile");
-                ui.separator();
-                self.pattern_tables_tile(
-                    ui,
-                    "pattern_tables_tile_selected",
-                    self.pattern_tables.selected,
-                );
-
-                ui.add_space(16.0);
-                ui.separator();
-
-                ui.collapsing("Settings", |ui| {
-                    self.general_settings(ui);
-                    self.grid_settings(ui);
-                    // TODO: Selectable palette/last known palette
-                    zoom_slider(ui, &mut self.pattern_tables.zoom);
-                });
-            });
-        });
+    fn pattern_tables(&mut self, ui: &mut Ui) {
+        let mut zoom = self.pattern_tables.zoom;
+        let selected = self.pattern_tables.selected;
+        pane_header(
+            ui,
+            "pattern_tables",
+            &mut zoom,
+            selected.is_some(),
+            |ui, menu| match menu {
+                // TODO: Selectable palette/last known palette
+                HeaderMenu::Settings => self.grid_settings(ui),
+                HeaderMenu::Detail => {
+                    self.pattern_tables_tile(ui, "pattern_tables_tile_selected", selected);
+                }
+            },
+        );
+        self.pattern_tables.zoom = zoom;
 
         let texture_size = self.pattern_tables.texture.size;
-        CentralPanel::default().show(ui, |ui| {
+        {
             let scroll = ScrollArea::both()
+                .id_salt("pattern_tables_image")
                 .min_scrolled_width(texture_size.x)
                 .min_scrolled_height(texture_size.y);
             scroll.show(ui, |ui| {
@@ -971,7 +1114,7 @@ impl State {
                     animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
                 }
             });
-        });
+        }
     }
 
     fn pattern_tables_hover(&mut self, ui: &mut Ui, res: &egui::Response, pos: Pos2) {
@@ -1057,31 +1200,22 @@ impl State {
         });
     }
 
-    fn oam_tab(&mut self, ui: &mut Ui) {
-        Panel::right("oam_panel").show(ui, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.heading("Selected Tile");
-                ui.separator();
-                self.oam_tile(ui, "oam_selected", self.oam.oam_selected);
-
-                ui.add_space(16.0);
-                ui.separator();
-
-                ui.collapsing("Settings", |ui| {
-                    self.general_settings(ui);
-
-                    let res = ui
-                        .checkbox(&mut self.show_tile_grid, "Tile Grid")
-                        .on_hover_text("Show grid lines between tiles.");
-                    if res.changed() {
-                        // TODO: update config
-                    }
-
-                    zoom_slider(ui, &mut self.oam.zoom);
-                });
-            });
+    fn oam(&mut self, ui: &mut Ui) {
+        let mut zoom = self.oam.zoom;
+        let selected = self.oam.oam_selected;
+        pane_header(ui, "oam", &mut zoom, selected.is_some(), |ui, menu| {
+            if menu == HeaderMenu::Detail {
+                self.oam_tile(ui, "oam_selected", selected);
+                return;
+            }
+            let res = ui
+                .checkbox(&mut self.show_tile_grid, "Tile Grid")
+                .on_hover_text("Show grid lines between tiles.");
+            if res.changed() {
+                // TODO: update config
+            }
         });
+        self.oam.zoom = zoom;
 
         let oam_texture_size = self.oam.oam_texture.size;
         let sprites_texture_size = self.oam.sprites_texture.size;
@@ -1093,8 +1227,9 @@ impl State {
         let display_height = 2.0 * self.oam.zoom * oam_texture_size.y;
         let oam_size = oam_texture_size * (display_height / oam_texture_size.y);
         let sprites_size = sprites_texture_size * (display_height / sprites_texture_size.y);
-        CentralPanel::default().show(ui, |ui| {
+        {
             let scroll = ScrollArea::both()
+                .id_salt("oam_image")
                 .min_scrolled_width(oam_texture_size.x + sprites_texture_size.x)
                 .min_scrolled_height(oam_texture_size.y.max(sprites_texture_size.y));
             scroll.show(ui, |ui| {
@@ -1168,7 +1303,7 @@ impl State {
                     }
                 });
             });
-        });
+        }
     }
 
     fn oam_hover(&mut self, ui: &mut Ui, res: &egui::Response, pos: Pos2) {
@@ -1291,21 +1426,21 @@ impl State {
         }
     }
 
-    fn palette_tab(&mut self, ui: &mut Ui) {
-        Panel::right("palette_panel").show(ui, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.heading("Selected Color");
-                ui.separator();
-                self.palette(ui, "palette_info_selected", self.palette.selected);
-            });
+    fn palette_pane(&mut self, ui: &mut Ui) {
+        let mut zoom = self.palette.zoom;
+        let selected = self.palette.selected;
+        pane_header(ui, "palette", &mut zoom, selected.is_some(), |ui, menu| {
+            if menu == HeaderMenu::Detail {
+                self.palette(ui, "palette_info_selected", selected);
+            }
         });
+        self.palette.zoom = zoom;
 
-        CentralPanel::default().show(ui, |ui| {
-            ScrollArea::both().show(ui, |ui| {
+        {
+            ScrollArea::both().id_salt("palette_image").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let res = self
-                        .palette_grid(ui, 4.0 * self.palette.zoom * self.palette.size)
+                        .palette_grid(ui, self.palette.zoom * self.palette.size)
                         .on_hover_cursor(CursorIcon::Cell);
                     let palette_rect = res.rect;
 
@@ -1321,7 +1456,7 @@ impl State {
                     }
                 });
             });
-        });
+        }
     }
 
     fn palette_hover(&mut self, ui: &mut Ui, res: &egui::Response, pos: Pos2) {
@@ -1465,17 +1600,34 @@ impl State {
 }
 
 /// A Zoom slider
-fn zoom_slider(ui: &mut Ui, zoom: &mut f32) {
-    ui.horizontal(|ui| {
-        let drag = Slider::new(zoom, 0.1..=5.0).step_by(0.05).suffix("x");
-        let res = ui.add(drag);
-        if res.changed() {
-            // TODO: update config
-        }
-        ui.label("Zoom")
-            .on_hover_cursor(CursorIcon::Help)
-            .on_hover_text("Zoom preview in or out.");
+/// A pane's own controls: how far its view is zoomed, and the toggles `settings` adds.
+///
+/// One row rather than a side panel, since four panes are on screen at once and each has only its
+/// own view's width to work in.
+fn pane_header(
+    ui: &mut Ui,
+    id: &str,
+    zoom: &mut f32,
+    selected: bool,
+    mut menu: impl FnMut(&mut Ui, HeaderMenu),
+) {
+    // Every pane draws the same three widgets, so the pane's name keeps four ⚙ menus apart.
+    ui.push_id(id, |ui| {
+        ui.horizontal(|ui| {
+            let drag = Slider::new(zoom, 0.1..=5.0).step_by(0.05).suffix("x");
+            let res = ui.add(drag);
+            if res.changed() {
+                // TODO: update config
+            }
+            MenuButton::new("⚙")
+                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
+                .ui(ui, |ui| menu(ui, HeaderMenu::Settings));
+            ui.add_enabled_ui(selected, |ui| {
+                MenuButton::new("Selected").ui(ui, |ui| menu(ui, HeaderMenu::Detail));
+            });
+        });
     });
+    ui.separator();
 }
 
 /// A grid overlay.
