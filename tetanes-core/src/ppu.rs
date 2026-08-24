@@ -712,7 +712,12 @@ impl Ppu {
         }
     }
 
-    /// Load the given buffer with RGBA pixels from the current pattern tables.
+    /// Load the OAM entries as a grid of tiles, the screen they place, and their decoded sprites.
+    ///
+    /// `oam_table` is a 64x64 grid of one 8x8 cell per entry, so an 8x16 entry shows its top tile.
+    /// `sprite_nametable` is a full screen showing sprites alone. Background priority needs the
+    /// background pixel under each sprite, which exists only while the PPU renders that dot, so a
+    /// snapshot taken at one dot cannot mix the two. [`Sprite::bg_priority`] reports the flag.
     pub fn load_oam(
         &self,
         chr: &[u8],
@@ -721,7 +726,7 @@ impl Ppu {
         sprites: &mut [Sprite],
     ) {
         // TODO: de-duplicate this with load_sprites
-        for (i, oamdata) in self.oamdata.chunks(4).enumerate() {
+        for (i, oamdata) in self.oamdata.chunks(4).enumerate().rev() {
             if let [y, tile_index, attr, x] = oamdata {
                 let sprite_x = u16::from(*x);
                 let sprite_y = u16::from(*y);
@@ -751,7 +756,9 @@ impl Ppu {
 
                 let tile_x = (i % 8) as u16 * 8;
                 let tile_y = (i / 8) as u16 * 8;
-                for y in 0..8 {
+                // Every row the sprite has, so an 8x16 reaches the screen whole. The `+= 8`
+                // below steps over the gap to an 8x16's second tile, a tile past the first.
+                for y in 0..height {
                     let mut line_offset = if flip_vertical { (height) - 1 - y } else { y };
                     if height == 16 && line_offset >= 8 {
                         line_offset += 8;
@@ -770,34 +777,31 @@ impl Ppu {
                                 | ((palette & 0x03 > 0) as u16 * u16::from(palette)),
                         );
 
-                        Self::set_pixel(u16::from(color), tile_x + x, tile_y + y, 64, oam_table);
+                        // One 8x8 cell per sprite, so the grid takes the top tile of an 8x16.
+                        if y < 8 {
+                            Self::set_pixel(
+                                u16::from(color),
+                                tile_x + x,
+                                tile_y + y,
+                                64,
+                                oam_table,
+                            );
+                        }
 
                         let x = sprite_x + x;
-                        let y = sprite_y + y;
-                        let show_left_bg = self.show_left_bg();
-                        let show_left_spr = self.show_left_spr();
-                        let show_bg = self.show_bg();
-                        let show_spr = self.show_spr();
-                        let fine_x = self.scroll.fine_x;
-
-                        let left_clip_bg = x < 8 && !show_left_bg;
-                        let bg_color = if show_bg && !left_clip_bg {
-                            ((((self.tile_shift_hi << fine_x) & 0x8000) >> 14)
-                                | (((self.tile_shift_lo << fine_x) & 0x8000) >> 15))
-                                as u8
-                        } else {
-                            0
-                        };
-
-                        let left_clip_spr = x < 8 && !show_left_spr;
-                        if show_spr && !left_clip_spr && x < size::WIDTH && y < size::HEIGHT {
-                            let color = if bg_color == 0 || !bg_priority {
-                                color
-                            } else if (fine_x + (x & 0x07)) < 8 {
-                                self.prev_palette + bg_color
-                            } else {
-                                self.curr_palette + bg_color
-                            };
+                        // Sprites are fetched on the scanline before the one they appear on, so
+                        // an entry's first row lands a scanline below the Y it names.
+                        let y = sprite_y + y + 1;
+                        let left_clip_spr = x < 8 && !self.show_left_spr();
+                        // A transparent pixel is the absence of a sprite, so it leaves what is
+                        // already on the screen. Painting the backdrop there lets the empty corner
+                        // of one sprite rub out the sprite beside it.
+                        if spr_color != 0
+                            && self.show_spr()
+                            && !left_clip_spr
+                            && x < size::WIDTH
+                            && y < size::HEIGHT
+                        {
                             Self::set_pixel(u16::from(color), x, y, size::WIDTH, sprite_nametable);
                         }
                     }
