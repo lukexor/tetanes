@@ -1037,31 +1037,27 @@ impl State {
             scroll_x += scroll.fine_x;
         }
 
-        // Scroll overlay
+        // The 256x240 viewport sits on a 512x480 torus, so it can run off the right edge, the
+        // bottom, or both at once. Drawing it at all four wrapped origins under a clip to the
+        // image puts each piece where it belongs and cuts away the rest. No two pieces overlap,
+        // since they sit a full image apart and each spans half of one.
+        let texture_size = self.nametables.texture.size;
+        let scroll = Vec2::new(
+            f32::from(scroll_x % texture_size.x as u16),
+            f32::from(scroll_y % texture_size.y as u16),
+        ) * image_rect.size()
+            / texture_size;
         let nametable_size = image_rect.size() / 2.0;
-        // Translate scroll_x/scroll_y to image space
-        let scroll = Vec2::new(scroll_x as f32, scroll_y as f32) * image_rect.size()
-            / self.nametables.texture.size;
-        let scroll_min = image_rect.min + scroll;
-        let scroll_max = scroll_min + nametable_size;
-        let overlay = Rect::from_min_max(scroll_min, scroll_max.min(image_rect.max));
-        ui.painter().rect(
-            overlay,
-            0.0,
-            Color32::from_black_alpha(75),
-            (1.0, Color32::WHITE),
-            egui::StrokeKind::Inside,
-        );
-
-        // Wrap overlay around the right/bottom edge
-        let Vec2 { x, y } = scroll_max - image_rect.max;
-        let wrapped_size = Vec2::new(
-            if x > 0.0 { x } else { nametable_size.x },
-            if y > 0.0 { y } else { nametable_size.y },
-        );
-        if wrapped_size.max_elem() > 0.0 {
-            ui.painter().rect(
-                Rect::from_min_size(image_rect.min, wrapped_size),
+        let origin = image_rect.min + scroll;
+        let painter = ui.painter().with_clip_rect(image_rect);
+        for offset in [
+            Vec2::ZERO,
+            Vec2::new(-image_rect.width(), 0.0),
+            Vec2::new(0.0, -image_rect.height()),
+            -image_rect.size(),
+        ] {
+            painter.rect(
+                Rect::from_min_size(origin + offset, nametable_size),
                 0.0,
                 Color32::from_black_alpha(75),
                 (1.0, Color32::WHITE),
