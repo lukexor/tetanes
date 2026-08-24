@@ -325,16 +325,11 @@ impl PpuViewer {
 
     /// Build the viewer with `panes` open. The window itself starts closed.
     pub fn new(tx: NesEventProxy, panes: &[Pane], render_state: &mut RenderState) -> Self {
-        // The center pane has no close button, so a config that lost it gets it back rather than
-        // a window with the toolbar and nothing under it.
-        let mut panes = Pane::ALL
+        let panes = Pane::ALL
             .iter()
             .copied()
             .filter(|pane| panes.contains(pane))
             .collect::<Vec<_>>();
-        if !panes.contains(&Pane::Nametables) {
-            panes.insert(0, Pane::Nametables);
-        }
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),

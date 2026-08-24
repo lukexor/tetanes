@@ -1263,16 +1263,11 @@ impl CpuDebugger {
 
     /// Create a debugger with `panes` open, as saved in config by the last run.
     pub fn new(tx: NesEventProxy, panes: &[Pane]) -> Self {
-        // The center pane cannot be closed, so a config that lost it gets it back rather than an
-        // empty center with the columns still drawn.
-        let mut panes = Pane::ALL
+        let panes = Pane::ALL
             .iter()
             .copied()
             .filter(|pane| panes.contains(pane))
             .collect::<Vec<_>>();
-        if !panes.contains(&Pane::Disassembly) {
-            panes.insert(0, Pane::Disassembly);
-        }
         Self {
             id: ViewportId::from_hash_of(Self::TITLE),
             open: Arc::new(AtomicBool::new(false)),

@@ -109,8 +109,7 @@ pub fn reset_layout<P: Pane>(ctx: &Context, window: &str) {
 
 /// The View menu: which panes are open, and the button that undoes every splitter drag.
 ///
-/// Reports the pane whose checkbox was clicked and what it was set to. The center column's pane
-/// has no toggle, since an empty center with the columns still drawn reads as a broken window.
+/// Reports the pane whose checkbox was clicked and what it was set to.
 pub fn view_menu<P: Pane>(ui: &mut Ui, window: &str, open: &[P]) -> Option<(P, bool)> {
     let mut toggled = None;
     // Stays open until the pointer leaves it, so several panes can be toggled in one go rather
@@ -119,9 +118,6 @@ pub fn view_menu<P: Pane>(ui: &mut Ui, window: &str, open: &[P]) -> Option<(P, b
         .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
         .ui(ui, |ui| {
             for pane in P::ALL.iter().copied() {
-                if pane.column() == Column::Center {
-                    continue;
-                }
                 let mut is_open = open.contains(&pane);
                 if ui.checkbox(&mut is_open, pane.title()).changed() {
                     toggled = Some((pane, is_open));
@@ -151,6 +147,9 @@ pub fn view_menu<P: Pane>(ui: &mut Ui, window: &str, open: &[P]) -> Option<(P, b
 /// A panel stores its rect after drawing its body, so mid-drag that rect names where the splitter
 /// reached, not where the body went. Leaving the center to egui keeps a drag off the bottom
 /// column.
+///
+/// The center takes what the others leave, and where it has nothing open the next column out takes
+/// its place, so a window with the center closed fills rather than showing a strip beside a blank.
 pub fn columns<P: Pane>(
     ui: &mut Ui,
     window: &str,
@@ -158,14 +157,37 @@ pub fn columns<P: Pane>(
     size: &dyn Fn(P) -> f32,
     body: &mut dyn FnMut(&mut Ui, P),
 ) -> Option<P> {
-    let mut closed = None;
+    let mut panes = Panes {
+        window,
+        open,
+        size,
+        body,
+        closed: None,
+    };
+    let fill = Column::ALL
+        .iter()
+        .copied()
+        .rev()
+        .find(|column| column.tiling(open).is_some());
     let mut rest = ui.available_rect_before_wrap();
-    if let Some(bottom) = column(ui, window, Column::Bottom, open, size, body, &mut closed) {
+    let bottom = column(ui, &mut panes, Column::Bottom, fill == Some(Column::Bottom));
+    if let Some(bottom) = bottom {
         rest.max.y = bottom.top();
     }
-    right_column(ui, window, open, rest.height(), size, body, &mut closed);
-    column(ui, window, Column::Center, open, size, body, &mut closed);
-    closed
+    right_column(ui, &mut panes, rest.height(), fill == Some(Column::Right));
+    column(ui, &mut panes, Column::Center, true);
+    panes.closed
+}
+
+/// What every column needs to draw: the window its panes belong to, which of them are open, how
+/// tall each one asks to be, and how to draw one. `closed` collects the pane whose ✖ was clicked,
+/// which one column at most reports per frame.
+struct Panes<'a, P> {
+    window: &'a str,
+    open: &'a [P],
+    size: &'a dyn Fn(P) -> f32,
+    body: &'a mut dyn FnMut(&mut Ui, P),
+    closed: Option<P>,
 }
 
 /// Stack `column`'s open panes inside a panel of its own, drawing nothing when it is empty.
@@ -173,53 +195,55 @@ pub fn columns<P: Pane>(
 /// Every pane but the last takes the height `size` gives it, and the last takes what is left, so a
 /// splitter sits between each pair and one between the column and the center.
 ///
-/// Reports the rect the column took, or `None` where it had nothing open to draw.
+/// `fill` draws the column in the space that is left rather than in a strip of its own, which is
+/// what the center always does and what the bottom does when it is the only column open.
+///
+/// Reports the rect the column took, or `None` where it had nothing open to draw or filled instead
+/// of claiming a strip.
 fn column<P: Pane>(
     ui: &mut Ui,
-    window: &str,
+    panes: &mut Panes<'_, P>,
     column: Column,
-    open: &[P],
-    size: &dyn Fn(P) -> f32,
-    body: &mut dyn FnMut(&mut Ui, P),
-    closed: &mut Option<P>,
+    fill: bool,
 ) -> Option<Rect> {
-    let (sized, filling) = column.tiling(open)?;
-    let mut tile = |ui: &mut Ui, body: &mut dyn FnMut(&mut Ui, P)| {
+    let (sized, filling) = column.tiling(panes.open)?;
+    let window = panes.window;
+    let size = panes.size;
+    let tile = |ui: &mut Ui, panes: &mut Panes<'_, P>| {
         for pane in &sized {
             let close = Panel::top(egui::Id::new(window).with(pane.id()))
                 .resizable(true)
                 .default_size(size(*pane))
-                .show(ui, |ui| heading(ui, *pane, body))
+                .show(ui, |ui| heading(ui, *pane, panes.body))
                 .inner;
             if close {
-                *closed = Some(*pane);
+                panes.closed = Some(*pane);
             }
         }
         if CentralPanel::default()
-            .show(ui, |ui| heading(ui, filling, body))
+            .show(ui, |ui| heading(ui, filling, panes.body))
             .inner
         {
-            *closed = Some(filling);
+            panes.closed = Some(filling);
         }
     };
     match column {
-        Column::Center => tile(ui, body),
+        Column::Center => tile(ui, panes),
+        Column::Bottom if fill => tile(ui, panes),
         Column::Bottom => {
             Panel::bottom(column.scoped_id(window))
                 .resizable(true)
                 .default_size(column.default_size())
-                .show(ui, |ui| tile(ui, body));
+                .show(ui, |ui| tile(ui, panes));
         }
         Column::Right => unreachable!("the right column is drawn by `right_column`"),
     }
+    if fill {
+        return None;
+    }
     // What the column claimed, read back from where egui records it and `reset_layout` clears it.
     // A panel's own response covers what it drew inside, not the strip it took.
-    match column {
-        Column::Center => Some(ui.min_rect()),
-        Column::Right | Column::Bottom => {
-            PanelState::load(ui.ctx(), column.scoped_id(window)).map(|state| state.outer_rect)
-        }
-    }
+    PanelState::load(ui.ctx(), column.scoped_id(window)).map(|state| state.outer_rect)
 }
 
 /// The right column: each pane at the height `size` gives it, one under the next, scrolling
@@ -229,60 +253,62 @@ fn column<P: Pane>(
 /// of them scrolls the column rather than cutting the last ones off. The last pane takes whatever
 /// the ones above it left, so a column with room to spare looks the same as one laid out to fit.
 ///
+/// `fill` spreads the stack across what is left of the window instead of down a strip on the
+/// right. The caller sets it once the center column has nothing open to take that space.
+///
 /// Panes here are plain sections rather than nested [`Panel`]s: a `Panel` sets a clip rect of its
 /// own and would draw straight through the scroll area around it.
-fn right_column<P: Pane>(
-    ui: &mut Ui,
-    window: &str,
-    open: &[P],
-    height: f32,
-    size: &dyn Fn(P) -> f32,
-    body: &mut dyn FnMut(&mut Ui, P),
-    closed: &mut Option<P>,
-) {
+fn right_column<P: Pane>(ui: &mut Ui, panes: &mut Panes<'_, P>, height: f32, fill: bool) {
     let column = Column::Right;
-    let Some((sized, filling)) = column.tiling(open) else {
+    let Some((sized, filling)) = column.tiling(panes.open) else {
         return;
     };
-    let panes = sized.into_iter().chain([filling]).collect::<Vec<_>>();
-    Panel::right(column.scoped_id(window))
-        .default_size(column.default_size())
-        .show(ui, |ui| {
-            ScrollArea::vertical()
-                .id_salt(column.scoped_id(window))
-                // Bounded by the caller's measurement. The panel takes the height of its contents,
-                // so asking it how tall it is would answer in a circle.
-                .max_height(height)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    // The bar floats over the content rather than taking width of its own, so the
-                    // room for it comes off each pane. Without it a pane's ✖ sits under the bar.
-                    let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
-                    let last = panes.len() - 1;
-                    for (index, pane) in panes.into_iter().enumerate() {
-                        // The last pane takes what the ones above it left, measured rather than
-                        // worked out: a separator's own height is easy to be a few pixels out on,
-                        // and a stack that overshoots puts a scrollbar on a column with room to
-                        // spare. Its own height wins where the column is too short, leaving the
-                        // stack something to scroll.
-                        let height = if index == last {
-                            ui.available_height().max(size(pane))
-                        } else {
-                            size(pane)
-                        };
-                        let width = ui.available_width() - bar;
-                        ui.allocate_ui(Vec2::new(width, height), |ui| {
-                            ui.set_min_height(height);
-                            if heading(ui, pane, body) {
-                                *closed = Some(pane);
-                            }
-                        });
-                        if index != last {
-                            ui.separator();
+    let window = panes.window;
+    let size = panes.size;
+    let stacked = sized.into_iter().chain([filling]).collect::<Vec<_>>();
+    let stack = |ui: &mut Ui| {
+        ScrollArea::vertical()
+            .id_salt(column.scoped_id(window))
+            // Bounded by the caller's measurement. The panel takes the height of its contents,
+            // so asking it how tall it is would answer in a circle.
+            .max_height(height)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                // The bar floats over the content rather than taking width of its own, so the
+                // room for it comes off each pane. Without it a pane's ✖ sits under the bar.
+                let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
+                let last = stacked.len() - 1;
+                for (index, pane) in stacked.into_iter().enumerate() {
+                    // The last pane takes what the ones above it left, measured rather than
+                    // worked out: a separator's own height is easy to be a few pixels out on,
+                    // and a stack that overshoots puts a scrollbar on a column with room to
+                    // spare. Its own height wins where the column is too short, leaving the
+                    // stack something to scroll.
+                    let height = if index == last {
+                        ui.available_height().max(size(pane))
+                    } else {
+                        size(pane)
+                    };
+                    let width = ui.available_width() - bar;
+                    ui.allocate_ui(Vec2::new(width, height), |ui| {
+                        ui.set_min_height(height);
+                        if heading(ui, pane, panes.body) {
+                            panes.closed = Some(pane);
                         }
+                    });
+                    if index != last {
+                        ui.separator();
                     }
-                });
-        });
+                }
+            });
+    };
+    if fill {
+        CentralPanel::default().show(ui, stack);
+    } else {
+        Panel::right(column.scoped_id(window))
+            .default_size(column.default_size())
+            .show(ui, stack);
+    }
 }
 
 /// Draw `pane`'s heading and its view, reporting whether the heading's ✖ was clicked.
@@ -292,9 +318,6 @@ fn heading<P: Pane>(ui: &mut Ui, pane: P, body: &mut dyn FnMut(&mut Ui, P)) -> b
     let closed = ui
         .horizontal(|ui| {
             ui.strong(pane.title());
-            if pane.column() == Column::Center {
-                return false;
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.small_button("✖").on_hover_text("Close pane").clicked()
             })
