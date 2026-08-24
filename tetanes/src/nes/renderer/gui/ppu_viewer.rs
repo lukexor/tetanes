@@ -37,6 +37,13 @@ const PANE_CHROME: f32 = 62.0;
 /// The row naming the background and sprite halves of the palette grid.
 const PALETTE_LABELS: f32 = 20.0;
 
+/// The side of one NES tile, which is the step the nametable, pattern and OAM views select by.
+const TILE: f32 = 8.0;
+
+/// The side of one palette swatch. The palette grid has no texture behind it, so its cell is
+/// whatever reads well rather than a count of NES pixels.
+const SWATCH: f32 = 24.0;
+
 /// Which of a pane header's two menus is being drawn.
 ///
 /// Both reach the pane's own state, so they arrive as one closure rather than two, which a single
@@ -95,12 +102,6 @@ struct State {
     // TODO: persist in config
     refresh_cycle: u16,
     refresh_scanline: u16,
-    show_refresh_lines: bool,
-    show_dividers: bool,
-    show_tile_grid: bool,
-    show_scroll_overlay: bool,
-    show_attr_grid_16x: bool,
-    show_attr_grid_32x: bool,
     nametables: NametablesState,
     pattern_tables: PatternTablesState,
     oam: OamState,
@@ -115,6 +116,12 @@ struct NametablesState {
     texture: Texture,
     zoom: f32,
     selected: Option<Vec2>,
+    show_dividers: bool,
+    show_tile_grid: bool,
+    show_refresh_lines: bool,
+    show_scroll_overlay: bool,
+    show_attr_grid_16x: bool,
+    show_attr_grid_32x: bool,
 }
 
 #[derive(Debug)]
@@ -124,6 +131,8 @@ struct PatternTablesState {
     texture: Texture,
     zoom: f32,
     selected: Option<Vec2>,
+    show_dividers: bool,
+    show_tile_grid: bool,
 }
 
 #[derive(Debug)]
@@ -136,6 +145,7 @@ struct OamState {
     sprites_texture: Texture,
     zoom: f32,
     oam_selected: Option<Vec2>,
+    show_tile_grid: bool,
 }
 
 #[derive(Debug)]
@@ -283,7 +293,7 @@ impl panes::Pane for Pane {
 
     fn default_size(self) -> f32 {
         // Every pane here draws an image whose height follows its zoom, so `State::pane_size`
-        // measures it and this is only the floor a pane will not go under.
+        // measures it and applies this as the floor.
         120.0
     }
 
@@ -300,7 +310,7 @@ impl panes::Pane for Pane {
 impl PpuViewer {
     const TITLE: &'static str = "TetaNES - PPU Viewer";
 
-    /// Build the viewer with `panes` open, closed and waiting for the console to be shown.
+    /// Build the viewer with `panes` open. The window itself starts closed.
     pub fn new(tx: NesEventProxy, panes: &[Pane], render_state: &mut RenderState) -> Self {
         // The center pane has no close button, so a config that lost it gets it back rather than
         // a window with the toolbar and nothing under it.
@@ -320,12 +330,6 @@ impl PpuViewer {
                 panes,
                 refresh_cycle: 0,
                 refresh_scanline: scanline::VBLANK_NTSC,
-                show_refresh_lines: false,
-                show_dividers: true,
-                show_tile_grid: false,
-                show_scroll_overlay: false,
-                show_attr_grid_16x: false,
-                show_attr_grid_32x: false,
                 nametables: NametablesState {
                     // 4 nametables with 4 color channels (RGBA)
                     pixels: vec![0x00; 4 * 4 * ppu::size::FRAME],
@@ -337,6 +341,12 @@ impl PpuViewer {
                     ),
                     zoom: 1.5,
                     selected: None,
+                    show_dividers: true,
+                    show_tile_grid: false,
+                    show_refresh_lines: false,
+                    show_scroll_overlay: false,
+                    show_attr_grid_16x: false,
+                    show_attr_grid_32x: false,
                 },
                 pattern_tables: PatternTablesState {
                     // 2 pattern tables with 4 color channels (RGBA)
@@ -350,6 +360,8 @@ impl PpuViewer {
                     // 256 wide at 1x, which fits the right column without scrolling it.
                     zoom: 1.0,
                     selected: None,
+                    show_dividers: true,
+                    show_tile_grid: false,
                 },
                 oam: OamState {
                     // 64 8x8 sprites with 4 color channels (RGBA)
@@ -374,16 +386,16 @@ impl PpuViewer {
                     // the right column.
                     zoom: 1.0,
                     oam_selected: None,
+                    show_tile_grid: false,
                 },
                 palette: PalettesState {
-                    // 2 palette tables
-                    size: Vec2::new(64.0, 32.0),
+                    // 2 palette tables, 4 colors each, one swatch per cell.
+                    size: Vec2::new(8.0 * SWATCH, 4.0 * SWATCH),
                     // 32 palette colors with 4 color channels (RGBA)
                     pixels: vec![0x00; 4 * 32],
                     // 32 colors
                     colors: vec![0x00; 32],
-                    // 64x32 at 1x. Thirty-two swatches read fine at 192x96.
-                    zoom: 3.0,
+                    zoom: 1.0,
                     selected: None,
                 },
                 snapshot: PpuSnapshot::default(),
@@ -593,6 +605,11 @@ impl State {
             .collect();
         self.tx
             .event(ConfigEvent::PpuViewerPanes(self.panes.clone()));
+        // The console stops rendering a closed pane's view, so its texture is as old as the frame
+        // it was closed on. Reopening asks for a snapshot rather than waiting for the next dot.
+        if open {
+            self.update_debugger(true);
+        }
     }
 
     /// How tall `pane` needs to be to show its view whole.
@@ -610,7 +627,7 @@ impl State {
             // Plus the row naming the two halves.
             Pane::Palette => self.palette.zoom * self.palette.size.y + PALETTE_LABELS,
         };
-        image + PANE_CHROME
+        (image + PANE_CHROME).max(pane.default_size())
     }
 
     /// Draw `pane`'s view. The layout draws the heading above it.
@@ -620,22 +637,6 @@ impl State {
             Pane::PatternTables => self.pattern_tables(ui),
             Pane::Oam => self.oam(ui),
             Pane::Palette => self.palette_pane(ui),
-        }
-    }
-
-    fn grid_settings(&mut self, ui: &mut Ui) {
-        let res = ui
-            .checkbox(&mut self.show_dividers, "Table Dividers")
-            .on_hover_text("Show divider lines between tables.");
-        if res.changed() {
-            // TODO: update config
-        }
-
-        let res = ui
-            .checkbox(&mut self.show_tile_grid, "Tile Grid")
-            .on_hover_text("Show grid lines between tiles.");
-        if res.changed() {
-            // TODO: update config
         }
     }
 
@@ -669,6 +670,7 @@ impl State {
             ui,
             "nametables",
             &mut zoom,
+            true,
             selected.is_some(),
             |ui, menu| {
                 if menu == HeaderMenu::Detail {
@@ -676,30 +678,40 @@ impl State {
                     return;
                 }
                 let res = ui
-                    .checkbox(&mut self.show_refresh_lines, "Refresh Markers")
+                    .checkbox(&mut self.nametables.show_refresh_lines, "Refresh Markers")
                     .on_hover_text("Show lines indicating the current refresh cycle and scanline.");
                 if res.changed() {
                     // TODO: update config
                 }
 
-                self.grid_settings(ui);
+                grid_settings(
+                    ui,
+                    &mut self.nametables.show_dividers,
+                    &mut self.nametables.show_tile_grid,
+                );
 
                 let res = ui
-                    .checkbox(&mut self.show_scroll_overlay, "Scroll Overlay")
+                    .checkbox(&mut self.nametables.show_scroll_overlay, "Scroll Overlay")
                     .on_hover_text("Show scroll position overlay.");
                 if res.changed() {
                     // TODO: update config
                 }
 
                 let res = ui
-                    .checkbox(&mut self.show_attr_grid_16x, "Attribute Grid (16x16)")
+                    .checkbox(
+                        &mut self.nametables.show_attr_grid_16x,
+                        "Attribute Grid (16x16)",
+                    )
                     .on_hover_text("Show grid lines within each attribute block.");
                 if res.changed() {
                     // TODO: update config
                 }
 
                 let res = ui
-                    .checkbox(&mut self.show_attr_grid_32x, "Attribute Grid (32x32)")
+                    .checkbox(
+                        &mut self.nametables.show_attr_grid_32x,
+                        "Attribute Grid (32x32)",
+                    )
                     .on_hover_text("Show grid lines between attribute blocks.");
                 if res.changed() {
                     // TODO: update config
@@ -728,7 +740,7 @@ impl State {
                     self.nametable_hover(ui, &res, pos);
                 }
 
-                if self.show_dividers {
+                if self.nametables.show_dividers {
                     // Split the 4x4 nametables in half vertically and horizontally
                     ui.painter().vline(
                         image_rect.center().x,
@@ -742,7 +754,7 @@ impl State {
                     );
                 }
 
-                if self.show_refresh_lines {
+                if self.nametables.show_refresh_lines {
                     let cycle_offset =
                         self.refresh_cycle as f32 * image_rect.size().x / 2.0 / cycle::END as f32;
                     let scanline_offset = self.refresh_scanline as f32 * image_rect.size().y
@@ -770,15 +782,15 @@ impl State {
                     );
                 }
 
-                if self.show_tile_grid {
+                if self.nametables.show_tile_grid {
                     paint_grid(ui, image_rect, 60.0, 64.0, Color32::LIGHT_BLUE);
                 }
 
-                if self.show_attr_grid_16x {
+                if self.nametables.show_attr_grid_16x {
                     paint_grid(ui, image_rect, 30.0, 32.0, Color32::LIGHT_RED);
                 }
 
-                if self.show_attr_grid_32x {
+                if self.nametables.show_attr_grid_32x {
                     // Because 32x doesn't divide evenly into 240, split this up into two passes with a
                     // dividing line, forcing the leftover attribute space to be at the bottom. Also
                     // halve the number of rows
@@ -795,13 +807,13 @@ impl State {
                     paint_grid(ui, bot_rect, 7.5, 16.0, Color32::LIGHT_GREEN);
                 }
 
-                if self.show_scroll_overlay {
+                if self.nametables.show_scroll_overlay {
                     self.nametable_scroll_overlay(ui, image_rect);
                 }
 
                 if let Some(offset) = self.nametables.selected {
                     let selection =
-                        tile_selection(image_rect, self.nametables.texture.size, offset);
+                        tile_selection(image_rect, self.nametables.texture.size, offset, TILE);
                     animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
                 }
             });
@@ -812,8 +824,8 @@ impl State {
         let image_rect = res.rect;
         let texture_size = self.nametables.texture.size;
 
-        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size);
-        let selection = tile_selection(image_rect, texture_size, offset);
+        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size, TILE);
+        let selection = tile_selection(image_rect, texture_size, offset, TILE);
 
         animated_dashed_rect(
             ui,
@@ -1065,10 +1077,15 @@ impl State {
             ui,
             "pattern_tables",
             &mut zoom,
+            true,
             selected.is_some(),
             |ui, menu| match menu {
                 // TODO: Selectable palette/last known palette
-                HeaderMenu::Settings => self.grid_settings(ui),
+                HeaderMenu::Settings => grid_settings(
+                    ui,
+                    &mut self.pattern_tables.show_dividers,
+                    &mut self.pattern_tables.show_tile_grid,
+                ),
                 HeaderMenu::Detail => {
                     self.pattern_tables_tile(ui, "pattern_tables_tile_selected", selected);
                 }
@@ -1096,7 +1113,7 @@ impl State {
                     self.pattern_tables_hover(ui, &res, pos);
                 }
 
-                if self.show_dividers {
+                if self.pattern_tables.show_dividers {
                     ui.painter().vline(
                         image_rect.center().x,
                         image_rect.y_range(),
@@ -1104,13 +1121,13 @@ impl State {
                     );
                 }
 
-                if self.show_tile_grid {
+                if self.pattern_tables.show_tile_grid {
                     paint_grid(ui, image_rect, 16.0, 32.0, Color32::LIGHT_BLUE);
                 }
 
                 if let Some(offset) = self.pattern_tables.selected {
                     let selection =
-                        tile_selection(image_rect, self.pattern_tables.texture.size, offset);
+                        tile_selection(image_rect, self.pattern_tables.texture.size, offset, TILE);
                     animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
                 }
             });
@@ -1121,8 +1138,8 @@ impl State {
         let image_rect = res.rect;
         let texture_size = self.pattern_tables.texture.size;
 
-        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size);
-        let selection = tile_selection(image_rect, texture_size, offset);
+        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size, TILE);
+        let selection = tile_selection(image_rect, texture_size, offset, TILE);
 
         animated_dashed_rect(
             ui,
@@ -1203,18 +1220,25 @@ impl State {
     fn oam(&mut self, ui: &mut Ui) {
         let mut zoom = self.oam.zoom;
         let selected = self.oam.oam_selected;
-        pane_header(ui, "oam", &mut zoom, selected.is_some(), |ui, menu| {
-            if menu == HeaderMenu::Detail {
-                self.oam_tile(ui, "oam_selected", selected);
-                return;
-            }
-            let res = ui
-                .checkbox(&mut self.show_tile_grid, "Tile Grid")
-                .on_hover_text("Show grid lines between tiles.");
-            if res.changed() {
-                // TODO: update config
-            }
-        });
+        pane_header(
+            ui,
+            "oam",
+            &mut zoom,
+            true,
+            selected.is_some(),
+            |ui, menu| {
+                if menu == HeaderMenu::Detail {
+                    self.oam_tile(ui, "oam_selected", selected);
+                    return;
+                }
+                let res = ui
+                    .checkbox(&mut self.oam.show_tile_grid, "Tile Grid")
+                    .on_hover_text("Show grid lines between tiles.");
+                if res.changed() {
+                    // TODO: update config
+                }
+            },
+        );
         self.oam.zoom = zoom;
 
         let oam_texture_size = self.oam.oam_texture.size;
@@ -1248,7 +1272,7 @@ impl State {
                         self.oam_hover(ui, &res, pos);
                     }
 
-                    if self.show_tile_grid {
+                    if self.oam.show_tile_grid {
                         paint_grid(ui, oam_image_rect, 8.0, 8.0, Color32::LIGHT_BLUE);
                     }
 
@@ -1266,13 +1290,13 @@ impl State {
                         self.sprites_hover(ui, &res, pos);
                     }
 
-                    if self.show_tile_grid {
+                    if self.oam.show_tile_grid {
                         paint_grid(ui, spr_image_rect, 30.0, 32.0, Color32::LIGHT_BLUE);
                     }
 
                     if let Some(offset) = self.oam.oam_selected {
                         let selection =
-                            tile_selection(oam_image_rect, self.oam.oam_texture.size, offset);
+                            tile_selection(oam_image_rect, self.oam.oam_texture.size, offset, TILE);
                         animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
 
                         let sprite_index =
@@ -1290,6 +1314,7 @@ impl State {
                                     spr_image_rect,
                                     self.oam.sprites_texture.size,
                                     offset,
+                                    TILE,
                                 );
                                 animated_dashed_rect(
                                     ui,
@@ -1310,8 +1335,8 @@ impl State {
         let image_rect = res.rect;
         let texture_size = self.oam.oam_texture.size;
 
-        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size);
-        let selection = tile_selection(image_rect, texture_size, offset);
+        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size, TILE);
+        let selection = tile_selection(image_rect, texture_size, offset, TILE);
 
         animated_dashed_rect(
             ui,
@@ -1337,8 +1362,8 @@ impl State {
         let image_rect = res.rect;
         let texture_size = self.oam.sprites_texture.size;
 
-        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size);
-        let selection = tile_selection(image_rect, texture_size, offset);
+        let offset = translate_screen_pos_to_tile(pos, image_rect, texture_size, TILE);
+        let selection = tile_selection(image_rect, texture_size, offset, TILE);
 
         animated_dashed_rect(
             ui,
@@ -1429,11 +1454,18 @@ impl State {
     fn palette_pane(&mut self, ui: &mut Ui) {
         let mut zoom = self.palette.zoom;
         let selected = self.palette.selected;
-        pane_header(ui, "palette", &mut zoom, selected.is_some(), |ui, menu| {
-            if menu == HeaderMenu::Detail {
-                self.palette(ui, "palette_info_selected", selected);
-            }
-        });
+        pane_header(
+            ui,
+            "palette",
+            &mut zoom,
+            false,
+            selected.is_some(),
+            |ui, menu| {
+                if menu == HeaderMenu::Detail {
+                    self.palette(ui, "palette_info_selected", selected);
+                }
+            },
+        );
         self.palette.zoom = zoom;
 
         {
@@ -1451,7 +1483,8 @@ impl State {
                     }
 
                     if let Some(offset) = self.palette.selected {
-                        let selection = tile_selection(palette_rect, self.palette.size, offset);
+                        let selection =
+                            tile_selection(palette_rect, self.palette.size, offset, SWATCH);
                         animated_dashed_rect(ui, selection, (1.0, Color32::WHITE), 3.0, 3.0);
                     }
                 });
@@ -1462,8 +1495,8 @@ impl State {
     fn palette_hover(&mut self, ui: &mut Ui, res: &egui::Response, pos: Pos2) {
         let image_rect = res.rect;
 
-        let offset = translate_screen_pos_to_tile(pos, image_rect, self.palette.size);
-        let selection = tile_selection(image_rect, self.palette.size, offset);
+        let offset = translate_screen_pos_to_tile(pos, image_rect, self.palette.size, SWATCH);
+        let selection = tile_selection(image_rect, self.palette.size, offset, SWATCH);
 
         animated_dashed_rect(
             ui,
@@ -1485,8 +1518,8 @@ impl State {
         let Vec2 { x, y } = offset;
 
         // Get row/column 32x32 palette and the palette table it's in
-        let mut col = x as u16 / 8;
-        let row = y as u16 / 8;
+        let mut col = (x as u16 / SWATCH as u16).min(7);
+        let row = (y as u16 / SWATCH as u16).min(3);
         let palette = if col >= 4 { 1 } else { 0 };
 
         // Wrap column to a single palette table
@@ -1599,8 +1632,24 @@ impl State {
     }
 }
 
-/// A Zoom slider
-/// A pane's own controls: how far its view is zoomed, and the toggles `settings` adds.
+/// The dividers and tile grid one view draws over its image.
+fn grid_settings(ui: &mut Ui, dividers: &mut bool, tile_grid: &mut bool) {
+    let res = ui
+        .checkbox(dividers, "Table Dividers")
+        .on_hover_text("Show divider lines between tables.");
+    if res.changed() {
+        // TODO: update config
+    }
+
+    let res = ui
+        .checkbox(tile_grid, "Tile Grid")
+        .on_hover_text("Show grid lines between tiles.");
+    if res.changed() {
+        // TODO: update config
+    }
+}
+
+/// A pane's own controls: how far its view is zoomed, and the two menus `menu` fills.
 ///
 /// One row rather than a side panel, since four panes are on screen at once and each has only its
 /// own view's width to work in.
@@ -1608,6 +1657,7 @@ fn pane_header(
     ui: &mut Ui,
     id: &str,
     zoom: &mut f32,
+    settings: bool,
     selected: bool,
     mut menu: impl FnMut(&mut Ui, HeaderMenu),
 ) {
@@ -1619,9 +1669,13 @@ fn pane_header(
             if res.changed() {
                 // TODO: update config
             }
-            MenuButton::new("⚙")
-                .config(MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside))
-                .ui(ui, |ui| menu(ui, HeaderMenu::Settings));
+            if settings {
+                MenuButton::new("⚙")
+                    .config(
+                        MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside),
+                    )
+                    .ui(ui, |ui| menu(ui, HeaderMenu::Settings));
+            }
             ui.add_enabled_ui(selected, |ui| {
                 MenuButton::new("Selected").ui(ui, |ui| menu(ui, HeaderMenu::Detail));
             });
@@ -1651,17 +1705,22 @@ fn paint_grid(ui: &mut Ui, rect: Rect, y_spacing: f32, x_spacing: f32, color: Co
 }
 
 /// Translate position in screen space to texture space and find containing 8x8 tile offset
-fn translate_screen_pos_to_tile(pos: Pos2, image_rect: Rect, texture_size: Vec2) -> Vec2 {
+fn translate_screen_pos_to_tile(
+    pos: Pos2,
+    image_rect: Rect,
+    texture_size: Vec2,
+    cell: f32,
+) -> Vec2 {
     let normalized_pos = (pos - image_rect.min) / image_rect.size();
     let texture_pos = normalized_pos * texture_size;
-    (texture_pos / 8.0).floor() * 8.0
+    (texture_pos / cell).floor() * cell
 }
 
 /// Return tile selection rectangle given an offset.
-fn tile_selection(image_rect: Rect, texture_size: Vec2, tile_offset: Vec2) -> Rect {
+fn tile_selection(image_rect: Rect, texture_size: Vec2, tile_offset: Vec2, cell: f32) -> Rect {
     let scale = image_rect.size() / texture_size;
     Rect::from_min_size(
         image_rect.min + scale * tile_offset,
-        scale * Vec2::splat(8.0),
+        scale * Vec2::splat(cell),
     )
 }
