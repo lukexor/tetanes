@@ -550,6 +550,11 @@ macro_rules! impl_dispatch {
                 dispatch!(self, [$($variant),+], m => m.chr_peek(memory, addr))
             }
 
+            /// Peek CHR through the board's sprite bank set.
+            pub fn chr_peek_spr(&self, memory: &Memory, addr: u16) -> Option<u8> {
+                dispatch!(self, [$($variant),+], m => m.chr_peek_spr(memory, addr))
+            }
+
             /// Observe a PPU bus address.
             #[inline(always)]
             pub fn ppu_bus_addr(&mut self, memory: &mut Memory, addr: u16) {
@@ -900,6 +905,16 @@ pub trait Map {
 
     /// Side-effect-free form of [`Map::chr_read`], for debuggers.
     fn chr_peek(&self, _memory: &Memory, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Peek CHR the way the board would map it for a sprite fetch.
+    ///
+    /// A board that keeps one set of CHR registers maps sprite and background fetches the same
+    /// way, so the page tables already answer this and the default reports `None`. MMC5 keeps two
+    /// and swaps them mid-frame, which leaves a debugger reading whichever set the PPU happened to
+    /// be on. Overriding this gives it the sprite set whatever the page tables hold.
+    fn chr_peek_spr(&self, _memory: &Memory, _addr: u16) -> Option<u8> {
         None
     }
 

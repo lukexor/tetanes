@@ -312,6 +312,24 @@ impl Bus {
         }
     }
 
+    /// Copies the pattern tables, `$0000-$1FFF`, as the board maps them for a sprite fetch.
+    ///
+    /// Reports `false` where the board maps one CHR set, and leaves `dst` untouched because
+    /// [`Bus::copy_ppu_bus`] already holds those bytes. See
+    /// [`crate::mapper::Map::chr_peek_spr`] for the boards this exists for.
+    pub fn copy_spr_pattern_tables(&self, dst: &mut [u8]) -> bool {
+        if self.mapper.chr_peek_spr(&self.memory, 0).is_none() {
+            return false;
+        }
+        for (addr, byte) in dst.iter_mut().enumerate().take(0x2000) {
+            *byte = self
+                .mapper
+                .chr_peek_spr(&self.memory, addr as u16)
+                .unwrap_or_else(|| self.chr_peek(addr as u16));
+        }
+        true
+    }
+
     /// The console's 2K of work RAM.
     #[must_use]
     #[inline]

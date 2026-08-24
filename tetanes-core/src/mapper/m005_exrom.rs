@@ -519,6 +519,28 @@ impl Exrom {
         }
     }
 
+    /// The arena offset `addr` reads from under `set`, mapped the way
+    /// [`Exrom::update_chr_banks`] maps it into the page tables.
+    ///
+    /// A debugger needs this because the page tables hold one set at a time. Every mode maps a
+    /// window of `count` 1K pages from a single register, so the page's place in that window steps
+    /// the bank on from the base the register names.
+    fn chr_offset_in(&self, set: ChrBank, addr: u16) -> usize {
+        let banks = match set {
+            ChrBank::Spr => &self.regs.chr_banks[0..8],
+            ChrBank::Bg => &self.regs.chr_banks[8..16],
+        };
+        let slot = (addr as usize / Self::CHR_WINDOW) & 0x07;
+        let (bank, shift, count) = match self.regs.chr_mode {
+            ChrMode::Bank8k => (banks[7], 3, 8),
+            ChrMode::Bank4k => (banks[3 + (slot / 4) * 4], 2, 4),
+            ChrMode::Bank2k => (banks[1 + (slot / 2) * 2], 1, 2),
+            ChrMode::Bank1k => (banks[slot], 0, 1),
+        };
+        let page = ((bank | self.regs.chr_hi) << shift) + (slot % count);
+        page * Self::CHR_WINDOW + (addr as usize & (Self::CHR_WINDOW - 1))
+    }
+
     /// Point each of the four nametable slots at whatever $5105 selects for it.
     ///
     /// This is why MMC5 does not call [`Memory::set_mirroring`]: the four slots are independent
@@ -958,6 +980,17 @@ impl Map for Exrom {
             }
             _ => None,
         }
+    }
+
+    fn chr_peek_spr(&self, memory: &Memory, addr: u16) -> Option<u8> {
+        // With 8x8 sprites the 'B' registers are ignored and every fetch reads 'A', so the page
+        // tables already hold it.
+        if !self.ppu_status.sprite8x16 || addr >= 0x2000 {
+            return None;
+        }
+        // The vertical split and extended attributes rewrite background fetches only, both gated
+        // on `!spr_fetch`, so a sprite fetch reads the bank its own set names.
+        Some(memory.region_peek(Src::Chr, self.chr_offset_in(ChrBank::Spr, addr)))
     }
 
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {

@@ -31,6 +31,10 @@ use tetanes_core::{
 /// nametables.
 const CHR_WINDOW: usize = 0x3000;
 
+/// Bytes of a second copy of the pattern tables, `$0000-$1FFF`, for a board that maps sprites
+/// through a CHR bank set of their own.
+const SPR_CHR_WINDOW: usize = 0x2000;
+
 /// What a pane spends above its image: the heading, the header row, and the separator under it.
 const PANE_CHROME: f32 = 62.0;
 
@@ -68,6 +72,9 @@ enum HeaderMenu {
 pub struct PpuSnapshot {
     pub ppu: Ppu,
     pub chr: Box<[u8; CHR_WINDOW]>,
+    /// The pattern tables as the board maps them for a sprite fetch, where it keeps a set apart
+    /// from the background's. `None` leaves the sprite views reading `chr`.
+    pub chr_spr: Option<Box<[u8; SPR_CHR_WINDOW]>>,
     pub mirroring: Mirroring,
 }
 
@@ -76,6 +83,7 @@ impl Default for PpuSnapshot {
         Self {
             ppu: Ppu::default(),
             chr: Box::new([0; CHR_WINDOW]),
+            chr_spr: None,
             mirroring: Mirroring::default(),
         }
     }
@@ -86,9 +94,14 @@ impl PpuSnapshot {
     pub fn capture(bus: &Bus) -> Self {
         let mut chr = Box::new([0; CHR_WINDOW]);
         bus.copy_ppu_bus(chr.as_mut_slice());
+        let mut chr_spr = Box::new([0; SPR_CHR_WINDOW]);
+        let chr_spr = bus
+            .copy_spr_pattern_tables(chr_spr.as_mut_slice())
+            .then_some(chr_spr);
         Self {
             ppu: bus.ppu.snapshot(),
             chr,
+            chr_spr,
             mirroring: bus.mirroring(),
         }
     }
@@ -434,7 +447,12 @@ impl PpuViewer {
 
     pub fn update_ppu(&mut self, queue: &wgpu::Queue, snapshot: PpuSnapshot) {
         let mut state = self.state.lock();
-        let PpuSnapshot { ppu, chr, .. } = &snapshot;
+        let PpuSnapshot {
+            ppu, chr, chr_spr, ..
+        } = &snapshot;
+        let spr_chr = chr_spr
+            .as_ref()
+            .map_or(chr.as_slice(), |chr_spr| chr_spr.as_slice());
         // Rendering a view walks its pixels once per frame, so a closed pane is not drawn into.
         let nametables = state.panes.contains(&Pane::Nametables);
         let pattern_tables = state.panes.contains(&Pane::PatternTables);
@@ -468,12 +486,7 @@ impl PpuViewer {
                 chunk[2] = 0;
                 chunk[3] = 255;
             });
-            ppu.load_oam(
-                chr.as_slice(),
-                &mut oam_pixels,
-                &mut sprite_pixels,
-                &mut sprites,
-            );
+            ppu.load_oam(spr_chr, &mut oam_pixels, &mut sprite_pixels, &mut sprites);
 
             state.oam.oam_pixels = oam_pixels;
             state.oam.sprite_pixels = sprite_pixels;
