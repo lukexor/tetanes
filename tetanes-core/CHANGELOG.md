@@ -7,6 +7,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0](https://github.com/lukexor/tetanes/compare/0.15.0..0.16.0) - 2026-08-24
+
+### ⛰️  Features
+
+- *(cpu)* Name and describe each instruction - ([e6d583b](https://github.com/lukexor/tetanes/commit/e6d583ba75131613e215877bd912e580310e5ef4))
+- *(debug)* Read sprite tiles through the board's sprite bank set - ([3f8def0](https://github.com/lukexor/tetanes/commit/3f8def0d05d69a3e827d4daa0dd5805dcd5f4f36))
+- *(debug)* Run to an address or to the next interrupt - ([f648c81](https://github.com/lukexor/tetanes/commit/f648c816eb9306ac06c1ac1fbb6bf7aae2c3b8aa))
+- *(debug)* Report which vector an instruction took - ([7ee6426](https://github.com/lukexor/tetanes/commit/7ee64269deee5d52216297cf59daa81727979da0))
+- *(debug)* Remember what a session learned about a ROM - ([a13680e](https://github.com/lukexor/tetanes/commit/a13680e2f90b5879c0b9dd13a259ef4c58107784))
+- *(debug)* Modify state, and a hex view to do it in - ([f487c67](https://github.com/lukexor/tetanes/commit/f487c67d95cc28dfb5f0b2ee59890360b5faeaca))
+- *(debug)* Show how execution reached where it stopped - ([76d33dc](https://github.com/lukexor/tetanes/commit/76d33dc7eb28ab3e66f1d0de50e12cc6d69c41fc))
+- *(debug)* Edit a breakpoint in a window of its own - ([a43b679](https://github.com/lukexor/tetanes/commit/a43b67942cba9e3eee6222c6977fab79658f5c3d))
+- *(debug)* Let a breakpoint carry a condition - ([4061f45](https://github.com/lukexor/tetanes/commit/4061f4531a2936cdba663edffa539c0a61c1ad7f))
+- *(debug)* Parse expressions over console state - ([158e45f](https://github.com/lukexor/tetanes/commit/158e45f704986a20967362a51ca9f869bd1004b1))
+- *(debug)* Describe the instruction on hover - ([be175d4](https://github.com/lukexor/tetanes/commit/be175d446885e970a6a237e7097b6ee000a1c157))
+- *(debug)* Key a breakpoint to the bank it was set in - ([a46a691](https://github.com/lukexor/tetanes/commit/a46a691f7a44d5a4b18bcb87ab189aa7c58004b1))
+- *(debug)* Break on reads and writes, not only on execution - ([c4212fe](https://github.com/lukexor/tetanes/commit/c4212fed2172bf4cfe82fb125fef88dfe5a27917))
+- *(debug)* Give the disassembly a gutter and tintable parts - ([5e47164](https://github.com/lukexor/tetanes/commit/5e47164d4038009c61085ab95aa35c528d1ef080))
+- *(debug)* Stop the console at breakpoint addresses - ([fc4d4d5](https://github.com/lukexor/tetanes/commit/fc4d4d512182471c48d8343189a75d369fffe2ec))
+- *(debug)* Keep code map marks when the debugger closes - ([dc94341](https://github.com/lukexor/tetanes/commit/dc94341b350fcd6602a56c7c46606dc890ef7cba))
+- *(debug)* Record which bytes have executed in a code map - ([06fc997](https://github.com/lukexor/tetanes/commit/06fc9973ff6181b81dcf0d918e205ed4123510a4))
+- *(memory)* Added prg_offset to get the memory mapped offset for a PRG address - ([b1fb53a](https://github.com/lukexor/tetanes/commit/b1fb53a1ba27c0e9d1331dd4bd97b71d8983a7ca))
+- *(ui)* Disassemble what has executed, plus the routine at PC - ([594510c](https://github.com/lukexor/tetanes/commit/594510ca20e156dc33c6033d1d069d7816b2b616))
+- *(ui)* Implement debugger step over and step out - ([c07a16e](https://github.com/lukexor/tetanes/commit/c07a16e707594e66844b9b118f8dd6304e471009))
+- *(ui)* Implement basic Debugger - ([85c849f](https://github.com/lukexor/tetanes/commit/85c849f2e593788e014ec749b94df017a1141e35))
+
+- Record executed program counters for the debugger - ([3542c33](https://github.com/lukexor/tetanes/commit/3542c338a3732c9bc660826e70b5888947947453))
+
+### 🐛 Bug Fixes
+
+- *(bus)* Remove disasm scratch buf - ([363b1d0](https://github.com/lukexor/tetanes/commit/363b1d06f149e23e30036282cc6e423a196410d0))
+- *(cpu)* Disassemble the unofficial stores with their index - ([9b56170](https://github.com/lukexor/tetanes/commit/9b561700452d798f96046636ff238a35c7319f26))
+- *(debug)* Keep what run-ahead ran out of the history - ([2d4b1bc](https://github.com/lukexor/tetanes/commit/2d4b1bcf8e7326b6a0d35594c6c4c25e8fe18905))
+- *(debug)* Bound the run of `!` a condition can start with - ([a09d159](https://github.com/lukexor/tetanes/commit/a09d159a52169c9f20796c9facb4bab3dec599ce))
+- *(debug)* Close the holes review found in the editor and the parser - ([c78ed3f](https://github.com/lukexor/tetanes/commit/c78ed3f007ce63baf480a6d88cc12e7eb1834319))
+- *(debug)* Show a watched comparison as true or false - ([a4e0d36](https://github.com/lukexor/tetanes/commit/a4e0d364ec8ddb450b007e2b978d273925d7a010))
+- *(debug)* Tidy the watch row, the syntax help and the editor - ([127d75a](https://github.com/lukexor/tetanes/commit/127d75a1c32716d5cfdcda3490af6e40b019867f))
+- *(debug)* Close the holes review found in the breakpoint paths - ([5396ade](https://github.com/lukexor/tetanes/commit/5396ade1a17bb2c3cc3fde54a3ddad41d990e6c8))
+- *(debug)* Log the executions a recording breakpoint catches - ([49699e3](https://github.com/lukexor/tetanes/commit/49699e324cdc2ca2992805e30fd2501670e29d6b))
+- *(debug)* Keep the rest of the dummy reads off read breakpoints - ([3df6b7b](https://github.com/lukexor/tetanes/commit/3df6b7b1c6caf976965e29f7f38cbc78e922ee7a))
+- *(debug)* Stop every step kind at a breakpoint - ([48818ab](https://github.com/lukexor/tetanes/commit/48818abecd66e029a14f3ac53d7f076238430549))
+- *(debug)* Disassemble cart RAM the game runs code from - ([47e54bd](https://github.com/lukexor/tetanes/commit/47e54bdd2df9ac6283c9c9b46b5b5e0a535ff431))
+- *(debug)* Stop breakpoints firing on accesses the program never made [skip-gate] - ([fc972c3](https://github.com/lukexor/tetanes/commit/fc972c3bd43357e9e79b9e7cce151858746c92fd))
+- *(debug)* Bracket the effective address, and widen what the boxes accept - ([210595b](https://github.com/lukexor/tetanes/commit/210595b858187b9cc9b9c6695aa58a2fddaeccd7))
+- *(ppu)* Draw the sprite view the way the PPU would - ([8266c3b](https://github.com/lukexor/tetanes/commit/8266c3b8719e54d889e4d1eee89c286d1ba200f7))
+
+- Clean up api consistency - ([d7f0047](https://github.com/lukexor/tetanes/commit/d7f004737ab7d5c4119eecf6a5ae3515849b663d))
+
+### 🚜 Refactor
+
+- *(debug)* Spell expressions the way JavaScript does - ([335272b](https://github.com/lukexor/tetanes/commit/335272bfbda7f9a2047d38815e98e7a3420ce7d7))
+- *(ui)* Drop the shortcut guards the outer arm already makes - ([2422771](https://github.com/lukexor/tetanes/commit/2422771bd6f6cbfa63934ee75ee42c6894b1fd11))
+
+
+### 📚 Documentation
+
+- *(debug)* Correct the stale references the debugger work left [skip-gate] - ([fff9d33](https://github.com/lukexor/tetanes/commit/fff9d33a2ff8e88103788b40f0f5076a164b5c74))
+
+- Tidy the debugger comments and doc comments - ([ee2fad7](https://github.com/lukexor/tetanes/commit/ee2fad706cd166583f15ca7fd4a852ae8de33c06))
+- Update benches readme - ([1a555c1](https://github.com/lukexor/tetanes/commit/1a555c1720f287c4228af3deb11bda5c25714135))
+
+### ⚡ Performance
+
+- *(core)* [**breaking**] Pack the hot fields of Apu, Bus and Cpu together - ([0d683b5](https://github.com/lukexor/tetanes/commit/0d683b50cd77d8ad16e3f945e0d19540dc8d8e83))
+**BREAKING**: existing save states no longer load; battery saves are unaffected.
+- *(ppu)* Use branches instead of match for BG fetch phases - ([95911cf](https://github.com/lukexor/tetanes/commit/95911cf97c2aa4680273ed8b9405891730aa31b6))
+
+
+### 🎨 Styling
+
+
+- Spell "center" the American way - ([3670650](https://github.com/lukexor/tetanes/commit/3670650bdd021a0446f5921b9ac55768fc6f74bc))
+
+
 ## [0.15.0](https://github.com/lukexor/tetanes/compare/0.14.2..0.15.0) - 2026-08-06
 
 ### ⛰️  Features
