@@ -746,6 +746,10 @@ impl State {
                 );
             }
             EmulationEvent::AddDebugger(debugger) => {
+                // Answer with a snapshot before installing it, so a viewer that opens a view while
+                // the console is stopped fills from that rather than waiting for a dot the
+                // stopped console never reaches.
+                (debugger.callback)(self.control_deck.bus());
                 self.control_deck.set_debugger(debugger.clone());
             }
             EmulationEvent::RemoveDebugger => {
