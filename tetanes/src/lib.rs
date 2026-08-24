@@ -4,6 +4,9 @@
     html_logo_url = "https://github.com/lukexor/tetanes/blob/main/assets/linux/icon.png?raw=true"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// The wasm `Send` check on the deferred viewport closure in `nes::renderer::gui::ppu_viewer`
+// walks wgpu's web backend types past the default depth of 128.
+#![recursion_limit = "256"]
 
 pub mod error;
 pub mod logging;
