@@ -25,7 +25,7 @@
 - Cartridge
   - [x] iNES Format
   - [x] NES 2.0 Format
-  - [ ] Complete NES 2.0 support
+  - [x] Complete NES 2.0 support
   - Mappers
     - [x] Mapper 000 - NROM
     - [x] Mapper 001 - SxROM/MMC1B/C
@@ -85,25 +85,28 @@
     - [ ] UI Menu
   - [ ] [WideNES](https://prilik.com/ANESE/wideNES)
   - [ ] Network Multi-player
-  - [ ] Self Updater
   - [x] Drag and drop load ROMs
 - Testing/Debugging/Documentation
   - [x] Debugger (Displays CPU/PPU status, registers, and disassembly)
     - [x] Step Into/Out/Over
     - [x] Step Scanline/Frame
+    - [x] Run to an address, or to the next interrupt
     - [x] Breakpoints (by address, on read/write/execute, with conditions)
     - [x] Modify state (registers, status flags, and RAM)
-    - [ ] Labels
+    - [x] Labels
+    - [x] Call stack
+    - [x] Watch expressions
+    - [x] Execution history
   - [x] Hex Memory Editor & Debugger
   - PPU Viewer
-    - [ ] Scanline Hit Configuration (For debugging IRQ Nametable changes)
+    - [x] Scanline Hit Configuration (For debugging IRQ Nametable changes)
     - [x] Nametable Viewer (background rendering)
     - [x] CHR Viewer (sprite tiles)
     - [x] OAM Viewer (on screen sprites)
     - [x] Palette Viewer
   - [ ] APU Viewer (Displays audio status and registers)
   - [x] Automated ROM tests (including [nestest](https://www.qmtpro.com/~nes/misc/nestest.txt))
-  - [ ] Detailed Documentation
+  - [x] Detailed Documentation
   - Logging
     - [x] Environment logging
     - [x] File logging
