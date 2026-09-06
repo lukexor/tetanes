@@ -109,10 +109,7 @@ impl Build {
     /// Run `cargo make` to build binary.
     ///
     /// Note: Wix on Windows bakes in the build step
-    fn make(
-        &self,
-        args: impl IntoIterator<Item = impl AsRef<OsStr>>,
-    ) -> anyhow::Result<ExitStatus> {
+    fn make(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> anyhow::Result<()> {
         let mut cmd = Command::new("cargo");
         cmd.arg("make");
         for arg in args {
@@ -528,28 +525,48 @@ fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> anyhow::Result<()> {
     symlink(src, dst).with_context(|| format!("failed to symlink {src:?} to {dst:?}"))
 }
 
+/// Turn a non-zero exit into an error.
+//
+// A tool that exits non-zero produces no artifact, and every step here reads what the one before
+// it wrote. Letting the status through hands the release a zero-byte checksum for a file that does
+// not exist, and the job still reports success.
+fn check(status: ExitStatus, cmd: &Command) -> anyhow::Result<()> {
+    anyhow::ensure!(status.success(), "{cmd:?} exited with {status}");
+    Ok(())
+}
+
 /// Helper function to `spawn` [`Command`] and `wait` while reporting contextual errors.
-fn cmd_spawn_wait(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+fn cmd_spawn_wait(cmd: &mut Command) -> anyhow::Result<()> {
     println!("running: {cmd:?}");
 
-    cmd.spawn()
+    let status = cmd
+        .spawn()
         .with_context(|| format!("failed to spawn {cmd:?}"))?
         .wait()
-        .with_context(|| format!("failed to run {cmd:?}"))
+        .with_context(|| format!("failed to run {cmd:?}"))?;
+    check(status, cmd)
 }
 
 /// Helper function to run [`Command`] with `output` while reporting contextual errors.
 fn cmd_output(cmd: &mut Command) -> anyhow::Result<Output> {
     println!("running: {cmd:?}");
 
-    cmd.output()
-        .with_context(|| format!("failed to run {cmd:?}"))
+    let output = cmd
+        .output()
+        .with_context(|| format!("failed to run {cmd:?}"))?;
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    check(output.status, cmd)?;
+    Ok(output)
 }
 
 /// Helper function to run [`Command`] with `status` while reporting contextual errors.
-fn cmd_status(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+fn cmd_status(cmd: &mut Command) -> anyhow::Result<()> {
     println!("running: {cmd:?}");
 
-    cmd.status()
-        .with_context(|| format!("failed to run {cmd:?}"))
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to run {cmd:?}"))?;
+    check(status, cmd)
 }
