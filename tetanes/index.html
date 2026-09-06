@@ -22,6 +22,27 @@
 
     <link data-trunk rel="inline" href="assets/main.css" />
     <link data-trunk rel="icon" href="assets/tetanes_icon.png" />
+
+    <script>
+      /* Pick the colour scheme before first paint. Dark is what `main.css`
+         paints on its own, so this only ever adds `light`, and a document that
+         never gets here stays dark rather than flashing.
+
+         The `prefers-dark` cookie is what lukeworks.tech stores its theme in.
+         This page is served from that origin when framed there, so the cookie
+         is readable and the frame can follow the site on load. Served anywhere
+         else the cookie is absent and the OS setting decides. */
+      (function () {
+        var cookie = /(^|;\s*)prefers-dark=([^;]*)/.exec(document.cookie);
+        var light = cookie
+          ? cookie[2].trim() === "false"
+          : window.matchMedia("(prefers-color-scheme: light)").matches;
+        if (light) {
+          document.documentElement.classList.add("light");
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans.ttf" />
     <link data-trunk rel="copy-file" href="assets/pixeloid-sans-bold.ttf" />
     <link

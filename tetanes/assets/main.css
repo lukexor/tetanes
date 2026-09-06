@@ -164,3 +164,46 @@ canvas {
     transform: rotate(360deg);
   }
 }
+
+/* Light palette, painted only when the document carries `light`. The rules
+   above are the dark scheme and stay the default, so a document that never runs
+   the scheme script in index.html looks the way it always has.
+
+   lukeworks.tech frames this page in an iframe and sets the class from its own
+   theme, which is where these values come from: the frame and the page around
+   it have to resolve to the same colours. Amber body text on that background
+   measures 1.9:1, so the light side is a whole palette rather than a swapped
+   background. */
+html.light body {
+  --color: #16202b;
+  --heading: #a54a24;
+  --background: #f4f7f9;
+}
+
+html.light a {
+  color: #0e7490;
+}
+
+/* Only the borders: `table` redefines `--color` for those, while its text still
+   inherits the colour `body` resolved. */
+html.light table {
+  --color: #dbe3ea;
+}
+
+html.light #loading-status {
+  border-color: #566472;
+}
+
+html.light .loader {
+  border-color: #566472;
+  border-top-color: #a54a24;
+}
+
+html.light .version-download a {
+  background: #ffffff;
+  color: #a54a24;
+}
+
+html.light .version-download a:hover {
+  background: #dbe3ea;
+}
