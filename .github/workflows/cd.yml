@@ -188,15 +188,24 @@ jobs:
         with:
           path: artifacts
           pattern: "wasm32-unknown-unknown-artifacts"
+          merge-multiple: true
+      # The bundle is served from `public/` at the site root, and `index.html` names its own
+      # hashed js and wasm, so the directory is replaced whole rather than merged. The light
+      # scheme the framing page needs lives in `tetanes/assets/main.css` and `tetanes/index.html`,
+      # so a regenerated bundle carries it and this step needs no patch of its own.
       - id: commit
         run: |
-          rm -f web/public/tetanes-web/*
-          tar -xzf artifacts/*.tar.gz -C web/public/tetanes-web/
+          rm -rf public/tetanes-web
+          mkdir -p public/tetanes-web
+          tar -xzf artifacts/*.tar.gz -C public/tetanes-web/
           VERSION=${RELEASE_TAG#"tetanes-v"}
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - uses: stefanzweifel/git-auto-commit-action@v7
         with:
-          file_pattern: "web/public/tetanes-web/*"
+          # The directory rather than a glob: the js and wasm carry a content hash in their names,
+          # so each build renames them, and `git add` stages the deletions only for a pathspec
+          # that still matches a file that is gone.
+          file_pattern: "public/tetanes-web"
           commit_message: Updated TetaNES Web v${{ steps.commit.outputs.version }}
   update-homebrew-formula:
     name: Update Homebrew Formula
