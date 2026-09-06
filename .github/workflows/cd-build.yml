@@ -91,6 +91,18 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
+      # `cargo wix` shells out to `candle.exe`, which it finds through `WIX` or on PATH. The
+      # x86_64 Windows image sets `WIX`. The ARM image ships no WiX at all, so without this the
+      # installer step fails and the release gets an empty zip and checksum. The v3 binaries are
+      # x86 and run under emulation on ARM.
+      - if: runner.os == 'Windows' && contains(inputs.tools, 'cargo-wix')
+        run: |
+          if [ -z "$WIX" ] && ! command -v candle >/dev/null; then
+            curl -fsSL -o "$RUNNER_TEMP/wix.zip" \
+              https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip
+            unzip -q "$RUNNER_TEMP/wix.zip" -d "$RUNNER_TEMP/wix"
+            echo "$RUNNER_TEMP/wix" >> "$GITHUB_PATH"
+          fi
       - run: |
           time cargo make ${{ inputs.task }} ${{ inputs.args }} ${{ matrix.target }}
       - if: success()
