@@ -151,11 +151,28 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # One file per call. A rejected upload then loses that asset alone, where a single call
+      # passing the whole glob loses every asset it had not reached yet. An empty file marks a
+      # build that failed without saying so, so the loop names it and fails the job once the
+      # artifacts that did build are attached.
       - env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          gh release upload ${{ github.event.release.tag_name || inputs.tag }} \
-            artifacts/* --clobber --repo "${{ github.repository }}"
+          failed=()
+          for file in artifacts/*; do
+            if [ ! -s "$file" ]; then
+              echo "::error::empty artifact: $file"
+              failed+=("$file")
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "$file" --clobber --repo "${{ github.repository }}" \
+              || { echo "::error::upload failed: $file"; failed+=("$file"); }
+          done
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "${#failed[@]} artifact(s) not attached: ${failed[*]}"
+            exit 1
+          fi
   update-tetanes-web:
     name: Update TetaNES Web
     needs: build-web
