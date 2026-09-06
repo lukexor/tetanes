@@ -98,23 +98,33 @@ macro_rules! setter {
 
 setter!(
     /// Hands over the callback one frame of video is passed to.
-    retro_set_video_refresh, video_refresh, retro_video_refresh_t
+    retro_set_video_refresh,
+    video_refresh,
+    retro_video_refresh_t
 );
 setter!(
     /// Hands over the callback a single stereo sample is passed to.
-    retro_set_audio_sample, audio_sample, retro_audio_sample_t
+    retro_set_audio_sample,
+    audio_sample,
+    retro_audio_sample_t
 );
 setter!(
     /// Hands over the callback a frame of interleaved stereo samples is passed to.
-    retro_set_audio_sample_batch, audio_batch, retro_audio_sample_batch_t
+    retro_set_audio_sample_batch,
+    audio_batch,
+    retro_audio_sample_batch_t
 );
 setter!(
     /// Hands over the callback that latches input for a frame.
-    retro_set_input_poll, input_poll, retro_input_poll_t
+    retro_set_input_poll,
+    input_poll,
+    retro_input_poll_t
 );
 setter!(
     /// Hands over the callback that reads one latched button.
-    retro_set_input_state, input_state, retro_input_state_t
+    retro_set_input_state,
+    input_state,
+    retro_input_state_t
 );
 
 // ---------------------------------------------------------------------------------------------
