@@ -14,7 +14,9 @@
 body {
   --color: #e6b673;
   --heading: #a9491f;
-  --background: #0f1419;
+  /* The dark page background lukeworks.tech uses, so the iframe that site puts
+     this page in does not read as a window cut into it. */
+  --background: #080b11;
   background-color: var(--background);
   max-width: 80%;
   margin: auto;
