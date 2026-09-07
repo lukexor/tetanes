@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0](https://github.com/lukexor/tetanes/compare/0.16.1..0.17.0) - 2026-09-07
+
+### 🐛 Bug Fixes
+
+- *(ui)* Draw the splash logo through a texture the painter shades - ([1978953](https://github.com/lukexor/tetanes/commit/1978953ccdcb11c1a7a3a17eb4109217eec9aa4a))
+- *(ui)* Shade emulator output rather than the whole window - ([0bf7eec](https://github.com/lukexor/tetanes/commit/0bf7eeca4fe92079e3d021ca4a1014ba44d87094))
+
+
+
 ## [0.16.1](https://github.com/lukexor/tetanes/compare/0.16.0..0.16.1) - 2026-09-07
 
 ### ⛰️  Features
