@@ -20,7 +20,6 @@ use winit::{dpi::PhysicalSize, window::Window};
 #[must_use]
 pub struct Surface {
     inner: wgpu::Surface<'static>,
-    shader_resources: Option<shader::Resources>,
     width: u32,
     height: u32,
 }
@@ -33,50 +32,9 @@ impl Surface {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             inner: instance.create_surface(window)?,
-            shader_resources: None,
             width: size.width,
             height: size.height,
         })
-    }
-
-    fn create_texture_view(
-        &self,
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-    ) -> wgpu::TextureView {
-        device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("surface_texture"),
-                size: wgpu::Extent3d {
-                    width: self.width,
-                    height: self.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default())
-    }
-
-    fn set_shader(
-        &mut self,
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        uniform_bind_group_layout: &wgpu::BindGroupLayout,
-        shader: Shader,
-    ) {
-        self.shader_resources = shader::Resources::new(
-            device,
-            format,
-            self.create_texture_view(device, format),
-            uniform_bind_group_layout,
-            shader,
-        );
     }
 }
 
@@ -131,15 +89,7 @@ impl Painter {
 
     pub fn set_shader(&mut self, shader: Shader) {
         if let Some(render_state) = &mut self.render_state {
-            render_state.shader = shader;
-            for surface in self.surfaces.values_mut() {
-                surface.set_shader(
-                    &render_state.device,
-                    render_state.format,
-                    &render_state.uniform_bind_group_layout,
-                    shader,
-                );
-            }
+            render_state.set_shader(shader);
         }
     }
 
@@ -246,16 +196,13 @@ impl Painter {
         };
 
         {
-            let view = match &surface.shader_resources {
-                Some(shader) => &shader.view,
-                None => &output_frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default()),
-            };
+            let view = output_frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main_render_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: &view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -270,43 +217,6 @@ impl Painter {
             });
 
             render_state.render(&mut render_pass, clipped_primitives, &screen_descriptor);
-        }
-
-        if let Some(shader) = &surface.shader_resources {
-            let view = &output_frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("main_render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-
-            render_pass.set_scissor_rect(0, 0, size_in_pixels[0], size_in_pixels[1]);
-            render_pass.set_viewport(
-                0.0,
-                0.0,
-                size_in_pixels[0] as f32,
-                size_in_pixels[1] as f32,
-                0.0,
-                1.0,
-            );
-            render_pass.set_pipeline(&shader.render_pipeline);
-            render_pass.set_bind_group(0, &render_state.uniform_bind_group, &[]);
-            render_pass.set_bind_group(1, &shader.texture_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
         }
 
         for id in &textures_delta.free {
@@ -361,6 +271,8 @@ pub struct RenderState {
     present_mode: wgpu::PresentMode,
 
     pipeline: wgpu::RenderPipeline,
+    /// Pipeline the selected [`Shader`] draws NES textures with, or `None` for [`Shader::Default`].
+    shader_pipeline: Option<wgpu::RenderPipeline>,
 
     index_buffer: SlicedBuffer,
     vertex_buffer: SlicedBuffer,
@@ -371,7 +283,6 @@ pub struct RenderState {
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_group_layout: wgpu::BindGroupLayout,
 
-    shader: Shader,
     /// Map of egui texture IDs to textures and their associated bindgroups (texture view +
     /// sampler). The texture may be None if the `TextureId` is just a handle to a user-provided
     /// sampler.
@@ -451,10 +362,6 @@ impl RenderState {
         let (device, queue) =
             connection.map_err(|err| anyhow!("failed to create wgpu device: {err:?}"))?;
 
-        let shader_module_desc =
-            wgpu::include_wgsl!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/gui.wgsl"));
-        let shader_module = device.create_shader_module(shader_module_desc);
-
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("gui uniform buffer"),
             contents: bytemuck::cast_slice(&[UniformBuffer::default()]),
@@ -514,60 +421,25 @@ impl RenderState {
                 ],
             });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("gui pipeline layout"),
-            bind_group_layouts: &[
-                Some(&uniform_bind_group_layout),
-                Some(&texture_bind_group_layout),
-            ],
-            immediate_size: 0,
-        });
-
-        let pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("gui pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    entry_point: Some("vs_main"),
-                    module: &shader_module,
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: 5 * 4,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        // 0: vec2 position
-                        // 1: vec2 uv coordinates
-                        // 2: uint color
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default()
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader_module,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::One,
-                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                            alpha: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
-                                dst_factor: wgpu::BlendFactor::One,
-                                operation: wgpu::BlendOperation::Add,
-                            },
-                        }),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default()
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            }
+        let pipeline = Self::create_pipeline(
+            &device,
+            format,
+            &uniform_bind_group_layout,
+            &texture_bind_group_layout,
+            &shader::gui_source(),
+            "gui",
         );
+        let default_shader = Shader::default();
+        let shader_pipeline = default_shader.source().map(|source| {
+            Self::create_pipeline(
+                &device,
+                format,
+                &uniform_bind_group_layout,
+                &texture_bind_group_layout,
+                &source,
+                default_shader.as_ref(),
+            )
+        });
 
         const INDEX_BUFFER_START_CAPACITY: wgpu::BufferAddress =
             (std::mem::size_of::<u32>() * 1024 * 3) as _;
@@ -592,6 +464,7 @@ impl RenderState {
             present_mode,
 
             pipeline,
+            shader_pipeline,
 
             index_buffer,
             vertex_buffer,
@@ -602,11 +475,93 @@ impl RenderState {
             uniform_bind_group_layout,
             texture_bind_group_layout,
 
-            shader: Shader::default(),
             textures: Default::default(),
             next_texture_id: 0,
             samplers: Default::default(),
         })
+    }
+
+    /// Build a pipeline that draws egui's vertex buffer with `source` as its shader module.
+    ///
+    /// The gui pipeline and the shader pipeline differ only in their fragment stage, so they share
+    /// a layout and both are fed the meshes egui tessellated.
+    fn create_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        uniform_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        source: &str,
+        label: &str,
+    ) -> wgpu::RenderPipeline {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(&format!("{label} shader module")),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(&format!("{label} pipeline layout")),
+            bind_group_layouts: &[
+                Some(uniform_bind_group_layout),
+                Some(texture_bind_group_layout),
+            ],
+            immediate_size: 0,
+        });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&format!("{label} pipeline")),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                entry_point: Some("vs_main"),
+                module: &module,
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: 5 * 4,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    // 0: vec2 position
+                    // 1: vec2 uv coordinates
+                    // 2: uint color
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
+    fn set_shader(&mut self, shader: Shader) {
+        self.shader_pipeline = shader.source().map(|source| {
+            Self::create_pipeline(
+                &self.device,
+                self.format,
+                &self.uniform_bind_group_layout,
+                &self.texture_bind_group_layout,
+                &source,
+                shader.as_ref(),
+            )
+        });
     }
 
     pub fn max_texture_side(&self) -> u32 {
@@ -676,12 +631,6 @@ impl RenderState {
                 view_formats: vec![self.format],
                 color_space: wgpu::SurfaceColorSpace::default(),
             },
-        );
-        surface.set_shader(
-            &self.device,
-            self.format,
-            &self.uniform_bind_group_layout,
-            self.shader,
         );
     }
 
@@ -951,6 +900,14 @@ impl RenderState {
                     .expect("valid vertex buffer slice");
 
                 if let Some((_texture, bind_group)) = self.textures.get(&mesh.texture_id) {
+                    // Every user texture is emulator output: `Texture::new` is the only thing that
+                    // registers one, and the selected shader is meant for those alone. egui's own
+                    // meshes, the menus and the debugger text among them, stay unfiltered.
+                    let pipeline = match (&self.shader_pipeline, mesh.texture_id) {
+                        (Some(pipeline), epaint::TextureId::User(_)) => pipeline,
+                        _ => &self.pipeline,
+                    };
+                    render_pass.set_pipeline(pipeline);
                     render_pass.set_bind_group(1, bind_group, &[]);
                     render_pass.set_index_buffer(
                         self.index_buffer

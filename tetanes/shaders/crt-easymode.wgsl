@@ -27,49 +27,6 @@
 //
 //  Adapted from https://github.com/libretro/glsl-shaders/blob/master/crt/shaders/crt-easymode.glsl
 
-var<private> vertices: array<vec2<f32>, 3> = array<vec2<f32>, 3>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>(3.0, -1.0),
-    vec2<f32>(-1.0, 3.0),
-);
-
-// Vertex shader
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) tex_dims: vec2<f32>,
-    @location(1) inv_tex_dims: vec2<f32>,
-    @location(2) v_uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(
-    @builtin(vertex_index) v_idx: u32
-) -> VertexOutput {
-    var out: VertexOutput;
-    let vert = vertices[v_idx];
-
-    // Convert x from -1.0..1.0 to 0.0..1.0 and y from -1.0..1.0 to 1.0..0.0
-    out.position = vec4(vert, 0.0, 1.0);
-    out.tex_dims = vec2<f32>(textureDimensions(tex));
-    out.inv_tex_dims = 1.0 / out.tex_dims;
-    out.v_uv = fma(vert, vec2(0.5, -0.5), vec2(0.5, 0.5));
-    return out;
-}
-
-// Fragment shader
-
-struct Output {
-    screen_size: vec2<f32>,
-    // Uniform buffers need to be at least 16 bytes in WebGL.
-    // See https://github.com/gfx-rs/wgpu/issues/2072
-    _padding: vec2<f32>,
-}
-@group(0) @binding(0) var<uniform> out: Output;
-
-@group(1) @binding(0) var tex: texture_2d<f32>;
-@group(1) @binding(1) var tex_sampler: sampler;
-
 const PI = 3.141592653589;
 
 const SHARPNESS_H = 0.5;
@@ -85,6 +42,7 @@ const SCANLINE_BEAM_WIDTH_MAX = 1.5;
 const SCANLINE_BRIGHT_MIN = 0.35;
 const SCANLINE_BRIGHT_MAX = 0.65;
 const SCANLINE_CUTOFF = 2000.0;
+const SCANLINE_MIN_SCALE = 2.0;
 const GAMMA_INPUT = 2.4;
 const GAMMA_OUTPUT = 2.2;
 const BRIGHT_BOOST = 1.3;
@@ -114,22 +72,25 @@ fn dilate(col: vec4<f32>) -> vec4<f32> {
     return col * x;
 }
 
+// The emulator writes its frames to an sRGB texture, so a sample comes back linear. The CRT math
+// below expects the gamma values a CRT would have been fed.
 fn tex2d(c: vec2<f32>) -> vec4<f32> {
-    return dilate(textureSample(tex, tex_sampler, c));
+    return dilate(gamma_from_linear_rgba(textureSample(tex, tex_sampler, c)));
 }
 
 fn get_color_matrix(co: vec2<f32>, dx: vec2<f32>) -> mat4x4<f32> {
     return mat4x4<f32>(tex2d(co - dx), tex2d(co), tex2d(co + dx), tex2d(co + 2.0 * dx));
 }
 
-const NES_HEIGHT = 240.0;
-
 @fragment
 fn fs_main(
-    @location(0) tex_dims: vec2<f32>,
-    @location(1) inv_tex_dims: vec2<f32>,
-    @location(2) v_uv: vec2<f32>
+    @location(0) v_uv: vec2<f32>,
+    @location(1) v_color: vec4<f32>
 ) -> @location(0) vec4<f32> {
+    let tex_dims = vec2<f32>(textureDimensions(tex));
+    let inv_tex_dims = 1.0 / tex_dims;
+    let out_dims = quad_size_in_pixels(v_uv);
+
     let pix_co = v_uv * tex_dims - vec2<f32>(0.5, 0.5);
     let tex_co = (floor(pix_co) + vec2<f32>(0.5, 0.5)) * inv_tex_dims;
     let dist = fract(pix_co);
@@ -153,10 +114,16 @@ fn fs_main(
     let bright = (max(col.r, max(col.g, col.b)) + luma) * 0.5;
     let scan_bright = clamp(bright, SCANLINE_BRIGHT_MIN, SCANLINE_BRIGHT_MAX);
     let scan_beam = clamp(bright * SCANLINE_BEAM_WIDTH_MAX, SCANLINE_BEAM_WIDTH_MIN, SCANLINE_BEAM_WIDTH_MAX);
-    var scan_weight = 1.0 - pow(cos(v_uv.y * 2.0 * PI * NES_HEIGHT) * 0.5 + 0.5, scan_beam) * SCANLINE_STRENGTH;
+
+    // One scanline per source row needs two output rows to resolve, one bright and one dark.
+    // Drawn any smaller the scanlines beat against the pixel grid into wide horizontal bands, so
+    // fade them out between 1x and 2x instead.
+    let scan_fade = smoothstep(1.0, SCANLINE_MIN_SCALE, out_dims.y * inv_tex_dims.y);
+    let scan_line = pow(cos(v_uv.y * 2.0 * PI * tex_dims.y) * 0.5 + 0.5, scan_beam);
+    var scan_weight = 1.0 - scan_line * SCANLINE_STRENGTH * scan_fade;
 
     let mask = 1.0 - MASK_STRENGTH;
-    let mod_fac = floor(v_uv * out.screen_size * tex_dims / (tex_dims * vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE)));
+    let mod_fac = floor(v_uv * out_dims / vec2<f32>(MASK_SIZE, MASK_DOT_HEIGHT * MASK_SIZE));
     let dot_no = i32(((mod_fac.x + (mod_fac.y % 2.0) * MASK_STAGGER) / MASK_DOT_WIDTH % 3.0));
 
     var mask_weight: vec3<f32>;
@@ -178,5 +145,5 @@ fn fs_main(
     col *= mask_weight;
     col = pow(col, vec3<f32>(1.0 / GAMMA_OUTPUT));
 
-    return vec4<f32>(col * BRIGHT_BOOST, 1.0);
+    return vec4<f32>(col * BRIGHT_BOOST, 1.0) * v_color;
 }
