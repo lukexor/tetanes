@@ -15,7 +15,7 @@ use crate::{
 };
 use egui::{
     Align, CentralPanel, Checkbox, Context, CursorIcon, DragValue, Grid, Key, Layout, ScrollArea,
-    Slider, TextEdit, Ui, Vec2, ViewportClass, ViewportId,
+    Slider, TextEdit, Ui, Vec2, ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
@@ -110,21 +110,24 @@ impl Preferences {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
-            if class == ViewportClass::EmbeddedWindow {
-                let mut window_open = open.load(Ordering::Acquire);
-                egui::Window::new(Preferences::TITLE)
-                    .open(&mut window_open)
-                    .default_rect(ui.content_rect().shrink(16.0))
-                    .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
-                open.store(window_open, Ordering::Release);
-            } else {
+        // `show_viewport_deferred` wraps its callback in a window of its own when viewports embed,
+        // and that window carries the builder's title and size but no close button. Drawing the
+        // window here instead keeps the title bar, the ✖ and the size on the same window.
+        if ui.ctx().embed_viewports() {
+            let mut window_open = open.load(Ordering::Acquire);
+            egui::Window::new(Self::TITLE)
+                .open(&mut window_open)
+                .default_rect(ui.content_rect().shrink(16.0))
+                .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
+            open.store(window_open, Ordering::Release);
+        } else {
+            ui.show_viewport_deferred(self.id, viewport_builder, move |ui, _| {
                 CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
-            }
-        });
+            });
+        }
     }
 
     pub fn show_genie_codes_entry(&mut self, ui: &mut Ui, cfg: &Config) {

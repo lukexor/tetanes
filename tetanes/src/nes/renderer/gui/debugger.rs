@@ -12,7 +12,7 @@ use crate::nes::{
 };
 use egui::{
     CentralPanel, Color32, Context, Grid, Label, Panel, Rect, RichText, ScrollArea, Sense, Ui,
-    Vec2, ViewportClass, ViewportId, text::CCursor,
+    Vec2, ViewportId, text::CCursor,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -1406,39 +1406,31 @@ impl CpuDebugger {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
-            if class == ViewportClass::EmbeddedWindow {
-                // `EmbeddedWindow` means egui has already wrapped this callback in a window of its
-                // own, carrying the builder's title and size, so the body goes straight into `ui`.
-                // A window here would be a second one inside that: two title bars, and an outer
-                // one that shrinks to a strip because a floating window contributes no layout.
-                let was_open = open.load(Ordering::Acquire);
-                // That wrapper has no close button, and an embedded window raises no viewport
-                // close event, so this ✖ is the only word that the Debugger has gone.
-                // Unsubscribing disarms the breakpoints and stops the recording, and a console
-                // stopped with no window to say why just looks frozen.
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button("✖")
-                            .on_hover_text("Close the Debugger.")
-                            .clicked()
-                        {
-                            open.store(false, Ordering::Release);
-                        }
-                    });
-                });
-                state.lock().ui(ui, opts.enabled, &cfg);
-                if was_open && !open.load(Ordering::Acquire) {
-                    state.lock().subscribe(false);
-                }
-            } else {
+        // `show_viewport_deferred` wraps its callback in a window of its own when viewports embed,
+        // and that window carries the builder's title and size but no close button. Drawing the
+        // window here instead keeps the title bar, the ✖ and the size on the same window.
+        if ui.ctx().embed_viewports() {
+            let was_open = open.load(Ordering::Acquire);
+            let mut window_open = was_open;
+            egui::Window::new(Self::TITLE)
+                .open(&mut window_open)
+                .default_rect(ui.content_rect().shrink(16.0))
+                .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
+            open.store(window_open, Ordering::Release);
+            // An embedded window raises no viewport close event, so this ✖ is the only word that
+            // the Debugger has gone. Unsubscribing disarms the breakpoints and stops the
+            // recording, and a console stopped with no window to say why just looks frozen.
+            if was_open && !window_open {
+                state.lock().subscribe(false);
+            }
+        } else {
+            ui.show_viewport_deferred(self.id, viewport_builder, move |ui, _| {
                 CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
                 if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
-            }
-        });
+            });
+        }
     }
 }
 

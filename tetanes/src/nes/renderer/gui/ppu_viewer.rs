@@ -11,8 +11,7 @@ use crate::nes::{
 };
 use egui::{
     CentralPanel, Color32, Context, CursorIcon, DragValue, Grid, Image, Label, Panel,
-    PopupCloseBehavior, Pos2, Rect, ScrollArea, Sense, Slider, StrokeKind, Ui, Vec2, ViewportClass,
-    ViewportId,
+    PopupCloseBehavior, Pos2, Rect, ScrollArea, Sense, Slider, StrokeKind, Ui, Vec2, ViewportId,
     containers::menu::{MenuButton, MenuConfig},
 };
 use parking_lot::Mutex;
@@ -520,20 +519,24 @@ impl PpuViewer {
             viewport_builder = viewport_builder.with_always_on_top();
         }
 
-        ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
-            if class == ViewportClass::EmbeddedWindow {
-                let mut window_open = open.load(Ordering::Acquire);
-                egui::Window::new(PpuViewer::TITLE)
-                    .open(&mut window_open)
-                    .show(ui, |ui| state.lock().ui(ui, opts.enabled));
-                open.store(window_open, Ordering::Release);
-            } else {
+        // `show_viewport_deferred` wraps its callback in a window of its own when viewports embed,
+        // and that window carries the builder's title and size but no close button. Drawing the
+        // window here instead keeps the title bar, the ✖ and the size on the same window.
+        if ui.ctx().embed_viewports() {
+            let mut window_open = open.load(Ordering::Acquire);
+            egui::Window::new(Self::TITLE)
+                .open(&mut window_open)
+                .default_rect(ui.content_rect().shrink(16.0))
+                .show(ui, |ui| state.lock().ui(ui, opts.enabled));
+            open.store(window_open, Ordering::Release);
+        } else {
+            ui.show_viewport_deferred(self.id, viewport_builder, move |ui, _| {
                 CentralPanel::default().show(ui, |ui| state.lock().ui(ui, opts.enabled));
                 if ui.input(|i| i.viewport().close_requested()) {
                     open.store(false, Ordering::Release);
                 }
-            }
-        });
+            });
+        }
     }
 }
 
