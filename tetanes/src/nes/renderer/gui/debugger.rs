@@ -1408,16 +1408,28 @@ impl CpuDebugger {
 
         ui.show_viewport_deferred(self.id, viewport_builder, move |ui, class| {
             if class == ViewportClass::EmbeddedWindow {
+                // `EmbeddedWindow` means egui has already wrapped this callback in a window of its
+                // own, carrying the builder's title and size, so the body goes straight into `ui`.
+                // A window here would be a second one inside that: two title bars, and an outer
+                // one that shrinks to a strip because a floating window contributes no layout.
                 let was_open = open.load(Ordering::Acquire);
-                let mut window_open = was_open;
-                egui::Window::new(CpuDebugger::TITLE)
-                    .open(&mut window_open)
-                    .show(ui, |ui| state.lock().ui(ui, opts.enabled, &cfg));
-                open.store(window_open, Ordering::Release);
-                // An embedded window raises no viewport close event, so this ✖ is the only word
-                // that the Debugger has gone. Unsubscribing disarms the breakpoints and stops the
-                // recording, and a console stopped with no window to say why just looks frozen.
-                if was_open && !window_open {
+                // That wrapper has no close button, and an embedded window raises no viewport
+                // close event, so this ✖ is the only word that the Debugger has gone.
+                // Unsubscribing disarms the breakpoints and stops the recording, and a console
+                // stopped with no window to say why just looks frozen.
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("✖")
+                            .on_hover_text("Close the Debugger.")
+                            .clicked()
+                        {
+                            open.store(false, Ordering::Release);
+                        }
+                    });
+                });
+                state.lock().ui(ui, opts.enabled, &cfg);
+                if was_open && !open.load(Ordering::Acquire) {
                     state.lock().subscribe(false);
                 }
             } else {
