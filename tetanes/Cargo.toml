@@ -19,7 +19,7 @@ test = false
 bench = false
 
 [[bin]]
-name = "build_artifacts"
+name = "build-artifacts"
 test = false
 bench = false
 

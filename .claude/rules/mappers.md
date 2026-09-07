@@ -61,7 +61,7 @@ adds an indirection on boards clocked every CPU cycle, and both directions have 
 
 Boards that can't be identified from the header use `MapperRevision` (user/DB selectable, see
 `MapperRevisionsConfig`), and `tetanes-core/game_db.dat` / `tetanes-core/game_database.txt` supply
-per-ROM overrides by CRC. `tetanes-utils`' `generate_db` regenerates them, but it takes a directory
+per-ROM overrides by CRC. `tetanes-utils`' `generate-db` regenerates them, but it takes a directory
 of `.nes` files that is not in the repo, so a correction to a handful of entries is easier made
 against `game_database.txt` and re-encoded than by rebuilding from a corpus.
 

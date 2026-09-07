@@ -9,8 +9,11 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
-name = "list_boards"
+name = "list-boards"
 test = false
 bench = false
 
@@ -25,7 +28,7 @@ test = false
 bench = false
 
 [[bin]]
-name = "generate_db"
+name = "generate-db"
 test = false
 bench = false
 

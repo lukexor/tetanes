@@ -6,11 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TetaNES is a cross-platform NES emulator. The workspace has three crates:
 
-- **`tetanes-core`** — the emulation library (CPU/PPU/APU/mappers/cart). Published, aims for stronger
-  API stability, and must compile on stable and MSRV `1.88` in addition to nightly.
-- **`tetanes`** — the UI binary: `winit` event loop + `egui` GUI + `wgpu` renderer. Targets desktop
-  and `wasm32-unknown-unknown` (web via `trunk`).
-- **`tetanes-utils`** — unpublished dev binaries (`chrdump`, `generate_db`, `list_boards`,
+- **`tetanes-core`** - the emulation library (CPU/PPU/APU/mappers/cart). Published, aims for
+  stronger API stability, and must compile on stable and MSRV `1.88` in addition to nightly.
+- **`tetanes`** - the UI binary: `winit` event loop + `egui` GUI + `wgpu` renderer. Targets
+  desktop and `wasm32-unknown-unknown` (web via `trunk`).
+- **`tetanes-utils`** - unpublished dev binaries (`chrdump`, `generate-db`, `list-boards`,
   `screenshot`).
 
 ## Commands

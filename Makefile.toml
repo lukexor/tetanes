@@ -94,7 +94,7 @@ dependencies = ["pgo-profile", "pgo-build"]
 description = "Build TetaNES Artifacts for a given target_arch"
 category = "Build"
 command = "cargo"
-args = ["run", "--bin", "build_artifacts", "${@}"]
+args = ["run", "--bin", "build-artifacts", "${@}"]
 
 # The `libretro` profile, not `release`: the latter sets `panic = "abort"`, which the crate rejects
 # with a `compile_error!` because a panic would then take the frontend's process down.

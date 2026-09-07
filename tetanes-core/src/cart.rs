@@ -245,7 +245,7 @@ impl Cart {
     /// Load a cart's ROM and metadata *without* selecting a board.
     ///
     /// The result holds [`Mapper::none`] and cannot be run. This exists for the tools that survey
-    /// ROMs — `list_boards`, and `generate_db`, which builds the shipped CRC database — and which
+    /// ROMs (`list-boards`, and `generate-db`, which builds the shipped CRC database) and which
     /// must not drop a cart merely because no board implements its mapper yet. Everything they read
     /// (`mapper_num`, `mapper_board`, `prg_rom`, mirroring, battery) comes from the header and the
     /// ROM itself, none of it from the board.
@@ -316,7 +316,7 @@ impl Cart {
         let crc32 = Self::rom_crc32(&prg_rom, &chr_rom);
         // Deliberately does not overwrite `header.mapper_num`: the header records what the ROM
         // itself claims, and `Cart::mapper_num` layers the database on top. Clobbering it made the
-        // database self-referential, since `generate_db` could then only ever read back its own
+        // database self-referential, since `generate-db` could then only ever read back its own
         // previous answer.
         let game_info = Self::lookup_info(crc32);
         let region = if matches!(header.variant, NesVariant::INes | NesVariant::Nes2) {

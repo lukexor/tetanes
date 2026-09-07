@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn apply_corrections(game: &mut Game) {
+const fn apply_corrections(game: &mut Game) {
     match game.crc32 {
         // Mapper 210 games incorrectly marked as Mapper 19
         0x808606F0 | 0x81B7F1A8 | 0xC247CC80 | 0xC47946D | 0xBD523011 => {
