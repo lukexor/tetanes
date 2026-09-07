@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1](https://github.com/lukexor/tetanes/compare/0.16.0..0.16.1) - 2026-09-07
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Settle the remaining cargo manifest warnings - ([545bc8a](https://github.com/lukexor/tetanes/commit/545bc8a6ef7f52f6e640b665076f2bb21948836a))
+- Name the dev binaries in kebab-case - ([a3fae7f](https://github.com/lukexor/tetanes/commit/a3fae7fbcdc15bf7f824e6492a8a7ab49807bf09))
+
+
 ## [0.16.0](https://github.com/lukexor/tetanes/compare/0.15.0..0.16.0) - 2026-09-06
 
 ### ⛰️  Features

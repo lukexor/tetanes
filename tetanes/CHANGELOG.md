@@ -7,6 +7,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1](https://github.com/lukexor/tetanes/compare/0.16.0..0.16.1) - 2026-09-07
+
+### ⛰️  Features
+
+- *(web)* Follow the framing site's color scheme - ([459aba9](https://github.com/lukexor/tetanes/commit/459aba9744145646b67ed062ebafbfdc0e573c88))
+
+
+### 🐛 Bug Fixes
+
+- *(build)* Fail on a packaging step that exits non-zero - ([b2a3120](https://github.com/lukexor/tetanes/commit/b2a3120a9637dad987f69f624ea8f561f6517e0e))
+- *(debug)* Draw one window when viewports are embedded - ([9aa878f](https://github.com/lukexor/tetanes/commit/9aa878fbf3e75e172ea909a2fd42cc99c5bcd498))
+- *(ui)* Draw one window per viewport when viewports embed - ([8c09e5f](https://github.com/lukexor/tetanes/commit/8c09e5f7ca33f2418a8cd0c9763bd6034c76a179))
+- *(web)* Paint the dark background the framing site uses - ([ed7e192](https://github.com/lukexor/tetanes/commit/ed7e1927a5aa193b44eccd04461c908ee7355272))
+
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Name the dev binaries in kebab-case - ([a3fae7f](https://github.com/lukexor/tetanes/commit/a3fae7fbcdc15bf7f824e6492a8a7ab49807bf09))
+
+
 ## [0.16.0](https://github.com/lukexor/tetanes/compare/0.15.0..0.16.0) - 2026-09-06
 
 ### ⛰️  Features
