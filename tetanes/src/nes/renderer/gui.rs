@@ -32,8 +32,8 @@ use crate::{
 use egui::{
     Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, DragValue,
     FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, PopupCloseBehavior,
-    Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, ViewportClass, ViewportId,
-    Visuals,
+    Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2, ViewportClass,
+    ViewportId, Visuals,
     containers::menu::{MenuConfig, SubMenuButton},
     hex_color, include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
@@ -102,6 +102,8 @@ pub struct Gui {
     title: String,
     tx: NesEventProxy,
     pub nes_texture: Texture,
+    /// Splash logo shown while no ROM is loaded.
+    logo_texture: Texture,
     corrupted_cpu_instr: Option<InstrRef>,
     pub run_state: RunState,
     pub menu_height: f32,
@@ -166,6 +168,18 @@ impl Gui {
             cfg.deck.region.aspect_ratio(),
             Some("nes frame"),
         );
+        // The painter shades the textures it registered itself, so decoding the logo into one puts
+        // it under the selected shader. Going through egui's image loader would leave it flat.
+        let logo = image::load_from_memory(include_bytes!("../../../assets/tetanes.png"))
+            .expect("tetanes.png is compiled in and decodes as a PNG")
+            .to_rgba8();
+        let logo_texture = Texture::new(
+            render_state,
+            Vec2::new(logo.width() as f32, logo.height() as f32),
+            1.0,
+            Some("tetanes logo"),
+        );
+        logo_texture.update(&render_state.queue, &logo);
 
         Self {
             ctx,
@@ -174,6 +188,7 @@ impl Gui {
             title: Config::WINDOW_TITLE.to_string(),
             tx: tx.clone(),
             nes_texture,
+            logo_texture,
             corrupted_cpu_instr: None,
             run_state: RunState::Running,
             menu_height: 0.0,
@@ -1420,7 +1435,7 @@ impl Gui {
                 } else {
                     ui.vertical_centered(|ui| {
                         ui.horizontal_centered(|ui| {
-                            let image = Image::new(include_image!("../../../assets/tetanes.png"))
+                            let image = Image::from_texture(self.logo_texture.sized())
                                 .shrink_to_fit()
                                 .tint(Color32::GRAY);
                             ui.add(image);
