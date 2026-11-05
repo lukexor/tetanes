@@ -1,7 +1,7 @@
 //! Debugger hooks.
 //!
 //! A debugger is a callback plus the condition that fires it. The callback is handed the whole
-//! [`Bus`](crate::bus::Bus) - so it can take whatever state snapshot it needs at that point during
+//! [`Bus`] - so it can take whatever state snapshot it needs at that point during
 //! emulation.
 
 use crate::{bus::Bus, memory::Memory};

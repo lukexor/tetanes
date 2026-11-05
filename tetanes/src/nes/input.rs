@@ -520,7 +520,7 @@ impl Gamepads {
         (direction, state)
     }
 
-    pub fn has_events(&self) -> bool {
+    pub const fn has_events(&self) -> bool {
         !self.events.is_empty()
     }
 

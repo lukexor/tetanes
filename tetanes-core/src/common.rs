@@ -111,17 +111,27 @@ impl AsRef<str> for NesRegion {
     }
 }
 
-impl TryFrom<&str> for NesRegion {
-    type Error = ParseNesRegionError;
+impl std::str::FromStr for NesRegion {
+    type Err = ParseNesRegionError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
             "auto" => Ok(Self::Auto),
             "ntsc" => Ok(Self::Ntsc),
             "pal" => Ok(Self::Pal),
             "dendy" => Ok(Self::Dendy),
             _ => Err(ParseNesRegionError),
         }
+    }
+}
+
+// Kept alongside `FromStr` because removing a public trait impl is a breaking change.
+#[allow(clippy::try_from_instead_of_from_str)]
+impl TryFrom<&str> for NesRegion {
+    type Error = ParseNesRegionError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.parse()
     }
 }
 

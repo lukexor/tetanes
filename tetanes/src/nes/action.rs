@@ -321,10 +321,10 @@ impl AsRef<str> for Action {
     }
 }
 
-impl TryFrom<&str> for Action {
-    type Error = anyhow::Error;
+impl std::str::FromStr for Action {
+    type Err = anyhow::Error;
 
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "Quit" => Self::Ui(Ui::Quit),
             "Toggle Pause" => Self::Ui(Ui::TogglePause),
