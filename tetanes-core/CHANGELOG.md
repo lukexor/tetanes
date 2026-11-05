@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1](https://github.com/lukexor/tetanes/compare/0.17.0..0.17.1) - 2026-11-05
+
+### 🐛 Bug Fixes
+
+
+- Satisfy the lints added in the latest nightly - ([b98bd46](https://github.com/lukexor/tetanes/commit/b98bd465237e35d60406d00cfe6a2aeb953493e1))
+
+
 ## [0.17.0](https://github.com/lukexor/tetanes/compare/0.16.1..0.17.0) - 2026-09-07
 
 
