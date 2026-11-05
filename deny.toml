@@ -13,6 +13,9 @@ yanked = "warn"
 ignore = [
   { id = "RUSTSEC-2025-0141", reason = "need to plan an upgrade path from bincode to rkyv" },
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained with no successor release; it arrives under winit's default wayland-csd-adwaita feature, so dropping it means giving up the title text in Wayland client-side decorations" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant is folded into zbus 6; it arrives through accesskit_unix (egui-winit accessibility), which is still on zbus 5" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names is folded into zbus 6; it arrives through accesskit_unix (egui-winit accessibility), which is still on zbus 5" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is folded into zbus 6; it arrives through accesskit_unix (egui-winit accessibility), which is still on zbus 5" },
 ]
 
 [licenses]
