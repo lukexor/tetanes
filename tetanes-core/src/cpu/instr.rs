@@ -1528,10 +1528,12 @@ impl Bus {
         self.read_unwatched(self.cpu.pc); // Dummy read
 
         let offset = i16::from(self.cpu.operand as i8);
+        let target = self.cpu.pc.wrapping_add_signed(offset);
         if Cpu::page_crossed(self.cpu.pc, offset) {
-            self.read_unwatched(self.cpu.pc); // Dummy read
+            // Dummy read before the PCH fixup: the new PCL with the old PCH
+            self.read_unwatched((self.cpu.pc & 0xFF00) | (target & 0x00FF));
         }
-        self.cpu.pc = (self.cpu.pc as i16).wrapping_add(offset) as u16;
+        self.cpu.pc = target;
     }
 
     // Jump opcodes
@@ -2125,6 +2127,18 @@ mod tests {
                 "${opcode:02X} {instr_ref}"
             );
         }
+    }
+
+    /// A branch can carry PC across `$8000`, where `u16 as i16` changes sign, so the target is
+    /// computed on the unsigned address.
+    #[test]
+    fn page_crossing_wraps_on_the_unsigned_address() {
+        assert!(Cpu::page_crossed(0x7FF0, 0x20));
+        assert!(Cpu::page_crossed(0x8004, -0x4B));
+        assert!(Cpu::page_crossed(0xFFF0, 0x20));
+        assert!(Cpu::page_crossed(0x0004, -0x10));
+        assert!(!Cpu::page_crossed(0x8004, 0x10));
+        assert!(!Cpu::page_crossed(0x7FF0, 0x0F));
     }
 
     /// The unofficial stores are the only opcodes sharing the catch-all, so a new one landing

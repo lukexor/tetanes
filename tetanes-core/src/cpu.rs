@@ -445,7 +445,7 @@ impl Cpu {
     #[inline(always)]
     #[must_use]
     pub(crate) const fn page_crossed(addr: u16, offset: i16) -> bool {
-        ((addr as i16 + offset) as u16 & 0xFF00) != (addr & 0xFF00)
+        (addr.wrapping_add_signed(offset) & 0xFF00) != (addr & 0xFF00)
     }
 }
 
