@@ -183,7 +183,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: "lukexor/lukeworks"
-          token: ${{ secrets.REPOS }}
+          token: ${{ secrets.TETANES_RELEASE_TOKEN }}
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -217,7 +217,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: "lukexor/homebrew-formulae"
-          token: ${{ secrets.REPOS }}
+          token: ${{ secrets.TETANES_RELEASE_TOKEN }}
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
