@@ -1,5 +1,4 @@
 use crate::nes::{config::Config, event::EmulationEvent};
-use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
@@ -96,8 +95,8 @@ impl Record {
 
         let replay_path = Config::default_data_dir()
             .join(
-                Local::now()
-                    .format(&format!("tetanes_replay_{name}_%Y-%m-%d_%H.%M.%S"))
+                jiff::ZonedDateTime::now()
+                    .strftime(&format!("tetanes_replay_{name}_%Y-%m-%d_%H.%M.%S"))
                     .to_string(),
             )
             .with_extension("replay");

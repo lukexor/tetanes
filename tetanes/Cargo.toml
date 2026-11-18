@@ -38,10 +38,6 @@ anyhow.workspace = true
 bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
-chrono = { version = "0.4", default-features = false, features = [
-  "std",
-  "clock",
-] }
 crossbeam = "0.8"
 dirs.workspace = true
 egui = { workspace = true, default-features = false, features = [
@@ -59,6 +55,7 @@ egui_plot = "0.36"
 gilrs = { version = "0.11", features = ["serde-serialize"] }
 hound = "3.5"
 image.workspace = true
+jiff = "1.0"
 parking_lot = "0.12"
 profiling = { version = "1.0", default-features = false }
 ringbuf = "0.5"
@@ -102,15 +99,12 @@ tracing-appender = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64.workspace = true
-chrono = { version = "0.4", default-features = false, features = [
-  "std",
-  "clock",
-  "wasmbind",
-] }
 console_error_panic_hook = "0.1"
 cpal = { workspace = true, features = ["wasm-bindgen"] }
 # Required because of downstream dependencies: https://docs.rs/getrandom/latest/getrandom/#webassembly-support
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# `js` reads the clock and time zone from the browser.
+jiff = { version = "1.0", features = ["js"] }
 tracing-web = "0.1"
 uuid = { version = "1.10", features = ["v4", "serde", "rng-getrandom"] }
 wgpu = { version = "30.0", features = [

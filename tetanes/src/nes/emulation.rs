@@ -18,7 +18,6 @@ use crate::nes::{
     },
 };
 use anyhow::{Context, anyhow};
-use chrono::Local;
 use crossbeam::channel;
 use egui::ViewportId;
 use replay::Replay;
@@ -1471,8 +1470,8 @@ impl State {
         let picture_dir = Config::default_picture_dir();
         let filename = picture_dir
             .join(
-                Local::now()
-                    .format("screenshot_%Y-%m-%d_at_%H_%M_%S")
+                jiff::ZonedDateTime::now()
+                    .strftime("screenshot_%Y-%m-%d_at_%H_%M_%S")
                     .to_string(),
             )
             .with_extension("png");

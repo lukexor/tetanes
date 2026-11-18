@@ -584,8 +584,8 @@ impl Mixer {
         let _ = self.stop_recording();
         let path = Config::default_audio_dir()
             .join(
-                chrono::Local::now()
-                    .format("recording_%Y-%m-%d_at_%H_%M_%S")
+                jiff::ZonedDateTime::now()
+                    .strftime("recording_%Y-%m-%d_at_%H_%M_%S")
                     .to_string(),
             )
             .with_extension("wav");
