@@ -126,7 +126,8 @@ impl std::str::FromStr for NesRegion {
 }
 
 // Kept alongside `FromStr` because removing a public trait impl is a breaking change.
-#[allow(clippy::try_from_instead_of_from_str)]
+// `unknown_lints` covers stable and MSRV clippy, which predate this lint.
+#[allow(unknown_lints, clippy::try_from_instead_of_from_str)]
 impl TryFrom<&str> for NesRegion {
     type Error = ParseNesRegionError;
 

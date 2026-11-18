@@ -661,11 +661,11 @@ fn the_options_are_declared_before_any_content() {
 
     let declared = FRONTEND.with_borrow(|f| f.declared_options.clone());
     assert!(
-        declared.contains(&"tetanes_filter".to_string()),
+        declared.iter().any(|key| key == "tetanes_filter"),
         "declared: {declared:?}"
     );
-    assert!(declared.contains(&"tetanes_region".to_string()));
-    assert!(declared.contains(&"tetanes_apu_triangle".to_string()));
+    assert!(declared.iter().any(|key| key == "tetanes_region"));
+    assert!(declared.iter().any(|key| key == "tetanes_apu_triangle"));
     assert!(
         declared.iter().all(|key| key.starts_with("tetanes_")),
         "an unprefixed key would collide with another core's"
