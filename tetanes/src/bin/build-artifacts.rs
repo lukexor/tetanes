@@ -212,9 +212,19 @@ impl Build {
 
         // TODO: Fix deb/AppImage for cross builds
         if !self.cross {
+            // `arch` names the AppImage and picks the linuxdeploy binary. `deb_arch` is Debian's
+            // name for the same CPU.
+            let (arch, deb_arch) = if self.target_arch.starts_with("x86_64") {
+                ("x86_64", "amd64")
+            } else if self.target_arch.starts_with("aarch64") {
+                ("aarch64", "arm64")
+            } else {
+                anyhow::bail!("invalid linux target_arch: {}", self.target_arch);
+            };
+
             // Debian .deb
             // NOTE: 1- is the deb revision number
-            let deb_name = format!("{}-{}-1-amd64.deb", self.bin_name, self.version);
+            let deb_name = format!("{}-{}-1-{deb_arch}.deb", self.bin_name, self.version);
             let deb_path_dist = self.dist_dir.join(&deb_name);
             cmd_spawn_wait(
                 Command::new("cargo")
@@ -238,13 +248,6 @@ impl Build {
             )?;
 
             // AppImage
-            let arch = if self.target_arch.starts_with("x86_64") {
-                "x86_64"
-            } else if self.target_arch.starts_with("aarch64") {
-                "aarch64"
-            } else {
-                anyhow::bail!("invalid linux target_arch: {}", self.target_arch);
-            };
             let linuxdeploy_cmd = format!("vendored/linuxdeploy-{arch}.AppImage");
             let app_dir = build_dir.join("AppDir");
             let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
