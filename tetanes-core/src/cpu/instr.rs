@@ -1519,13 +1519,24 @@ impl Bus {
             return;
         }
         // If an interrupt occurs during the final cycle of a non-pagecrossing branch
-        // then it will be ignored until the next instruction completes
+        // then it will be ignored until the next instruction completes. This holds for NMI as
+        // well as IRQ: https://www.nesdev.org/wiki/CPU_interrupts#Branch_instructions_and_interrupts
         let run_irq = self.cpu.irq_flags.contains(IrqFlags::RUN_IRQ);
         let prev_run_irq = self.cpu.irq_flags.contains(IrqFlags::PREV_RUN_IRQ);
         if run_irq && !prev_run_irq {
             self.cpu.irq_flags.remove(IrqFlags::RUN_IRQ);
         }
+        // NMI is latched until serviced, so rather than dropping it, keep it out of `PREV_NMI`
+        // for this one cycle and put it back afterwards.
+        let defer_nmi = self.cpu.irq_flags.contains(IrqFlags::NMI)
+            && !self.cpu.irq_flags.contains(IrqFlags::PREV_NMI);
+        if defer_nmi {
+            self.cpu.irq_flags.remove(IrqFlags::NMI);
+        }
         self.read_unwatched(self.cpu.pc); // Dummy read
+        if defer_nmi {
+            self.cpu.irq_flags.insert(IrqFlags::NMI);
+        }
 
         let offset = i16::from(self.cpu.operand as i8);
         let target = self.cpu.pc.wrapping_add_signed(offset);
