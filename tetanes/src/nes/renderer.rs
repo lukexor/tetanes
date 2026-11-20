@@ -42,7 +42,7 @@ use thingbuf::{
 use tracing::{debug, error, info, trace};
 use winit::{
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event_loop::ActiveEventLoop,
+    event_loop::{ActiveEventLoop, OwnedDisplayHandle},
     window::{CursorGrabMode, Theme, Window, WindowButtons, WindowId},
 };
 
@@ -537,10 +537,11 @@ impl Renderer {
         let (painter_tx, painter_rx) = channel::bounded(1);
         thread::spawn({
             let window = Arc::clone(&window);
+            let display = event_loop.owned_display_handle();
             let event_tx = tx.clone();
             async move {
                 debug!("creating painter...");
-                match Self::create_painter(window, present_mode).await {
+                match Self::create_painter(window, display, present_mode).await {
                     Ok(painter) => {
                         painter_tx.send(painter).expect("failed to send painter");
                         event_tx.event(RendererEvent::ResourcesReady);
@@ -668,6 +669,7 @@ impl Renderer {
 
     pub async fn create_painter(
         window: Arc<Window>,
+        display: OwnedDisplayHandle,
         present_mode: wgpu::PresentMode,
     ) -> anyhow::Result<Painter> {
         // The window must be ready with a non-zero size before `Painter::set_window` is called,
@@ -685,7 +687,7 @@ impl Renderer {
             start.elapsed().as_secs_f32()
         );
 
-        let mut painter = Painter::new(present_mode);
+        let mut painter = Painter::new(present_mode, display);
         painter
             .set_window(ViewportId::ROOT, Some(Arc::clone(&window)))
             .await?;
