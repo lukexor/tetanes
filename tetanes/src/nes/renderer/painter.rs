@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
 };
 use wgpu::util::DeviceExt;
-use winit::{dpi::PhysicalSize, window::Window};
+use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 #[derive(Debug)]
 #[must_use]
@@ -58,32 +58,28 @@ pub struct Painter {
     present_mode: wgpu::PresentMode,
 }
 
-impl Default for Painter {
-    fn default() -> Self {
+impl Painter {
+    /// Creates a painter whose surfaces draw to windows on `display`.
+    pub fn new(present_mode: wgpu::PresentMode, display: OwnedDisplayHandle) -> Self {
+        // The GL backend binds its EGL display to the windowing system at instance creation.
+        // Without the display handle it falls back to a surfaceless EGL display that no window
+        // surface is compatible with, so a system without Vulkan gets no adapter at all.
+        let descriptor = wgpu::InstanceDescriptor::new_with_display_handle(Box::new(display));
         let descriptor = if cfg!(all(target_arch = "wasm32", not(feature = "webgpu"))) {
             // TODO: WebGPU is still unsafe/experimental on Linux in Chrome and still nightly on
             // Firefox
             wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all().difference(wgpu::Backends::BROWSER_WEBGPU),
-                ..wgpu::InstanceDescriptor::new_without_display_handle()
+                ..descriptor
             }
         } else {
-            wgpu::InstanceDescriptor::new_without_display_handle()
+            descriptor
         };
         Self {
             instance: wgpu::Instance::new(descriptor),
             render_state: None,
             surfaces: Default::default(),
-            present_mode: wgpu::PresentMode::AutoVsync,
-        }
-    }
-}
-
-impl Painter {
-    pub fn new(present_mode: wgpu::PresentMode) -> Self {
-        Self {
             present_mode,
-            ..Self::default()
         }
     }
 

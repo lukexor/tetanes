@@ -251,11 +251,18 @@ impl Build {
             let linuxdeploy_cmd = format!("vendored/linuxdeploy-{arch}.AppImage");
             let app_dir = build_dir.join("AppDir");
             let desktop_name = format!("assets/linux/{}.desktop", self.bin_name);
+            // winit loads xkbcommon with `dlopen`, so linuxdeploy cannot find it by walking the
+            // binary's dependencies. The AppImage catalog's test system does not install it.
+            let lib_dir = format!("/usr/lib/{arch}-linux-gnu");
             cmd_spawn_wait(
                 Command::new(&linuxdeploy_cmd)
                     .env("NO_STRIP", "1") // binary is already pre-stripped
                     .arg("-e")
                     .arg(&self.bin_path)
+                    .arg("--library")
+                    .arg(format!("{lib_dir}/libxkbcommon.so.0"))
+                    .arg("--library")
+                    .arg(format!("{lib_dir}/libxkbcommon-x11.so.0"))
                     .args([
                         "-i",
                         "assets/linux/icon.png",

@@ -90,7 +90,7 @@ jobs:
       - if: inputs.apt
         run: |
           sudo apt update
-          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2
+          sudo apt install -y libudev-dev libasound2-dev libssl-dev libfuse2 libxkbcommon-x11-0
       # `cargo wix` shells out to `candle.exe`, which it finds through `WIX` or on PATH. The
       # x86_64 Windows image sets `WIX`. The ARM image ships no WiX at all, so without this the
       # installer step fails and the release gets an empty zip and checksum. The v3 binaries are
