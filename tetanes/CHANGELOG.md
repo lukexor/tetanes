@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/lukexor/tetanes/compare/0.17.0..0.18.0) - 2026-11-20
+
+### 🐛 Bug Fixes
+
+- *(deps)* Clear the cargo-deny advisories failing the security audit - ([a31f226](https://github.com/lukexor/tetanes/commit/a31f2263dcea9d8430653f23f93b979a72e29c74))
+- *(linux)* Bundle xkbcommon in the AppImage - ([0e2694c](https://github.com/lukexor/tetanes/commit/0e2694ca7ecfd66cf03cb9d84d580a0b567b8cfc))
+- *(renderer)* Pass the display handle to wgpu so the GL fallback can draw - ([8312b5c](https://github.com/lukexor/tetanes/commit/8312b5c4726a1e62b01696d6aff30c580a0d403e))
+
+- Replace unmaintained chrono with jiff - ([08c6ac9](https://github.com/lukexor/tetanes/commit/08c6ac9b9f913cbc1f824743475c2e8336efa95c))
+- Name the .deb after the target architecture - ([324c19d](https://github.com/lukexor/tetanes/commit/324c19d946eda3c5e32fe77e8cb09e93382a5df3))
+- Satisfy the lints added in the latest nightly - ([b98bd46](https://github.com/lukexor/tetanes/commit/b98bd465237e35d60406d00cfe6a2aeb953493e1))
+
+
 ## [0.17.0](https://github.com/lukexor/tetanes/compare/0.16.1..0.17.0) - 2026-09-07
 
 ### 🐛 Bug Fixes
