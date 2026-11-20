@@ -254,9 +254,19 @@ impl Build {
             // winit loads xkbcommon with `dlopen`, so linuxdeploy cannot find it by walking the
             // binary's dependencies. The AppImage catalog's test system does not install it.
             let lib_dir = format!("/usr/lib/{arch}-linux-gnu");
+            // The `.zsync` file records the AppImage's file name, so linuxdeploy has to write the
+            // final name. Renaming afterwards would break AppImageUpdate.
+            let app_image_name = format!("{}-{}-{arch}.AppImage", self.app_name, self.version);
+            let zsync_name = format!("{app_image_name}.zsync");
+            let update_info = format!(
+                "gh-releases-zsync|lukexor|tetanes|latest|{}-*-{arch}.AppImage.zsync",
+                self.app_name
+            );
             cmd_spawn_wait(
                 Command::new(&linuxdeploy_cmd)
                     .env("NO_STRIP", "1") // binary is already pre-stripped
+                    .env("LDAI_OUTPUT", &app_image_name)
+                    .env("LDAI_UPDATE_INFORMATION", &update_info)
                     .arg("-e")
                     .arg(&self.bin_path)
                     .arg("--library")
@@ -274,12 +284,9 @@ impl Build {
                     .args(["--output", "appimage"]),
             )?;
 
-            // NOTE: AppImage name is derived from tetanes.desktop
-            // Rename to lowercase
-            let app_image_name = format!("{}-{}-{arch}.AppImage", self.app_name, self.version);
-            let app_image_path = PathBuf::from(format!("{}-{arch}.AppImage", self.app_name));
             let app_image_path_dist = self.dist_dir.join(&app_image_name);
-            rename(&app_image_path, &app_image_path_dist)?;
+            rename(&app_image_name, &app_image_path_dist)?;
+            rename(&zsync_name, self.dist_dir.join(&zsync_name))?;
             self.write_sha256(
                 &app_image_path_dist,
                 self.dist_dir.join(format!("{app_image_name}-sha256.txt")),
