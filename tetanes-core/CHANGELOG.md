@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/lukexor/tetanes/compare/0.17.0..0.18.0) - 2026-11-20
+
+### 🐛 Bug Fixes
+
+- *(cpu)* Compute branch targets on the unsigned PC - ([4a21c21](https://github.com/lukexor/tetanes/commit/4a21c210b3d8c5488f87209b8bfe5b3a86fa932a))
+- *(cpu)* A taken branch delays NMI the same way it delays IRQ - ([d8c91ad](https://github.com/lukexor/tetanes/commit/d8c91ad93f6e3fb55b84d4315c52f5c07e3ec6bb))
+
+- Clear the lint and outdated-dependency CI failures - ([5c3ab88](https://github.com/lukexor/tetanes/commit/5c3ab88ae808b5786498645bfc6451de9234eae7))
+- Satisfy the lints added in the latest nightly - ([b98bd46](https://github.com/lukexor/tetanes/commit/b98bd465237e35d60406d00cfe6a2aeb953493e1))
+
+
 ## [0.17.0](https://github.com/lukexor/tetanes/compare/0.16.1..0.17.0) - 2026-09-07
 
 
