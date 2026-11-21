@@ -135,6 +135,11 @@ const fn apply_corrections(game: &mut Game) {
             // screens mirror wrongly.
             game.mapper = 207;
         }
+        0x243A8735 => {
+            // Major League: <https://www.nesdev.org/wiki/INES_Mapper_032>. Its board ties CIRAM
+            // A10 high and leaves the $9000 register out, which NES 2.0 calls submapper 1.
+            game.submapper = 1;
+        }
         0x44C20420 => {
             // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
             // Waixing translation). The iNES header says mapper 74; the NES 2.0

@@ -733,6 +733,8 @@ boards! {
     },
     /// `UNROM 512` (Mapper 030)
     Unrom512(Unrom512) = 30 in m030_unrom512 { 30 => Unrom512::load(cart) },
+    /// `Irem G-101` (Mapper 032)
+    IremG101(IremG101) = 32 in m032_irem_g101 { 32 => IremG101::load(cart) },
     /// `Taito TC0190`/`TC0350` (Mapper 033) and `TC0690` (Mapper 048)
     TaitoTc0190(TaitoTc0190) = 33 in m033_m048_taito_tc0190 {
         33 => TaitoTc0190::load(cart, TaitoRevision::Tc0190),
@@ -757,6 +759,8 @@ boards! {
     },
     /// `Bf909x` (Mapper 071)
     Bf909x(Bf909x) = 71 in m071_bf909x { 71 => Bf909x::load(cart) },
+    /// `VRC1` (Mapper 075)
+    Vrc1(Vrc1) = 75 in m075_vrc1 { 75 => Vrc1::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
     Nina003006(Nina003006) = 79 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
