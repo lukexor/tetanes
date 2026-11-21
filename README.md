@@ -299,6 +299,7 @@ Support for the following mappers is currently implemented or in development:
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;1%                 |
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
 | 064 | Tengen RAMBO-1        | Klax, Shinobi, Skull & Crossbones          | 7                      | &lt;1%                 |
+| 065 | Irem H3001            | Spartan X 2, Daiku no Gen-san 2            | 3                      | &lt;1%                 |
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | ~1%                    |
 | 068 | Sunsoft-4             | After Burner, Maharaja                     | 4                      | &lt;1%                 |
 | 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | ~1%                    |
@@ -332,7 +333,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2376 / 2447           | ~97.1%                 |
+|     |                       |                                            | ~2379 / 2447           | ~97.2%                 |
 
 <!-- markdownlint-enable line-length -->
 

@@ -755,6 +755,8 @@ boards! {
     },
     /// `Tengen RAMBO-1` (Mapper 064)
     Rambo1(Rambo1) = 64 in m064_rambo1 { 64 => Rambo1::load(cart) },
+    /// `Irem H3001` (Mapper 065)
+    IremH3001(IremH3001) = 65 in m065_irem_h3001 { 65 => IremH3001::load(cart) },
     /// `GxROM` (Mapper 066)
     Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
     /// `Sunsoft-4` (Mapper 068)
