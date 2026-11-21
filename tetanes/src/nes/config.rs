@@ -15,8 +15,13 @@ use std::{
     path::PathBuf,
 };
 use tetanes_core::{
-    action::Action as DeckAction, common::NesRegion, control_deck::Config as DeckConfig, fs,
-    input::Player, ppu, time::Duration,
+    action::Action as DeckAction,
+    common::NesRegion,
+    control_deck::Config as DeckConfig,
+    fs,
+    input::{Player, PortDevice},
+    ppu,
+    time::Duration,
 };
 use tracing::{error, info};
 use uuid::Uuid;
@@ -427,6 +432,24 @@ impl Config {
         Ok(())
     }
 
+    /// Rewrites settings an older release saved in a shape this one no longer reads.
+    ///
+    /// `deck.zapper: true` plugs the zapper into port 2, as `deck.ports` now says.
+    fn migrate(value: &mut serde_json::Value) {
+        let Some(deck) = value.get_mut("deck").and_then(|deck| deck.as_object_mut()) else {
+            return;
+        };
+        if let Some(zapper) = deck.remove("zapper")
+            && zapper == serde_json::Value::Bool(true)
+            && !deck.contains_key("ports")
+        {
+            let ports = [PortDevice::Joypad, PortDevice::Zapper];
+            if let Ok(ports) = serde_json::to_value(ports) {
+                deck.insert("ports".to_owned(), ports);
+            }
+        }
+    }
+
     pub fn load(path: Option<PathBuf>) -> Self {
         let path = path.unwrap_or_else(Config::config_path);
 
@@ -434,7 +457,11 @@ impl Config {
             info!("Loading saved configuration");
             fs::load_raw_path(&path)
                 .context("failed to load config")
-                .and_then(|data| Ok(serde_json::from_slice::<Self>(&data)?))
+                .and_then(|data| {
+                    let mut value = serde_json::from_slice::<serde_json::Value>(&data)?;
+                    Self::migrate(&mut value);
+                    Ok(serde_json::from_value::<Self>(value)?)
+                })
                 .with_context(|| format!("failed to parse {path:?}"))
                 .unwrap_or_else(|err| {
                     error!("Invalid config: {path:?}, reverting to defaults. Error: {err:?}",);
@@ -654,5 +681,32 @@ impl AsRef<str> for FrameRate {
 impl std::fmt::Display for FrameRate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_ref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deck_from(deck: serde_json::Value) -> DeckConfig {
+        let mut value = serde_json::json!({ "deck": deck });
+        Config::migrate(&mut value);
+        serde_json::from_value::<Config>(value)
+            .expect("config")
+            .deck
+    }
+
+    #[test]
+    fn an_old_zapper_setting_plugs_the_zapper_into_port_two() {
+        let deck = deck_from(serde_json::json!({ "zapper": true }));
+        assert_eq!(deck.ports, [PortDevice::Joypad, PortDevice::Zapper]);
+        let deck = deck_from(serde_json::json!({ "zapper": false }));
+        assert_eq!(deck.ports, [PortDevice::Joypad; 2]);
+    }
+
+    #[test]
+    fn saved_ports_win_over_an_old_zapper_setting() {
+        let deck = deck_from(serde_json::json!({ "zapper": true, "ports": ["Zapper", "Joypad"] }));
+        assert_eq!(deck.ports, [PortDevice::Zapper, PortDevice::Joypad]);
     }
 }

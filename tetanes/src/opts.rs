@@ -17,6 +17,36 @@ impl ValueEnum for FourPlayer {
     }
 }
 
+/// A controller port device as a command-line value.
+#[derive(Debug, Clone)]
+pub(crate) struct PortDevice(tetanes_core::input::PortDevice);
+
+impl ValueEnum for PortDevice {
+    fn value_variants<'a>() -> &'a [Self] {
+        use tetanes_core::input::PortDevice::*;
+        &[Self(Joypad), Self(Zapper), Self(PowerPad)]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(self.0.as_str()))
+    }
+}
+
+/// An expansion port device as a command-line value.
+#[derive(Debug, Clone)]
+pub(crate) struct ExpansionDevice(tetanes_core::input::ExpansionDevice);
+
+impl ValueEnum for ExpansionDevice {
+    fn value_variants<'a>() -> &'a [Self] {
+        use tetanes_core::input::ExpansionDevice::*;
+        &[Self(None), Self(FamilyTrainer)]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        Some(clap::builder::PossibleValue::new(self.0.as_str()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RamState(tetanes_core::memory::RamState);
 
@@ -64,9 +94,18 @@ pub struct Opts {
     /// Set four player adapter. [default: 'disabled']
     #[arg(short = '4', long, value_enum)]
     pub(crate) four_player: Option<FourPlayer>,
-    /// Enable zapper gun.
+    /// Plug the zapper gun into port 2. Shorthand for `--port2 zapper`.
     #[arg(short, long)]
     pub(crate) zapper: bool,
+    /// Set the device in port 1. [default: 'joypad']
+    #[arg(long, value_enum)]
+    pub(crate) port1: Option<PortDevice>,
+    /// Set the device in port 2. [default: 'joypad']
+    #[arg(long, value_enum)]
+    pub(crate) port2: Option<PortDevice>,
+    /// Set the device in the Famicom expansion port. [default: 'none']
+    #[arg(long, value_enum)]
+    pub(crate) expansion: Option<ExpansionDevice>,
     /// Disable multi-threaded.
     #[arg(long)]
     pub(crate) no_threaded: bool,
@@ -130,7 +169,18 @@ impl Opts {
         if let Some(FourPlayer(four_player)) = self.four_player {
             cfg.deck.four_player = four_player;
         }
-        cfg.deck.zapper = self.zapper || cfg.deck.zapper;
+        if self.zapper {
+            cfg.deck.ports[1] = tetanes_core::input::PortDevice::Zapper;
+        }
+        if let Some(PortDevice(device)) = self.port1 {
+            cfg.deck.ports[0] = device;
+        }
+        if let Some(PortDevice(device)) = self.port2 {
+            cfg.deck.ports[1] = device;
+        }
+        if let Some(ExpansionDevice(device)) = self.expansion {
+            cfg.deck.expansion = device;
+        }
         if let Some(RamState(ram_state)) = self.ram_state {
             cfg.deck.ram_state = ram_state;
         }

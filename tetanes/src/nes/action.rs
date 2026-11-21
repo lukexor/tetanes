@@ -38,7 +38,7 @@ impl Ord for Action {
 
 impl Action {
     /// Every action a key can be bound to. The keybind menu lists these.
-    pub const BINDABLE: [Self; 115] = [
+    pub const BINDABLE: [Self; 127] = [
         Self::Ui(Ui::Quit),
         Self::Ui(Ui::TogglePause),
         Self::Ui(Ui::LoadRom),
@@ -117,6 +117,18 @@ impl Action {
         Self::Deck(DeckAction::FourPlayer(FourPlayer::Disabled)),
         Self::Deck(DeckAction::FourPlayer(FourPlayer::FourScore)),
         Self::Deck(DeckAction::FourPlayer(FourPlayer::Satellite)),
+        Self::Deck(DeckAction::PowerPad(1)),
+        Self::Deck(DeckAction::PowerPad(2)),
+        Self::Deck(DeckAction::PowerPad(3)),
+        Self::Deck(DeckAction::PowerPad(4)),
+        Self::Deck(DeckAction::PowerPad(5)),
+        Self::Deck(DeckAction::PowerPad(6)),
+        Self::Deck(DeckAction::PowerPad(7)),
+        Self::Deck(DeckAction::PowerPad(8)),
+        Self::Deck(DeckAction::PowerPad(9)),
+        Self::Deck(DeckAction::PowerPad(10)),
+        Self::Deck(DeckAction::PowerPad(11)),
+        Self::Deck(DeckAction::PowerPad(12)),
         // Only allow bindings up to 8 slots
         Self::Deck(DeckAction::SetSaveSlot(1)),
         Self::Deck(DeckAction::SetSaveSlot(2)),
@@ -174,6 +186,11 @@ impl Action {
 
     pub fn joypad_player(&self, player: Player) -> bool {
         matches!(self, Action::Deck(DeckAction::Joypad((p, _))) if p == &player)
+    }
+
+    /// Whether this presses a floor mat button.
+    pub const fn is_power_pad(&self) -> bool {
+        matches!(self, Action::Deck(DeckAction::PowerPad(_)))
     }
 }
 
@@ -253,6 +270,19 @@ impl AsRef<str> for Action {
                 DeckAction::FourPlayer(FourPlayer::Disabled) => "4-Player Disable",
                 DeckAction::FourPlayer(FourPlayer::FourScore) => "4-Player Enable (FourScore)",
                 DeckAction::FourPlayer(FourPlayer::Satellite) => "4-Player Enable (Satellite)",
+                DeckAction::PowerPad(1) => "Power Pad 1",
+                DeckAction::PowerPad(2) => "Power Pad 2",
+                DeckAction::PowerPad(3) => "Power Pad 3",
+                DeckAction::PowerPad(4) => "Power Pad 4",
+                DeckAction::PowerPad(5) => "Power Pad 5",
+                DeckAction::PowerPad(6) => "Power Pad 6",
+                DeckAction::PowerPad(7) => "Power Pad 7",
+                DeckAction::PowerPad(8) => "Power Pad 8",
+                DeckAction::PowerPad(9) => "Power Pad 9",
+                DeckAction::PowerPad(10) => "Power Pad 10",
+                DeckAction::PowerPad(11) => "Power Pad 11",
+                DeckAction::PowerPad(12) => "Power Pad 12",
+                DeckAction::PowerPad(_) => "Power Pad N",
                 DeckAction::SetSaveSlot(1) => "Set Save Slot 1",
                 DeckAction::SetSaveSlot(2) => "Set Save Slot 2",
                 DeckAction::SetSaveSlot(3) => "Set Save Slot 3",
@@ -387,6 +417,18 @@ impl std::str::FromStr for Action {
             "Enable Four Player (Satellite)" => {
                 Self::Deck(DeckAction::FourPlayer(FourPlayer::Satellite))
             }
+            "Power Pad 1" => Self::Deck(DeckAction::PowerPad(1)),
+            "Power Pad 2" => Self::Deck(DeckAction::PowerPad(2)),
+            "Power Pad 3" => Self::Deck(DeckAction::PowerPad(3)),
+            "Power Pad 4" => Self::Deck(DeckAction::PowerPad(4)),
+            "Power Pad 5" => Self::Deck(DeckAction::PowerPad(5)),
+            "Power Pad 6" => Self::Deck(DeckAction::PowerPad(6)),
+            "Power Pad 7" => Self::Deck(DeckAction::PowerPad(7)),
+            "Power Pad 8" => Self::Deck(DeckAction::PowerPad(8)),
+            "Power Pad 9" => Self::Deck(DeckAction::PowerPad(9)),
+            "Power Pad 10" => Self::Deck(DeckAction::PowerPad(10)),
+            "Power Pad 11" => Self::Deck(DeckAction::PowerPad(11)),
+            "Power Pad 12" => Self::Deck(DeckAction::PowerPad(12)),
             "Set Save Slot 1" => Self::Deck(DeckAction::SetSaveSlot(1)),
             "Set Save Slot 2" => Self::Deck(DeckAction::SetSaveSlot(2)),
             "Set Save Slot 3" => Self::Deck(DeckAction::SetSaveSlot(3)),

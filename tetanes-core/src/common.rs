@@ -235,7 +235,7 @@ pub(crate) mod tests {
         action::Action,
         common::ResetKind,
         control_deck::{Config, ControlDeck, HeadlessMode},
-        input::Player,
+        input::{Player, PortDevice},
         // Aliased: `std::io::Read` is imported below for reading ROMs off disk.
         memory::RamState,
         ppu::size,
@@ -553,9 +553,16 @@ pub(crate) mod tests {
                     let joypad = deck.joypad_mut(player);
                     joypad.set_button(button, true);
                 }
-                Action::ToggleZapperConnected => deck.connect_zapper(!deck.zapper_connected()),
+                Action::ToggleZapperConnected => {
+                    let device = match deck.port_device(Player::Two) {
+                        PortDevice::Zapper => PortDevice::Joypad,
+                        _ => PortDevice::Zapper,
+                    };
+                    deck.set_port_device(Player::Two, device);
+                }
                 Action::ZapperAim((x, y)) => deck.aim_zapper(x, y),
                 Action::ZapperTrigger => deck.trigger_zapper(),
+                Action::PowerPad(button) => deck.power_pad_mut().set_button(button, true),
                 Action::LoadState
                 | Action::SaveState
                 | Action::SetSaveSlot(_)

@@ -51,7 +51,7 @@ use crate::{
     },
     fs,
     genie::{self, GenieCode},
-    input::{FourPlayer, Joypad, Player},
+    input::{ExpansionDevice, FourPlayer, Joypad, Player, PortDevice, PowerPad},
     mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
     memory::RamState,
     patch::Patch,
@@ -185,8 +185,10 @@ pub struct Config {
     pub ram_state: RamState,
     /// Four player adapter.
     pub four_player: FourPlayer,
-    /// Enable zapper gun.
-    pub zapper: bool,
+    /// What is plugged into ports 1 and 2.
+    pub ports: [PortDevice; 2],
+    /// What is plugged into the expansion port.
+    pub expansion: ExpansionDevice,
     /// Game Genie codes.
     pub genie_codes: Vec<GenieCode>,
     /// Whether to support concurrent D-Pad input which wasn't possible on the original NES.
@@ -268,9 +270,15 @@ impl Config {
         self
     }
 
-    /// Sets whether the zapper gun is connected.
-    pub const fn with_zapper(mut self, zapper: bool) -> Self {
-        self.zapper = zapper;
+    /// Sets what is plugged into ports 1 and 2.
+    pub const fn with_ports(mut self, ports: [PortDevice; 2]) -> Self {
+        self.ports = ports;
+        self
+    }
+
+    /// Sets what is plugged into the expansion port.
+    pub const fn with_expansion(mut self, expansion: ExpansionDevice) -> Self {
+        self.expansion = expansion;
         self
     }
 
@@ -339,7 +347,8 @@ impl Default for Config {
             region: NesRegion::Auto,
             ram_state: RamState::Random,
             four_player: FourPlayer::default(),
-            zapper: false,
+            ports: [PortDevice::Joypad; 2],
+            expansion: ExpansionDevice::None,
             genie_codes: Vec::new(),
             concurrent_dpad: false,
             channels_enabled: [true; Apu::MAX_CHANNEL_COUNT],
@@ -498,7 +507,9 @@ impl ControlDeck {
         }
         bus.input.set_concurrent_dpad(cfg.concurrent_dpad);
         bus.input.set_four_player(cfg.four_player);
-        bus.input.connect_zapper(cfg.zapper);
+        bus.input.set_port_device(Player::One, cfg.ports[0]);
+        bus.input.set_port_device(Player::Two, cfg.ports[1]);
+        bus.input.set_expansion_device(cfg.expansion);
         for (i, enabled) in cfg.channels_enabled.iter().enumerate() {
             match Channel::try_from(i) {
                 Ok(channel) => bus.apu.set_channel_enabled(channel, *enabled),
@@ -1030,6 +1041,9 @@ impl ControlDeck {
 
     /// Load the console with a state read from `reader`.
     ///
+    /// The buttons held right now stay held, as [`Input::keep_held`](crate::input::Input::keep_held) describes.
+    /// [`ControlDeck::load_bus`] restores the state's own buttons instead.
+    ///
     /// # Errors
     ///
     /// If no ROM is loaded, the reader fails, or the state belongs to a different cart.
@@ -1098,6 +1112,7 @@ impl ControlDeck {
     /// Restores a console state written by [`ControlDeck::serialize_state_into`].
     ///
     /// Trailing bytes past the state are ignored, so a frontend may hand back a buffer it padded.
+    /// The buttons held right now stay held, as [`Input::keep_held`](crate::input::Input::keep_held) describes.
     ///
     /// # Errors
     ///
@@ -1110,7 +1125,8 @@ impl ControlDeck {
         self.restore_state(bus)
     }
 
-    /// Replaces the running console with a decoded save state, releasing the buttons it held.
+    /// Replaces the running console with a decoded save state, keeping the buttons held now, as
+    /// [`Input::keep_held`](crate::input::Input::keep_held) describes.
     ///
     /// [`ControlDeck::load_bus`] restores a state exactly, buttons included.
     ///
@@ -1118,7 +1134,7 @@ impl ControlDeck {
     ///
     /// If the state belongs to a different cart.
     pub fn restore_state(&mut self, mut bus: Bus) -> Result<()> {
-        bus.input.clear(); // Discard inputs from save states
+        bus.input.keep_held(&self.bus.input);
         self.load_bus(bus)
     }
 
@@ -1745,16 +1761,29 @@ impl ControlDeck {
         self.bus.input.joypad_mut(slot)
     }
 
-    /// Returns whether the [`Zapper`](crate::input::Zapper) gun is connected.
+    /// Returns what is plugged into `port`. Ports three and four always hold a controller.
     #[inline]
-    pub const fn zapper_connected(&self) -> bool {
-        self.bus.input.zapper.connected
+    pub const fn port_device(&self, port: Player) -> PortDevice {
+        self.bus.input.port_device(port)
     }
 
-    /// Enable [`Zapper`](crate::input::Zapper) gun.
+    /// Plugs `device` into `port`. Ports three and four only take a controller, so they are
+    /// ignored.
     #[inline]
-    pub const fn connect_zapper(&mut self, enabled: bool) {
-        self.bus.input.connect_zapper(enabled);
+    pub fn set_port_device(&mut self, port: Player, device: PortDevice) {
+        self.bus.input.set_port_device(port, device);
+    }
+
+    /// Returns what is plugged into the expansion port.
+    #[inline]
+    pub const fn expansion_device(&self) -> ExpansionDevice {
+        self.bus.input.expansion
+    }
+
+    /// Plugs `device` into the expansion port.
+    #[inline]
+    pub fn set_expansion_device(&mut self, device: ExpansionDevice) {
+        self.bus.input.set_expansion_device(device);
     }
 
     /// Returns the current [`Zapper`](crate::input::Zapper) aim position.
@@ -1775,6 +1804,18 @@ impl ControlDeck {
     #[inline]
     pub const fn aim_zapper(&mut self, x: u16, y: u16) {
         self.bus.input.zapper.aim(x, y);
+    }
+
+    /// Returns the current [`PowerPad`] state.
+    #[inline]
+    pub const fn power_pad(&self) -> &PowerPad {
+        &self.bus.input.power_pad
+    }
+
+    /// Returns a mutable reference to the current [`PowerPad`] state, for setting its buttons.
+    #[inline]
+    pub const fn power_pad_mut(&mut self) -> &mut PowerPad {
+        &mut self.bus.input.power_pad
     }
 
     /// Set the video filter for frame buffer output when calling [`ControlDeck::frame_buffer`].
@@ -2478,6 +2519,70 @@ mod tests {
             deck.joypad_mut(Player::One).button(JoypadBtn::A.into()),
             "the state recorded A held, so the restored console has it held"
         );
+    }
+
+    /// Loading a state under a player keeps the buttons they hold now. A button the state held
+    /// would otherwise stay pressed, since its key's release already came.
+    #[test]
+    fn loading_a_state_keeps_the_buttons_held_now() {
+        use crate::input::JoypadBtn;
+
+        let mut deck = spritecans();
+        clock_display_frame(&mut deck);
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, true);
+        let mut state = Vec::new();
+        deck.save_state(&mut state).expect("saves");
+        let serialized = deck.bus().clone();
+
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, false);
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::B, true);
+        deck.load_state(state.as_slice()).expect("loads");
+        assert!(!deck.joypad(Player::One).button(JoypadBtn::A.into()));
+        assert!(deck.joypad(Player::One).button(JoypadBtn::B.into()));
+
+        let mut buf = vec![0; deck.serialized_state_len().expect("sizes")];
+        deck.load_bus(serialized).expect("restores");
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, false);
+        deck.serialize_state_into(&mut buf).expect("serializes");
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::B, false);
+        deck.deserialize_state(&buf).expect("deserializes");
+        assert!(!deck.joypad(Player::One).button(JoypadBtn::B.into()));
+    }
+
+    /// A replay starts from a saved console and plays its events from there, so a button held
+    /// when recording began has to come back from the file.
+    #[test]
+    fn a_saved_console_keeps_the_buttons_it_recorded() {
+        use crate::input::JoypadBtn;
+
+        let mut deck = spritecans();
+        clock_display_frame(&mut deck);
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, true);
+        let mut state = Vec::new();
+        deck.save_state(&mut state).expect("saves");
+
+        let bus = fs::load::<Bus>(state.as_slice()).expect("reads");
+        deck.joypad_mut(Player::One).set_button(JoypadBtn::A, false);
+        deck.load_bus(bus).expect("restores");
+        assert!(deck.joypad(Player::One).button(JoypadBtn::A.into()));
+    }
+
+    /// A state can be taken partway through a game reading the controller, as run-ahead and
+    /// netplay do every frame. The read has to carry on from the same bit.
+    #[test]
+    fn a_restored_state_resumes_a_half_read_controller() {
+        let mut deck = spritecans();
+        clock_display_frame(&mut deck);
+        deck.bus_mut().input.joypads[0].index = 3;
+        deck.bus_mut().input.power_pad.index = 5;
+        let mut buf = vec![0; deck.serialized_state_len().expect("sizes")];
+        deck.serialize_state_into(&mut buf).expect("serializes");
+
+        deck.bus_mut().input.joypads[0].index = 0;
+        deck.bus_mut().input.power_pad.index = 0;
+        deck.deserialize_state(&buf).expect("deserializes");
+        assert_eq!(deck.bus().input.joypads[0].index, 3);
+        assert_eq!(deck.bus().input.power_pad.index, 5);
     }
 
     /// A board revision is the player's choice, not the machine's. A state recorded under another

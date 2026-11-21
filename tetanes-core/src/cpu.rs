@@ -19,6 +19,7 @@ use crate::{
     bus::Bus,
     common::{NesRegion, ResetKind},
     debug::{Access, AccessHit, ByteKind, CallFrame, FrameKind, Verdict},
+    input::Player,
 };
 use crate::{
     cpu::instr::{
@@ -599,8 +600,12 @@ impl Bus {
         // emulated state the game reads.
         self.input.set_four_player(session.input.four_player);
         self.input
+            .set_port_device(Player::One, session.input.ports[0]);
+        self.input
+            .set_port_device(Player::Two, session.input.ports[1]);
+        self.input.set_expansion_device(session.input.expansion);
+        self.input
             .set_concurrent_dpad(session.input.joypads[0].concurrent_dpad);
-        self.input.zapper.connected = session.input.zapper.connected;
         self.input.zapper.trigger_release_delay = session.input.zapper.trigger_release_delay;
         self.input.zapper.radius = session.input.zapper.radius;
     }

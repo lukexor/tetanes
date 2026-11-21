@@ -30,7 +30,7 @@ use tetanes_core::{
     cpu::{Status, instr::InstrRef},
     debug::{AccessHit, Breakpoint, Debugger, RunTo, expr::Expr},
     genie::GenieCode,
-    input::{FourPlayer, JoypadBtn, Player},
+    input::{ExpansionDevice, FourPlayer, JoypadBtn, Player, PortDevice},
     memory::RamState,
     time::{Duration, Instant},
     video::VideoFilter,
@@ -137,6 +137,7 @@ pub enum ConfigEvent {
     PpuViewerPanes(Vec<PpuPane>),
     EmbedViewports(bool),
     EmulatePpuWarmup(bool),
+    Expansion(ExpansionDevice),
     FourPlayer(FourPlayer),
     Fullscreen(bool),
     GamepadAssign((Player, Uuid)),
@@ -149,6 +150,7 @@ pub enum ConfigEvent {
     MapperRevisions(MapperRevisionsConfig),
     PerfStatsHistory(usize),
     PerfStatsPlot(bool),
+    Ports([PortDevice; 2]),
     RamState(RamState),
     RecentRomsClear,
     Region(NesRegion),
@@ -164,7 +166,6 @@ pub enum ConfigEvent {
     ShowUpdates(bool),
     Speed(f32),
     VideoFilter(VideoFilter),
-    ZapperConnected(bool),
 }
 
 impl From<ConfigEvent> for NesEvent {
@@ -279,6 +280,7 @@ pub enum EmulationEvent {
     LoadRom((String, RomData)),
     LoadRomPath(PathBuf),
     LoadState(u8),
+    PowerPad((u8, ElementState)),
     RunState(RunState),
     ReplayRecord(bool),
     Reset(ResetKind),
@@ -610,6 +612,8 @@ impl ApplicationHandler<NesEvent> for Running {
                         renderer.perf_stats_history = *history;
                     }
                     ConfigEvent::PerfStatsPlot(plot) => renderer.perf_stats_plot = *plot,
+                    ConfigEvent::Ports(ports) => deck.ports = *ports,
+                    ConfigEvent::Expansion(expansion) => deck.expansion = *expansion,
                     ConfigEvent::RamState(ram_state) => deck.ram_state = *ram_state,
                     ConfigEvent::RecentRomsClear => renderer.recent_roms.clear(),
                     ConfigEvent::Region(region) => deck.region = *region,
@@ -629,7 +633,6 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::ShowUpdates(show) => renderer.show_updates = *show,
                     ConfigEvent::Speed(speed) => emulation.speed = *speed,
                     ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
-                    ConfigEvent::ZapperConnected(connected) => deck.zapper = *connected,
                 }
                 // Root viewport needs repainting when Config changes to update deferred viewports
                 if let Some(window_id) = self.renderer.root_window_id() {
@@ -1319,6 +1322,17 @@ impl Running {
                     }
                     DeckAction::Joypad((player, button)) if !repeat => {
                         self.event(EmulationEvent::Joypad((player, button, state)));
+                    }
+                    DeckAction::PowerPad(button) if !repeat => {
+                        self.event(EmulationEvent::PowerPad((button, state)));
+                    }
+                    DeckAction::ToggleZapperConnected if activated => {
+                        let mut ports = self.cfg.deck.ports;
+                        ports[1] = match ports[1] {
+                            PortDevice::Zapper => PortDevice::Joypad,
+                            _ => PortDevice::Zapper,
+                        };
+                        self.event(ConfigEvent::Ports(ports));
                     }
                     // Handled by `gui` module
                     DeckAction::ZapperAim(_)

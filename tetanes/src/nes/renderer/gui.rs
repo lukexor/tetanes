@@ -55,6 +55,7 @@ use tetanes_core::{
     control_deck::LoadedRom,
     cpu::instr::InstrRef,
     debug::{Access, RunTo},
+    input::PortDevice,
     ppu,
     time::{Duration, Instant},
 };
@@ -1111,7 +1112,7 @@ impl Gui {
         Preferences::zapper_checkbox(
             tx,
             ui,
-            cfg.deck.zapper,
+            cfg.deck.ports,
             cfg.shortcut(DeckAction::ToggleZapperConnected),
         );
         Preferences::rewind_checkbox(
@@ -1167,6 +1168,12 @@ impl Gui {
         });
         ui.menu_button("🎮 Four Player...", |ui| {
             Preferences::four_player_radio(tx, ui, cfg.deck.four_player);
+        });
+        ui.menu_button("🔌 Port 2...", |ui| {
+            Preferences::port_radio(tx, ui, cfg.deck.ports, 1);
+        });
+        ui.menu_button("🔌 Expansion Port...", |ui| {
+            Preferences::expansion_radio(tx, ui, cfg.deck.expansion);
         });
         // Menus close on any click by default, which dismisses this one the moment the
         // text field is clicked into, so it only closes on a click outside of it. Every
@@ -1403,7 +1410,8 @@ impl Gui {
                             .shrink_to_fit()
                             .sense(Sense::click());
 
-                        let hover_cursor = if cfg.deck.zapper {
+                        let zapper = cfg.deck.ports.contains(&PortDevice::Zapper);
+                        let hover_cursor = if zapper {
                             CursorIcon::Crosshair
                         } else {
                             CursorIcon::Default
@@ -1412,7 +1420,7 @@ impl Gui {
                         let res = ui.add(image).on_hover_cursor(hover_cursor);
                         self.nes_frame = res.rect;
 
-                        if cfg.deck.zapper {
+                        if zapper {
                             if res.clicked() {
                                 tx.event(EmulationEvent::ZapperTrigger);
                             }
@@ -1749,7 +1757,7 @@ impl Gui {
             ui.label(cursor_pos);
             ui.end_row();
 
-            if cfg.deck.zapper {
+            if cfg.deck.ports.contains(&PortDevice::Zapper) {
                 ui.strong("Zapper Pos:");
                 ui.label(zapper_pos);
                 ui.end_row();

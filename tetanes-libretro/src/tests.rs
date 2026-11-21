@@ -13,7 +13,11 @@ use std::{
     cell::RefCell,
     sync::{Mutex, MutexGuard},
 };
-use tetanes_core::{apu::Channel, input::FourPlayer, input::Player, video::VideoFilter};
+use tetanes_core::{
+    apu::Channel,
+    input::{ExpansionDevice, FourPlayer, Player, PortDevice},
+    video::VideoFilter,
+};
 
 /// A ROM that draws something busy enough that a blank frame is obviously wrong.
 const ROM: &[u8] = include_bytes!("../../tetanes-core/test_roms/spritecans.nes");
@@ -600,7 +604,8 @@ fn the_zapper_survives_the_load_that_follows_it() {
         unsafe { core::try_core() }
             .expect("a core")
             .deck
-            .zapper_connected()
+            .port_device(Player::Two)
+            == PortDevice::Zapper
     };
     assert!(connected(), "plugged in before any content");
 
@@ -621,8 +626,9 @@ fn the_zapper_aims_and_fires() {
 
     // SAFETY: the core is initialised and this thread is the frontend's.
     let deck = || &unsafe { core::try_core() }.expect("a core").deck;
-    assert!(
-        deck().zapper_connected(),
+    assert_eq!(
+        deck().port_device(Player::Two),
+        PortDevice::Zapper,
         "plugging it in reaches the console"
     );
 
@@ -647,10 +653,53 @@ fn the_zapper_aims_and_fires() {
     assert_eq!(deck().zapper_pos().1, input::OFFSCREEN_Y);
 
     retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_JOYPAD);
-    assert!(
-        !deck().zapper_connected(),
+    assert_eq!(
+        deck().port_device(Player::Two),
+        PortDevice::Joypad,
         "and unplugging it reaches it too"
     );
+}
+
+/// The Power Pad replaces controller 2, and the Family Trainer sits beside it in the expansion
+/// port, but a frontend offers both on port 2.
+#[test]
+fn the_mats_reach_the_console() {
+    let session = Session::start();
+    assert!(session.load());
+    // SAFETY: the core is initialised and this thread is the frontend's.
+    let deck = || &unsafe { core::try_core() }.expect("a core").deck;
+
+    retro_set_controller_port_device(input::MAT_PORT as c_uint, RETRO_DEVICE_POWER_PAD);
+    assert_eq!(deck().port_device(Player::Two), PortDevice::PowerPad);
+    assert_eq!(deck().expansion_device(), ExpansionDevice::None);
+
+    retro_set_controller_port_device(input::MAT_PORT as c_uint, RETRO_DEVICE_FAMILY_TRAINER);
+    assert_eq!(deck().port_device(Player::Two), PortDevice::Joypad);
+    assert_eq!(deck().expansion_device(), ExpansionDevice::FamilyTrainer);
+
+    // RetroPad L is mat button 1.
+    FRONTEND.with_borrow_mut(|f| f.held.push((1, RETRO_DEVICE_ID_JOYPAD_L)));
+    session.run(1);
+    assert!(deck().power_pad().button(1));
+}
+
+/// The Family Trainer leaves controller 2 plugged in but unread, so a button the pad held when
+/// the mat was chosen must not stay pressed.
+#[test]
+fn choosing_the_family_trainer_releases_controller_two() {
+    let session = Session::start();
+    assert!(session.load());
+    // SAFETY: the core is initialized and this thread is the frontend's.
+    let deck = || &unsafe { core::try_core() }.expect("a core").deck;
+
+    // RetroPad B is the NES A button.
+    FRONTEND.with_borrow_mut(|f| f.held.push((1, RETRO_DEVICE_ID_JOYPAD_B)));
+    session.run(1);
+    assert!(deck().joypad(Player::Two).button(JoypadBtnState::A));
+
+    retro_set_controller_port_device(input::MAT_PORT as c_uint, RETRO_DEVICE_FAMILY_TRAINER);
+    session.run(1);
+    assert!(!deck().joypad(Player::Two).button(JoypadBtnState::A));
 }
 
 /// The options have to be declared before content is chosen, since that is when a player opens the
