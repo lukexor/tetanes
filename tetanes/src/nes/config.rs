@@ -232,6 +232,34 @@ impl Default for InputConfig {
 }
 
 impl InputConfig {
+    /// Gives each action missing from `action_bindings` its default keys, skipping any key
+    /// already bound to something else.
+    // A saved config lists every action that existed when it was written, unbound ones included,
+    // so a missing action is one added since.
+    fn add_new_actions(&mut self) {
+        let saved = self
+            .action_bindings
+            .iter()
+            .map(|bind| bind.action)
+            .collect::<HashSet<_>>();
+        let used = self
+            .action_bindings
+            .iter()
+            .flat_map(|bind| bind.bindings.iter().flatten().copied())
+            .collect::<HashSet<_>>();
+        for mut bind in Self::default().action_bindings {
+            if saved.contains(&bind.action) {
+                continue;
+            }
+            for input in &mut bind.bindings {
+                if input.is_some_and(|input| used.contains(&input)) {
+                    *input = None;
+                }
+            }
+            self.action_bindings.push(bind);
+        }
+    }
+
     pub fn set_binding(&mut self, action: Action, input: Input, binding: usize) {
         // Clear existing binding, if any
         self.clear_binding(input);
@@ -472,6 +500,7 @@ impl Config {
             Self::default()
         };
 
+        config.input.add_new_actions();
         for binding in &config.input.action_bindings {
             if let Action::Deck(DeckAction::Joypad((player, _))) = binding.action {
                 config.input.joypads[player as usize].insert(binding.action, *binding);
@@ -702,6 +731,67 @@ mod tests {
         assert_eq!(deck.ports, [PortDevice::Joypad, PortDevice::Zapper]);
         let deck = deck_from(serde_json::json!({ "zapper": false }));
         assert_eq!(deck.ports, [PortDevice::Joypad; 2]);
+    }
+
+    #[test]
+    fn a_new_action_gets_its_default_keys_in_an_old_config() {
+        let mat_1 = Action::Deck(DeckAction::PowerPad(1));
+        let mat_2 = Action::Deck(DeckAction::PowerPad(2));
+        let mut input = InputConfig::default();
+        let defaults = input.action_bindings.clone();
+        let default_keys = |action| {
+            defaults
+                .iter()
+                .find(|bind| bind.action == action)
+                .expect("a default")
+                .bindings
+        };
+        // A config saved before the mat existed, where the player bound mat 2's key elsewhere.
+        input
+            .action_bindings
+            .retain(|bind| !matches!(bind.action, Action::Deck(DeckAction::PowerPad(_))));
+        let quit = input
+            .action_bindings
+            .iter_mut()
+            .find(|bind| bind.action == Action::Ui(crate::nes::action::Ui::Quit))
+            .expect("quit");
+        quit.bindings[2] = default_keys(mat_2)[0];
+
+        input.add_new_actions();
+
+        let keys = |action| {
+            input
+                .action_bindings
+                .iter()
+                .find(|bind| bind.action == action)
+                .expect("added")
+                .bindings
+        };
+        assert_eq!(keys(mat_1), default_keys(mat_1));
+        assert_eq!(
+            keys(mat_2)[0],
+            None,
+            "a key in use stays where the player put it"
+        );
+    }
+
+    #[test]
+    fn an_unbound_action_stays_unbound() {
+        let mut input = InputConfig::default();
+        let mat_1 = Action::Deck(DeckAction::PowerPad(1));
+        input
+            .action_bindings
+            .iter_mut()
+            .filter(|bind| bind.action == mat_1)
+            .for_each(|bind| bind.bindings = [None; 3]);
+        input.add_new_actions();
+        let binds = input
+            .action_bindings
+            .iter()
+            .filter(|bind| bind.action == mat_1)
+            .collect::<Vec<_>>();
+        assert_eq!(binds.len(), 1);
+        assert_eq!(binds[0].bindings, [None; 3]);
     }
 
     #[test]
