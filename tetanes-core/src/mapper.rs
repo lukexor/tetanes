@@ -778,6 +778,8 @@ boards! {
         72 => JalecoJf17::load(cart, false),
         92 => JalecoJf17::load(cart, true),
     },
+    /// `VRC3` (Mapper 073)
+    Vrc3(Vrc3) = 73 in m073_vrc3 { 73 => Vrc3::load(cart) },
     /// `VRC1` (Mapper 075)
     Vrc1(Vrc1) = 75 in m075_vrc1 { 75 => Vrc1::load(cart) },
     /// `Irem LROG017` (Mapper 077)

@@ -307,6 +307,7 @@ Support for the following mappers is currently implemented or in development:
 | 070 | Bandai 74161/7432     | Kamen Rider Club, Space Shadow             | 7                      | &lt;1%                 |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | ~1%                    |
 | 072 | Jaleco JF-17          | Pinball Quest (J), Moero!! Pro Tennis      | 3                      | &lt;1%                 |
+| 073 | VRC3                  | Salamander (J)                             | 1                      | &lt;1%                 |
 | 075 | VRC1                  | Ganbare Goemon!, Tetsuwan Atom             | 6                      | &lt;1%                 |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;1%                 |
 | 077 | Irem LROG017          | Napoleon Senki                             | 1                      | &lt;1%                 |
@@ -344,7 +345,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2397 / 2447           | ~98.0%                 |
+|     |                       |                                            | ~2398 / 2447           | ~98.0%                 |
 
 <!-- markdownlint-enable line-length -->
 

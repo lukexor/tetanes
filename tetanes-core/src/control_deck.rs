@@ -727,6 +727,7 @@ impl ControlDeck {
             | Mapper::SunsoftFme7(_)
             | Mapper::Bandai74161(_)
             | Mapper::JalecoJf17(_)
+            | Mapper::Vrc3(_)
             | Mapper::Vrc1(_)
             | Mapper::IremLrog017(_)
             | Mapper::JalecoJf16(_)

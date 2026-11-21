@@ -858,7 +858,7 @@ impl NesHeader {
             70 => "Mapper 070 - Bandai",
             71 => "Mapper 071 - BF909x",
             72 => "Mapper 072 - Jaleco JF-17",
-            73 => "Mapper 073 - Vrc3",
+            73 => "Mapper 073 - VRC3",
             74 => "Mapper 074",
             75 => "Mapper 075 - Vrc1",
             76 => "Mapper 076 - NAMCOT-108",
