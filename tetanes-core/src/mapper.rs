@@ -658,6 +658,8 @@ pub(crate) const fn min_battery_ext(mapper_num: u16) -> usize {
         // 128-byte one. Which of those are present is a submapper and header question the board
         // settles, so reserve the largest.
         16 | 153 | 157 | 159 => 256 + 128,
+        // Taito X1-005 keeps 128 bytes of internal RAM on the battery.
+        80 | 207 => 128,
         _ => 0,
     }
 }
@@ -745,6 +747,12 @@ boards! {
     Nina003006(Nina003006) = 79 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
     },
+    /// `Taito X1-005` (Mappers 080, 207)
+    TaitoX1005(Box<TaitoX1005>) = 80 in m080_m207_taito_x1005 {
+        80 | 207 => TaitoX1005::load(cart),
+    },
+    /// `Taito X1-017` (Mapper 082)
+    TaitoX1017(TaitoX1017) = 82 in m082_taito_x1017 { 82 => TaitoX1017::load(cart) },
     /// `Jaleco JF-xx` (Mapper 087)
     JalecoJfxx(JalecoJfxx) = 87 in m087_jaleco_jfxx { 87 => JalecoJfxx::load(cart) },
     /// `NES-EVENT` (Mapper 105)

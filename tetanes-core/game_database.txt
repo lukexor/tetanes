@@ -1204,7 +1204,7 @@
   75B3EB37, NTSC, 18, 0, 16, 8, 0, false, Horizontal, "Saiyuuki World 2 - Tenjoukai no Majin (Japan).nes"
   75C3E7D4, PAL, 3, 0, 4, 2, 0, false, Horizontal, "Solomon's Key (Europe).nes"
   7653103A, PAL, 4, 0, 16, 8, 0, false, Horizontal, "Mighty Final Fight (Europe).nes"
-  7678F1D5, NTSC, 80, 0, 0, 16, 0, false, Horizontal, "Fudou Myouou Den (Japan).nes"
+  7678F1D5, NTSC, 207, 0, 0, 16, 0, false, Horizontal, "Fudou Myouou Den (Japan).nes"
   768A1B6A, NTSC, 4, 0, 16, 8, 0, false, Horizontal, "Nakajima Satoru - F-1 Hero (Japan).nes"
   76C161E3, PAL, 1, 0, 1, 16, 0, false, Horizontal, "Faxanadu (Europe).nes"
   771C8855, NTSC, 4, 0, 16, 8, 0, false, Horizontal, "Adventure Island II (USA).nes"

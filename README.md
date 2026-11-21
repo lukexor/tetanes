@@ -301,6 +301,8 @@ Support for the following mappers is currently implemented or in development:
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | ~1%                    |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;1%                 |
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | ~1%                    |
+| 080 | Taito X1-005          | Minelvaton Saga, Kyonshiizu 2              | 7                      | &lt;1%                 |
+| 082 | Taito X1-017          | SD Keiji - Blader, Kyuukyoku Harikiri      | 4                      | &lt;1%                 |
 | 087 | Jaleco JF-xx          | City Connection, Argus, The Goonies (J)    | 9                      | &lt;1%                 |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;1%                 |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
@@ -320,6 +322,7 @@ Support for the following mappers is currently implemented or in development:
 | 184 | Sunsoft-1             | Atlantis no Nazo, The Wing of Madoola      | 3                      | &lt;1%                 |
 | 185 | CNROM (protected)     | Spy vs Spy (J), Mighty Bomb Jack (J)       | 8                      | &lt;1%                 |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
+| 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
 |     |                       |                                            | ~2298 / 2447           | ~93.9%                 |

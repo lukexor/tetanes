@@ -720,6 +720,8 @@ impl ControlDeck {
             | Mapper::SunsoftFme7(_)
             | Mapper::Bandai74161(_)
             | Mapper::Nina003006(_)
+            | Mapper::TaitoX1005(_)
+            | Mapper::TaitoX1017(_)
             | Mapper::JalecoJfxx(_)
             | Mapper::NesEvent(_)
             | Mapper::Sunsoft1(_)
