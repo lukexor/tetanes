@@ -304,6 +304,8 @@ Support for the following mappers is currently implemented or in development:
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
 | 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;1%                 |
 | 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;1%                 |
+| 118 | TxSROM/MMC3           | Armadillo, Goal! Two, Pro Sport Hockey     | 6                      | &lt;1%                 |
+| 119 | TQROM/MMC3            | High Speed, Pin-Bot                        | 2                      | &lt;1%                 |
 | 144 | Color Dreams          | Death Race                                 | 1                      | &lt;1%                 |
 | 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;1%                 |
 | 153 | Bandai FCG            | Famicom Jump II: Saikyou no 7-nin          | 1                      | &lt;1%                 |
