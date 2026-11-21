@@ -297,9 +297,11 @@ Support for the following mappers is currently implemented or in development:
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | ~1%                    |
 | 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | ~1%                    |
+| 070 | Bandai 74161/7432     | Kamen Rider Club, Space Shadow             | 7                      | &lt;1%                 |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | ~1%                    |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;1%                 |
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | ~1%                    |
+| 087 | Jaleco JF-xx          | City Connection, Argus, The Goonies (J)    | 9                      | &lt;1%                 |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;1%                 |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
 | 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;1%                 |
@@ -308,14 +310,18 @@ Support for the following mappers is currently implemented or in development:
 | 119 | TQROM/MMC3            | High Speed, Pin-Bot                        | 2                      | &lt;1%                 |
 | 144 | Color Dreams          | Death Race                                 | 1                      | &lt;1%                 |
 | 146 | NINA-003/006          | Galactic Crusader                          | 1                      | &lt;1%                 |
+| 152 | Bandai 74161/7432     | Arkanoid II (J)                            | 1                      | &lt;1%                 |
 | 153 | Bandai FCG            | Famicom Jump II: Saikyou no 7-nin          | 1                      | &lt;1%                 |
 | 154 | DxROM/Namco 108       | Devil Man                                  | 1                      | &lt;1%                 |
 | 157 | Bandai FCG/Datach     | SD Gundam Wars                             | 7                      | &lt;1%                 |
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;1%                 |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;1%                 |
 | 176 | Waixing FK23C/FS303   | Zhi Li Xiao Zhuang Yuan                    | —                      | —                      |
+| 184 | Sunsoft-1             | Atlantis no Nazo, The Wing of Madoola      | 3                      | &lt;1%                 |
+| 185 | CNROM (protected)     | Spy vs Spy (J), Mighty Bomb Jack (J)       | 8                      | &lt;1%                 |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
+| 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
 |     |                       |                                            | ~2298 / 2447           | ~93.9%                 |
 
 <!-- markdownlint-enable line-length -->

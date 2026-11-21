@@ -718,9 +718,14 @@ impl ControlDeck {
             | Mapper::Nina001(_)
             | Mapper::Gxrom(_)
             | Mapper::SunsoftFme7(_)
+            | Mapper::Bandai74161(_)
             | Mapper::Nina003006(_)
+            | Mapper::JalecoJfxx(_)
             | Mapper::NesEvent(_)
-            | Mapper::Fk23C(_) => (),
+            | Mapper::Sunsoft1(_)
+            | Mapper::CnromProtect(_)
+            | Mapper::Fk23C(_)
+            | Mapper::Bf9096(_) => (),
         }
     }
 
