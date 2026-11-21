@@ -135,10 +135,11 @@ bitflags! {
         const SERVES_PRG_READS = 1 << 5;
         /// Board serves some PPU reads itself rather than from page tables.
         ///
-        /// MMC5 is the only board that needs this: in extended-attribute mode the CHR bank for a
-        /// tile comes from a byte of ExRAM looked up per tile, and attribute and fill-mode reads
-        /// are synthesised rather than fetched, so neither is expressible as a page entry. Served
-        /// through [`Map::chr_read`]/[`Map::chr_peek`].
+        /// MMC5 needs this because in extended-attribute mode the CHR bank for a tile comes from
+        /// a byte of ExRAM looked up per tile, and attribute and fill-mode reads are synthesised
+        /// rather than fetched. Mapper 185 needs it for disabled CHR, which reads as open bus.
+        /// Neither is expressible as a page entry. Served through
+        /// [`Map::chr_read`]/[`Map::chr_peek`].
         const SERVES_CHR_READS = 1 << 6;
     }
 }
@@ -734,20 +735,32 @@ boards! {
     Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)
     SunsoftFme7(Box<SunsoftFme7>) = 69 in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
+    /// `Bandai 74161/7432` (Mappers 070, 152)
+    Bandai74161(Bandai74161) = 70 in m070_m152_bandai74161 {
+        70 | 152 => Bandai74161::load(cart),
+    },
     /// `Bf909x` (Mapper 071)
     Bf909x(Bf909x) = 71 in m071_bf909x { 71 => Bf909x::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
     Nina003006(Nina003006) = 79 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
     },
+    /// `Jaleco JF-xx` (Mapper 087)
+    JalecoJfxx(JalecoJfxx) = 87 in m087_jaleco_jfxx { 87 => JalecoJfxx::load(cart) },
     /// `NES-EVENT` (Mapper 105)
     NesEvent(NesEvent) = 105 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
+    /// `Sunsoft-1` (Mapper 184)
+    Sunsoft1(Sunsoft1) = 184 in m184_sunsoft1 { 184 => Sunsoft1::load(cart) },
+    /// `CNROM` with CHR copy protection (Mapper 185)
+    CnromProtect(CnromProtect) = 185 in m185_cnrom_protect { 185 => CnromProtect::load(cart) },
     /// `Waixing FK23C`/`FS303` (Mapper 176)
     // Holds only registers, so it is small enough to sit in the enum unboxed and pay no
     // indirection; `print_layouts` prints every board's size if that stops being true.
     Fk23C(Fk23C) = 176 in m176_fk23c { 176 => Fk23C::load(cart) },
+    /// `BF9096` (Mapper 232)
+    Bf9096(Bf9096) = 232 in m232_bf9096 { 232 => Bf9096::load(cart) },
 }
 
 impl Default for Mapper {
