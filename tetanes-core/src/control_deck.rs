@@ -713,6 +713,7 @@ impl ControlDeck {
             // of the candidates' address lines.
             | Mapper::Vrc24(_)
             | Mapper::Vrc6(_)
+            | Mapper::Unrom512(_)
             | Mapper::TaitoTc0190(_)
             | Mapper::Bnrom(_)
             | Mapper::Nina001(_)

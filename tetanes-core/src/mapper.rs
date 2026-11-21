@@ -643,6 +643,18 @@ pub(crate) const fn min_prg_ram(mapper_num: u16) -> usize {
     }
 }
 
+/// Minimum CHR-RAM a board needs regardless of what its header declares.
+///
+/// Only boards that bank CHR-RAM need more than the default, for the same aliasing reason as
+/// [`min_prg_ram`].
+pub(crate) const fn min_chr_ram(mapper_num: u16) -> usize {
+    match mapper_num {
+        // UNROM 512 banks four 8K pages of CHR-RAM, and iNES 1.0 headers have no field to say so.
+        30 => 32 * 1024,
+        _ => 0,
+    }
+}
+
 /// Bytes of [`Src::BatteryExt`](crate::memory::Src::BatteryExt) to allocate for a board whose
 /// battery covers something other than PRG-RAM.
 ///
@@ -719,6 +731,8 @@ boards! {
         24 => Vrc6::load(cart, Vrc6Revision::A),
         26 => Vrc6::load(cart, Vrc6Revision::B),
     },
+    /// `UNROM 512` (Mapper 030)
+    Unrom512(Unrom512) = 30 in m030_unrom512 { 30 => Unrom512::load(cart) },
     /// `Taito TC0190`/`TC0350` (Mapper 033) and `TC0690` (Mapper 048)
     TaitoTc0190(TaitoTc0190) = 33 in m033_m048_taito_tc0190 {
         33 => TaitoTc0190::load(cart, TaitoRevision::Tc0190),
