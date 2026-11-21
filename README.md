@@ -283,6 +283,7 @@ Support for the following mappers is currently implemented or in development:
 | 009 | PxROM/MMC2            | Punch Out!!                                | 1                      | &lt;1%                 |
 | 010 | FxROM/MMC4            | Fire Emblem Gaiden                         | 3                      | &lt;1%                 |
 | 011 | Color Dreams          | Crystal Mines, Metal Fighter               | 15                     | ~1%                    |
+| 013 | CPROM                 | Videomation                                | 1                      | &lt;1%                 |
 | 016 | Bandai FCG            | Dragon Ball: Daimaou Fukkatsu              | 14                     | ~1%                    |
 | 018 | Jaleco SS 88006       | Magic John                                 | 15                     | ~1%                    |
 | 019 | Namco163              | Battle Fleet, Dragon Ninja                 | 20                     | ~1%                    |
@@ -299,6 +300,7 @@ Support for the following mappers is currently implemented or in development:
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
 | 064 | Tengen RAMBO-1        | Klax, Shinobi, Skull & Crossbones          | 7                      | &lt;1%                 |
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | ~1%                    |
+| 068 | Sunsoft-4             | After Burner, Maharaja                     | 4                      | &lt;1%                 |
 | 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | ~1%                    |
 | 070 | Bandai 74161/7432     | Kamen Rider Club, Space Shadow             | 7                      | &lt;1%                 |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | ~1%                    |

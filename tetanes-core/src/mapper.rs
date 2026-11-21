@@ -649,6 +649,8 @@ pub(crate) const fn min_prg_ram(mapper_num: u16) -> usize {
 /// [`min_prg_ram`].
 pub(crate) const fn min_chr_ram(mapper_num: u16) -> usize {
     match mapper_num {
+        // CPROM banks four 4K pages of CHR-RAM, and iNES 1.0 headers have no field to say so.
+        13 => 16 * 1024,
         // UNROM 512 banks four 8K pages of CHR-RAM, and iNES 1.0 headers have no field to say so.
         30 => 32 * 1024,
         _ => 0,
@@ -714,6 +716,8 @@ boards! {
     ColorDreams(ColorDreams) = 11 in m011_color_dreams {
         11 | 144 => ColorDreams::load(cart),
     },
+    /// `CPROM` (Mapper 013)
+    Cprom(Cprom) = 13 in m013_cprom { 13 => Cprom::load(cart) },
     /// `Bandai FCG` (Mappers 016, 153, 157, and 159)
     BandaiFCG(Box<BandaiFCG>) = 16 in bandai_fcg {
         16 | 153 | 157 | 159 => BandaiFCG::load(cart),
@@ -753,6 +757,8 @@ boards! {
     Rambo1(Rambo1) = 64 in m064_rambo1 { 64 => Rambo1::load(cart) },
     /// `GxROM` (Mapper 066)
     Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
+    /// `Sunsoft-4` (Mapper 068)
+    Sunsoft4(Sunsoft4) = 68 in m068_sunsoft4 { 68 => Sunsoft4::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)
     SunsoftFme7(Box<SunsoftFme7>) = 69 in m069_sunsoft_fme7 { 69 => SunsoftFme7::load(cart) },
     /// `Bandai 74161/7432` (Mappers 070, 152)
