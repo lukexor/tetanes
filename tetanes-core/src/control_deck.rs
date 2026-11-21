@@ -718,6 +718,7 @@ impl ControlDeck {
             | Mapper::TaitoTc0190(_)
             | Mapper::Bnrom(_)
             | Mapper::Nina001(_)
+            | Mapper::Rambo1(_)
             | Mapper::Gxrom(_)
             | Mapper::SunsoftFme7(_)
             | Mapper::Bandai74161(_)

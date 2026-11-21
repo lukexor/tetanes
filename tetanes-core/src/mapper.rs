@@ -749,6 +749,8 @@ boards! {
     Nina001(Nina001) = 4096 in m034_nina001 {
         34 if cart.chr_rom_size >= 0x4000 => Nina001::load(cart),
     },
+    /// `Tengen RAMBO-1` (Mapper 064)
+    Rambo1(Rambo1) = 64 in m064_rambo1 { 64 => Rambo1::load(cart) },
     /// `GxROM` (Mapper 066)
     Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)

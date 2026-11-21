@@ -462,7 +462,7 @@
   2BC25D5A, NTSC, 1, 0, 16, 8, 0, false, Horizontal, "Ghoul School (USA).nes"
   2BC67AA8, NTSC, 4, 0, 1, 32, 0, false, Horizontal, "Mega Man 4 (USA).nes"
   2BCF2132, NTSC, 4, 0, 16, 8, 0, false, Horizontal, "Heavy Barrel (Japan).nes"
-  2BE254E9, NTSC, 64, 0, 0, 2, 0, false, Vertical, "Dig Dug II (Japan).nes"
+  2BE254E9, NTSC, 0, 0, 0, 2, 0, false, Vertical, "Dig Dug II (Japan).nes"
   2BF0F9C5, PAL, 0, 0, 1, 1, 0, false, Horizontal, "Mario Bros. (Europe) (Rev A).nes"
   2BF61C53, NTSC, 4, 0, 32, 8, 0, false, Horizontal, "Jetsons, The - Cogswell's Caper (USA).nes"
   2BFB1186, NTSC, 1, 0, 16, 8, 0, false, Horizontal, "Be-Bop-Highschool - Koukousei Gokuraku Densetsu (Japan).nes"
