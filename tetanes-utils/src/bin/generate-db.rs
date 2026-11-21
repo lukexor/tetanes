@@ -147,6 +147,13 @@ const fn apply_corrections(game: &mut Game) {
             // Cosmo Carrier's, so only the CRC tells them apart.
             game.submapper = 3;
         }
+        0x73298C87 => {
+            // Super Mario Bros. + Tetris + Nintendo World Cup (Europe): its iNES dump says mapper
+            // 004, but the cart is Nintendo's PAL-ZZ multicart. As plain MMC3 the outer bank
+            // register at $6000 does nothing and the menu never reaches a game. The Rev A dump
+            // already says 037.
+            game.mapper = 37;
+        }
         0x2BE254E9 => {
             // Dig Dug II (Japan): its iNES dump says mapper 064, but the code never writes a
             // RAMBO-1 register and its reset vector, $A52D, assumes NROM's fixed second bank.

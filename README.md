@@ -297,6 +297,8 @@ Support for the following mappers is currently implemented or in development:
 | 032 | Irem G-101            | Image Fight, Major League, Perman          | 7                      | &lt;1%                 |
 | 033 | Taito TC0190/TC0350   | Don Doko Don, Insector X, Operation Wolf   | 10                     | &lt;1%                 |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;1%                 |
+| 037 | PAL-ZZ (MMC3)         | Super Mario Bros. + Tetris + NWC (E)       | 1                      | &lt;1%                 |
+| 047 | NES-QJ (MMC3)         | Super Spike V'Ball + Nintendo World Cup    | 1                      | &lt;1%                 |
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
 | 064 | Tengen RAMBO-1        | Klax, Shinobi, Skull & Crossbones          | 7                      | &lt;1%                 |
 | 065 | Irem H3001            | Spartan X 2, Daiku no Gen-san 2            | 3                      | &lt;1%                 |
@@ -345,7 +347,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2398 / 2447           | ~98.0%                 |
+|     |                       |                                            | ~2400 / 2447           | ~98.1%                 |
 
 <!-- markdownlint-enable line-length -->
 

@@ -156,6 +156,7 @@ pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
 pub use m033_m048_taito_tc0190::Revision as TaitoRevision;
+pub use m037_m047_mmc3_multicart::Revision as Mmc3MulticartRevision;
 pub use m071_bf909x::Revision as Bf909Revision;
 pub use m089_m093_sunsoft2::Revision as Sunsoft2Revision;
 pub use m094_m180_unrom_variants::Revision as UnromVariantRevision;
@@ -754,6 +755,11 @@ boards! {
     /// `NINA-001` (Mapper 034)
     Nina001(Nina001) = 4096 in m034_nina001 {
         34 if cart.chr_rom_size >= 0x4000 => Nina001::load(cart),
+    },
+    /// Nintendo's `MMC3` multicarts, `PAL-ZZ` (Mapper 037) and `NES-QJ` (Mapper 047)
+    Mmc3Multicart(Mmc3Multicart) = 37 in m037_m047_mmc3_multicart {
+        37 => Mmc3Multicart::load(cart, Mmc3MulticartRevision::PalZz),
+        47 => Mmc3Multicart::load(cart, Mmc3MulticartRevision::Qj),
     },
     /// `Tengen RAMBO-1` (Mapper 064)
     Rambo1(Rambo1) = 64 in m064_rambo1 { 64 => Rambo1::load(cart) },
