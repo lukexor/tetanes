@@ -360,7 +360,7 @@
   240863B9, NTSC, 2, 0, 1, 8, 0, false, Vertical, "Airball (Unknown) (Proto 2).nes"
   240C6DE8, NTSC, 1, 0, 16, 8, 0, false, Horizontal, "Elysion (Japan).nes"
   240DE736, NTSC, 4, 0, 32, 16, 0, false, Horizontal, "Star Wars - The Empire Strikes Back (USA).nes"
-  243A8735, NTSC, 32, 0, 0, 8, 0, false, Horizontal, "Major League (Japan).nes"
+  243A8735, NTSC, 32, 1, 0, 8, 0, false, Horizontal, "Major League (Japan).nes"
   2447E03B, NTSC, 210, 2, 16, 8, 0, false, Vertical, "Top Striker (Japan).nes"
   24598791, NTSC, 0, 0, 1, 1, 0, false, Vertical, "Duck Hunt (World).nes"
   2470402B, NTSC, 1, 0, 4, 8, 0, false, Horizontal, "Famicom Igo Nyuumon (Japan).nes"

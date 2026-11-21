@@ -293,6 +293,7 @@ Support for the following mappers is currently implemented or in development:
 | 025 | VRC2c/VRC4b/VRC4d     | Gradius II, TMNT II: The Manhattan Project | 6                      | &lt;1%                 |
 | 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;1%                 |
 | 030 | UNROM 512             | NESmaker homebrew                          | Homebrew only          | -                      |
+| 032 | Irem G-101            | Image Fight, Major League, Perman          | 7                      | &lt;1%                 |
 | 033 | Taito TC0190/TC0350   | Don Doko Don, Insector X, Operation Wolf   | 10                     | &lt;1%                 |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;1%                 |
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
@@ -300,6 +301,7 @@ Support for the following mappers is currently implemented or in development:
 | 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | ~1%                    |
 | 070 | Bandai 74161/7432     | Kamen Rider Club, Space Shadow             | 7                      | &lt;1%                 |
 | 071 | Camerica/Codemasters  | Firehawk, Bee 52, MiG 29 - Soviet Fighter  | ~15                    | ~1%                    |
+| 075 | VRC1                  | Ganbare Goemon!, Tetsuwan Atom             | 6                      | &lt;1%                 |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;1%                 |
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | ~1%                    |
 | 080 | Taito X1-005          | Minelvaton Saga, Kyonshiizu 2              | 7                      | &lt;1%                 |
