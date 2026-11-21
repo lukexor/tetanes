@@ -144,6 +144,8 @@ pub struct Memory {
     rom_crc32: u32,
     /// Whether the cart's RAM is battery-backed, and so survives a power cycle.
     battery_backed: bool,
+    /// Whether PRG-ROM is flash that the board rewrites. See [`Memory::set_prg_flash`].
+    prg_flash: bool,
     /// Whether `data[..ram_start]` holds the cart's ROM.
     ///
     /// A deserialized arena does not - a save state carries only the mutable tail - until
@@ -175,6 +177,9 @@ pub struct Memory {
 /// 408 KiB state, and rewind keeps ~900 of them. What does travel is the ROM's CRC32, so that the
 /// console can tell a state of its own from one recorded against a different game with the same
 /// memory layout.
+///
+/// Flash PRG-ROM (see [`Memory::set_prg_flash`]) is the one ROM that does change. It is left out
+/// all the same, so restoring a state keeps the running console's flash contents.
 ///
 /// The page tables are absent for a second reason: they are derived state, rebuilt from the
 /// mapper's registers by `Map::update_banks`.
@@ -252,6 +257,7 @@ impl<'de> Deserialize<'de> for Memory {
             // Cart-derived, like the ROM itself, and put back from the running console by
             // `Memory::restore_rom_from`.
             battery_backed: false,
+            prg_flash: false,
             rom_present: false,
             prg_rom: state.prg_rom,
             prg_ram: state.prg_ram,
@@ -283,6 +289,7 @@ impl fmt::Debug for Memory {
             .field("prg_ram", &self.prg_ram.len())
             .field("chr", &self.chr.len())
             .field("chr_writable", &self.chr_writable)
+            .field("prg_flash", &self.prg_flash)
             .field("ciram", &self.ciram.len())
             .field("ex_ram", &self.ex_ram.len())
             .finish_non_exhaustive()
@@ -363,6 +370,7 @@ impl Memory {
             ram_start,
             rom_crc32: 0,
             battery_backed: false,
+            prg_flash: false,
             rom_present: true,
             prg_rom,
             prg_ram,
@@ -611,10 +619,29 @@ impl Memory {
         self.battery_ext_len = len;
     }
 
-    /// The cart's whole battery as one slice: PRG-RAM, then whatever the board staged in
-    /// [`Src::BatteryExt`].
+    /// Mark PRG-ROM as flash that the board rewrites, for a self-flashing board such as UNROM 512.
     ///
-    /// The two are adjacent by construction, so this borrows rather than assembling a copy. Board
+    /// Flash is the cart's save memory, so [`Memory::sram`] then starts at PRG-ROM. Save states
+    /// still leave it out and take it from the running console, so restoring one keeps the flash
+    /// contents as they are. Called by the board, once, while loading.
+    ///
+    /// # Panics
+    ///
+    /// If the cart has CHR-ROM, which sits between PRG-ROM and PRG-RAM and would leave
+    /// [`Memory::sram`] with a gap. No self-flashing board has CHR-ROM.
+    pub fn set_prg_flash(&mut self) {
+        assert_eq!(
+            self.prg_rom.end, self.prg_ram.start,
+            "flash PRG-ROM must be adjacent to PRG-RAM"
+        );
+        self.prg_flash = true;
+    }
+
+    /// The cart's whole battery as one slice: PRG-RAM, then whatever the board staged in
+    /// [`Src::BatteryExt`]. A cart marked with [`Memory::set_prg_flash`] has PRG-ROM in front of
+    /// both.
+    ///
+    /// The regions are adjacent by construction, so this borrows rather than assembling a copy. Board
     /// state staged in `BatteryExt` is only as fresh as the last
     /// [`Map::sync_battery`](crate::mapper::Map::sync_battery); go through
     /// [`Bus::sram`](crate::bus::Bus::sram) to be sure of it.
@@ -628,17 +655,23 @@ impl Memory {
         &mut self.data[range]
     }
 
-    /// PRG-RAM and the used part of `battery_ext`, which `Memory::new` lays out back to back.
+    /// PRG-RAM and the used part of `battery_ext`, which `Memory::new` lays out back to back, plus
+    /// flash PRG-ROM in front of them.
     //
     // Every region is a whole number of pages, so this is only gapless while PRG-RAM is a page
     // multiple - which every real size (2K, 8K, 32K, 64K) is. `sram_is_contiguous` pins it.
     const fn sram_range(&self) -> Range<usize> {
+        let start = if self.prg_flash {
+            self.prg_rom.start
+        } else {
+            self.prg_ram.start
+        };
         let end = if self.battery_ext_len == 0 {
             self.prg_ram.end
         } else {
             self.battery_ext.start + self.battery_ext_len
         };
-        self.prg_ram.start..end
+        start..end
     }
 
     /// The mutable tail of memory: PRG-RAM, CHR-RAM, CIRAM and ExRAM.
@@ -690,13 +723,21 @@ impl Memory {
     ///
     /// The ROM half is left where it is when both arenas hold the same cart's - so a run-ahead
     /// snapshot, which is taken every frame and restored moments later, copies its game's RAM
-    /// rather than its whole cartridge. Anything else falls back to a plain clone.
+    /// rather than its whole cartridge. Anything else falls back to a plain clone. Flash PRG-ROM is
+    /// copied along with the RAM, since the game can change it.
     pub fn snapshot_from(&mut self, src: &Self) {
         if !self.rom_present || !self.is_same_cart(src) {
             *self = src.clone();
             return;
         }
-        self.data[self.ram_start..].copy_from_slice(&src.data[src.ram_start..]);
+        // Flash PRG-ROM ends at `ram_start`, so one copy from its start covers it and the RAM.
+        let start = if src.prg_flash {
+            src.prg_rom.start
+        } else {
+            src.ram_start
+        };
+        self.data[start..].copy_from_slice(&src.data[start..]);
+        self.prg_flash = src.prg_flash;
         self.prg_ram = src.prg_ram.clone();
         self.ciram = src.ciram.clone();
         self.ex_ram = src.ex_ram.clone();
@@ -741,6 +782,7 @@ impl Memory {
             self.rom_present = true;
         }
         self.battery_backed = src.battery_backed;
+        self.prg_flash = src.prg_flash;
         true
     }
 

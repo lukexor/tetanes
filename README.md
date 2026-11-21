@@ -292,6 +292,7 @@ Support for the following mappers is currently implemented or in development:
 | 024 | VRC6a                 | Akumajou Densetsu                          | 1                      | &lt;1%                 |
 | 025 | VRC2c/VRC4b/VRC4d     | Gradius II, TMNT II: The Manhattan Project | 6                      | &lt;1%                 |
 | 026 | VRC6b                 | Madara, Esper Dream 2                      | 2                      | &lt;1%                 |
+| 030 | UNROM 512             | NESmaker homebrew                          | Homebrew only          | -                      |
 | 033 | Taito TC0190/TC0350   | Don Doko Don, Insector X, Operation Wolf   | 10                     | &lt;1%                 |
 | 034 | BNROM/NINA-001        | Deadly Towers, Impossible Mission II       | 3                      | &lt;1%                 |
 | 048 | Taito TC0690          | Bubble Bobble 2, Don Doko Don 2            | 6                      | &lt;1%                 |
