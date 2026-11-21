@@ -319,6 +319,7 @@ Support for the following mappers is currently implemented or in development:
 | 089 | Sunsoft-2             | Tenka no Goikenban: Mito Koumon            | 1                      | &lt;1%                 |
 | 092 | Jaleco JF-19          | Moero!! Pro Soccer, Pro Yakyuu '88         | 2                      | &lt;1%                 |
 | 093 | Sunsoft-2             | Fantasy Zone (J), Shanghai                 | 2                      | &lt;1%                 |
+| 094 | UN1ROM                | Senjou no Ookami                           | 1                      | &lt;1%                 |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
 | 097 | Irem TAM-S1           | Kaiketsu Yanchamaru                        | 1                      | &lt;1%                 |
 | 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;1%                 |
@@ -335,13 +336,14 @@ Support for the following mappers is currently implemented or in development:
 | 155 | SxROM/MMC1A           | Tatakae!! Ramen Man: Sakuretsu Choujin     | 2                      | &lt;1%                 |
 | 159 | Bandai FCG            | Dragon Ball Z: Kyoushuu! Saiya-jin         | 4                      | &lt;1%                 |
 | 176 | Waixing FK23C/FS303   | Zhi Li Xiao Zhuang Yuan                    | —                      | —                      |
+| 180 | UNROM (74HC08)        | Crazy Climber (J)                          | 1                      | &lt;1%                 |
 | 184 | Sunsoft-1             | Atlantis no Nazo, The Wing of Madoola      | 3                      | &lt;1%                 |
 | 185 | CNROM (protected)     | Spy vs Spy (J), Mighty Bomb Jack (J)       | 8                      | &lt;1%                 |
 | 206 | DxROM/Namco 108       | Fantasy Zone, Gauntlet                     | 45                     | ~2%                    |
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2393 / 2447           | ~97.8%                 |
+|     |                       |                                            | ~2395 / 2447           | ~97.9%                 |
 
 <!-- markdownlint-enable line-length -->
 

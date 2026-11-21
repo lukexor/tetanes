@@ -879,7 +879,7 @@ impl NesHeader {
             91 => "Mapper 091",
             92 => "Mapper 092 - Jaleco JF-19",
             93 => "Mapper 093 - Sunsoft-2",
-            94 => "Mapper 094 - UxROM",
+            94 => "Mapper 094 - UN1ROM",
             95 => "Mapper 095 - NAMCOT-3425",
             96 => "Mapper 096 - Oeka Kids",
             97 => "Mapper 097 - Irem TAM-S1",
