@@ -140,6 +140,11 @@ const fn apply_corrections(game: &mut Game) {
             // A10 high and leaves the $9000 register out, which NES 2.0 calls submapper 1.
             game.submapper = 1;
         }
+        0x2BE254E9 => {
+            // Dig Dug II (Japan): its iNES dump says mapper 064, but the code never writes a
+            // RAMBO-1 register and its reset vector, $A52D, assumes NROM's fixed second bank.
+            game.mapper = 0;
+        }
         0x44C20420 => {
             // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
             // Waixing translation). The iNES header says mapper 74; the NES 2.0
