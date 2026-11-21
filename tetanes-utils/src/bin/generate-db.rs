@@ -129,6 +129,12 @@ const fn apply_corrections(game: &mut Game) {
             // reads back as zero and it never gets past its title screen.
             game.mapper = 153;
         }
+        0x7678F1D5 => {
+            // Fudou Myouou Den: <https://www.nesdev.org/wiki/INES_Mapper_207>. Its iNES dump says
+            // mapper 080, but the board takes nametables from the CHR registers, so as 080 its
+            // screens mirror wrongly.
+            game.mapper = 207;
+        }
         0x44C20420 => {
             // San Guo Zhi 2 - Ba Wang de Da Lu (Chinese enhanced edition,
             // Waixing translation). The iNES header says mapper 74; the NES 2.0
