@@ -720,6 +720,7 @@ impl ControlDeck {
             | Mapper::Bnrom(_)
             | Mapper::Nina001(_)
             | Mapper::Rambo1(_)
+            | Mapper::IremH3001(_)
             | Mapper::Gxrom(_)
             | Mapper::Sunsoft4(_)
             | Mapper::SunsoftFme7(_)
