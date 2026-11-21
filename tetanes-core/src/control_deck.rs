@@ -722,6 +722,7 @@ impl ControlDeck {
             | Mapper::Rambo1(_)
             | Mapper::IremH3001(_)
             | Mapper::Gxrom(_)
+            | Mapper::Sunsoft3(_)
             | Mapper::Sunsoft4(_)
             | Mapper::SunsoftFme7(_)
             | Mapper::Bandai74161(_)
