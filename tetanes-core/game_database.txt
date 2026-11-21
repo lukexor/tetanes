@@ -1930,7 +1930,7 @@
   BA322865, NTSC, 1, 0, 16, 8, 0, true, Horizontal, "Zelda II - The Adventure of Link (USA).nes"
   BA327FD9, PAL, 69, 0, 32, 8, 0, false, Horizontal, "Batman - Return of the Joker (Europe).nes"
   BA43568A, NTSC, 80, 0, 0, 8, 0, false, Horizontal, "Kyonshiizu 2 (Japan) (Sample).nes"
-  BA51AC6F, NTSC, 78, 0, 0, 8, 0, false, FourScreen, "Holy Diver (Japan).nes"
+  BA51AC6F, NTSC, 78, 3, 0, 8, 0, false, FourScreen, "Holy Diver (Japan).nes"
   BA58ED29, NTSC, 1, 0, 1, 16, 0, false, Horizontal, "'89 Dennou Kyuusei Uranai (Japan).nes"
   BA766EC6, NTSC, 1, 0, 1, 16, 0, true, Horizontal, "Heracles no Eikou II - Titan no Metsubou (Japan).nes"
   BAACF521, NTSC, 3, 0, 4, 2, 0, false, Vertical, "Bloque Magico, El (Spain) (Gluk Video) (Unl).nes"

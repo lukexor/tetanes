@@ -777,6 +777,10 @@ boards! {
     },
     /// `VRC1` (Mapper 075)
     Vrc1(Vrc1) = 75 in m075_vrc1 { 75 => Vrc1::load(cart) },
+    /// `Irem LROG017` (Mapper 077)
+    IremLrog017(IremLrog017) = 77 in m077_irem_lrog017 { 77 => IremLrog017::load(cart) },
+    /// `Jaleco JF-16` and `Irem IF-12` (Mapper 078)
+    JalecoJf16(JalecoJf16) = 78 in m078_jaleco_jf16 { 78 => JalecoJf16::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
     Nina003006(Nina003006) = 79 in m079_nina003_006 {
         79 | 113 | 146 => Nina003006::load(cart),
@@ -796,6 +800,8 @@ boards! {
         89 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRom),
         93 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRam),
     },
+    /// `Irem TAM-S1` (Mapper 097)
+    IremTamS1(IremTamS1) = 97 in m097_irem_tam_s1 { 97 => IremTamS1::load(cart) },
     /// `NES-EVENT` (Mapper 105)
     NesEvent(NesEvent) = 105 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),

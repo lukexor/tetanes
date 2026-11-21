@@ -140,6 +140,13 @@ const fn apply_corrections(game: &mut Game) {
             // A10 high and leaves the $9000 register out, which NES 2.0 calls submapper 1.
             game.submapper = 1;
         }
+        0xBA51AC6F => {
+            // Holy Diver: <https://www.nesdev.org/wiki/INES_Mapper_078>. Its board is Irem's
+            // IF-12, which switches between horizontal and vertical mirroring rather than JF-16's
+            // one-screen nametables. NES 2.0 calls it submapper 3. The iNES header is the same as
+            // Cosmo Carrier's, so only the CRC tells them apart.
+            game.submapper = 3;
+        }
         0x2BE254E9 => {
             // Dig Dug II (Japan): its iNES dump says mapper 064, but the code never writes a
             // RAMBO-1 register and its reset vector, $A52D, assumes NROM's fixed second bank.
