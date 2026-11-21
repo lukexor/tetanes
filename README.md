@@ -332,7 +332,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2298 / 2447           | ~93.9%                 |
+|     |                       |                                            | ~2376 / 2447           | ~97.1%                 |
 
 <!-- markdownlint-enable line-length -->
 
