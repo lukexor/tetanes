@@ -158,14 +158,18 @@ impl Cart {
     ) -> Memory {
         let mut memory = Memory::new(MemoryLayout {
             prg_rom: prg_rom_size,
-            prg_ram: prg_ram_size.max(mapper::DEFAULT_PRG_RAM_SIZE),
+            prg_ram: prg_ram_size
+                .max(mapper::DEFAULT_PRG_RAM_SIZE)
+                .max(mapper::min_prg_ram(mapper_num)),
             battery_ext: mapper::min_battery_ext(mapper_num),
             // `chr_ram_size` is only non-zero when there is no CHR-ROM, so exactly one of the two
             // backs the CHR region.
             chr: if chr_rom_size > 0 {
                 chr_rom_size
             } else {
-                chr_ram_size.max(DEFAULT_CHR_RAM_SIZE)
+                chr_ram_size
+                    .max(DEFAULT_CHR_RAM_SIZE)
+                    .max(mapper::min_chr_ram(mapper_num))
             },
             chr_writable: chr_rom_size == 0,
             ciram: if four_screen { 4 * 1024 } else { 2 * 1024 },
@@ -341,7 +345,7 @@ impl Cart {
         let mut memory = Self::build_memory(
             mapper_num,
             prg_rom_size,
-            prg_ram_size.max(mapper::min_prg_ram(mapper_num)),
+            prg_ram_size,
             chr_rom_size,
             chr_ram_size,
             header.flags & 0x08 == 0x08,
