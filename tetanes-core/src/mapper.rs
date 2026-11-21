@@ -224,9 +224,9 @@ impl std::fmt::Display for MapperRevision {
 ///
 ///   The id is the board's *primary* (lowest) mapper number, so the table reads as its own index.
 ///   That cannot be the whole rule, because the mapping is not one-to-one in either direction:
-///   `Txrom` alone serves 4, 76, 88, 95, 154 and 206, and BNROM and NINA-001 *both* serve 34. A
-///   board sharing a number with an earlier one takes `0x1000 + n` instead, above every real NES
-///   2.0 mapper number. `Mapper::none()` is `0xFFFF`, since 0 is NROM.
+///   `Txrom` alone serves several mapper numbers, and BNROM and NINA-001 *both* serve 34. A board
+///   sharing a number with an earlier one takes `0x1000 + n` instead, above every real NES 2.0
+///   mapper number. `Mapper::none()` is `0xFFFF`, since 0 is NROM.
 /// - Loader arms are emitted in row order into one `match`, with `cart` bound to `&mut Cart`. Where
 ///   two boards share a mapper number they carry mutually exclusive guards rather than relying on
 ///   arm order, so that reordering rows cannot change which board a ROM gets.
@@ -683,9 +683,9 @@ boards! {
     Uxrom(Uxrom) = 2 in m002_uxrom { 2 => Uxrom::load(cart) },
     /// `CNROM` (Mapper 003)
     Cnrom(Cnrom) = 3 in m003_cnrom { 3 => Cnrom::load(cart) },
-    /// `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 154, 206)
+    /// `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 118, 119, 154, 206)
     Txrom(Txrom) = 4 in m004_txrom {
-        4 | 76 | 88 | 95 | 154 | 206 => Txrom::load(cart),
+        4 | 76 | 88 | 95 | 118 | 119 | 154 | 206 => Txrom::load(cart),
     },
     /// `ExROM`/`MMC5` (Mapper 005)
     Exrom(Box<Exrom>) = 5 in m005_exrom { 5 => Exrom::load(cart) },
@@ -995,7 +995,8 @@ pub(crate) mod test_utils {
             chr: chr_size,
             chr_writable,
             ciram: 2 * 1024,
-            ex_ram: 0,
+            // The 8K every loaded cart gets, which TQROM maps as CHR-RAM.
+            ex_ram: 8 * 1024,
             // The caller sets `mapper_num` after this returns, so there is nothing to key
             // `min_battery_ext` on yet. Reserve enough for any board and let the one under test
             // narrow it, as a real load would.

@@ -1,4 +1,4 @@
-//! `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 154, 206).
+//! `TxROM`/`MMC3` (Mappers 004, 076, 088, 095, 118, 119, 154, 206).
 //!
 //! <https://wiki.nesdev.org/w/index.php/MMC3>
 
@@ -33,8 +33,13 @@ impl Txrom {
     const CHR_WINDOW_76: usize = 2048;
     const PRG_MODE_MASK: u8 = 0x40;
     const CHR_INVERSION_MASK: u8 = 0x80;
+    /// Mapper 119 (TQROM) selects its 8K of CHR-RAM over CHR-ROM with bit 6 of a CHR bank.
+    const TQROM_CHR_RAM: u8 = 0x40;
+    /// Mapper 119's CHR-RAM is eight 1K banks.
+    const TQROM_CHR_RAM_MASK: u8 = 0x07;
 
     // PPU $0000..=$1FFF 8x 1K CHR Banks (or 4x 2K for mapper 076)
+    // PPU $2000..=$2FFF Nametables, picked by CHR bank bit 7 for mapper 118
     // CPU $6000..=$7FFF 8K PRG-RAM
     // CPU $8000..=$FFFF 4x 8K PRG-ROM Banks, two switchable and two fixed depending on mode
     pub fn load(cart: &mut Cart) -> Result<Mapper, mapper::Error> {
@@ -99,15 +104,26 @@ impl Txrom {
         }
 
         let chr = self.mmc3.bank_values;
+        // TQROM keeps its CHR-RAM in ExRAM, since `Src::Chr` is already its CHR-ROM.
+        let tqrom = self.mapper_num == 119;
+        let source = |reg: u8| {
+            if tqrom && reg & Self::TQROM_CHR_RAM == Self::TQROM_CHR_RAM {
+                (Src::ExRam, reg & Self::TQROM_CHR_RAM_MASK)
+            } else {
+                (Src::Chr, reg)
+            }
+        };
         // The two 2K windows are expressed as pairs of consecutive 1K pages, matching the
         // hardware's "ignore the low bank bit" behaviour.
         let pair = |memory: &mut Memory, addr: u16, reg: u8| {
+            let (src, reg) = source(reg);
             let bank = i32::from(reg & 0xFE);
-            memory.map_chr(addr, Self::CHR_WINDOW, bank, Src::Chr);
-            memory.map_chr(addr + 0x0400, Self::CHR_WINDOW, bank + 1, Src::Chr);
+            memory.map_chr(addr, Self::CHR_WINDOW, bank, src);
+            memory.map_chr(addr + 0x0400, Self::CHR_WINDOW, bank + 1, src);
         };
         let single = |memory: &mut Memory, addr: u16, reg: u8| {
-            memory.map_chr(addr, Self::CHR_WINDOW, i32::from(reg), Src::Chr);
+            let (src, reg) = source(reg);
+            memory.map_chr(addr, Self::CHR_WINDOW, i32::from(reg), src);
         };
 
         if self.mmc3.bank_select & Self::CHR_INVERSION_MASK == Self::CHR_INVERSION_MASK {
@@ -124,6 +140,26 @@ impl Txrom {
             single(memory, 0x1400, chr[3]);
             single(memory, 0x1800, chr[4]);
             single(memory, 0x1C00, chr[5]);
+        }
+    }
+
+    /// Point each nametable at the CIRAM page that bit 7 of its CHR bank register selects.
+    //
+    // TxSROM wires CIRAM A10 to the MMC3's CHR A17 output. A nametable fetch has A12 clear, so it
+    // decodes like a fetch from $0000-$0FFF: R0 and R1 in the normal CHR mode, R2-R5 inverted.
+    fn update_txsrom_nametables(&self, memory: &mut Memory) {
+        let chr = self.mmc3.bank_values;
+        let regs = if self.mmc3.bank_select & Self::CHR_INVERSION_MASK == Self::CHR_INVERSION_MASK {
+            [chr[2], chr[3], chr[4], chr[5]]
+        } else {
+            [chr[0], chr[0], chr[1], chr[1]]
+        };
+        for (nametable, reg) in regs.into_iter().enumerate() {
+            let addr = 0x2000 + (nametable * Self::CHR_WINDOW) as u16;
+            let bank = i32::from(reg >> 7);
+            memory.map_chr(addr, Self::CHR_WINDOW, bank, Src::CiRam);
+            // $3000-$3EFF mirrors $2000-$2EFF.
+            memory.map_chr(addr + 0x1000, Self::CHR_WINDOW, bank, Src::CiRam);
         }
     }
 }
@@ -188,8 +224,9 @@ impl Map for Txrom {
                     banking_changed = true;
                 }
                 0xA000 => {
-                    // Four-screen carts wire their own nametable RAM and ignore this register.
-                    if self.mirroring != Mirroring::FourScreen {
+                    // Four-screen carts wire their own nametable RAM and ignore this register, and
+                    // TxSROM picks nametables from the CHR banks instead.
+                    if self.mirroring != Mirroring::FourScreen && self.mapper_num != 118 {
                         self.mirroring = if val & 0x01 == 0x01 {
                             Mirroring::Horizontal
                         } else {
@@ -233,9 +270,13 @@ impl Map for Txrom {
         memory.map_prg(0x6000, Self::PRG_RAM_WINDOW, 0, Src::PrgRam);
         self.update_prg_banks(memory);
         self.update_chr_banks(memory);
-        // Four-screen carts get 4K of CIRAM from the cart, so the nametables simply map to four
-        // distinct pages, with no separate buffer to route them through.
-        memory.set_mirroring(self.mirroring);
+        if self.mapper_num == 118 {
+            self.update_txsrom_nametables(memory);
+        } else {
+            // Four-screen carts get 4K of CIRAM from the cart, so the nametables simply map to
+            // four distinct pages, with no separate buffer to route them through.
+            memory.set_mirroring(self.mirroring);
+        }
     }
 
     fn clock(&mut self) {
@@ -244,5 +285,116 @@ impl Map for Txrom {
 
     fn reset(&mut self, kind: ResetKind) {
         self.mmc3.reset(kind);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapper::test_utils::{chr_peek, page_indexed_cart, write};
+    use crate::memory::PAGE_SIZE;
+
+    /// CIRAM's first page reads as this.
+    const CIRAM_A: u8 = 0x11;
+    /// CIRAM's second page reads as this.
+    const CIRAM_B: u8 = 0x22;
+
+    /// 64K PRG-ROM, 8K PRG-RAM and 64K page-indexed CHR-ROM, loaded as `mapper_num`. CIRAM pages
+    /// read as [`CIRAM_A`] and [`CIRAM_B`], and ExRAM page `n` as `0xE0 | n`.
+    fn txrom(mapper_num: u16) -> (Mapper, Cart) {
+        let mut cart = page_indexed_cart(64 * 1024, 8 * 1024, 64 * 1024);
+        cart.header.mapper_num = mapper_num;
+        let mapper = Txrom::load(&mut cart).expect("valid mapper");
+        let ciram = cart.memory.region_mut(Src::CiRam);
+        ciram[..PAGE_SIZE].fill(CIRAM_A);
+        ciram[PAGE_SIZE..].fill(CIRAM_B);
+        for (page, data) in cart
+            .memory
+            .region_mut(Src::ExRam)
+            .chunks_mut(PAGE_SIZE)
+            .enumerate()
+        {
+            data.fill(0xE0 | page as u8);
+        }
+        (mapper, cart)
+    }
+
+    /// Writes `val` to bank register `reg`, with `bank_select`'s mode bits.
+    fn bank(mapper: &mut Mapper, cart: &mut Cart, bank_select: u8, reg: u8, val: u8) {
+        write(mapper, cart, 0x8000, bank_select | reg);
+        write(mapper, cart, 0x8001, val);
+    }
+
+    fn nametables(mapper: &Mapper, cart: &Cart) -> [u8; 4] {
+        [0x2000, 0x2400, 0x2800, 0x2C00].map(|addr| chr_peek(mapper, cart, addr))
+    }
+
+    /// In the normal CHR mode, R0's bit 7 picks the CIRAM page for the first two nametables and
+    /// R1's for the last two. The mirroring register does nothing.
+    #[test]
+    fn txsrom_nametables_follow_r0_and_r1() {
+        let (mut mapper, mut cart) = txrom(118);
+        bank(&mut mapper, &mut cart, 0x00, 0, 0x80);
+        bank(&mut mapper, &mut cart, 0x00, 1, 0x00);
+        let expected = [CIRAM_B, CIRAM_B, CIRAM_A, CIRAM_A];
+        assert_eq!(nametables(&mapper, &cart), expected);
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x3000),
+            CIRAM_B,
+            "$3000 mirrors $2000"
+        );
+
+        write(&mut mapper, &mut cart, 0xA000, 0x01);
+        assert_eq!(nametables(&mapper, &cart), expected, "$A000 is ignored");
+    }
+
+    /// With CHR inversion, R2-R5 pick one nametable each.
+    #[test]
+    fn txsrom_nametables_follow_r2_to_r5_when_inverted() {
+        let (mut mapper, mut cart) = txrom(118);
+        for (reg, val) in [(2, 0x80), (3, 0x00), (4, 0x00), (5, 0x80)] {
+            bank(&mut mapper, &mut cart, 0x80, reg, val);
+        }
+        assert_eq!(
+            nametables(&mapper, &cart),
+            [CIRAM_B, CIRAM_A, CIRAM_A, CIRAM_B]
+        );
+    }
+
+    /// Bit 6 of a CHR bank selects TQROM's 8K of CHR-RAM, banked by the low three bits.
+    #[test]
+    fn tqrom_bit_6_selects_chr_ram() {
+        let (mut mapper, mut cart) = txrom(119);
+        bank(&mut mapper, &mut cart, 0x00, 0, 0x42);
+        bank(&mut mapper, &mut cart, 0x00, 2, 0x4B);
+        bank(&mut mapper, &mut cart, 0x00, 3, 0x05);
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0000),
+            0xE2,
+            "2K RAM pair, low half"
+        );
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x0400),
+            0xE3,
+            "2K RAM pair, high half"
+        );
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), 0xE3, "$4B is RAM bank 3");
+        assert_eq!(chr_peek(&mapper, &cart, 0x1400), 0x85, "ROM page 5");
+
+        cart.memory.chr_write(0x1000, 0x55);
+        assert_eq!(
+            chr_peek(&mapper, &cart, 0x1000),
+            0x55,
+            "CHR-RAM is writable"
+        );
+    }
+
+    /// Plain MMC3 treats bit 6 as part of the CHR-ROM bank number.
+    #[test]
+    fn mmc3_bit_6_is_a_rom_bank_bit() {
+        let (mut mapper, mut cart) = txrom(4);
+        bank(&mut mapper, &mut cart, 0x00, 2, 0x43);
+        // 64 pages of CHR-ROM, so bank $43 wraps to page 3.
+        assert_eq!(chr_peek(&mapper, &cart, 0x1000), 0x83);
     }
 }
