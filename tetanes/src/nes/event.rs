@@ -26,7 +26,7 @@ use tetanes_core::{
     action::Action as DeckAction,
     apu::{Apu, Channel},
     common::{NesRegion, ResetKind},
-    control_deck::{LoadedRom, MapperRevisionsConfig},
+    control_deck::{Config as DeckConfig, LoadedRom, MapperRevisionsConfig},
     cpu::{Status, instr::InstrRef},
     debug::{AccessHit, Breakpoint, Debugger, RunTo, expr::Expr},
     genie::GenieCode,
@@ -524,6 +524,7 @@ impl ApplicationHandler<NesEvent> for Running {
 
         match event {
             NesEvent::Config(ref event) => {
+                let had_mat = mat_plugged_in(&self.cfg.deck);
                 let Config {
                     deck,
                     emulation,
@@ -634,10 +635,16 @@ impl ApplicationHandler<NesEvent> for Running {
                     ConfigEvent::Speed(speed) => emulation.speed = *speed,
                     ConfigEvent::VideoFilter(filter) => deck.filter = *filter,
                 }
+                if !had_mat && mat_plugged_in(&self.cfg.deck) {
+                    self.show_mat_keys();
+                }
                 // Root viewport needs repainting when Config changes to update deferred viewports
                 if let Some(window_id) = self.renderer.root_window_id() {
                     self.repaint_times.insert(window_id, Instant::now());
                 }
+            }
+            NesEvent::Renderer(RendererEvent::RomLoaded(_)) if mat_plugged_in(&self.cfg.deck) => {
+                self.show_mat_keys();
             }
             NesEvent::Renderer(RendererEvent::RequestRedraw { viewport_id, when }) => {
                 if let Some(window_id) = self.renderer.window_id_for_viewport(viewport_id) {
@@ -910,7 +917,29 @@ impl ApplicationHandler<NesEvent> for Running {
     }
 }
 
+/// Whether a floor mat is plugged into a port or the expansion port.
+fn mat_plugged_in(deck: &DeckConfig) -> bool {
+    deck.ports.contains(&PortDevice::PowerPad) || deck.expansion == ExpansionDevice::FamilyTrainer
+}
+
 impl Running {
+    /// Shows a message listing the mat's first key per button, row by row as on the mat.
+    fn show_mat_keys(&mut self) {
+        let key = |button| {
+            self.cfg
+                .input
+                .shortcuts
+                .get(&Action::Deck(DeckAction::PowerPad(button)))
+                .and_then(|bind| bind.bindings.iter().flatten().next().copied())
+                .map_or_else(|| "-".to_owned(), Input::fmt)
+        };
+        let rows = [1, 5, 9]
+            .map(|first| (first..first + 4).map(key).collect::<Vec<_>>().join(" "))
+            .join(" / ");
+        self.renderer
+            .add_message(MessageType::Info, format!("Power Pad keys: {rows}"));
+    }
+
     fn run_state(&self) -> RunState {
         self.renderer.gui.borrow().run_state
     }
