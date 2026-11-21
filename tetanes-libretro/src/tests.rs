@@ -81,7 +81,7 @@ thread_local! {
     static FRONTEND: RefCell<Frontend> = RefCell::new(Frontend::default());
 }
 
-/// Serialises the tests, since they share one core.
+/// Serializes the tests, since they share one core.
 static LOCK: Mutex<()> = Mutex::new(());
 
 unsafe extern "C" fn env(cmd: c_uint, data: *mut c_void) -> bool {
@@ -387,7 +387,7 @@ fn a_loaded_rom_produces_frames_and_audio() {
                 .collect::<std::collections::HashSet<_>>()
                 .len()
                 > 1,
-            "spritecans draws something, so a single-colour frame means nothing rendered"
+            "spritecans draws something, so a single-color frame means nothing rendered"
         );
 
         // ~800 sample frames each at 48 kHz / 60.1 fps, and the count varies by one either way.
@@ -411,7 +411,7 @@ fn a_held_button_reaches_the_joypad_and_a_released_one_stops() {
     assert!(session.load());
 
     let pressed = |button| {
-        // SAFETY: the core is initialised and this thread is the frontend's.
+        // SAFETY: the core is initialized and this thread is the frontend's.
         unsafe { core::try_core() }
             .expect("a core")
             .deck
@@ -550,7 +550,7 @@ fn a_controller_on_port_three_reaches_its_joypad() {
     retro_set_controller_port_device(2, RETRO_DEVICE_JOYPAD);
     assert!(session.load());
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let pressed = |player| {
         unsafe { core::try_core() }
             .expect("a core")
@@ -599,7 +599,7 @@ fn the_zapper_survives_the_load_that_follows_it() {
     let session = Session::start();
     retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_LIGHTGUN);
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let connected = || {
         unsafe { core::try_core() }
             .expect("a core")
@@ -624,7 +624,7 @@ fn the_zapper_aims_and_fires() {
     retro_set_controller_port_device(input::ZAPPER_PORT as c_uint, RETRO_DEVICE_LIGHTGUN);
     assert!(session.load());
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let deck = || &unsafe { core::try_core() }.expect("a core").deck;
     assert_eq!(
         deck().port_device(Player::Two),
@@ -666,7 +666,7 @@ fn the_zapper_aims_and_fires() {
 fn the_mats_reach_the_console() {
     let session = Session::start();
     assert!(session.load());
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let deck = || &unsafe { core::try_core() }.expect("a core").deck;
 
     retro_set_controller_port_device(input::MAT_PORT as c_uint, RETRO_DEVICE_POWER_PAD);
@@ -731,7 +731,7 @@ fn a_changed_option_reaches_the_console() {
     set_option("tetanes_apu_triangle", "disabled");
     assert!(session.load());
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let core = || unsafe { core::try_core() }.expect("a core");
     assert_eq!(core().filter(), VideoFilter::Ntsc, "applied at load");
     assert!(!core().deck.apu_channel_enabled(Channel::Triangle));
@@ -758,7 +758,7 @@ fn fast_forwarding_suppresses_run_ahead() {
     assert!(session.load());
     session.run(1);
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let deck_run_ahead = || {
         unsafe { core::try_core() }
             .expect("a core")
@@ -930,7 +930,7 @@ fn a_cheat_reaches_the_game_and_clearing_it_lets_go() {
     assert!(session.load());
     session.run(10);
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let peek = || {
         unsafe { core::try_core() }
             .expect("a core")
@@ -977,7 +977,7 @@ fn a_wedged_core_can_be_reset_and_reloaded() {
     let session = Session::start();
     assert!(session.load());
 
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let wedged = || unsafe { core::try_core() }.expect("a core").wedged;
 
     // Straight through `guard`, which is the same path a panic in emulation takes.
@@ -1037,7 +1037,7 @@ fn bad_content_is_refused() {
         "not a cartridge"
     );
 
-    // SAFETY: the core is initialised; running without content must not fault.
+    // SAFETY: the core is initialized; running without content must not fault.
     unsafe { retro_run() };
 }
 
@@ -1172,7 +1172,7 @@ fn audio_arrives_at_a_steady_rate_whatever_run_ahead_is_set_to() {
 fn every_declared_value_reaches_the_console() {
     let session = Session::start();
     assert!(session.load());
-    // SAFETY: the core is initialised and this thread is the frontend's.
+    // SAFETY: the core is initialized and this thread is the frontend's.
     let core = || unsafe { core::try_core() }.expect("a core");
 
     for (value, expected) in [

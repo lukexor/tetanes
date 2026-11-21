@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mark_records_its_kind_and_leaves_its_neighbours_alone() {
+    fn a_mark_records_its_kind_and_leaves_its_neighbors_alone() {
         let mut map = CodeMap::new(4, 0);
         map.mark(1, ByteKind::CODE);
         assert_eq!(map.kind(1), ByteKind::CODE);

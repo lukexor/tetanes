@@ -242,7 +242,7 @@ impl Multi {
             // UI thread unparked on every event and on every redraw, so a compositor delivering a
             // burst - focus-follows-mouse over the window will do it - left this loop unable to
             // sleep at all, spinning through wake-ups while the frame it owed went unclocked.
-            // Blocking on the channel wakes exactly once per event and honours the timeout
+            // Blocking on the channel wakes exactly once per event and honors the timeout
             // otherwise.
             if let Some(timeout) = state.try_clock_frame() {
                 match rx.recv_timeout(timeout) {

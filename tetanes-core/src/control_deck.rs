@@ -1969,7 +1969,7 @@ impl ControlDeck {
 ///
 /// Each bundles advancing the emulation with retrieving its output, one variant per combination
 /// of allocating-vs-copying, closure-vs-accessor and run-ahead-vs-not. [`ControlDeck::clock_frame`]
-/// covers all of it: it honours [`ControlDeck::set_run_ahead`], and
+/// covers all of it: it honors [`ControlDeck::set_run_ahead`], and
 /// [`ControlDeck::frame_buffer`] / [`ControlDeck::frame_buffer_into`] /
 /// [`ControlDeck::audio_samples`] report what it produced.
 #[allow(deprecated)]
@@ -2267,7 +2267,7 @@ mod tests {
             restored.bus().apu.synth.samples_per_cycle(),
             crate::apu::band_limited::BandLimited::new(restored.bus().clock_rate(), 48_000.0, 1)
                 .samples_per_cycle(),
-            "and the synthesiser is tuned to them, or it produces samples at the wrong rate"
+            "and the synthesizer is tuned to them, or it produces samples at the wrong rate"
         );
         assert!(
             restored.apu_channel_enabled(Channel::Triangle),
@@ -2378,7 +2378,7 @@ mod tests {
         assert!(one_frame > 0, "a frame should produce audio");
 
         // Per-frame counts wobble by a sample or two, because a frame is not a whole number of
-        // output samples and the synthesiser carries the remainder into the next one - so this
+        // output samples and the synthesizer carries the remainder into the next one - so this
         // bounds the buffer at a frame's worth rather than pinning it. What it rules out is frame
         // 60 holding 60 frames of audio.
         let mut max = 0;

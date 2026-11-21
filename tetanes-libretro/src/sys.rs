@@ -121,7 +121,7 @@ pub const RETRO_LOG_INFO: c_int = 1;
 pub const RETRO_LOG_WARN: c_int = 2;
 pub const RETRO_LOG_ERROR: c_int = 3;
 
-/// Access an obscure frontend feature. Returns whether the frontend recognised `cmd`.
+/// Access an obscure frontend feature. Returns whether the frontend recognized `cmd`.
 pub type retro_environment_t = unsafe extern "C" fn(cmd: c_uint, data: *mut c_void) -> bool;
 /// Hand the frontend one frame. `pitch` is bytes per row, so a trimmed view can point into a
 /// larger buffer rather than copying out of it.

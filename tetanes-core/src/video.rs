@@ -71,7 +71,7 @@ impl Frame {
     /// # Panics
     ///
     /// Never: the `Vec` is allocated at exactly [`Frame::SIZE`] two lines above the conversion. It
-    /// is built as a `Vec` rather than with `Box::new([0; SIZE])` because the latter materialises
+    /// is built as a `Vec` rather than with `Box::new([0; SIZE])` because the latter materializes
     /// all 240 KiB as a stack temporary before moving it to the heap, which overflows the stack in
     /// an unoptimized build.
     pub fn new() -> Self {

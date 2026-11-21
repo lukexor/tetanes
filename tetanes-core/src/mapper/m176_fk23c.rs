@@ -119,7 +119,7 @@ impl Fk23C {
     /// CHR to RAM. Always false for CHR-RAM-only carts, whose CHR region is already RAM.
     const fn chr_page_uses_overlay(&self, page: usize) -> bool {
         // A CHR-RAM-only cart has no separate overlay - its CHR region is already RAM - and a cart
-        // that declares no CHR-RAM has nothing for the RAM-select bit to select. Honouring the bit
+        // that declares no CHR-RAM has nothing for the RAM-select bit to select. Honoring the bit
         // anyway pointed every CHR fetch at an empty buffer and rendered a black screen.
         if self.has_chr_ram || !self.has_chr_ram_overlay {
             return false;

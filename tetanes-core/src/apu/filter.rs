@@ -87,7 +87,7 @@ impl HighPass {
     }
 }
 
-/// The filters applied to synthesised output, at the output rate.
+/// The filters applied to synthesized output, at the output rate.
 ///
 /// These are the console's own RC corners - two high-pass stages and a 14 kHz low-pass - applied
 /// in that order, and nothing else. Keeping the output below Nyquist is

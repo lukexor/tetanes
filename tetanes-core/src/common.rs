@@ -21,7 +21,7 @@ pub const SRAM_DIR: &str = "sram";
 pub struct ParseNesRegionError;
 
 /// Which regional console a ROM runs on, which sets the clock rates, the frame height and a
-/// handful of behavioural differences.
+/// handful of behavioral differences.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
 pub enum NesRegion {
@@ -352,7 +352,7 @@ pub(crate) mod tests {
     /// a single instruction.
     ///
     /// Read through [`Bus::peek`](crate::bus::Bus::peek) rather than off `Src::PrgRam` directly so
-    /// it honours whatever the board actually has mapped at `$6000`, and note that
+    /// it honors whatever the board actually has mapped at `$6000`, and note that
     /// [`ControlDeck::wram`] is `$0000..=$07FF` and does not reach it.
     fn blargg_status(deck: &ControlDeck) -> Option<u8> {
         let bus = deck.bus();
@@ -370,14 +370,14 @@ pub(crate) mod tests {
             .collect()
     }
 
-    /// Time buckets an [`audio_profile`] summarises a run into.
+    /// Time buckets an [`audio_profile`] summarizes a run into.
     const AUDIO_BUCKETS: usize = 16;
     /// Tolerated difference in a bucket's RMS, in units of 1/10000 of full scale.
     const RMS_TOLERANCE: u32 = 5;
     /// Tolerated difference in a bucket's mean-crossing rate, in Hz.
     const RATE_TOLERANCE: u32 = 5;
 
-    /// Summarises a run's audio as one `(rms, crossing_rate)` pair per [`AUDIO_BUCKETS`] time
+    /// Summarizes a run's audio as one `(rms, crossing_rate)` pair per [`AUDIO_BUCKETS`] time
     /// bucket.
     ///
     /// Hashing the samples themselves would pin every one of them, so any change to the filter,
@@ -400,7 +400,7 @@ pub(crate) mod tests {
     /// sound is right. Calibrated against a deliberately perturbed pulse timer period, which at
     /// this resolution is caught by all four pulse-driven tests (`apu_env`, `square_pitch`,
     /// `sweep_cutoff`, `sweep_sub`) and by none of the four that drive other channels - no misses
-    /// and no false positives. Eight buckets and coarser quantisation missed two of the four.
+    /// and no false positives. Eight buckets and coarser quantization missed two of the four.
     ///
     /// Both numbers are compared with a tolerance ([`RMS_TOLERANCE`], [`RATE_TOLERANCE`]) so that
     /// ordinary floating-point drift does not require a re-snapshot.
@@ -1370,7 +1370,7 @@ pub(crate) mod tests {
         dmc_status_irq,
         lin_ctr,
         noise_pitch,
-        // Two APU behaviours are covered by unit tests rather than by a ROM here, because the
+        // Two APU behaviors are covered by unit tests rather than by a ROM here, because the
         // ROMs that demonstrate them have no pass/fail output - one is a listening demo of the
         // mixer's channel balance needing reference recordings we do not ship, the other plays a
         // tone you judge by ear - so no snapshot of either could mean anything. See

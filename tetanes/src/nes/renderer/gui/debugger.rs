@@ -1054,7 +1054,7 @@ enum Register {
 }
 
 impl Register {
-    /// The name the cell is labelled with.
+    /// The name the cell is labeled with.
     const fn name(self) -> &'static str {
         match self {
             Self::Pc => "PC",
@@ -3232,7 +3232,7 @@ mod tests {
             space.rows[row]
         );
 
-        // A neighbour nothing has run stays collapsed, so the whole range does not decode blind.
+        // A neighbor nothing has run stays collapsed, so the whole range does not decode blind.
         let untouched = space.row_at(0x7F00).expect("covered");
         assert!(matches!(
             space.rows[untouched],

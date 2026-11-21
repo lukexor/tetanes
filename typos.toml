@@ -16,7 +16,17 @@ extend-exclude = [
   # Data blobs: ROM names, board names and binary palettes, none of which are prose.
   "tetanes-core/game_database.txt",
   "tetanes-core/test_roms/",
+  # Bundled homebrew ROMs' own readmes, quoted as their authors wrote them.
+  "tetanes/assets/roms/",
 ]
+
+[default]
+# US spelling only: "initialized", not "initialised".
+locale = "en-us"
+
+[default.extend-identifiers]
+# egui's `Response::labelled_by`.
+labelled_by = "labelled_by"
 
 [default.extend-words]
 # 6502 opcodes.

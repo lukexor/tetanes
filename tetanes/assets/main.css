@@ -173,7 +173,7 @@ canvas {
 
    lukeworks.tech frames this page in an iframe and sets the class from its own
    theme, which is where these values come from: the frame and the page around
-   it have to resolve to the same colours. Amber body text on that background
+   it have to resolve to the same colors. Amber body text on that background
    measures 1.9:1, so the light side is a whole palette rather than a swapped
    background. */
 html.light body {
@@ -187,7 +187,7 @@ html.light a {
 }
 
 /* Only the borders: `table` redefines `--color` for those, while its text still
-   inherits the colour `body` resolved. */
+   inherits the color `body` resolved. */
 html.light table {
   --color: #dbe3ea;
 }

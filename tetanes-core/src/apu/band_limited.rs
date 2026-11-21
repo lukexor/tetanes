@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
-/// Synthesises an output-rate waveform from amplitude changes timed in CPU cycles.
+/// Synthesizes an output-rate waveform from amplitude changes timed in CPU cycles.
 ///
 /// The APU's channels are square, triangle and noise: piecewise constant, changing only when a
 /// divider expires. Sampling such a signal at the output rate directly is what aliases - the
@@ -62,7 +62,7 @@ impl BandLimited {
     const FRAC_BITS: u32 = 20;
     const ONE: i64 = 1 << Self::FRAC_BITS;
 
-    /// Create a synthesiser mapping `clock_rate` input cycles onto `sample_rate` output samples,
+    /// Create a synthesizer mapping `clock_rate` input cycles onto `sample_rate` output samples,
     /// with room for `capacity` output samples before a [`BandLimited::read`] is required.
     pub fn new(clock_rate: f32, sample_rate: f32, capacity: usize) -> Self {
         Self {
@@ -105,7 +105,7 @@ impl BandLimited {
 
     /// One windowed-sinc impulse response per sub-sample phase.
     ///
-    /// Each phase is normalised to sum to exactly 1 so that a step of amplitude `a` integrates to
+    /// Each phase is normalized to sum to exactly 1 so that a step of amplitude `a` integrates to
     /// `a` whatever fraction of a sample it lands on. Without that the gain would ripple with the
     /// step's sub-sample position, which on a square wave is a buzz at the waveform's own
     /// frequency.
@@ -157,7 +157,7 @@ impl BandLimited {
         let position = self.offset + cycle as i64 * self.samples_per_cycle;
         let sample = (position >> Self::FRAC_BITS) as usize;
         // The fractional part chooses the response; anything finer than a phase is below the
-        // resolution the table has, so it is truncated rather than rounded toward a neighbour.
+        // resolution the table has, so it is truncated rather than rounded toward a neighbor.
         let phase = ((position >> (Self::FRAC_BITS - Self::PHASES.ilog2()))
             & (Self::PHASES as i64 - 1)) as usize;
 
@@ -186,7 +186,7 @@ impl BandLimited {
         self.deltas[kept..].fill(0.0);
     }
 
-    /// Output samples per input cycle, in fixed point; what the synthesiser is tuned to.
+    /// Output samples per input cycle, in fixed point; what the synthesizer is tuned to.
     #[must_use]
     pub const fn samples_per_cycle(&self) -> i64 {
         self.samples_per_cycle
@@ -204,7 +204,7 @@ mod tests {
         BandLimited::new(CLOCK, RATE, 4096)
     }
 
-    /// A block has to fit in the buffer at whatever rate the synthesiser has been retuned to.
+    /// A block has to fit in the buffer at whatever rate the synthesizer has been retuned to.
     ///
     /// It does not fail loudly if it does not: `read` hands back `count.min(len)` samples, so a
     /// block that overruns silently loses the difference. That is time missing from the output,
@@ -295,7 +295,7 @@ mod tests {
     /// back into the audible band as tones that are not in the signal, and no filter applied
     /// afterwards can remove them because by then they are indistinguishable from real content.
     ///
-    /// Here a 5 kHz square is synthesised both ways and measured at the frequency its 13th
+    /// Here a 5 kHz square is synthesized both ways and measured at the frequency its 13th
     /// harmonic aliases to. Band-limited synthesis has to leave that bin empty.
     #[test]
     fn harmonics_past_nyquist_do_not_fold_back() {

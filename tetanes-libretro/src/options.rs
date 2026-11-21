@@ -124,8 +124,8 @@ const DEFS: &[Def] = &[
     Def {
         key: FILTER,
         desc: c"Video Filter",
-        info: c"Pixellate hands over the palette as-is. NTSC reproduces composite artefacts - the \
-                colour blending games were drawn for - and costs more per frame.",
+        info: c"Pixellate hands over the palette as-is. NTSC reproduces composite artifacts - the \
+                color blending games were drawn for - and costs more per frame.",
         category: VIDEO,
         values: &[(c"pixellate", c"Pixellate"), (c"ntsc", c"NTSC")],
     },
@@ -682,7 +682,7 @@ mod tests {
 
     /// Pins the value strings, which are what the frontend stores and hands back.
     ///
-    /// Renaming one is how a saved setting silently stops being recognised - the frontend keeps
+    /// Renaming one is how a saved setting silently stops being recognized - the frontend keeps
     /// answering with the old string and `apply` falls through to the default. This is a second
     /// copy on purpose, so the rename has to be made twice deliberately.
     ///

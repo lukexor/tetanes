@@ -334,7 +334,7 @@ mod tests {
     /// Bit 4 of the PRG register disables PRG-RAM, which must read as open bus rather than as
     /// stale contents. MMC1A has no such line and ignores the bit.
     #[test]
-    fn prg_ram_disable_is_honoured_except_on_mmc1a() {
+    fn prg_ram_disable_is_honored_except_on_mmc1a() {
         let (mut mapper, mut cart) = mmc1();
         assert_eq!(
             prg_peek(&mapper, &cart, 0x6000),

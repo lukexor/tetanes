@@ -484,7 +484,7 @@ impl Bus {
     ///
     /// Run-ahead restores a snapshot of *this* console taken a few frames ago, which is why it
     /// stops short of `Bus::keep_session_settings`: the settings are already its own, and the APU
-    /// filter and synthesiser history that would come across with them belongs to the timeline
+    /// filter and synthesizer history that would come across with them belongs to the timeline
     /// being discarded. Swapping rather than assigning also hands it back the console it gave up,
     /// whose allocations it snapshots into again next frame.
     ///

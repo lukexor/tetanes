@@ -680,7 +680,7 @@ mod tests {
         }
     }
 
-    /// Turbo has to keep working, which is the behaviour the edge rule exists for.
+    /// Turbo has to keep working, which is the behavior the edge rule exists for.
     #[test]
     fn turbo_is_still_delivered() {
         let mut pads = Pads::default();

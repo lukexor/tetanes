@@ -236,7 +236,7 @@ impl GenieCode {
         self.compare
     }
 
-    /// Applies the code to a value read from that address, honouring the compare byte if the
+    /// Applies the code to a value read from that address, honoring the compare byte if the
     /// code has one.
     #[must_use]
     pub const fn read(&self, val: u8) -> u8 {

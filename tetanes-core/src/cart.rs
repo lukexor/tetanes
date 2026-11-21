@@ -83,7 +83,7 @@ pub struct Cart {
     pub header: NesHeader,
     /// The region the cart runs in.
     pub region: NesRegion,
-    /// How the cart's RAM was initialised at power-on.
+    /// How the cart's RAM was initialized at power-on.
     pub ram_state: RamState,
     /// The board serving this cart.
     pub mapper: Mapper,
