@@ -769,6 +769,11 @@ boards! {
     },
     /// `Bf909x` (Mapper 071)
     Bf909x(Bf909x) = 71 in m071_bf909x { 71 => Bf909x::load(cart) },
+    /// `Jaleco JF-17` (Mapper 072) and `JF-19` (Mapper 092)
+    JalecoJf17(JalecoJf17) = 72 in m072_m092_jaleco_jf17_19 {
+        72 => JalecoJf17::load(cart, false),
+        92 => JalecoJf17::load(cart, true),
+    },
     /// `VRC1` (Mapper 075)
     Vrc1(Vrc1) = 75 in m075_vrc1 { 75 => Vrc1::load(cart) },
     /// `NINA-003`/`NINA-006` (Mappers 079, 113, 146)
@@ -789,6 +794,8 @@ boards! {
     NesEvent(NesEvent) = 105 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),
     },
+    /// `Jaleco JF-11`/`JF-14` (Mapper 140)
+    JalecoJf11(JalecoJf11) = 140 in m140_jaleco_jf11_14 { 140 => JalecoJf11::load(cart) },
     /// `Sunsoft-1` (Mapper 184)
     Sunsoft1(Sunsoft1) = 184 in m184_sunsoft1 { 184 => Sunsoft1::load(cart) },
     /// `CNROM` with CHR copy protection (Mapper 185)
