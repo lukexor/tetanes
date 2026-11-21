@@ -157,6 +157,7 @@ pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
 pub use m033_m048_taito_tc0190::Revision as TaitoRevision;
 pub use m071_bf909x::Revision as Bf909Revision;
+pub use m089_m093_sunsoft2::Revision as Sunsoft2Revision;
 
 /// Errors that mappers can return while loading.
 ///
@@ -790,6 +791,11 @@ boards! {
     JalecoJf13(JalecoJf13) = 86 in m086_jaleco_jf13 { 86 => JalecoJf13::load(cart) },
     /// `Jaleco JF-xx` (Mapper 087)
     JalecoJfxx(JalecoJfxx) = 87 in m087_jaleco_jfxx { 87 => JalecoJfxx::load(cart) },
+    /// `Sunsoft-2` (Mappers 089, 093)
+    Sunsoft2(Sunsoft2) = 89 in m089_m093_sunsoft2 {
+        89 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRom),
+        93 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRam),
+    },
     /// `NES-EVENT` (Mapper 105)
     NesEvent(NesEvent) = 105 in m105_nes_event {
         105 => NesEvent::load(cart, [false, false, true, false]),
