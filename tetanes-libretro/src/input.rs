@@ -7,7 +7,7 @@
 
 use crate::{log, sys};
 use std::ffi::{CStr, c_uint, c_void};
-use tetanes_core::input::{Joypad, JoypadBtnState, Player};
+use tetanes_core::input::{ExpansionDevice, Joypad, JoypadBtnState, Player, PortDevice};
 
 /// How a RetroPad button maps onto the NES pad, and what the frontend's remapping menu calls it.
 ///
@@ -77,6 +77,33 @@ const TURBO: [(JoypadBtnState, JoypadBtnState); 2] = [
 /// The port the Zapper plugs into, as it does on the hardware: `$4017`, which port two shares.
 pub const ZAPPER_PORT: usize = 1;
 
+/// The port the floor mats are offered on. Both read through `$4017`.
+pub const MAT_PORT: usize = 1;
+
+/// RetroPad button for each mat button, in mat order (1 to 12).
+///
+/// The left hand's buttons cover the mat's left two columns and the right hand's the right two:
+///
+/// ```text
+/// L       Up     X  R
+/// Left    Right  Y  A
+/// Select  Down   B  Start
+/// ```
+pub const MAT_BUTTONS: [u32; 12] = [
+    sys::RETRO_DEVICE_ID_JOYPAD_L,
+    sys::RETRO_DEVICE_ID_JOYPAD_UP,
+    sys::RETRO_DEVICE_ID_JOYPAD_X,
+    sys::RETRO_DEVICE_ID_JOYPAD_R,
+    sys::RETRO_DEVICE_ID_JOYPAD_LEFT,
+    sys::RETRO_DEVICE_ID_JOYPAD_RIGHT,
+    sys::RETRO_DEVICE_ID_JOYPAD_Y,
+    sys::RETRO_DEVICE_ID_JOYPAD_A,
+    sys::RETRO_DEVICE_ID_JOYPAD_SELECT,
+    sys::RETRO_DEVICE_ID_JOYPAD_DOWN,
+    sys::RETRO_DEVICE_ID_JOYPAD_B,
+    sys::RETRO_DEVICE_ID_JOYPAD_START,
+];
+
 /// Aimed here, the light sense reads dark whatever is on screen.
 ///
 /// [`Zapper::light_sense`](tetanes_core::input::Zapper) samples a radius around the aim point and
@@ -94,11 +121,28 @@ pub enum Device {
     Joypad,
     /// The Zapper, which only [`ZAPPER_PORT`] accepts.
     Zapper,
+    /// The NES Power Pad, which only [`MAT_PORT`] accepts.
+    PowerPad,
+    /// The Family Trainer Mat. It plugs into the expansion port, but is offered on
+    /// [`MAT_PORT`] since a frontend has no expansion port to assign it to.
+    FamilyTrainer,
 }
 
 impl Device {
     /// Reads what a frontend asked for, ignoring a device this port has no socket for.
     fn from_retro(port: usize, device: c_uint) -> Self {
+        let mat = match device {
+            sys::RETRO_DEVICE_POWER_PAD => Some(Self::PowerPad),
+            sys::RETRO_DEVICE_FAMILY_TRAINER => Some(Self::FamilyTrainer),
+            _ => None,
+        };
+        if let Some(mat) = mat {
+            if port == MAT_PORT {
+                return mat;
+            }
+            log::info("the floor mats plug into port 2");
+            return Self::None;
+        }
         match device & sys::RETRO_DEVICE_MASK {
             sys::RETRO_DEVICE_NONE => Self::None,
             sys::RETRO_DEVICE_LIGHTGUN if port == ZAPPER_PORT => Self::Zapper,
@@ -138,7 +182,7 @@ static JOYPAD_ONLY: Table<[sys::retro_controller_description; 2]> = Table([
     },
 ]);
 
-static JOYPAD_OR_ZAPPER: Table<[sys::retro_controller_description; 3]> = Table([
+static PORT_TWO_DEVICES: Table<[sys::retro_controller_description; 5]> = Table([
     sys::retro_controller_description {
         desc: c"Controller".as_ptr(),
         id: sys::RETRO_DEVICE_JOYPAD,
@@ -146,6 +190,14 @@ static JOYPAD_OR_ZAPPER: Table<[sys::retro_controller_description; 3]> = Table([
     sys::retro_controller_description {
         desc: c"Zapper".as_ptr(),
         id: sys::RETRO_DEVICE_LIGHTGUN,
+    },
+    sys::retro_controller_description {
+        desc: c"Power Pad".as_ptr(),
+        id: sys::RETRO_DEVICE_POWER_PAD,
+    },
+    sys::retro_controller_description {
+        desc: c"Family Trainer Mat".as_ptr(),
+        id: sys::RETRO_DEVICE_FAMILY_TRAINER,
     },
     sys::retro_controller_description {
         desc: std::ptr::null(),
@@ -159,10 +211,10 @@ static PORT_DEVICES: Table<[sys::retro_controller_info; PORTS.len() + 1]> = Tabl
         types: JOYPAD_ONLY.0.as_ptr(),
         num_types: 1,
     },
-    // Port two, the one with the Zapper's socket.
+    // Port two, the one with the Zapper's and the mats' sockets.
     sys::retro_controller_info {
-        types: JOYPAD_OR_ZAPPER.0.as_ptr(),
-        num_types: 2,
+        types: PORT_TWO_DEVICES.0.as_ptr(),
+        num_types: 4,
     },
     sys::retro_controller_info {
         types: JOYPAD_ONLY.0.as_ptr(),
@@ -304,9 +356,22 @@ impl Pads {
         self.devices.get(port).copied().unwrap_or_default()
     }
 
-    /// Whether any port has the Zapper in it.
-    pub fn zapper_connected(&self) -> bool {
-        self.devices.contains(&Device::Zapper)
+    /// What the console sees in its ports 1 and 2.
+    pub fn console_ports(&self) -> [PortDevice; 2] {
+        [0, 1].map(|port| match self.device(port) {
+            Device::Zapper => PortDevice::Zapper,
+            Device::PowerPad => PortDevice::PowerPad,
+            Device::None | Device::Joypad | Device::FamilyTrainer => PortDevice::Joypad,
+        })
+    }
+
+    /// What the console sees in its expansion port.
+    pub fn console_expansion(&self) -> ExpansionDevice {
+        if self.devices.contains(&Device::FamilyTrainer) {
+            ExpansionDevice::FamilyTrainer
+        } else {
+            ExpansionDevice::None
+        }
     }
 
     /// Whether this frame's trigger report is a fresh pull rather than one still being held.
@@ -466,11 +531,25 @@ mod tests {
             );
         }
         assert_eq!(Device::from_retro(0, sys::RETRO_DEVICE_NONE), Device::None);
-        // A frontend may hand over a subclass, whose low byte is still the base device.
+        // A frontend may hand over a subclass this core never declared, whose low byte is still
+        // the base device.
         assert_eq!(
-            Device::from_retro(0, sys::RETRO_DEVICE_JOYPAD | (1 << 8)),
+            Device::from_retro(0, sys::RETRO_DEVICE_JOYPAD | (9 << 8)),
             Device::Joypad
         );
+    }
+
+    #[test]
+    fn the_mats_only_fit_port_two() {
+        for (id, device) in [
+            (sys::RETRO_DEVICE_POWER_PAD, Device::PowerPad),
+            (sys::RETRO_DEVICE_FAMILY_TRAINER, Device::FamilyTrainer),
+        ] {
+            assert_eq!(Device::from_retro(MAT_PORT, id), device);
+            for port in [0, 2, 3] {
+                assert_eq!(Device::from_retro(port, id), Device::None, "port {port}");
+            }
+        }
     }
 
     /// A console has two ports without an adapter, so that is what a frontend which never assigns
@@ -482,7 +561,8 @@ mod tests {
         assert_eq!(pads.device(1), Device::Joypad);
         assert_eq!(pads.device(2), Device::None);
         assert_eq!(pads.device(3), Device::None);
-        assert!(!pads.zapper_connected());
+        assert_eq!(pads.console_ports(), [PortDevice::Joypad; 2]);
+        assert_eq!(pads.console_expansion(), ExpansionDevice::None);
         // Out of range answers rather than panicking, since the frontend picks the number.
         assert_eq!(pads.device(9), Device::Joypad);
     }
@@ -600,7 +680,7 @@ mod tests {
         }
     }
 
-    /// Turbo has to keep working, which is the behaviour the edge rule exists for.
+    /// Turbo has to keep working, which is the behavior the edge rule exists for.
     #[test]
     fn turbo_is_still_delivered() {
         let mut pads = Pads::default();

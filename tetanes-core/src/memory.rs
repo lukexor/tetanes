@@ -1602,7 +1602,7 @@ mod tests {
     }
 
     /// Games that read past the end of their own banks must wrap rather than panic. This is the
-    /// behaviour `mem::Memory<D>`'s masking `Index` impl provided, reproduced here by wrapping
+    /// behavior `mem::Memory<D>`'s masking `Index` impl provided, reproduced here by wrapping
     /// page offsets at map time so the read path stays free of bounds masking.
     #[test]
     fn window_larger_than_region_repeats_instead_of_overrunning() {

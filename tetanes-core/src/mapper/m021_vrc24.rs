@@ -108,7 +108,7 @@ impl Vrc24 {
         // A submapper names the revision outright. Without one - which is every iNES header, so
         // most ROMs - decode the union of the candidate address lines for this mapper number
         // instead. That works because no game writes an address where two candidates disagree, and
-        // it is what makes an unlabelled ROM run at all.
+        // it is what makes an unlabeled ROM run at all.
         let (revision, select) = match (cart.mapper_num(), cart.submapper_num()) {
             (22, _) => (Revision::Vrc2a, Revision::Vrc2a.select_lines()),
             (21, 1) => (Revision::Vrc4a, Revision::Vrc4a.select_lines()),
@@ -348,7 +348,7 @@ mod tests {
         (mapper, cart)
     }
 
-    /// VRC4a, the most common of them, and the one an unlabelled mapper 021 ROM gets.
+    /// VRC4a, the most common of them, and the one an unlabeled mapper 021 ROM gets.
     fn vrc4a() -> (Mapper, Cart) {
         load(21, 1)
     }
@@ -535,7 +535,7 @@ mod tests {
     /// candidate lines is what lets those run: each candidate's addresses still reach the register
     /// it meant, because no game writes an address where two of them disagree.
     #[test]
-    fn an_unlabelled_rom_decodes_every_candidate_revisions_lines() {
+    fn an_unlabeled_rom_decodes_every_candidate_revisions_lines() {
         let cases = [
             (21, [Revision::Vrc4a, Revision::Vrc4c].as_slice()),
             (23, &[Revision::Vrc4f, Revision::Vrc4e, Revision::Vrc2b]),

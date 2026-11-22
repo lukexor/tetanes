@@ -114,7 +114,7 @@ impl Txrom {
             }
         };
         // The two 2K windows are expressed as pairs of consecutive 1K pages, matching the
-        // hardware's "ignore the low bank bit" behaviour.
+        // hardware's "ignore the low bank bit" behavior.
         let pair = |memory: &mut Memory, addr: u16, reg: u8| {
             let (src, reg) = source(reg);
             let bank = i32::from(reg & 0xFE);

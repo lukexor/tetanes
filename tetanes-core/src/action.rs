@@ -25,7 +25,7 @@ pub enum Action {
     Reset(ResetKind),
     /// Update the [`Joypad`](crate::input::Joypad) button state.
     Joypad((Player, JoypadBtn)),
-    /// Toggle the [`Zapper`](crate::input::Zapper) connected state.
+    /// Swap port 2 between a controller and the [`Zapper`](crate::input::Zapper).
     ToggleZapperConnected,
     /// Update the [`Zapper`](crate::input::Zapper) aim position.
     ZapperAim((u16, u16)),
@@ -35,6 +35,8 @@ pub enum Action {
     ZapperTrigger,
     /// Set [`FourPlayer`] mode.
     FourPlayer(FourPlayer),
+    /// Update a [`PowerPad`](crate::input::PowerPad) button, numbered 1 to 12.
+    PowerPad(u8),
     /// Set the slot to use for save states.
     SetSaveSlot(u8),
     /// Save the current state to the currently set save slot.

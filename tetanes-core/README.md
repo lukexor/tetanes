@@ -34,7 +34,7 @@ own custom emulation libraries or applications in Rust on top of `tetanes-core`.
 Some community examples:
 
 - [NES Bundler](https://github.com/tedsteen/nes-bundler) - Transform your
-  NES-game into a single executable targeting your favourite OS!
+  NES-game into a single executable targeting your favorite OS!
 - [Dappicom](https://github.com/tonk-gg/dappicom) - Dappicom is a provable
   Nintendo Entertainment System emulator written in Noir and Rust.
 - [NESBox](https://github.com/mantou132/nesbox/) - NESBox's vision is to become

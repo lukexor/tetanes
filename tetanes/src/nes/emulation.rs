@@ -33,6 +33,7 @@ use tetanes_core::{
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
     debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
+    input::Player,
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -241,7 +242,7 @@ impl Multi {
             // UI thread unparked on every event and on every redraw, so a compositor delivering a
             // burst - focus-follows-mouse over the window will do it - left this loop unable to
             // sleep at all, spinning through wake-ups while the frame it owed went unclocked.
-            // Blocking on the channel wakes exactly once per event and honours the timeout
+            // Blocking on the channel wakes exactly once per event and honors the timeout
             // otherwise.
             if let Some(timeout) = state.try_clock_frame() {
                 match rx.recv_timeout(timeout) {
@@ -857,6 +858,16 @@ impl State {
             }
             EmulationEvent::LoadRomPath(path) => self.load_rom_path(path),
             EmulationEvent::LoadState(slot) => self.load_state(*slot),
+            EmulationEvent::PowerPad((button, state)) => {
+                if self.control_deck.is_running() {
+                    let pressed = *state == ElementState::Pressed;
+                    self.control_deck
+                        .power_pad_mut()
+                        .set_button(*button, pressed);
+                    self.record
+                        .push(self.control_deck.frame_number(), event.clone());
+                }
+            }
             EmulationEvent::RunState(mode) => self.set_run_state(*mode),
             EmulationEvent::ReplayRecord(recording) => {
                 if self.control_deck.is_running() {
@@ -966,6 +977,13 @@ impl State {
             ConfigEvent::FourPlayer(four_player) => {
                 self.control_deck.set_four_player(*four_player);
             }
+            ConfigEvent::Ports([one, two]) => {
+                self.control_deck.set_port_device(Player::One, *one);
+                self.control_deck.set_port_device(Player::Two, *two);
+            }
+            ConfigEvent::Expansion(expansion) => {
+                self.control_deck.set_expansion_device(*expansion);
+            }
             ConfigEvent::GenieCodeAdded(genie_code) => {
                 self.control_deck.add_patch(genie_code.into());
             }
@@ -999,9 +1017,6 @@ impl State {
                 self.update_run_ahead();
             }
             ConfigEvent::VideoFilter(filter) => self.control_deck.set_filter(*filter),
-            ConfigEvent::ZapperConnected(connected) => {
-                self.control_deck.connect_zapper(*connected);
-            }
             _ => (),
         }
     }

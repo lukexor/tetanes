@@ -279,7 +279,7 @@ mod tests {
         serial_write(mapper, cart, 0xA000, val);
     }
 
-    /// Opens the bank-switching lock the way the cart's initialisation does: one write with the
+    /// Opens the bank-switching lock the way the cart's initialization does: one write with the
     /// timer control clear, then one with it set.
     fn unlock(mapper: &mut Mapper, cart: &mut Cart) {
         chr0(mapper, cart, 0b00000);
@@ -316,7 +316,7 @@ mod tests {
 
     /// The lock opens on a falling then rising timer-control bit, and never shuts again.
     #[test]
-    fn the_lock_opens_on_the_initialisation_sequence_and_stays_open() {
+    fn the_lock_opens_on_the_initialization_sequence_and_stays_open() {
         let (mut mapper, mut cart) = nes_event();
 
         chr0(&mut mapper, &mut cart, 0b00000);

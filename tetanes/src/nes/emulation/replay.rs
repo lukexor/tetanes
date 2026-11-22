@@ -13,6 +13,7 @@ use tetanes_core::{
 use tracing::warn;
 use winit::event::ElementState;
 
+/// A replay file's contents: the console it starts from, then the events after it.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct State((Bus, Vec<ReplayFrame>));
 
@@ -21,6 +22,8 @@ pub enum ReplayEvent {
     Joypad((Player, JoypadBtn, ElementState)),
     ZapperAim((u16, u16)),
     ZapperTrigger,
+    // Last, so version 3 replays still decode: bincode tags variants by index.
+    PowerPad((u8, ElementState)),
 }
 
 impl From<ReplayEvent> for EmulationEvent {
@@ -29,6 +32,7 @@ impl From<ReplayEvent> for EmulationEvent {
             ReplayEvent::Joypad(state) => Self::Joypad(state),
             ReplayEvent::ZapperAim(pos) => Self::ZapperAim(pos),
             ReplayEvent::ZapperTrigger => Self::ZapperTrigger,
+            ReplayEvent::PowerPad(state) => Self::PowerPad(state),
         }
     }
 }
@@ -41,6 +45,7 @@ impl TryFrom<EmulationEvent> for ReplayEvent {
             EmulationEvent::Joypad(state) => Self::Joypad(state),
             EmulationEvent::ZapperAim(pos) => Self::ZapperAim(pos),
             EmulationEvent::ZapperTrigger => Self::ZapperTrigger,
+            EmulationEvent::PowerPad(state) => Self::PowerPad(state),
             _ => return Err(anyhow::anyhow!("invalid replay event: {event:?}")),
         })
     }
@@ -124,11 +129,11 @@ impl Replay {
         self.load(fs::load_raw_path(path)?.as_slice())
     }
 
-    /// Loads a replay from a reader.
+    /// Loads a replay from a reader, converting a starting state saved in an older format.
     pub fn load(&mut self, replay: impl Read) -> anyhow::Result<Bus> {
         let (version, data) = fs::load_data(replay)?;
         let State((bus, mut events)) = if version == fs::v3::SAVE_VERSION {
-            // The console, then the events, each decoded with its current type.
+            // The console through its version 3 shape, then the events with their current type.
             let (bus, len) = fs::v3::decode_state(&data)?;
             let (events, _) = fs::v3::decode(&data[len..])?;
             State((bus, events))

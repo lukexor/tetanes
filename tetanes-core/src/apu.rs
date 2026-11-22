@@ -136,7 +136,7 @@ pub struct Apu {
     pub sample_ratio: f32,
     /// CPU clock rate for the current region, in Hz.
     pub clock_rate: f32,
-    /// Whether the synthesiser's rate is stale and must be retuned at the next block boundary.
+    /// Whether the synthesizer's rate is stale and must be retuned at the next block boundary.
     #[serde(skip)]
     pub rate_dirty: bool,
     /// The region the APU is timed for.
@@ -201,7 +201,7 @@ impl Apu {
         }
     }
 
-    /// A synthesiser for the default region and rate, which is how a loaded save state gets one.
+    /// A synthesizer for the default region and rate, which is how a loaded save state gets one.
     pub fn default_synth() -> BandLimited {
         Self::new_synth(
             Cpu::region_clock_rate(NesRegion::default()),
@@ -270,7 +270,7 @@ impl Apu {
             .min(self.dmc.next_change())
     }
 
-    /// Hand the synthesiser however much the mixed level has moved since it was last told.
+    /// Hand the synthesizer however much the mixed level has moved since it was last told.
     fn add_mix_delta(&mut self) {
         let level = self.mix_level();
         if level != self.mixed_level {

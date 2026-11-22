@@ -1,12 +1,23 @@
 //! Reads files written before the MessagePack format: save states and replays at save version
-//! `3`, battery-backed RAM at version `1`, and anything else bincode wrote.
+//! `3`, and battery-backed RAM, debugger sessions, window layouts and the game database at
+//! version `1`.
 //!
 //! Everything that reads the old format calls into this module, so removing support is deleting
 //! it and the branches that call it. A file read through here is written back in the current
 //! format the next time it is saved.
 
-use crate::{bus::Bus, fs};
-use serde::de::DeserializeOwned;
+use crate::{
+    apu::Apu,
+    bus::{Bus as BusV4, size},
+    common::NesRegion,
+    cpu::Cpu,
+    fs,
+    input::{FourPlayer, Input as InputV4, Joypad as JoypadV4, JoypadBtnState, Player, PortDevice},
+    mapper::Mapper,
+    memory::{ConstArray, Memory},
+    ppu::Ppu,
+};
+use serde::{Deserialize, de::DeserializeOwned};
 
 /// The header version of a save state or replay written in this format.
 pub const SAVE_VERSION: u8 = b'3';
@@ -35,11 +46,105 @@ where
 /// # Errors
 ///
 /// If `data` is not a version 3 console.
-pub fn decode_state(data: &[u8]) -> fs::Result<(Bus, usize)> {
-    // Every component decodes with its current type, which is only valid while that type still
-    // reads what version 3 wrote. When one changes, its version 3 shape moves here with a
-    // conversion, and the fixtures in `test_roms/save_states/v3/` fail until it does.
-    decode(data)
+pub fn decode_state(data: &[u8]) -> fs::Result<(BusV4, usize)> {
+    // Every component but `Input` decodes with its current type, which is only valid while that
+    // type still reads what version 3 wrote. When one changes, its version 3 shape moves here with
+    // a conversion, and the fixtures in `test_roms/save_states/v3/` fail until it does.
+    decode::<Bus>(data).map(|(bus, len)| (bus.into(), len))
+}
+
+/// The console as version 3 wrote it, in field order.
+#[derive(Deserialize)]
+struct Bus {
+    cpu: Cpu,
+    ppu: Ppu,
+    mapper: Mapper,
+    memory: Memory,
+    apu: Apu,
+    input: Input,
+    wram: Box<ConstArray<u8, { size::WRAM }>>,
+    open_bus: u8,
+    region: NesRegion,
+}
+
+/// Version 3's input: every controller's live state, then the zapper and adapter settings.
+#[derive(Deserialize)]
+struct Input {
+    joypads: [Joypad; 4],
+    signatures: [Joypad; 2],
+    zapper: Zapper,
+    turbo_timer: u32,
+    four_player: FourPlayer,
+}
+
+/// Version 3's controller register, fields in the order it wrote them.
+#[derive(Clone, Copy, Deserialize)]
+struct Joypad {
+    buttons: JoypadBtnState,
+    concurrent_dpad: bool,
+    index: u8,
+    strobe: bool,
+}
+
+impl From<Joypad> for JoypadV4 {
+    fn from(v3: Joypad) -> Self {
+        Self {
+            buttons: v3.buttons,
+            concurrent_dpad: v3.concurrent_dpad,
+            index: v3.index,
+            strobe: v3.strobe,
+        }
+    }
+}
+
+/// Version 3's zapper settings. Version 3 did not save its trigger or aim.
+#[derive(Deserialize)]
+struct Zapper {
+    trigger_release_delay: f32,
+    radius: u16,
+    connected: bool,
+}
+
+impl From<Bus> for BusV4 {
+    fn from(v3: Bus) -> Self {
+        let mut input = InputV4::new(v3.region);
+        input.joypads = v3.input.joypads.map(Into::into);
+        input.signatures = v3.input.signatures.map(Into::into);
+        input.zapper.trigger_release_delay = v3.input.zapper.trigger_release_delay;
+        input.zapper.radius = v3.input.zapper.radius;
+        input.turbo_timer = v3.input.turbo_timer;
+        input.four_player = v3.input.four_player;
+        if v3.input.zapper.connected {
+            input.set_port_device(Player::Two, PortDevice::Zapper);
+        }
+        // Listed in full, so a field added to `Bus` is a compile error here until someone decides
+        // what a version 3 state gives it. The skipped fields take their defaults, as a current
+        // decode gives them.
+        Self {
+            cpu: v3.cpu,
+            mapper_ops: Default::default(),
+            ppu: v3.ppu,
+            mapper: v3.mapper,
+            memory: v3.memory,
+            apu: v3.apu,
+            input,
+            wram: v3.wram,
+            open_bus: v3.open_bus,
+            ram_state: Default::default(),
+            region: v3.region,
+            debugger_active: Default::default(),
+            debugger: Default::default(),
+            pc_history: Default::default(),
+            code_map: Default::default(),
+            call_stack: Default::default(),
+            breakpoints_active: Default::default(),
+            breakpoints: Default::default(),
+            instr_addr: Default::default(),
+            access_hit: Default::default(),
+            interrupt_taken: Default::default(),
+            patches: Default::default(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -59,8 +164,8 @@ mod tests {
         })
     }
 
-    /// Each fixture in `test_roms/save_states/v3/` was saved by the 0.18 release 300 frames into
-    /// its ROM, which then drew the frame hashed here 60 frames later.
+    /// Each fixture in `test_roms/save_states/v3/` was saved by the 0.18 release, which then drew
+    /// the frame hashed here 60 frames later.
     macro_rules! v3_fixtures {
         ($($test:ident: $rom:expr, $fixture:expr, $hash:expr;)+) => {$(
             #[test]
@@ -98,6 +203,25 @@ mod tests {
             "test_roms/mapper/m005_exrom/exram.nes", "exram", 0xd4f9_f351_1b8b_f877;
         a_v3_bnrom_state_resumes:
             "../tetanes/assets/roms/data_man_demo.nes", "data_man_demo", 0x8e89_0b82_e785_e875;
+    }
+
+    /// 0.18 saved `spritecans_zapper.sav` 60 frames into `spritecans.nes`, with the zapper and
+    /// Four Score plugged in. Version 3 stored the zapper as a flag, which [`decode_state`] turns
+    /// into a port.
+    #[test]
+    fn a_v3_state_keeps_its_devices() {
+        let file = File::open("test_roms/save_states/v3/spritecans_zapper.sav").expect("fixture");
+        let (version, data) = fs::load_data(file).expect("reads");
+        assert_eq!(version, SAVE_VERSION);
+        let (bus, len) = decode_state(&data).expect("decodes");
+        assert_eq!(len, data.len(), "trailing bytes mean the layout is off");
+        assert_eq!(bus.input.ports, [PortDevice::Joypad, PortDevice::Zapper]);
+        assert_eq!(bus.input.four_player, FourPlayer::FourScore);
+    }
+
+    v3_fixtures! {
+        a_v3_zapper_state_resumes:
+            "test_roms/spritecans.nes", "spritecans_zapper", 0x134d_fd7b_b9ce_5aae;
     }
 
     /// Version 3 tagged a board with its `boards!` row's stable id, not the variant's declaration

@@ -38,7 +38,7 @@ impl Default for Video {
 }
 
 impl Video {
-    /// Palette entries: 64 colours across eight emphasis combinations.
+    /// Palette entries: 64 colors across eight emphasis combinations.
     const PALETTE_LEN: usize = 512;
 
     pub fn new() -> Self {
@@ -60,7 +60,7 @@ impl Video {
             VideoFilter::Pixellate => {
                 for (dst, &entry) in self.xrgb.iter_mut().zip(deck.frame_buffer_raw().iter()) {
                     // The mask is free - the table is a power of two and the PPU only emits
-                    // six colour bits and three of emphasis - and it keeps the bounds check out of
+                    // six color bits and three of emphasis - and it keeps the bounds check out of
                     // the per-pixel loop.
                     *dst = self.palette[usize::from(entry) & (Self::PALETTE_LEN - 1)];
                 }
@@ -93,7 +93,7 @@ mod tests {
     use super::*;
 
     /// Red and blue change places on the `Ntsc` path, and a frame in the wrong channel order
-    /// still looks like a picture - so the swap is asserted against a colour that cannot be
+    /// still looks like a picture - so the swap is asserted against a color that cannot be
     /// mistaken for its own mirror.
     #[test]
     fn the_ntsc_path_puts_red_and_blue_where_xrgb_wants_them() {
@@ -139,7 +139,7 @@ mod tests {
         assert_eq!(
             Video::PALETTE_LEN,
             512,
-            "64 colours by eight emphasis states"
+            "64 colors by eight emphasis states"
         );
         assert!(Ppu::NTSC_PALETTE.len() >= Video::PALETTE_LEN * 3);
     }

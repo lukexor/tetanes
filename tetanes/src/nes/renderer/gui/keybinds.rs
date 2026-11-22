@@ -6,14 +6,19 @@ use crate::nes::{
     renderer::gui::lib::ViewportOptions,
 };
 use egui::{
-    Align2, Button, CentralPanel, Context, Grid, ScrollArea, Ui, Vec2, ViewportClass, ViewportId,
+    Align2, Button, CentralPanel, Context, Grid, Pos2, Rect, ScrollArea, Sense, StrokeKind,
+    TextStyle, Ui, Vec2, ViewportClass, ViewportId,
 };
 use parking_lot::Mutex;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use tetanes_core::{input::Player, time::Instant};
+use tetanes_core::{
+    action::Action as DeckAction,
+    input::{Player, PowerPad},
+    time::Instant,
+};
 use uuid::Uuid;
 use winit::event::ElementState;
 
@@ -22,6 +27,8 @@ pub enum Tab {
     #[default]
     Shortcuts,
     Joypad(Player),
+    /// The floor mat's buttons, under a picture of where each sits on the mat.
+    PowerPad,
 }
 
 #[derive(Debug)]
@@ -179,23 +186,31 @@ impl State {
                 ui.selectable_value(&mut self.tab, Tab::Joypad(Player::Two), "Player2");
                 ui.selectable_value(&mut self.tab, Tab::Joypad(Player::Three), "Player3");
                 ui.selectable_value(&mut self.tab, Tab::Joypad(Player::Four), "Player4");
+                ui.selectable_value(&mut self.tab, Tab::PowerPad, "Power Pad");
             });
 
             ui.separator();
 
+            let connected = gamepad_state.connected.as_deref();
             match self.tab {
-                Tab::Shortcuts => self.list(ui, None, cfg, gamepad_state.connected.as_deref()),
-                Tab::Joypad(player) => {
-                    self.list(ui, Some(player), cfg, gamepad_state.connected.as_deref())
+                Tab::Shortcuts => self.list(ui, None, false, cfg, connected),
+                Tab::Joypad(player) => self.list(ui, Some(player), false, cfg, connected),
+                Tab::PowerPad => {
+                    Self::power_pad_layout(ui);
+                    ui.separator();
+                    self.list(ui, None, true, cfg, connected);
                 }
             }
         });
     }
 
+    /// Lists the bindings of `player`'s joypad, or of the shortcuts when `player` is `None`.
+    /// `power_pad` picks the shortcuts' mat buttons, which have their own tab.
     fn list(
         &mut self,
         ui: &mut Ui,
         player: Option<Player>,
+        power_pad: bool,
         cfg: &Config,
         connected_gamepads: Option<&[ConnectedGamepad]>,
     ) {
@@ -224,7 +239,18 @@ impl State {
                 };
 
                 let mut clear_bind = None;
-                for (action, bind) in keybinds {
+                let mut rows = keybinds
+                    .iter()
+                    .filter(|(action, _)| action.is_power_pad() == power_pad)
+                    .collect::<Vec<_>>();
+                // Actions sort by name, which puts "Power Pad 10" before "Power Pad 2".
+                if power_pad {
+                    rows.sort_by_key(|(action, _)| match action {
+                        Action::Deck(DeckAction::PowerPad(button)) => *button,
+                        _ => 0,
+                    });
+                }
+                for (action, bind) in rows {
                     ui.strong(action.to_string());
                     for (slot, input) in bind.bindings.iter().enumerate() {
                         let button = Button::new(input.map(Input::fmt).unwrap_or_default())
@@ -253,6 +279,41 @@ impl State {
                 }
             });
         });
+    }
+
+    /// Draws where each numbered button sits on the mat, 4 across and 3 down.
+    fn power_pad_layout(ui: &mut Ui) {
+        const CELL: f32 = 36.0;
+        const GAP: f32 = 4.0;
+        const COLS: f32 = 4.0;
+        const ROWS: f32 = 3.0;
+
+        let size = Vec2::new(ui.available_width(), ROWS * CELL + (ROWS - 1.0) * GAP);
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        let left = rect.center().x - (COLS * CELL + (COLS - 1.0) * GAP) / 2.0;
+        let visuals = ui.visuals().widgets.noninteractive;
+        let font = TextStyle::Button.resolve(ui.style());
+        let painter = ui.painter();
+        for button in 1..=PowerPad::BUTTONS {
+            let index = button - 1;
+            let col = f32::from(index % 4);
+            let row = f32::from(index / 4);
+            let min = Pos2::new(left + col * (CELL + GAP), rect.top() + row * (CELL + GAP));
+            let cell = Rect::from_min_size(min, Vec2::splat(CELL));
+            painter.rect_stroke(
+                cell,
+                visuals.corner_radius,
+                visuals.bg_stroke,
+                StrokeKind::Inside,
+            );
+            painter.text(
+                cell.center(),
+                Align2::CENTER_CENTER,
+                button,
+                font.clone(),
+                visuals.text_color(),
+            );
+        }
     }
 
     fn player_gamepad_combo(

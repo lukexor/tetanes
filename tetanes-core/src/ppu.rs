@@ -82,13 +82,13 @@ impl PaletteRam {
 }
 
 impl PaletteRam {
-    /// Read a colour, with the $3F10/$3F14/$3F18/$3F1C backdrop mirrors applied.
+    /// Read a color, with the $3F10/$3F14/$3F18/$3F1C backdrop mirrors applied.
     #[inline(always)]
     fn peek(&self, addr: u16) -> u8 {
         self.0[Self::mirror(addr)]
     }
 
-    /// Write a colour, with the backdrop mirrors applied.
+    /// Write a color, with the backdrop mirrors applied.
     #[inline(always)]
     fn write(&mut self, addr: u16, val: u8) {
         self.0[Self::mirror(addr)] = val;
@@ -211,11 +211,11 @@ pub struct Ppu {
     // === 64 : end of cache line ===
     // The rest of $2000. Nothing reads these while fetching - a $2000/$2007 access or a vblank NMI
     // does - so they stay out of the per-dot working set above.
-    // The rest of $2001. Colour emphasis and greyscale are folded in over runs of pixels rather
+    // The rest of $2001. Color emphasis and greyscale are folded in over runs of pixels rather
     // than per pixel, so nothing here is read while fetching either.
-    /// $2001 PPUMASK colour emphasis bits, positioned for the frame buffer (write-only).
+    /// $2001 PPUMASK color emphasis bits, positioned for the frame buffer (write-only).
     pub mask_emphasis: u16,
-    /// $2001 PPUMASK greyscale mask applied to a colour: `0x30` when set, `0x3F` when clear.
+    /// $2001 PPUMASK greyscale mask applied to a color: `0x30` when set, `0x3F` when clear.
     pub mask_grayscale: u8,
     /// $2001 PPUMASK raw register bits (write-only).
     pub mask_bits: mask::Bits,
@@ -248,9 +248,9 @@ pub struct Ppu {
 
     /// Current PPU frame buffer.
     pub frame: Frame,
-    /// How much of [`Ppu::frame`] has had greyscale and colour emphasis applied.
+    /// How much of [`Ppu::frame`] has had greyscale and color emphasis applied.
     //
-    // Rendering stores raw palette colours and the $2001 bits are folded in over whole runs of
+    // Rendering stores raw palette colors and the $2001 bits are folded in over whole runs of
     // pixels, so a frame that never touches them - which is nearly every frame - pays nothing per
     // pixel. Derived from a frame buffer that is itself not serialized.
     //
@@ -260,7 +260,7 @@ pub struct Ppu {
     #[serde(skip)]
     pub color_bits_applied: usize,
     // === 104 ===
-    /// Palette RAM: the 32 colours currently loaded, at $3F00-$3F1F.
+    /// Palette RAM: the 32 colors currently loaded, at $3F00-$3F1F.
     pub palette: PaletteRam,
     // === 136 ===
     /// Secondary OAM data on a given scanline.
@@ -309,7 +309,7 @@ pub mod addr {
     /// Offset of a nametable's attribute table from its own start.
     pub const ATTR_OFFSET: u16 = 0x03C0;
 
-    /// First palette entry, i.e. the universal background colour.
+    /// First palette entry, i.e. the universal background color.
     pub const PALETTE_START: u16 = 0x3F00;
     /// One past the last palette entry.
     pub const PALETTE_END: u16 = 0x3F20;
@@ -334,7 +334,7 @@ pub mod size {
 
     /// Bytes of CIRAM, i.e. the two 1K nametables on the console itself.
     pub const VRAM: usize = 0x0800;
-    /// Bytes of palette RAM: the 32 colours loadable at a time, out of the 64 the PPU can make.
+    /// Bytes of palette RAM: the 32 colors loadable at a time, out of the 64 the PPU can make.
     pub const PALETTE: usize = 32;
 }
 
@@ -1144,7 +1144,7 @@ impl Ppu {
         (usize::from(self.scanline) << 8) + usize::from(self.cycle).min(256)
     }
 
-    /// Fold greyscale and colour emphasis into every pixel rendered since this last ran.
+    /// Fold greyscale and color emphasis into every pixel rendered since this last ran.
     ///
     /// Called where the $2001 bits are about to change and once at the end of a frame, so each run
     /// is covered by the settings it was drawn under. Neither bit is set in the overwhelming
@@ -1433,7 +1433,7 @@ impl Bus {
     /// The routing a debugger wants, with none of a fetch's side effects: the board gets first
     /// refusal, and anything it does not serve itself comes from the page tables. Going straight
     /// to [`Memory::chr_peek`](crate::memory::Memory::chr_peek) sees only the page tables, so the
-    /// fetches a board synthesises - MMC5's, mostly - read back as whatever happens to be banked
+    /// fetches a board synthesizes - MMC5's, mostly - read back as whatever happens to be banked
     /// at that address instead.
     #[inline(always)]
     pub fn chr_peek(&self, addr: u16) -> u8 {
@@ -1956,7 +1956,7 @@ impl Bus {
     //       |   4 | Sprites Switch, 1 = show sprites, 0 = hide sprites
     //       | 5-7 | Unknown (???)
     /// Writes $2001 PPUMASK: greyscale, the two left-column clips, the two render enables and
-    /// colour emphasis.
+    /// color emphasis.
     #[inline(always)]
     pub fn write_mask(&mut self, val: u8) {
         self.ppu.open_bus = val;

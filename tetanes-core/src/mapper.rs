@@ -136,7 +136,7 @@ bitflags! {
         /// Board serves some PPU reads itself rather than from page tables.
         ///
         /// MMC5 needs this because in extended-attribute mode the CHR bank for a tile comes from
-        /// a byte of ExRAM looked up per tile, and attribute and fill-mode reads are synthesised
+        /// a byte of ExRAM looked up per tile, and attribute and fill-mode reads are synthesized
         /// rather than fetched. Mapper 185 needs it for disabled CHR, which reads as open bus.
         /// Neither is expressible as a page entry. Served through
         /// [`Map::chr_read`]/[`Map::chr_peek`].
@@ -284,7 +284,7 @@ macro_rules! boards {
 
         /// Serialize as the `boards!` row's stable id, not the variant's declaration position.
         ///
-        /// serde's derive always uses the position, and honours neither an explicit discriminant
+        /// serde's derive always uses the position, and honors neither an explicit discriminant
         /// nor `#[repr]` - `enum E { A = 10 }` still serializes as `0`. bincode 2's own non-serde
         /// derive behaves the same way. So the stability has to live here, in our code, where it
         /// survives changing serializer. MessagePack, the save format, writes the variant name.
@@ -372,7 +372,7 @@ macro_rules! boards {
 
         impl_dispatch!($($variant),+);
 
-        /// Board sizes for `lib.rs`'s `print_layouts`, which watches `Mapper` for cache behaviour.
+        /// Board sizes for `lib.rs`'s `print_layouts`, which watches `Mapper` for cache behavior.
         ///
         /// Deliberately the unboxed size: what matters is how large the variant would be inline,
         /// which is what decides whether it should be `Box`ed.
@@ -892,7 +892,7 @@ impl Bus {
 ///
 /// Boards are pure register state: every read is served from [`Memory`]'s page tables, which a
 /// board rewrites from [`Map::write_register`] and [`Map::update_banks`]. The only reads that reach a
-/// board are the ones no page entry can describe - expansion hardware and MMC5's synthesised
+/// board are the ones no page entry can describe - expansion hardware and MMC5's synthesized
 /// fetches - and those go through [`Map::prg_read`] and [`Map::chr_read`], which return `None` to
 /// mean "ordinary memory, read the page table". Each is gated on a cached `MapperOps` bit so the
 /// boards without any pay a bit test rather than a dispatch.

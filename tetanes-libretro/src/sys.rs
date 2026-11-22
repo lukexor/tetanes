@@ -67,6 +67,11 @@ pub const RETRO_DEVICE_LIGHTGUN: c_uint = 4;
 /// the high bits - so the base device is what survives this mask.
 pub const RETRO_DEVICE_MASK: c_uint = 0xFF;
 
+/// `RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 0)`: the NES Power Pad, read from a RetroPad.
+pub const RETRO_DEVICE_POWER_PAD: c_uint = (1 << 8) | RETRO_DEVICE_JOYPAD;
+/// `RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 1)`: the Family Trainer Mat, read from a RetroPad.
+pub const RETRO_DEVICE_FAMILY_TRAINER: c_uint = (2 << 8) | RETRO_DEVICE_JOYPAD;
+
 /// Light gun axes and buttons.
 ///
 /// `SCREEN_X` and `SCREEN_Y` are absolute, spanning `-0x8000..=0x7FFF` across the viewport rather
@@ -95,6 +100,10 @@ pub const RETRO_DEVICE_ID_JOYPAD_LEFT: c_uint = 6;
 pub const RETRO_DEVICE_ID_JOYPAD_RIGHT: c_uint = 7;
 pub const RETRO_DEVICE_ID_JOYPAD_A: c_uint = 8;
 pub const RETRO_DEVICE_ID_JOYPAD_X: c_uint = 9;
+/// Left shoulder, read only by the floor mats.
+pub const RETRO_DEVICE_ID_JOYPAD_L: c_uint = 10;
+/// Right shoulder, read only by the floor mats.
+pub const RETRO_DEVICE_ID_JOYPAD_R: c_uint = 11;
 
 /// What a [`retro_memory_descriptor`] is, and how it may be accessed.
 ///
@@ -112,7 +121,7 @@ pub const RETRO_LOG_INFO: c_int = 1;
 pub const RETRO_LOG_WARN: c_int = 2;
 pub const RETRO_LOG_ERROR: c_int = 3;
 
-/// Access an obscure frontend feature. Returns whether the frontend recognised `cmd`.
+/// Access an obscure frontend feature. Returns whether the frontend recognized `cmd`.
 pub type retro_environment_t = unsafe extern "C" fn(cmd: c_uint, data: *mut c_void) -> bool;
 /// Hand the frontend one frame. `pitch` is bytes per row, so a trimmed view can point into a
 /// larger buffer rather than copying out of it.

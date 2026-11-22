@@ -105,7 +105,7 @@ impl Core {
 /// Holds the one [`Core`] a loaded library has.
 ///
 /// libretro loads a fresh copy of this library per instance and calls every entry point from one
-/// thread, so there is nothing to synchronise; a `Mutex` would buy nothing but contention. A
+/// thread, so there is nothing to synchronize; a `Mutex` would buy nothing but contention. A
 /// `thread_local!` would be worse than nothing, silently handing a second, empty core to a
 /// frontend that broke the contract instead of failing where it could be seen.
 struct CoreCell(UnsafeCell<Option<Core>>);
@@ -143,7 +143,7 @@ pub unsafe fn deinit() {
     unsafe { *CORE.0.get() = None };
 }
 
-/// The core, if it has been initialised.
+/// The core, if it has been initialized.
 ///
 /// # Safety
 ///

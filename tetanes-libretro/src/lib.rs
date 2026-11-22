@@ -41,7 +41,7 @@ use sys::*;
 use tetanes_core::{
     common::{NesRegion, ResetKind},
     control_deck::Clocked,
-    input::JoypadBtnState,
+    input::{JoypadBtnState, Player},
     ppu::size,
 };
 
@@ -219,9 +219,13 @@ pub extern "C" fn retro_set_controller_port_device(port: c_uint, device: c_uint)
             // release it.
             core.deck.joypad_mut(player).clear();
         }
-        // The console needs telling separately, because the Zapper shares $4017 with port two and
-        // reads as nothing at all when unplugged.
-        core.deck.connect_zapper(core.pads.zapper_connected());
+        // The console needs telling separately: what it reads from $4016/$4017 depends on what is
+        // plugged in. A changed device starts with its buttons released.
+        let [one, two] = core.pads.console_ports();
+        core.deck.set_port_device(Player::One, one);
+        core.deck.set_port_device(Player::Two, two);
+        core.deck
+            .set_expansion_device(core.pads.console_expansion());
     });
 }
 
@@ -433,10 +437,8 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
         // The restore replaced the console's memory wholesale, and the frontend reads its cheat and
         // achievement views out of this core's buffers rather than the console's.
         core.memory.refresh(&mut core.deck);
-        // The deck clears the joypads as it restores - inputs are the player's, not the state's -
-        // so a button still physically held has to look changed again or it is never sent back
-        // down. Run-ahead restores every frame, which makes this the difference between a working
-        // controller and a dead one.
+        // The deck keeps the buttons held now as it restores. Forgetting what was sent makes the
+        // next poll send every held button again, so `pads` stays in step with the deck.
         core.pads.forget();
         true
     })
@@ -567,6 +569,15 @@ unsafe fn poll_input(core: &mut core::Core) {
     unsafe {
         poll();
         for (port, player) in input::PORTS.into_iter().enumerate() {
+            // An empty port and the Family Trainer both leave the console's controller in place,
+            // so it lets go of whatever the pad last held.
+            if matches!(
+                core.pads.device(port),
+                input::Device::None | input::Device::FamilyTrainer
+            ) {
+                core.pads
+                    .apply(port, core.deck.joypad_mut(player), JoypadBtnState::empty());
+            }
             match core.pads.device(port) {
                 // An empty port is not read at all, which is also what makes the two ports a
                 // console has without an adapter cost nothing extra.
@@ -581,6 +592,13 @@ unsafe fn poll_input(core: &mut core::Core) {
                     core.pads.apply(port, core.deck.joypad_mut(player), held);
                 }
                 input::Device::Zapper => poll_zapper(core, port, state),
+                input::Device::PowerPad | input::Device::FamilyTrainer => {
+                    let mat = core.deck.power_pad_mut();
+                    for (button, id) in (1..).zip(input::MAT_BUTTONS) {
+                        let held = state(port as c_uint, RETRO_DEVICE_JOYPAD, 0, id) != 0;
+                        mat.set_button(button, held);
+                    }
+                }
             }
         }
     }

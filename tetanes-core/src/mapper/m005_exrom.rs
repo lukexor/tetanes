@@ -557,7 +557,7 @@ impl Exrom {
                     Nametable::ExRam if nametable_mode => {
                         memory.map_chr(addr, Self::CHR_WINDOW, 0, Src::ExRam);
                     }
-                    // Fill mode is synthesised by `chr_read`, and outside ExRAM nametable
+                    // Fill mode is synthesized by `chr_read`, and outside ExRAM nametable
                     // mode both remaining selections read back as zero - which is what an unmapped
                     // page gives. Either way there is nothing for a page entry to point at.
                     _ => memory.unmap_chr(addr, Self::CHR_WINDOW),
@@ -1549,7 +1549,7 @@ mod tests {
             "the third slot must be ExRAM, not CIRAM"
         );
 
-        // Fill mode is synthesised rather than stored, so it ignores writes.
+        // Fill mode is synthesized rather than stored, so it ignores writes.
         cart.memory.chr_write(0x2C00, 0x99);
         assert_eq!(chr_peek(&mapper, &cart, 0x2C00), 0x5A);
         assert_eq!(chr_peek(&mapper, &cart, 0x2C00 | 0x03C0), 0xAA);

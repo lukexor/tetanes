@@ -23,9 +23,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use tetanes_core::{
-    action::Action as DeckAction, apu::Channel, common::NesRegion,
-    control_deck::Config as DeckConfig, fs, genie::GenieCode, input::FourPlayer, memory::RamState,
-    time::Duration, video::VideoFilter,
+    action::Action as DeckAction,
+    apu::Channel,
+    common::NesRegion,
+    control_deck::Config as DeckConfig,
+    fs,
+    genie::GenieCode,
+    input::{ExpansionDevice, FourPlayer, PortDevice},
+    memory::RamState,
+    time::Duration,
+    video::VideoFilter,
 };
 
 #[derive(Debug)]
@@ -245,21 +252,50 @@ impl Preferences {
         }
     }
 
+    /// A checkbox that swaps port 2 between a controller and the Zapper.
     pub fn zapper_checkbox(
         tx: &NesEventProxy,
         ui: &mut Ui,
-        mut zapper: bool,
+        mut ports: [PortDevice; 2],
         shortcut: impl Into<Option<String>>,
     ) {
         let shortcut = shortcut.into();
         let icon = shortcut.as_ref().map(|_| "🔫 ").unwrap_or_default();
+        let mut zapper = ports[1] == PortDevice::Zapper;
         let checkbox = Checkbox::new(&mut zapper, format!("{icon}Enable Zapper Gun"))
             .shortcut_text(shortcut.unwrap_or_default());
         let res = ui
             .add(checkbox)
-            .on_hover_text("Enable the Zapper Light Gun for games that support it.");
+            .on_hover_text("Plug the Zapper Light Gun into port 2 for games that support it.");
         if res.clicked() {
-            tx.event(ConfigEvent::ZapperConnected(zapper));
+            ports[1] = if zapper {
+                PortDevice::Zapper
+            } else {
+                PortDevice::Joypad
+            };
+            tx.event(ConfigEvent::Ports(ports));
+        }
+    }
+
+    /// Radio buttons choosing what is plugged into one controller port.
+    pub fn port_radio(tx: &NesEventProxy, ui: &mut Ui, mut ports: [PortDevice; 2], port: usize) {
+        let previous = ports[port];
+        for &device in PortDevice::as_slice() {
+            ui.radio_value(&mut ports[port], device, device.to_string());
+        }
+        if ports[port] != previous {
+            tx.event(ConfigEvent::Ports(ports));
+        }
+    }
+
+    /// Radio buttons choosing what is plugged into the expansion port.
+    pub fn expansion_radio(tx: &NesEventProxy, ui: &mut Ui, mut expansion: ExpansionDevice) {
+        let previous = expansion;
+        for &device in ExpansionDevice::as_slice() {
+            ui.radio_value(&mut expansion, device, device.to_string());
+        }
+        if expansion != previous {
+            tx.event(ConfigEvent::Expansion(expansion));
         }
     }
 
@@ -918,7 +954,8 @@ impl State {
     fn input_tab(tx: &NesEventProxy, ui: &mut Ui, cfg: &Config) {
         let DeckConfig {
             mut concurrent_dpad,
-            zapper,
+            ports,
+            expansion,
             ..
         } = cfg.deck;
 
@@ -926,7 +963,20 @@ impl State {
             .num_columns(2)
             .spacing([80.0, 6.0])
             .show(ui, |ui| {
-                Preferences::zapper_checkbox(tx, ui, zapper, None);
+                for (port, label) in [(0, "Port 1:"), (1, "Port 2:")] {
+                    ui.strong(label);
+                    ui.vertical(|ui| Preferences::port_radio(tx, ui, ports, port));
+                    ui.end_row();
+                }
+
+                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                    ui.strong("Expansion Port:")
+                        .on_hover_cursor(CursorIcon::Help)
+                        .on_hover_text(
+                            "The Famicom's expansion port, used by Japanese accessories.",
+                        );
+                });
+                ui.vertical(|ui| Preferences::expansion_radio(tx, ui, expansion));
                 ui.end_row();
 
                 let res = ui.checkbox(&mut concurrent_dpad, "Enable Concurrent D-Pad");
@@ -1031,6 +1081,8 @@ impl State {
             ConfigEvent::MapperRevisions(deck.mapper_revisions),
             ConfigEvent::PerfStatsHistory(renderer.perf_stats_history),
             ConfigEvent::PerfStatsPlot(renderer.perf_stats_plot),
+            ConfigEvent::Ports(deck.ports),
+            ConfigEvent::Expansion(deck.expansion),
             ConfigEvent::RamState(deck.ram_state),
             // Clearing recent roms is handled in a separate button
             ConfigEvent::Region(deck.region),
@@ -1044,7 +1096,6 @@ impl State {
             ConfigEvent::ShowMessages(renderer.show_messages),
             ConfigEvent::Speed(emulation.speed),
             ConfigEvent::VideoFilter(deck.filter),
-            ConfigEvent::ZapperConnected(deck.zapper),
         ];
 
         for event in events {

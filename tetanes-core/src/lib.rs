@@ -39,7 +39,7 @@ pub mod prelude {
         control_deck::{Clocked, Config, ControlDeck, HeadlessMode},
         cpu::Cpu,
         genie::GenieCode,
-        input::{FourPlayer, Input, Player},
+        input::{ExpansionDevice, FourPlayer, Input, Player, PortDevice},
         mapper::{Map, Mapper, MapperRevision},
         memory::RamState,
         ppu::{Mirroring, Ppu},

@@ -200,7 +200,7 @@ pub mod size {
 }
 
 impl Bus {
-    /// Creates a console timed for `region`, with work RAM initialised per `ram_state`.
+    /// Creates a console timed for `region`, with work RAM initialized per `ram_state`.
     pub fn new(region: NesRegion, ram_state: RamState) -> Self {
         Self {
             wram: Box::new(ConstArray::new()),
@@ -303,7 +303,7 @@ impl Bus {
     /// Copies the PPU's address space - `$0000-$2FFF`, banked and mirrored as it is right now -
     /// into `dst`.
     ///
-    /// Page tables and any reads the board synthesises are resolved here, so the copy is what the
+    /// Page tables and any reads the board synthesizes are resolved here, so the copy is what the
     /// PPU would fetch and the caller needs no knowledge of the board. Side-effect free: it will
     /// not move an MMC2 CHR latch or an MMC3 A12 counter.
     pub fn copy_ppu_bus(&self, dst: &mut [u8]) {
@@ -554,7 +554,7 @@ impl Bus {
 
     /// Resets the console, forwarding it to every component.
     ///
-    /// A hard reset is a power cycle, so it also re-initialises RAM that a power cycle would not
+    /// A hard reset is a power cycle, so it also re-initializes RAM that a power cycle would not
     /// preserve: the console's work RAM, and the cart's unless a battery is keeping it. The CPU
     /// takes seven cycles to reset, and running them clocks the rest of the console.
     pub fn reset(&mut self, kind: ResetKind) {

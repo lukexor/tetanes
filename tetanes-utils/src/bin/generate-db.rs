@@ -116,7 +116,7 @@ const fn apply_corrections(game: &mut Game) {
             // Bakushou!! Jinsei Gekijou 3 (Japan)
             //
             // Taito TC0690 (mapper 048), not TC0190 (mapper 033): "most dumps of mapper 048 games
-            // floating around are erroneously labelled as mapper 033" (`docs/mapper/033.txt`), and
+            // floating around are erroneously labeled as mapper 033" (`docs/mapper/033.txt`), and
             // these six are every mapper 048 game. The boards bank identically, so a mislabelled
             // ROM runs and only loses its scanline IRQ - which is what each of these splits the
             // screen with.

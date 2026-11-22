@@ -818,7 +818,7 @@ mod tests {
         }
     }
 
-    /// $C000-$D800 are mapper 019's nametable registers. A 210 has none, so honouring them there
+    /// $C000-$D800 are mapper 019's nametable registers. A 210 has none, so honoring them there
     /// would let a game overwrite the mirroring its board actually has.
     #[test]
     fn mapper_210_ignores_the_nametable_registers() {

@@ -45,7 +45,7 @@ struct Opt {
 /// Render 2bpp tile data as a greyscale sheet, `TILES_PER_ROW` tiles wide.
 ///
 /// Greyscale rather than palettised on purpose: a tile has no palette until a nametable attribute
-/// picks one, and colour indices are what you want to compare against the ROM.
+/// picks one, and color indices are what you want to compare against the ROM.
 fn sheet(data: &[u8]) -> image::GrayImage {
     let tiles = (data.len() / TILE_SIZE) as u32;
     let rows = tiles.div_ceil(TILES_PER_ROW);
