@@ -29,7 +29,7 @@ use std::{
 use tetanes_core::{
     apu::Apu,
     bus::Bus,
-    common::{NesRegion, ResetKind},
+    common::ResetKind,
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
     debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
@@ -573,7 +573,7 @@ impl State {
             show_frame_stats: false,
             bench: cfg.emulation.bench.map(Bench::new),
         };
-        state.update_region(cfg.deck.region);
+        state.update_region();
         state.update_run_ahead();
         state
     }
@@ -980,7 +980,7 @@ impl State {
             }
             ConfigEvent::Region(region) => {
                 self.control_deck.set_region(*region);
-                self.update_region(*region);
+                self.update_region();
             }
             ConfigEvent::RewindEnabled(enabled) => self.rewind.set_enabled(*enabled),
             ConfigEvent::RewindInterval(interval) => self.rewind.set_interval(*interval),
@@ -1242,7 +1242,10 @@ impl State {
         if let Some(rom) = self.control_deck.loaded_rom() {
             let save_path = Config::save_path(&rom.name, slot);
             match self.control_deck.load_state_path(save_path) {
-                Ok(_) => self.add_message(MessageType::Info, format!("State {slot} Loaded")),
+                Ok(_) => {
+                    self.update_region();
+                    self.add_message(MessageType::Info, format!("State {slot} Loaded"));
+                }
                 Err(control_deck::Error::NoSaveStateFound) => {
                     self.add_message(MessageType::Warn, format!("State {slot} Not Found"));
                 }
@@ -1311,6 +1314,8 @@ impl State {
                 error!("failed to load state: {err:?}");
             }
         }
+        // After the auto-load, since a state is restored with the region it was recorded at.
+        self.update_region();
         if let Err(err) = self.audio.start() {
             self.tx.event(ConfigEvent::AudioEnabled(false));
             self.on_error(err);
@@ -1399,6 +1404,7 @@ impl State {
             self.on_error(anyhow::Error::from(err));
             return;
         }
+        self.update_region();
         self.tx.event(RendererEvent::ReplayLoaded);
         self.tx.event(RendererEvent::RequestRedraw {
             viewport_id: ViewportId::ROOT,
@@ -1421,8 +1427,14 @@ impl State {
         }
     }
 
-    fn update_region(&mut self, region: NesRegion) {
-        self.target_frame_duration = FrameRate::from(region).duration();
+    /// Pace frames at the rate of the region the console is running, which a load can change.
+    //
+    // The deck's region, not the configured one: a config of `Auto` resolves to the cart's region
+    // only inside the deck, and `FrameRate::from(Auto)` is 60 Hz. Pacing a PAL cart at 60 Hz
+    // produces 20% more audio than the card consumes, far past what rate control can absorb, so
+    // the buffer sits full and the sound lags the picture.
+    fn update_region(&mut self) {
+        self.target_frame_duration = FrameRate::from(self.control_deck.region()).duration();
         self.frame_latency = (self.audio.latency.as_secs_f32()
             / self.target_frame_duration.as_secs_f32())
         .ceil() as usize;
