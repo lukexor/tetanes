@@ -187,7 +187,10 @@ pub struct Config {
     pub four_player: FourPlayer,
     /// What is plugged into ports 1 and 2.
     pub ports: [PortDevice; 2],
-    /// What is plugged into the expansion port.
+    /// What is plugged into the expansion port. It is applied after `ports`, so an
+    /// [`ExpansionDevice::FamilyTrainer`] here replaces a [`PortDevice::PowerPad`] there with a
+    /// controller, as [`Input::set_expansion_device`](crate::input::Input::set_expansion_device)
+    /// describes.
     pub expansion: ExpansionDevice,
     /// Game Genie codes.
     pub genie_codes: Vec<GenieCode>,
@@ -1768,7 +1771,8 @@ impl ControlDeck {
     }
 
     /// Plugs `device` into `port`. Ports three and four only take a controller, so they are
-    /// ignored.
+    /// ignored. A [`PortDevice::PowerPad`] unplugs an [`ExpansionDevice::FamilyTrainer`], as
+    /// [`Input::set_port_device`](crate::input::Input::set_port_device) describes.
     #[inline]
     pub fn set_port_device(&mut self, port: Player, device: PortDevice) {
         self.bus.input.set_port_device(port, device);
@@ -1780,7 +1784,9 @@ impl ControlDeck {
         self.bus.input.expansion
     }
 
-    /// Plugs `device` into the expansion port.
+    /// Plugs `device` into the expansion port. An [`ExpansionDevice::FamilyTrainer`] unplugs a
+    /// [`PortDevice::PowerPad`], as
+    /// [`Input::set_expansion_device`](crate::input::Input::set_expansion_device) describes.
     #[inline]
     pub fn set_expansion_device(&mut self, device: ExpansionDevice) {
         self.bus.input.set_expansion_device(device);

@@ -341,6 +341,10 @@ impl Input {
     /// Plugs `device` into `port`, releasing that device's buttons if it changes what is plugged
     /// in. Ports three and four only take a controller, so they are ignored.
     ///
+    /// There is one mat, so plugging in [`PortDevice::PowerPad`] unplugs an
+    /// [`ExpansionDevice::FamilyTrainer`], leaving the expansion port with
+    /// [`ExpansionDevice::None`].
+    ///
     /// Selecting what is already selected changes nothing, for the reason given on
     /// [`Input::set_four_player`].
     pub fn set_port_device(&mut self, port: Player, device: PortDevice) {
@@ -353,17 +357,31 @@ impl Input {
             return;
         }
         *slot = device;
+        if device == PortDevice::PowerPad && self.expansion == ExpansionDevice::FamilyTrainer {
+            self.expansion = ExpansionDevice::None;
+        }
         self.clear_device(device);
     }
 
     /// Plugs `device` into the expansion port, releasing its buttons if that changes what is
     /// plugged in.
+    ///
+    /// There is one mat, so plugging in [`ExpansionDevice::FamilyTrainer`] puts a controller
+    /// back in any port holding [`PortDevice::PowerPad`].
+    ///
+    /// Selecting what is already selected changes nothing, for the reason given on
+    /// [`Input::set_four_player`].
     pub fn set_expansion_device(&mut self, device: ExpansionDevice) {
         if self.expansion == device {
             return;
         }
         self.expansion = device;
         if device == ExpansionDevice::FamilyTrainer {
+            for port in &mut self.ports {
+                if *port == PortDevice::PowerPad {
+                    *port = PortDevice::Joypad;
+                }
+            }
             self.power_pad.reset(ResetKind::Hard);
         }
     }
@@ -1082,6 +1100,38 @@ mod tests {
         bus.input.write(1);
         assert_eq!(bus.input_read(Player::Two), 0x40 | 0x1E | 0x01);
         assert_eq!(bus.input_read(Player::One), 0x40);
+    }
+
+    #[test]
+    fn a_power_pad_unplugs_the_family_trainer() {
+        for port in [Player::One, Player::Two] {
+            let mut input = Input::new(NesRegion::Ntsc);
+            input.set_expansion_device(ExpansionDevice::FamilyTrainer);
+            input.set_port_device(port, PortDevice::PowerPad);
+            assert_eq!(input.port_device(port), PortDevice::PowerPad, "{port:?}");
+            assert_eq!(input.expansion, ExpansionDevice::None, "{port:?}");
+        }
+    }
+
+    #[test]
+    fn the_family_trainer_unplugs_a_power_pad() {
+        let mut input = Input::new(NesRegion::Ntsc);
+        input.set_port_device(Player::One, PortDevice::PowerPad);
+        input.set_port_device(Player::Two, PortDevice::Zapper);
+        input.set_expansion_device(ExpansionDevice::FamilyTrainer);
+        assert_eq!(input.ports, [PortDevice::Joypad, PortDevice::Zapper]);
+        assert_eq!(input.expansion, ExpansionDevice::FamilyTrainer);
+    }
+
+    #[test]
+    fn reselecting_the_mat_keeps_it_held() {
+        let mut input = Input::new(NesRegion::Ntsc);
+        input.set_port_device(Player::Two, PortDevice::PowerPad);
+        input.power_pad.set_button(2, true);
+        input.set_port_device(Player::Two, PortDevice::PowerPad);
+        input.set_expansion_device(ExpansionDevice::None);
+        assert_eq!(input.ports[1], PortDevice::PowerPad);
+        assert_ne!(input.power_pad.buttons, 0);
     }
 
     #[test]

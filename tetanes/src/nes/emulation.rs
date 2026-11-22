@@ -33,7 +33,7 @@ use tetanes_core::{
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
     cpu::Cpu,
     debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
-    input::Player,
+    input::{ExpansionDevice, Player, PortDevice},
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -576,6 +576,7 @@ impl State {
         };
         state.update_region();
         state.update_run_ahead();
+        state.sync_devices(cfg.deck.ports, cfg.deck.expansion);
         state
     }
 
@@ -930,6 +931,28 @@ impl State {
         }
     }
 
+    /// What the deck has plugged into ports 1 and 2.
+    const fn ports(&self) -> [PortDevice; 2] {
+        [
+            self.control_deck.port_device(Player::One),
+            self.control_deck.port_device(Player::Two),
+        ]
+    }
+
+    /// Sends the config a [`ConfigEvent`] for each of `ports` and `expansion` that differs from
+    /// what the deck has plugged in. The deck allows one mat, so plugging in one undoes the other.
+    // The event comes back here once more, and is a no-op then because the deck already holds it.
+    fn sync_devices(&self, ports: [PortDevice; 2], expansion: ExpansionDevice) {
+        let actual = self.ports();
+        if actual != ports {
+            self.tx.event(ConfigEvent::Ports(actual));
+        }
+        let actual = self.control_deck.expansion_device();
+        if actual != expansion {
+            self.tx.event(ConfigEvent::Expansion(actual));
+        }
+    }
+
     /// Handle config event.
     fn on_config_event(&mut self, event: &ConfigEvent) {
         match event {
@@ -978,11 +1001,15 @@ impl State {
                 self.control_deck.set_four_player(*four_player);
             }
             ConfigEvent::Ports([one, two]) => {
+                let expansion = self.control_deck.expansion_device();
                 self.control_deck.set_port_device(Player::One, *one);
                 self.control_deck.set_port_device(Player::Two, *two);
+                self.sync_devices(self.ports(), expansion);
             }
             ConfigEvent::Expansion(expansion) => {
+                let ports = self.ports();
                 self.control_deck.set_expansion_device(*expansion);
+                self.sync_devices(ports, *expansion);
             }
             ConfigEvent::GenieCodeAdded(genie_code) => {
                 self.control_deck.add_patch(genie_code.into());
