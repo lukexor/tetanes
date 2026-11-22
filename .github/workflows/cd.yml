@@ -161,17 +161,72 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           failed=()
+          uploaded=()
           for file in artifacts/*; do
             if [ ! -s "$file" ]; then
               echo "::error::empty artifact: $file"
               failed+=("$file")
               continue
             fi
-            gh release upload "$RELEASE_TAG" "$file" --clobber --repo "${{ github.repository }}" \
-              || { echo "::error::upload failed: $file"; failed+=("$file"); }
+            if gh release upload "$RELEASE_TAG" "$file" --clobber --repo "$REPO"; then
+              uploaded+=("$(basename "$file")")
+            else
+              echo "::error::upload failed: $file"
+              failed+=("$file")
+            fi
           done
+
+          # The download table lists an artifact only when both it and its checksum were attached.
+          # Everything after the marker is replaced, so a re-dispatch rewrites the table instead of
+          # appending a second one.
+          marker='<!-- release-artifacts -->'
+          {
+            echo "$marker"
+            echo
+            echo "### 📦 Downloads"
+            echo
+            echo "| Platform | Arch | Download | SHA-256 |"
+            echo "| --- | --- | --- | --- |"
+            for name in "${uploaded[@]}"; do
+              case "$name" in *-sha256.txt) continue ;; esac
+              sum_file="artifacts/$name-sha256.txt"
+              printf '%s\n' "${uploaded[@]}" | grep -qxF "$name-sha256.txt" || continue
+              case "$name" in
+                *aarch64* | *arm64*) arch="ARM64" ;;
+                *wasm32*) arch="WASM" ;;
+                *) arch="x86_64" ;;
+              esac
+              # The leading number is the row order: the desktop app first, then web, then libretro.
+              # The link text is the kind of download rather than the file name. A 64-digit hash
+              # cannot wrap, so a long file name beside it would stretch every row over several
+              # lines.
+              case "$name" in
+                tetanes_libretro-*linux*) platform="7|libretro core (Linux)" kind="zip" ;;
+                tetanes_libretro-*darwin*) platform="8|libretro core (macOS)" kind="zip" ;;
+                tetanes_libretro-*windows*) platform="9|libretro core (Windows)" kind="zip" ;;
+                *.AppImage) platform="0|Linux" kind="AppImage" ;;
+                *.deb) platform="1|Linux" kind="Debian package" ;;
+                *linux*.tar.gz) platform="2|Linux" kind="binary" ;;
+                *.dmg) platform="3|macOS" kind="disk image" ;;
+                *darwin*.tar.gz) platform="4|macOS" kind="binary" ;;
+                *windows*.zip) platform="5|Windows" kind="MSI installer" ;;
+                *wasm32*) platform="6|Web" kind="static bundle" ;;
+                *) platform="99|Other" kind="$name" ;;
+              esac
+              # PowerShell's Get-FileHash writes uppercase hex, the other platforms lowercase.
+              sum=$(awk '{ print tolower($1) }' "$sum_file")
+              url="https://github.com/$REPO/releases/download/$RELEASE_TAG/$name"
+              echo "$platform|$arch|[$kind]($url)|\`$sum\`"
+            done | sort -t'|' -k1,1n -k3,3 | cut -d'|' -f2- | sed 's/|/ | /g; s/^/| /; s/$/ |/'
+          } > table.md
+          gh release view "$RELEASE_TAG" --repo "$REPO" --json body --jq .body \
+            | sed "/^$marker\$/,\$d" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > notes.md
+          { echo; cat table.md; } >> notes.md
+          gh release edit "$RELEASE_TAG" --repo "$REPO" --notes-file notes.md
+
           if [ ${#failed[@]} -gt 0 ]; then
             echo "${#failed[@]} artifact(s) not attached: ${failed[*]}"
             exit 1
