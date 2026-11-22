@@ -1172,7 +1172,7 @@
   72FA78C3, NTSC, 139, 0, 0, 4, 0, false, Horizontal, "Mahjang Companion (Asia) (Sachen) (Unl).nes"
   73140EEF, NTSC, 11, 0, 8, 4, 0, false, Vertical, "Bible Adventures (USA) (v1.3) (Unl).nes"
   7329118D, NTSC, 2, 0, 1, 8, 0, false, Horizontal, "Casino Kid II (USA).nes"
-  73298C87, PAL, 4, 0, 32, 16, 0, false, Horizontal, "Super Mario Bros. + Tetris + Nintendo World Cup (Europe).nes"
+  73298C87, PAL, 37, 0, 32, 16, 0, false, Horizontal, "Super Mario Bros. + Tetris + Nintendo World Cup (Europe).nes"
   73418721, NTSC, 0, 0, 1, 2, 0, false, Vertical, "Challenger (Japan).nes"
   73620901, NTSC, 2, 0, 1, 8, 0, false, Vertical, "Dr. Chaos (USA).nes"
   736FEBC4, NTSC, 4, 0, 32, 16, 0, true, Vertical, "Meng Huan - Xiang Shuai Chuan Qi Zhi Xue Hai Piao Ling (China) (Unl).nes"
