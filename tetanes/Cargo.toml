@@ -35,7 +35,6 @@ webgpu = []
 [dependencies]
 ahash = { version = "0.8.12", default-features = false, features = ["std"] }
 anyhow.workspace = true
-bincode.workspace = true
 bytemuck = "1.15"
 cfg-if.workspace = true
 crossbeam = "0.8"

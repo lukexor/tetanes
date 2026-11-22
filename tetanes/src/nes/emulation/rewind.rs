@@ -11,7 +11,7 @@ use tracing::error;
 #[derive(Default, Debug, Clone)]
 #[must_use]
 pub struct Slot {
-    /// A buffer sized to the cart's state
+    /// The serialized state.
     pub buf: Vec<u8>,
     /// Whether the buffer is filled.
     pub filled: bool,
@@ -27,9 +27,6 @@ pub struct Slot {
 ///
 /// Only runtime state is kept. ROM data and frame buffers are not to reduce memory. Rewinding
 /// re-renders frames, by clocking the restored state.
-///
-/// `ControlDeck` encodes a state at a fixed size for the life of a cart, so every slot can be sized
-/// once to reduce allocations.
 #[derive(Default, Debug)]
 #[must_use]
 pub struct Rewind {
@@ -41,9 +38,6 @@ pub struct Rewind {
     pub interval: usize,
     pub seconds: usize,
     pub frames: Vec<Slot>,
-    /// Bytes one state takes, which is fixed for the life of a cart. `0` until the first push after
-    /// a [`Rewind::clear`].
-    pub state_len: usize,
 }
 
 impl Rewind {
@@ -60,7 +54,6 @@ impl Rewind {
             interval,
             seconds,
             frames: vec![Slot::default(); Self::frame_size(seconds, interval)],
-            state_len: 0,
         }
     }
 
@@ -85,15 +78,15 @@ impl Rewind {
         self.resize();
     }
 
-    /// Resize the ring buffer slots to the current state length.
+    /// Resize the ring buffer to hold [`Rewind::seconds`] of snapshots.
     fn resize(&mut self) {
         self.frames.resize(
             Self::frame_size(self.seconds, self.interval),
             Slot::default(),
         );
-        let state_len = self.state_len;
-        for slot in &mut self.frames {
-            slot.buf.resize(state_len, 0);
+        // A shrink can leave the write position past the end.
+        if self.index >= self.frames.len() {
+            self.index = 0;
         }
     }
 
@@ -108,14 +101,10 @@ impl Rewind {
         }
         self.interval_counter = 0;
 
-        if self.state_len == 0 {
-            self.state_len = deck
-                .serialized_state_len()
-                .map_err(|err| Error::SerializationFailed(err.to_string()))?;
-            self.resize();
-        }
-
-        deck.serialize_state_into(&mut self.frames[self.index].buf)
+        // Writing over the slot's last state reuses its allocation. The slot stays empty if the
+        // write fails, since the write clears it first.
+        self.frames[self.index].filled = false;
+        deck.serialize_state(&mut self.frames[self.index].buf)
             .map_err(|err| Error::SerializationFailed(err.to_string()))?;
         self.frames[self.index].filled = true;
 
@@ -159,9 +148,7 @@ impl Rewind {
         self.interval_counter = 0;
         self.index = 0;
         self.count = 0;
-        // The buffers go too: `clear` runs on unload, and the next cart's state may be a different
-        // size.
-        self.state_len = 0;
+        // The buffers go too: `clear` runs on unload, and the next cart's state may be far smaller.
         for slot in &mut self.frames {
             slot.buf = Vec::new();
             slot.filled = false;

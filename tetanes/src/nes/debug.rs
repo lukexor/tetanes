@@ -21,7 +21,10 @@ use tracing::{error, info};
 ///
 /// Independent of the save-state version, the way the game database's is: a change to how a
 /// console is serialized says nothing about whether a debug file is still readable.
-const DEBUG_VERSION: &str = "1";
+const DEBUG_VERSION: &str = "2";
+
+/// The version of debug files written in the bincode format, which [`fs::v3`] reads.
+const DEBUG_VERSION_V3: u8 = b'1';
 
 /// What a labelled address is called, and what was written about it.
 // Not `Label`: the window that draws these takes that name from egui.
@@ -123,7 +126,14 @@ impl Session {
         if !fs::exists(path) {
             return Self::default();
         }
-        match fs::load_version_path(path, DEBUG_VERSION) {
+        let session = fs::load_data_path(path).and_then(|(version, data)| {
+            if version == DEBUG_VERSION_V3 {
+                return fs::v3::decode(&data).map(|(session, _)| session);
+            }
+            fs::check_version(version, DEBUG_VERSION)?;
+            fs::decode_value(&data)
+        });
+        match session {
             Ok(session) => {
                 info!("loaded debug session: {path:?}");
                 session

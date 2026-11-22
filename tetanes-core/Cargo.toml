@@ -33,7 +33,9 @@ cfg-if.workspace = true
 dirs.workspace = true
 flate2 = "1.0"
 rand = "0.10"
+rmp-serde.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

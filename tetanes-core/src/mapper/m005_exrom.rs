@@ -1743,10 +1743,8 @@ mod tests {
         write(&mut mapper, &mut cart, 0x5C00, 0x37);
         cart.memory.chr_write(0x2800, 0x64);
 
-        let config = bincode::config::legacy();
-        let bytes = bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
-        let (mut restored, _) = bincode::serde::decode_from_slice::<Memory, _>(&bytes, config)
-            .expect("memory deserializes");
+        let bytes = crate::fs::encode_value(&cart.memory).expect("memory serializes");
+        let mut restored = crate::fs::decode_value::<Memory>(&bytes).expect("memory deserializes");
         // Save states carry only the mutable tail, so ROM comes back from the running console -
         // `Bus::load_state` does this for real.
         assert!(restored.restore_rom_from(&cart.memory), "same cart");

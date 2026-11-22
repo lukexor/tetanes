@@ -287,7 +287,7 @@ macro_rules! boards {
         /// serde's derive always uses the position, and honours neither an explicit discriminant
         /// nor `#[repr]` - `enum E { A = 10 }` still serializes as `0`. bincode 2's own non-serde
         /// derive behaves the same way. So the stability has to live here, in our code, where it
-        /// survives changing serializer. Self-describing formats still see the variant name.
+        /// survives changing serializer. MessagePack, the save format, writes the variant name.
         impl Serialize for Mapper {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 match self {
@@ -1193,62 +1193,39 @@ mod tests {
         );
     }
 
-    /// The serialized tag must be the `boards!` row's stable id, not the variant's declaration
-    /// position - that is the whole reason `Serialize`/`Deserialize` are hand-rolled rather than
-    /// derived. serde's derive always uses the position and honours neither an explicit
-    /// discriminant nor `#[repr]`.
-    ///
-    /// Moving a row must leave this passing; renumbering an id must make it fail.
+    /// A save state names its board, so renaming a `boards!` variant is a format change and moving
+    /// a row is not.
     #[test]
-    fn variant_tag_is_the_stable_id_not_the_declaration_position() {
-        let config = bincode::config::legacy();
-        // The id is the board's primary mapper number: NROM 0, UxROM 2.
-        let cases = [
-            (Mapper::none(), 0xFFFF),
-            (
-                Mapper::from(Nrom {
-                    mirroring: Mirroring::Vertical,
-                }),
-                0,
-            ),
-            (
-                Mapper::from(Uxrom {
-                    mirroring: Mirroring::Vertical,
-                    prg_bank: 0,
-                }),
-                2,
-            ),
-        ];
-        for (mapper, expected_id) in cases {
-            let bytes = bincode::serde::encode_to_vec(&mapper, config).expect("serializes");
-            let tag = u32::from_le_bytes(bytes[..4].try_into().expect("4-byte tag"));
-            assert_eq!(
-                tag, expected_id,
-                "{mapper:?} must serialize with id {expected_id}"
-            );
-
-            let (restored, _) = bincode::serde::decode_from_slice::<Mapper, _>(&bytes, config)
-                .expect("round trips");
-            assert_eq!(
-                std::mem::discriminant(&restored),
-                std::mem::discriminant(&mapper),
-                "{mapper:?} must come back as the same board"
-            );
-        }
+    fn a_saved_board_is_tagged_by_name() {
+        let mapper = Mapper::from(Uxrom {
+            mirroring: Mirroring::Vertical,
+            prg_bank: 0,
+        });
+        let bytes = crate::fs::encode_value(&mapper).expect("serializes");
+        assert!(
+            bytes.windows(b"Uxrom".len()).any(|w| w == b"Uxrom"),
+            "the board's name is in the state"
+        );
+        let restored = crate::fs::decode_value::<Mapper>(&bytes).expect("round trips");
+        assert!(matches!(restored, Mapper::Uxrom(_)), "{restored:?}");
     }
 
-    /// An id this build does not know must be a clean error, not a panic or the wrong board.
+    /// A board this build does not know must be a clean error, not a panic or the wrong board.
     #[test]
-    fn an_unknown_board_id_fails_to_deserialize() {
-        let config = bincode::config::legacy();
-        let mapper = Mapper::from(Nrom {
+    fn an_unknown_board_name_fails_to_deserialize() {
+        let mapper = Mapper::from(Uxrom {
             mirroring: Mirroring::Vertical,
+            prg_bank: 0,
         });
-        let mut bytes = bincode::serde::encode_to_vec(&mapper, config).expect("serializes");
-        bytes[..4].copy_from_slice(&9999u32.to_le_bytes());
+        let mut bytes = crate::fs::encode_value(&mapper).expect("serializes");
+        let at = bytes
+            .windows(b"Uxrom".len())
+            .position(|w| w == b"Uxrom")
+            .expect("named");
+        bytes[at..at + 5].copy_from_slice(b"Zzrom");
         assert!(
-            bincode::serde::decode_from_slice::<Mapper, _>(&bytes, config).is_err(),
-            "an unknown board id must not decode"
+            crate::fs::decode_value::<Mapper>(&bytes).is_err(),
+            "an unknown board must not decode"
         );
     }
 
@@ -1337,11 +1314,9 @@ mod tests {
         mapper.write_register(&mut cart.memory, 0x8000, 1);
         assert_eq!(cart.memory.prg_peek(0x8000), 16, "bank switched");
 
-        let config = bincode::config::legacy();
-        let bytes = bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
-        let (mut restored, _) =
-            bincode::serde::decode_from_slice::<crate::memory::Memory, _>(&bytes, config)
-                .expect("memory deserializes");
+        let bytes = crate::fs::encode_value(&cart.memory).expect("memory serializes");
+        let mut restored =
+            crate::fs::decode_value::<crate::memory::Memory>(&bytes).expect("memory deserializes");
 
         assert_eq!(
             restored.prg_peek(0x8000),
@@ -1374,12 +1349,9 @@ mod tests {
             cart.memory.chr_write(0x2000, 0x5A);
             assert_eq!(cart.memory.chr_peek(0x2000), 0x5A);
 
-            let config = bincode::config::legacy();
-            let bytes =
-                bincode::serde::encode_to_vec(&cart.memory, config).expect("memory serializes");
-            let (mut restored, _) =
-                bincode::serde::decode_from_slice::<crate::memory::Memory, _>(&bytes, config)
-                    .expect("memory deserializes");
+            let bytes = crate::fs::encode_value(&cart.memory).expect("memory serializes");
+            let mut restored = crate::fs::decode_value::<crate::memory::Memory>(&bytes)
+                .expect("memory deserializes");
 
             mapper.update_banks(&mut restored);
             assert_eq!(

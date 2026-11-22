@@ -453,8 +453,9 @@ impl Renderer {
         let path = Config::default_config_dir().join("gui.dat");
         if fs::exists(&path) {
             let data = fs::load_raw_path(path).context("failed to load gui memory")?;
-            let config = bincode::config::legacy();
-            let (memory, _) = bincode::serde::decode_from_slice(&data, config)
+            // The file has no header, so a bincode one is told apart by failing to decode.
+            let memory = fs::decode_value(&data)
+                .or_else(|_| fs::v3::decode(&data).map(|(memory, _)| memory))
                 .context("failed to deserialize gui memory")?;
             ctx.memory_mut(|mem| {
                 *mem = memory;
@@ -485,9 +486,7 @@ impl Renderer {
 
         let path = Config::default_config_dir().join("gui.dat");
         self.ctx.memory(|mem| {
-            let config = bincode::config::legacy();
-            let data = bincode::serde::encode_to_vec(mem, config)
-                .context("failed to serialize gui memory")?;
+            let data = fs::encode_value(mem).context("failed to serialize gui memory")?;
             fs::save_raw_path(path, &data).context("failed to save gui memory")
         })?;
         self.last_save_time = Instant::now();
@@ -1399,5 +1398,40 @@ impl Viewport {
         } else {
             self.cursor_icon = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `gui.dat` is egui's own `Memory`, written in the save format, so egui's types have to
+    /// survive it: window positions, and data stored under an `Id`.
+    #[test]
+    fn gui_memory_round_trips() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("tetanes-test");
+        let window = egui::Id::new("window");
+        // A window's area is recorded once a frame has laid it out.
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::Window::new("window")
+                    .id(window)
+                    .show(ui.ctx(), |ui| ui.label("contents"));
+                ui.ctx().data_mut(|data| data.insert_persisted(id, 42u32));
+            });
+        }
+
+        let data = ctx.memory(fs::encode_value).expect("serializes");
+        let mut restored = fs::decode_value::<egui::Memory>(&data).expect("deserializes");
+        assert_eq!(restored.data.get_persisted::<u32>(id), Some(42));
+        let original = ctx.memory(|mem| mem.area_rect(window));
+        assert!(original.is_some(), "the window has a position to save");
+        // egui saves where a window is, and measures its size again when it is next shown.
+        assert_eq!(
+            restored.area_rect(window).map(|rect| rect.min),
+            original.map(|rect| rect.min),
+            "the window's position"
+        );
     }
 }
