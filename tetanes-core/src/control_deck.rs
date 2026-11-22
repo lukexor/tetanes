@@ -735,6 +735,7 @@ impl ControlDeck {
             | Mapper::JalecoJf13(_)
             | Mapper::JalecoJfxx(_)
             | Mapper::Sunsoft2(_)
+            | Mapper::UnromVariant(_)
             | Mapper::IremTamS1(_)
             | Mapper::NesEvent(_)
             | Mapper::JalecoJf11(_)

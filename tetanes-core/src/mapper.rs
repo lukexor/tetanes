@@ -158,6 +158,7 @@ pub use m024_m026_vrc6::Revision as Vrc6Revision;
 pub use m033_m048_taito_tc0190::Revision as TaitoRevision;
 pub use m071_bf909x::Revision as Bf909Revision;
 pub use m089_m093_sunsoft2::Revision as Sunsoft2Revision;
+pub use m094_m180_unrom_variants::Revision as UnromVariantRevision;
 
 /// Errors that mappers can return while loading.
 ///
@@ -799,6 +800,11 @@ boards! {
     Sunsoft2(Sunsoft2) = 89 in m089_m093_sunsoft2 {
         89 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRom),
         93 => Sunsoft2::load(cart, Sunsoft2Revision::ChrRam),
+    },
+    /// `UN1ROM` (Mapper 094) and `UNROM` with a 74HC08 (Mapper 180)
+    UnromVariant(UnromVariant) = 94 in m094_m180_unrom_variants {
+        94 => UnromVariant::load(cart, UnromVariantRevision::Un1rom),
+        180 => UnromVariant::load(cart, UnromVariantRevision::Hc08),
     },
     /// `Irem TAM-S1` (Mapper 097)
     IremTamS1(IremTamS1) = 97 in m097_irem_tam_s1 { 97 => IremTamS1::load(cart) },
