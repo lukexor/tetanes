@@ -870,7 +870,7 @@ impl NesHeader {
             82 => "Mapper 082 - Taito X1017",
             83 => "Mapper 083",
             84 => "Mapper 084",
-            85 => "Mapper 085 - Vrc7",
+            85 => "Mapper 085 - VRC7",
             86 => "Mapper 086 - Jaleco JF-13",
             87 => "Mapper 087 - Jaleco JF-xx",
             88 => "Mapper 088",

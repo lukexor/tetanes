@@ -802,6 +802,8 @@ boards! {
     },
     /// `Taito X1-017` (Mapper 082)
     TaitoX1017(TaitoX1017) = 82 in m082_taito_x1017 { 82 => TaitoX1017::load(cart) },
+    /// `VRC7` (Mapper 085)
+    Vrc7(Vrc7) = 85 in m085_vrc7 { 85 => Vrc7::load(cart) },
     /// `Jaleco JF-13` (Mapper 086)
     JalecoJf13(JalecoJf13) = 86 in m086_jaleco_jf13 { 86 => JalecoJf13::load(cart) },
     /// `Jaleco JF-xx` (Mapper 087)

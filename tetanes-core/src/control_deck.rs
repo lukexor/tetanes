@@ -737,6 +737,7 @@ impl ControlDeck {
             | Mapper::Nina003006(_)
             | Mapper::TaitoX1005(_)
             | Mapper::TaitoX1017(_)
+            | Mapper::Vrc7(_)
             | Mapper::JalecoJf13(_)
             | Mapper::JalecoJfxx(_)
             | Mapper::Sunsoft2(_)
