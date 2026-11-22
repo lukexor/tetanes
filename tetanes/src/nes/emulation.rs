@@ -842,6 +842,9 @@ impl State {
                     joypad.set_button(*button, pressed);
                     self.record
                         .push(self.control_deck.frame_number(), event.clone());
+                    // A paused console sends no frame snapshots, so the Input pane would otherwise
+                    // keep drawing the buttons as they were before the click.
+                    self.send_debug_snapshot();
                 }
             }
             EmulationEvent::LoadReplay((name, replay)) => {
@@ -867,6 +870,8 @@ impl State {
                         .set_button(*button, pressed);
                     self.record
                         .push(self.control_deck.frame_number(), event.clone());
+                    // As for a joypad button, so the Input pane's mat follows a click while paused.
+                    self.send_debug_snapshot();
                 }
             }
             EmulationEvent::RunState(mode) => self.set_run_state(*mode),
@@ -918,15 +923,18 @@ impl State {
                 }
             }
             EmulationEvent::UnloadRom => self.unload_rom(),
+            // Both send a snapshot so the Input pane's Zapper row follows them while paused.
             EmulationEvent::ZapperAim((x, y)) => {
                 self.control_deck.aim_zapper(*x, *y);
                 self.record
                     .push(self.control_deck.frame_number(), event.clone());
+                self.send_debug_snapshot();
             }
             EmulationEvent::ZapperTrigger => {
                 self.control_deck.trigger_zapper();
                 self.record
                     .push(self.control_deck.frame_number(), event.clone());
+                self.send_debug_snapshot();
             }
         }
     }
@@ -997,19 +1005,24 @@ impl State {
             ConfigEvent::EmulatePpuWarmup(enabled) => {
                 self.control_deck.set_emulate_ppu_warmup(*enabled);
             }
+            // Each of these changes what the debugger's Input pane draws, and a paused console
+            // sends no frame snapshots to show it.
             ConfigEvent::FourPlayer(four_player) => {
                 self.control_deck.set_four_player(*four_player);
+                self.send_debug_snapshot();
             }
             ConfigEvent::Ports([one, two]) => {
                 let expansion = self.control_deck.expansion_device();
                 self.control_deck.set_port_device(Player::One, *one);
                 self.control_deck.set_port_device(Player::Two, *two);
                 self.sync_devices(self.ports(), expansion);
+                self.send_debug_snapshot();
             }
             ConfigEvent::Expansion(expansion) => {
                 let ports = self.ports();
                 self.control_deck.set_expansion_device(*expansion);
                 self.sync_devices(ports, *expansion);
+                self.send_debug_snapshot();
             }
             ConfigEvent::GenieCodeAdded(genie_code) => {
                 self.control_deck.add_patch(genie_code.into());
