@@ -391,12 +391,10 @@ pub struct CpuSnapshot {
     pub zapper_light: bool,
 }
 
-/// The interrupt lines and the sources that drive them, as of a [`CpuSnapshot`].
+/// The pending interrupts and the sources that drive them, as of a [`CpuSnapshot`].
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Interrupts {
-    /// The PPU is holding the NMI line low, which it does from vblank until `$2002` is read.
-    pub nmi_line: bool,
     /// The CPU has seen the NMI edge and will take the NMI after the current instruction.
     pub nmi_latched: bool,
     /// `$2000` bit 7, without which vblank asserts no NMI.
@@ -413,7 +411,6 @@ impl Interrupts {
     /// Read the interrupt state off `bus` without moving anything.
     pub fn capture(bus: &Bus) -> Self {
         Self {
-            nmi_line: bus.ppu.nmi_pending,
             nmi_latched: bus.cpu.irq_flags.contains(IrqFlags::NMI),
             nmi_enabled: bus.ppu.ctrl_nmi_enabled,
             frame_irq: bus.apu.frame_counter.irq_pending,
@@ -773,7 +770,7 @@ impl panes::Pane for Pane {
     fn default_size(self) -> f32 {
         match self {
             Self::Disassembly => 0.0,
-            Self::Registers => 136.0,
+            Self::Registers => 116.0,
             Self::Stack => 160.0,
             Self::CallStack => 120.0,
             Self::Breakpoints => 160.0,
@@ -2039,99 +2036,68 @@ impl State {
             }
         });
 
-        self.interrupt_row(ui);
+        written = self.interrupt_row(ui).or(written);
 
         if let Some(write) = written {
             self.tx.event(EmulationEvent::DebugWrite(write));
         }
     }
 
-    /// The interrupt lines and what drives them, drawn like the status flags: bright for
-    /// asserted, dimmed for quiet.
-    fn interrupt_row(&self, ui: &mut Ui) {
+    /// The pending interrupts as checkboxes, laid out the way Mesen's CPU status lays them out.
+    /// Ticking one raises it and clearing one drops it. Returns the write a click asked for.
+    fn interrupt_row(&self, ui: &mut Ui) -> Option<DebugWrite> {
         let interrupts = self.snapshot.interrupts;
         let blocked = self.snapshot.cpu.status.contains(Status::I);
-        let mark = |ui: &mut Ui, name: &str, on: bool, hover: String| {
-            let text = if on {
-                RichText::new(name).monospace().strong()
-            } else {
-                RichText::new(name).monospace().color(Color32::DARK_GRAY)
-            };
-            ui.label(text).on_hover_text(hover);
-        };
-        let state = |on: bool| if on { "asserted" } else { "quiet" };
-
-        ui.horizontal(|ui| {
-            ui.strong("NMI")
-                .on_hover_text("Non-maskable interrupt, which the PPU raises at vblank.");
-            mark(
-                ui,
-                "EN",
-                interrupts.nmi_enabled,
-                format!(
-                    "$2000 bit 7: {}. Without it vblank raises no NMI.",
-                    if interrupts.nmi_enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    }
-                ),
-            );
-            mark(
-                ui,
-                "LINE",
-                interrupts.nmi_line,
-                format!(
-                    "PPU NMI line: {}. Held from vblank until $2002 is read.",
-                    state(interrupts.nmi_line)
-                ),
-            );
-            mark(
-                ui,
-                "TAKE",
-                interrupts.nmi_latched,
-                if interrupts.nmi_latched {
-                    "The CPU has seen the edge and takes the NMI after this instruction."
-                } else {
-                    "No NMI is waiting to be taken."
-                }
-                .to_owned(),
-            );
-        });
-        ui.horizontal(|ui| {
+        let mut written = None;
+        ui.horizontal_wrapped(|ui| {
             let line = interrupts.irq_line();
-            ui.strong("IRQ").on_hover_text(if line && blocked {
-                "Asserted, but the I flag is holding it off."
+            ui.strong("IRQs:").on_hover_text(if line && blocked {
+                "An IRQ source is asserted, but the I flag is holding it off."
             } else if line {
-                "Asserted, and taken once the current instruction finishes."
+                "An IRQ source is asserted, and the IRQ is taken once the current instruction \
+                 finishes."
             } else {
-                "No source is asserting IRQ."
+                "No interrupt is pending."
             });
-            mark(
-                ui,
-                "FRAME",
-                interrupts.frame_irq,
-                format!(
-                    "APU frame counter: {}. Cleared by reading $4015.",
-                    state(interrupts.frame_irq)
-                ),
-            );
-            mark(
-                ui,
-                "DMC",
-                interrupts.dmc_irq,
-                format!(
-                    "APU DMC: {}. Cleared by writing $4015.",
-                    state(interrupts.dmc_irq)
-                ),
-            );
-            mark(
-                ui,
-                "CART",
-                interrupts.mapper_irq,
-                format!("Cartridge board: {}.", state(interrupts.mapper_irq)),
-            );
+
+            let mut nmi = interrupts.nmi_latched;
+            if ui
+                .checkbox(&mut nmi, "NMI")
+                .on_hover_text(format!(
+                    "Taken after the current instruction. NMI on VBlank ($2000 bit 7) is {}.",
+                    if interrupts.nmi_enabled { "on" } else { "off" }
+                ))
+                .changed()
+            {
+                written = Some(DebugWrite::Nmi(nmi));
+            }
+
+            // Each board keeps its IRQ in its own registers, so there is no one place to set it.
+            let mut cart = interrupts.mapper_irq;
+            ui.add_enabled(false, egui::Checkbox::new(&mut cart, "Cart"))
+                .on_disabled_hover_text(
+                    "Raised and acknowledged by the cartridge board's own registers.",
+                );
+
+            let mut frame = interrupts.frame_irq;
+            if ui
+                .checkbox(&mut frame, "Frame Counter")
+                .on_hover_text("APU frame counter. A read of $4015 acknowledges it.")
+                .changed()
+            {
+                written = Some(DebugWrite::FrameIrq(frame));
+            }
+
+            let mut dmc = interrupts.dmc_irq;
+            if ui
+                .checkbox(&mut dmc, "DMC")
+                .on_hover_text("APU DMC, at the end of a sample. A write to $4015 acknowledges it.")
+                .changed()
+            {
+                written = Some(DebugWrite::DmcIrq(dmc));
+            }
         });
+        written
     }
 
     /// An address in both the terms it can be named in: where the CPU sees it, and where the byte

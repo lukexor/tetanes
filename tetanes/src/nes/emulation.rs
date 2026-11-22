@@ -31,7 +31,7 @@ use tetanes_core::{
     bus::Bus,
     common::ResetKind,
     control_deck::{self, Clocked, ControlDeck, LoadedRom},
-    cpu::Cpu,
+    cpu::{Cpu, IrqFlags},
     debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
     input::{ExpansionDevice, Player, PortDevice},
     memory::{PRG_PAGES, Page},
@@ -1198,6 +1198,11 @@ impl State {
             DebugWrite::Y(y) => bus.cpu.y = y,
             DebugWrite::Sp(sp) => bus.cpu.sp = sp,
             DebugWrite::Status(status) => bus.cpu.status = status,
+            // The CPU polls these every cycle, so a change is seen before the next instruction
+            // ends, the way a source changing on its own would be.
+            DebugWrite::Nmi(pending) => bus.cpu.irq_flags.set(IrqFlags::NMI, pending),
+            DebugWrite::FrameIrq(pending) => bus.apu.frame_counter.irq_pending = pending,
+            DebugWrite::DmcIrq(pending) => bus.apu.dmc.irq_pending = pending,
             DebugWrite::Memory { addr, val } => {
                 bus.poke(addr, val);
             }
