@@ -314,7 +314,9 @@ Support for the following mappers is currently implemented or in development:
 | 086 | Jaleco JF-13          | Moero!! Pro Yakyuu                         | 1                      | &lt;1%                 |
 | 087 | Jaleco JF-xx          | City Connection, Argus, The Goonies (J)    | 9                      | &lt;1%                 |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;1%                 |
+| 089 | Sunsoft-2             | Tenka no Goikenban: Mito Koumon            | 1                      | &lt;1%                 |
 | 092 | Jaleco JF-19          | Moero!! Pro Soccer, Pro Yakyuu '88         | 2                      | &lt;1%                 |
+| 093 | Sunsoft-2             | Fantasy Zone (J), Shanghai                 | 2                      | &lt;1%                 |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
 | 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;1%                 |
 | 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;1%                 |
@@ -336,7 +338,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2386 / 2447           | ~97.5%                 |
+|     |                       |                                            | ~2389 / 2447           | ~97.6%                 |
 
 <!-- markdownlint-enable line-length -->
 
