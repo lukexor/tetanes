@@ -117,9 +117,16 @@ buy no polymorphism and cost an import in every file plus a name clash whenever 
 **Adding a component method does not mean adding a trait.** Prefer an inherent method plus an
 explicit forwarding call from the owner.
 
-Save states, SRAM, and rewind all serialize component state with `serde` + `bincode` + deflate
-(`fs.rs`, magic header + `SAVE_VERSION`). Changing a serialized field layout breaks existing save
-states.
+Save states, SRAM, and rewind all serialize component state with `serde` + MessagePack + deflate
+(`fs.rs`, magic header + `SAVE_VERSION`). Fields and variants are written by name, so a new field
+with `#[serde(default)]` keeps existing saves loading. A field that changes meaning needs a version
+bump and a conversion.
+
+Files from before MessagePack (save version 3) are read by `fs::v3`, which decodes them with
+bincode **and the current types**. Adding, removing, retyping or reordering a serialized field
+therefore breaks version 3 loading for that type until its version 3 shape is copied into
+`fs::v3` with a conversion. The fixtures in `tetanes-core/test_roms/save_states/v3/` catch this
+for the components, and `boards.txt` there pins every board's bytes.
 
 **A save state carries only mutable state.** `Memory` puts its immutable regions (PRG-ROM, CHR-ROM)
 first and marks the boundary with `ram_start`; its hand-written `Serialize`/`Deserialize` store the

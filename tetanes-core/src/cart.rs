@@ -520,7 +520,14 @@ impl Cart {
     fn lookup_info(crc32: u32) -> Option<GameInfo> {
         const GAME_DB: &[u8] = include_bytes!("../game_db.dat");
 
-        let Ok(games) = fs::load_version::<Vec<GameInfo>>(GAME_DB, fs::GAME_DB_VERSION) else {
+        let games = fs::load_data(GAME_DB).and_then(|(version, data)| {
+            if version == fs::v3::GAME_DB_VERSION {
+                return fs::v3::decode::<Vec<GameInfo>>(&data).map(|(games, _)| games);
+            }
+            fs::check_version(version, fs::GAME_DB_VERSION)?;
+            fs::decode_value::<Vec<GameInfo>>(&data)
+        });
+        let Ok(games) = games else {
             error!("failed to load `game_db.dat`");
             return None;
         };
@@ -1066,6 +1073,15 @@ impl std::fmt::Debug for NesHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A database that fails to decode only logs, and every ROM then loads with its header's
+    /// guesses. A format or version change must re-encode `game_db.dat` with it.
+    #[test]
+    fn the_game_database_decodes() {
+        // The first entry in `game_database.txt`.
+        let info = Cart::lookup_info(0x0013_88B3).expect("found by crc");
+        assert_eq!(info.mapper_num, 4);
+    }
 
     macro_rules! test_headers {
         ($(($test:ident, $data:expr, $header:expr$(,)?)),*$(,)?) => {$(

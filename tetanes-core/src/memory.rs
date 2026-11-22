@@ -196,6 +196,9 @@ struct MemoryState<'a> {
     chr_writable: bool,
     ciram: &'a Range<usize>,
     ex_ram: &'a Range<usize>,
+    // A byte string reads back without a call per byte. Bincode writes it the same as a `Vec<u8>`,
+    // so version 3 states still decode.
+    #[serde(with = "serde_bytes")]
     ram: &'a [u8],
 }
 
@@ -213,6 +216,7 @@ struct MemoryStateOwned {
     chr_writable: bool,
     ciram: Range<usize>,
     ex_ram: Range<usize>,
+    #[serde(with = "serde_bytes")]
     ram: Vec<u8>,
 }
 
@@ -1416,16 +1420,14 @@ mod tests {
         memory.region_mut(Src::PrgRam).fill(0x5A);
         memory.set_rom_crc32(0xDEAD_BEEF);
 
-        let config = bincode::config::legacy();
-        let bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
+        let bytes = crate::fs::encode_value(&memory).expect("serializes");
         assert!(
             bytes.len() < memory.data.len() / 4,
             "384 KiB of ROM must not be in the {} byte state",
             bytes.len()
         );
 
-        let (mut restored, _) =
-            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).expect("deserializes");
+        let mut restored = crate::fs::decode_value::<Memory>(&bytes).expect("deserializes");
         assert!(
             restored.region_ref(Src::PrgRom).iter().all(|&b| b == 0),
             "ROM comes back empty"
@@ -1484,10 +1486,8 @@ mod tests {
         running.region_mut(Src::PrgRom).fill(0xAA);
 
         // Through serde, because that is what leaves a state with no ROM of its own.
-        let config = bincode::config::legacy();
-        let bytes = bincode::serde::encode_to_vec(&running, config).expect("serializes");
-        let (mut state, _) =
-            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).expect("deserializes");
+        let bytes = crate::fs::encode_value(&running).expect("serializes");
+        let mut state = crate::fs::decode_value::<Memory>(&bytes).expect("deserializes");
 
         state.set_rom_crc32(0x2222_2222);
         assert!(
@@ -1566,12 +1566,24 @@ mod tests {
             ex_ram: 8 * 1024,
             ..Default::default()
         });
-        let config = bincode::config::legacy();
-        let mut bytes = bincode::serde::encode_to_vec(&memory, config).expect("serializes");
         // Claim a larger allocation than the RAM tail that follows.
-        bytes[..8].copy_from_slice(&(memory.data.len() as u64 * 2).to_le_bytes());
+        let state = MemoryState {
+            len: memory.data.len() * 2,
+            ram_start: memory.ram_start,
+            rom_crc32: memory.rom_crc32,
+            prg_rom: &memory.prg_rom,
+            prg_ram: &memory.prg_ram,
+            battery_ext: &memory.battery_ext,
+            battery_ext_len: memory.battery_ext_len,
+            chr: &memory.chr,
+            chr_writable: memory.chr_writable,
+            ciram: &memory.ciram,
+            ex_ram: &memory.ex_ram,
+            ram: &memory.data[memory.ram_start..],
+        };
+        let bytes = crate::fs::encode_value(&state).expect("serializes");
         assert!(
-            bincode::serde::decode_from_slice::<Memory, _>(&bytes, config).is_err(),
+            crate::fs::decode_value::<Memory>(&bytes).is_err(),
             "an inconsistent state must not decode"
         );
     }

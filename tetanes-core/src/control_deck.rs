@@ -456,16 +456,6 @@ impl Default for ControlDeck {
 }
 
 impl ControlDeck {
-    /// Byte layout every console state is written in, whichever entry point writes it.
-    //
-    // Here rather than at each call site so an embedder cannot pick a different one and get a
-    // state this crate will not read back. Fixint, so a state's size depends on the cart's layout
-    // and not on the values in it - which is what lets `serialized_state_len` be asked once.
-    const STATE_CONFIG: bincode::config::Configuration<
-        bincode::config::LittleEndian,
-        bincode::config::Fixint,
-    > = bincode::config::legacy();
-
     /// Creates a NES `ControlDeck` with the default configuration.
     ///
     /// It has no cartridge yet, so [`ControlDeck::is_running`] is `false` until a ROM is loaded
@@ -1047,19 +1037,20 @@ impl ControlDeck {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        fs::load::<Bus>(reader)
-            .map_err(Error::SaveState)
-            .and_then(|mut bus| {
-                bus.input.clear(); // Discard inputs from save states
-                self.load_bus(bus)
-            })
+        let (version, data) = fs::load_data(reader).map_err(Error::SaveState)?;
+        let bus = if version == fs::v3::SAVE_VERSION {
+            fs::v3::decode_state(&data).map(|(bus, _)| bus)
+        } else {
+            fs::check_version(version, fs::SAVE_VERSION).and_then(|()| fs::decode_value(&data))
+        }
+        .map_err(Error::SaveState)?;
+        self.restore_state(bus)
     }
 
     /// Bytes [`ControlDeck::serialize_state_into`] needs for the console as it stands.
     ///
-    /// Fixed for the life of a loaded cart, so a frontend that must size a buffer once - libretro
-    /// asks for a state size before it will ever call for a state - can ask here and keep the
-    /// answer.
+    /// The size changes by a few bytes as the console runs, since small numbers encode shorter.
+    /// A frontend that must size a buffer once, as libretro does, pads this answer.
     ///
     /// # Errors
     ///
@@ -1068,10 +1059,7 @@ impl ControlDeck {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        let mut size = bincode::enc::write::SizeWriter::default();
-        bincode::serde::encode_into_writer(&self.bus, &mut size, Self::STATE_CONFIG)
-            .map_err(|err| Error::SaveState(fs::Error::SerializationFailed(err.to_string())))?;
-        Ok(size.bytes_written)
+        fs::encoded_len(&self.bus).map_err(Error::SaveState)
     }
 
     /// Writes the console's state into `dst`, returning how many bytes it took.
@@ -1082,13 +1070,29 @@ impl ControlDeck {
     ///
     /// # Errors
     ///
-    /// If no ROM is loaded, or `dst` is shorter than [`ControlDeck::serialized_state_len`].
+    /// If no ROM is loaded, or `dst` is too short for the state.
     pub fn serialize_state_into(&self, dst: &mut [u8]) -> Result<usize> {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        bincode::serde::encode_into_slice(&self.bus, dst, Self::STATE_CONFIG)
-            .map_err(|err| Error::SaveState(fs::Error::SerializationFailed(err.to_string())))
+        let len = dst.len();
+        let mut rest = dst;
+        fs::encode_value_into(&self.bus, &mut rest).map_err(Error::SaveState)?;
+        Ok(len - rest.len())
+    }
+
+    /// Replaces the contents of `dst` with the console's state, in the form
+    /// [`ControlDeck::serialize_state_into`] writes.
+    ///
+    /// # Errors
+    ///
+    /// If no ROM is loaded or the state cannot be encoded.
+    pub fn serialize_state(&self, dst: &mut Vec<u8>) -> Result<()> {
+        if self.loaded_rom().is_none() {
+            return Err(Error::RomNotLoaded);
+        };
+        dst.clear();
+        fs::encode_value_into(&self.bus, dst).map_err(Error::SaveState)
     }
 
     /// Restores a console state written by [`ControlDeck::serialize_state_into`].
@@ -1102,8 +1106,18 @@ impl ControlDeck {
         if self.loaded_rom().is_none() {
             return Err(Error::RomNotLoaded);
         };
-        let (mut bus, _) = bincode::serde::decode_from_slice::<Bus, _>(src, Self::STATE_CONFIG)
-            .map_err(|err| Error::SaveState(fs::Error::DeserializationFailed(err.to_string())))?;
+        let bus = fs::decode_value::<Bus>(src).map_err(Error::SaveState)?;
+        self.restore_state(bus)
+    }
+
+    /// Replaces the running console with a decoded save state, releasing the buttons it held.
+    ///
+    /// [`ControlDeck::load_bus`] restores a state exactly, buttons included.
+    ///
+    /// # Errors
+    ///
+    /// If the state belongs to a different cart.
+    pub fn restore_state(&mut self, mut bus: Bus) -> Result<()> {
         bus.input.clear(); // Discard inputs from save states
         self.load_bus(bus)
     }
@@ -2134,24 +2148,25 @@ mod tests {
         assert_eq!(run(&mut restored, 30), expected);
     }
 
-    /// A frontend asks for a state size once and reuses the answer for the life of the cart, so a
-    /// state must never outgrow it. Nothing serialized in a [`Bus`] is variable-length today, and
-    /// this is what says so when a future field is.
+    /// A frontend asks for a state size once, right after loading, and pads it for the life of the
+    /// cart, as libretro does with 4 KiB and more. A state grows only by the bytes its numbers gain
+    /// as they get larger, and a field that grows without bound would show here.
     #[test]
-    fn a_serialized_state_is_the_same_size_every_frame() {
+    fn a_serialized_state_stays_near_its_first_size() {
         let mut deck = spritecans();
-        let expected = deck.serialized_state_len().expect("sizes");
+        let first = deck.serialized_state_len().expect("sizes");
 
-        for frame in 0..300 {
+        let mut largest = first;
+        for _ in 0..300 {
             let _ = deck.clock_frame().expect("clocks");
-            // Every joypad bit set, so input state cannot be what holds the size still.
+            // Every joypad bit set, the largest the input state gets.
             deck.joypad_mut(Player::One).buttons = JoypadBtnState::all();
-            assert_eq!(
-                deck.serialized_state_len().expect("sizes"),
-                expected,
-                "frame {frame}"
-            );
+            largest = largest.max(deck.serialized_state_len().expect("sizes"));
         }
+        assert!(
+            largest < first + 1024,
+            "grew from {first} to {largest} bytes"
+        );
     }
 
     /// A buffer that cannot hold the state is an error, not a truncated state a later load would

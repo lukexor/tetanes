@@ -86,8 +86,8 @@ impl TryFrom<usize> for Channel {
 #[must_use]
 // Declaration order is the memory layout, so the fields the mixer touches every block sit together
 // ahead of the ones only reconfiguration reads. Adding a field here places it in a cache line
-// rather than leaving that to the compiler, and moving one changes the save-state layout - both
-// want `SAVE_VERSION` bumped.
+// rather than leaving that to the compiler. Adding or moving a field breaks reading version 3
+// states, which `fs::v3` decodes positionally with this type.
 #[repr(C)]
 pub struct Apu {
     /// Cycles into the current [`Apu::CYCLE_SIZE`] block.

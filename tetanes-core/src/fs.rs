@@ -12,26 +12,28 @@ use tracing::warn;
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
+pub mod v3;
+
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.
 //
-// Bump this whenever a serialized field is added, removed, retyped **or reordered**. Reordering is
-// the one that does not look like a format change and is the most dangerous: bincode writes struct
-// fields positionally with no names or tags, and the header carries no checksum, so a reorder that
-// happens to preserve the total byte count deserializes without error into the wrong fields and
-// resumes a corrupt console.
-const SAVE_VERSION: &str = "3";
+// Payloads are MessagePack with field and variant names. Adding a field with `#[serde(default)]`,
+// removing one, or reordering needs no bump. Bump this when a field changes meaning, and convert
+// the older version where it is read. Any field change still breaks `v3`, which decodes with the
+// current types.
+/// Header version of save states and replays.
+pub const SAVE_VERSION: &str = "4";
 /// Version for the bundled game database.
 ///
 /// Deliberately independent of `SAVE_VERSION`: the database is not save-state data, so bumping
 /// the save format must not invalidate it.
-pub const GAME_DB_VERSION: &str = "1";
+pub const GAME_DB_VERSION: &str = "2";
 /// Version for battery-backed cart RAM.
 ///
 /// Deliberately independent of `SAVE_VERSION` for the same reason as [`GAME_DB_VERSION`]: a
 /// `.sram` file holds a board's battery contents, not a snapshot of console state, so a save-state
 /// layout change must not make a player's save games unreadable. Bump this only when a board
 /// changes what it writes.
-pub const SRAM_VERSION: &str = "1";
+pub const SRAM_VERSION: &str = "2";
 
 /// A `Result` from a save-file operation.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -106,6 +108,15 @@ pub fn write_header(f: &mut impl Write, version: &str) -> std::io::Result<()> {
 ///
 /// If the header fails to validate, then an error is returned.
 pub fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
+    check_version(read_header(f)?, expected)
+}
+
+/// Reads a `TetaNES` saved state header, returning the version byte it names.
+///
+/// # Errors
+///
+/// If the reader fails or the magic does not match.
+pub fn read_header(f: &mut impl Read) -> Result<u8> {
     let mut magic = [0u8; SAVE_FILE_MAGIC_LEN];
     f.read_exact(&mut magic)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
@@ -122,14 +133,94 @@ pub fn validate_header(f: &mut impl Read, expected: &str) -> Result<()> {
     let mut version = [0u8];
     f.read_exact(&mut version)
         .map_err(|s| Error::InvalidHeader(s.to_string()))?;
-    if version == expected.as_bytes() {
+    Ok(version[0])
+}
+
+/// Checks a version byte from [`read_header`] against the version a reader expects.
+///
+/// # Errors
+///
+/// If `found` is not `expected`.
+pub fn check_version(found: u8, expected: &str) -> Result<()> {
+    if [found] == expected.as_bytes() {
         Ok(())
     } else {
-        let found = String::from_utf8_lossy(&version);
+        let found = String::from_utf8_lossy(&[found]).into_owned();
         Err(Error::InvalidHeader(format!(
             "invalid version (expected {expected:?}, found {found:?})",
         )))
     }
+}
+
+/// Serializes `value` as the payload of every save file and save state.
+///
+/// MessagePack with field and variant names, and byte arrays written as one block.
+///
+/// # Errors
+///
+/// If the value cannot be serialized.
+pub fn encode_value<T>(value: &T) -> Result<Vec<u8>>
+where
+    T: ?Sized + Serialize,
+{
+    let mut data = Vec::new();
+    encode_value_into(value, &mut data)?;
+    Ok(data)
+}
+
+/// Serializes `value` like [`encode_value`], appending to `writer`.
+///
+/// # Errors
+///
+/// If the value cannot be serialized or the writer fails.
+pub fn encode_value_into<T>(value: &T, writer: impl Write) -> Result<()>
+where
+    T: ?Sized + Serialize,
+{
+    let mut serializer = rmp_serde::Serializer::new(writer)
+        .with_struct_map()
+        .with_bytes(rmp_serde::config::BytesMode::ForceAll);
+    value
+        .serialize(&mut serializer)
+        .map_err(|err| Error::SerializationFailed(err.to_string()))
+}
+
+/// The number of bytes [`encode_value`] writes for `value`.
+///
+/// # Errors
+///
+/// If the value cannot be serialized.
+pub fn encoded_len<T>(value: &T) -> Result<usize>
+where
+    T: ?Sized + Serialize,
+{
+    /// Counts what is written and keeps none of it.
+    struct Counter(usize);
+    impl Write for Counter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    encode_value_into(value, &mut counter)?;
+    Ok(counter.0)
+}
+
+/// Deserializes a payload written by [`encode_value`]. Bytes past the value are ignored.
+///
+/// # Errors
+///
+/// If `data` does not hold a `T`.
+pub fn decode_value<T>(data: &[u8]) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    T::deserialize(&mut rmp_serde::Deserializer::new(data))
+        .map_err(|err| Error::DeserializationFailed(err.to_string()))
 }
 
 /// Deflate-compresses `data` into `writer`.
@@ -179,9 +270,7 @@ pub fn save_version<T>(mut writer: impl Write, value: &T, version: &str) -> Resu
 where
     T: ?Sized + Serialize,
 {
-    let config = bincode::config::legacy();
-    let data = bincode::serde::encode_to_vec(value, config)
-        .map_err(|err| Error::SerializationFailed(err.to_string()))?;
+    let data = encode_value(value)?;
     write_header(&mut writer, version).map_err(Error::WriteHeaderFailed)?;
     encode(&mut writer, &data).map_err(Error::EncodingFailed)?;
     Ok(())
@@ -211,7 +300,12 @@ pub fn load_sram<T>(reader: impl Read) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    load_version(reader, SRAM_VERSION)
+    let (version, data) = load_data(reader)?;
+    if version == v3::SRAM_VERSION {
+        return v3::decode(&data).map(|(value, _)| value);
+    }
+    check_version(version, SRAM_VERSION)?;
+    decode_value(&data)
 }
 
 /// Copies an unreadable save alongside itself as `<name>.bak`.
@@ -272,16 +366,34 @@ where
 /// # Errors
 ///
 /// If the reader fails, its header does not match, or it does not hold a `T`.
-pub fn load_version<T>(mut reader: impl Read, version: &str) -> Result<T>
+pub fn load_version<T>(reader: impl Read, version: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    validate_header(&mut reader, version)?;
+    let (found, data) = load_data(reader)?;
+    check_version(found, version)?;
+    decode_value(&data)
+}
+
+/// Reads a save file's header and payload, returning the version byte it was written with and
+/// its decompressed payload, for a reader that decodes more than one version.
+///
+/// # Errors
+///
+/// If the reader fails, the magic does not match, or the payload is not valid deflate.
+pub fn load_data(mut reader: impl Read) -> Result<(u8, Vec<u8>)> {
+    let version = read_header(&mut reader)?;
     let data = decode(&mut reader).map_err(Error::DecodingFailed)?;
-    let config = bincode::config::legacy();
-    let (res, _) = bincode::serde::decode_from_slice(&data, config)
-        .map_err(|err| Error::DeserializationFailed(err.to_string()))?;
-    Ok(res)
+    Ok((version, data))
+}
+
+/// Reads a save file's header and payload from `path`, as [`load_data`] does.
+///
+/// # Errors
+///
+/// If the file cannot be read, the magic does not match, or the payload is not valid deflate.
+pub fn load_data_path(path: impl AsRef<Path>) -> Result<(u8, Vec<u8>)> {
+    load_data(fs::reader_impl(path)?)
 }
 
 /// Reads bytes from `reader` with no header, decompression or deserialization.
@@ -391,7 +503,9 @@ where
     T: DeserializeOwned,
 {
     let path = path.as_ref();
-    load_version_path(path, SRAM_VERSION).inspect_err(|err| back_up_sram(path, err))
+    fs::reader_impl(path)
+        .and_then(load_sram)
+        .inspect_err(|err| back_up_sram(path, err))
 }
 
 /// Reads bytes from `path` with no header, decompression or deserialization.
@@ -539,16 +653,27 @@ mod tests {
         );
     }
 
-    /// `.sram` files written by every released build carry version "1". Bumping `SAVE_VERSION`
-    /// must not move this one, or every player's battery saves stop validating and the next
-    /// `unload_rom` overwrites them with blank RAM.
+    /// Bumping `SAVE_VERSION` must not move the `.sram` version, or every player's battery saves
+    /// stop validating and the next `unload_rom` overwrites them with blank RAM. A new `.sram`
+    /// version needs a reader for the old one first.
     #[test]
     fn sram_header_is_pinned_to_the_released_version() {
-        assert_eq!(SRAM_VERSION, "1");
+        assert_eq!(SRAM_VERSION, "2");
 
         let mut file = Vec::new();
         write_header(&mut file, SRAM_VERSION).expect("write header");
-        assert_eq!(&file[SAVE_FILE_MAGIC_LEN..], b"1");
+        assert_eq!(&file[SAVE_FILE_MAGIC_LEN..], b"2");
+    }
+
+    /// Battery RAM written in the current format reads back as written.
+    #[test]
+    fn sram_round_trips() {
+        let mut file = Vec::new();
+        save_sram(&mut file, &vec![1u8, 2, 3]).expect("saves");
+        assert_eq!(
+            load_sram::<Vec<u8>>(file.as_slice()).expect("loads"),
+            [1, 2, 3]
+        );
     }
 
     #[test]

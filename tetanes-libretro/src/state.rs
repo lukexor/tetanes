@@ -7,7 +7,7 @@
 //! because netplay CRCs the whole buffer and uninitialised padding reads as a desync.
 
 use crate::log;
-use tetanes_core::control_deck::ControlDeck;
+use tetanes_core::{control_deck::ControlDeck, fs};
 
 /// Marks a buffer as this core's, so a state belonging to another core - or a file that is not a
 /// state at all - is refused instead of being handed to the decoder.
@@ -17,9 +17,11 @@ use tetanes_core::control_deck::ControlDeck;
 const MAGIC: &[u8; 8] = b"TETANES\x1a";
 
 /// The version of everything after the magic: this header, and the encoding of the payload under
-/// it. Bumping it rejects every older state, which is the honest answer when they can no longer be
-/// read.
-const FORMAT: u32 = 1;
+/// it. A bump needs a reader for the version before it, or every older state is refused.
+const FORMAT: u32 = 2;
+
+/// The format whose payload is a bincode console, read through [`fs::v3`].
+const FORMAT_V3: u32 = 1;
 
 /// Where [`FORMAT`] sits, and where the payload's length sits after it. Both little-endian `u32`s.
 const FORMAT_AT: usize = MAGIC.len();
@@ -124,7 +126,7 @@ impl State {
         }
         let format =
             u32::from_le_bytes(header[FORMAT_AT..LENGTH_AT].try_into().expect("four bytes"));
-        if format != FORMAT {
+        if format != FORMAT && format != FORMAT_V3 {
             log::error(&format!(
                 "that save state is version {format}; this core writes {FORMAT}"
             ));
@@ -143,7 +145,15 @@ impl State {
         };
         // The deck is what rejects a state belonging to another cart, which is why this hands over
         // the payload rather than restoring the bus itself.
-        if let Err(err) = deck.deserialize_state(payload) {
+        let restored = if format == FORMAT_V3 {
+            fs::v3::decode_state(payload)
+                .map_err(|err| err.to_string())
+                .and_then(|(bus, _)| deck.restore_state(bus).map_err(|err| err.to_string()))
+        } else {
+            deck.deserialize_state(payload)
+                .map_err(|err| err.to_string())
+        };
+        if let Err(err) = restored {
             log::error(&format!("failed to restore a save state: {err}"));
             return false;
         }
@@ -265,6 +275,23 @@ mod tests {
             !State::unserialize(&mut deck, &overlong),
             "a payload longer than the buffer holding it"
         );
+    }
+
+    /// RetroArch keeps states from older builds, whose payload is a bincode console.
+    #[test]
+    fn a_format_1_state_restores() {
+        const V3: &[u8] =
+            include_bytes!("../../tetanes-core/test_roms/save_states/v3/spritecans.sav");
+        let (_, payload) = fs::load_data(V3).expect("a v3 save");
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(MAGIC);
+        buffer.extend_from_slice(&FORMAT_V3.to_le_bytes());
+        buffer.extend_from_slice(&u32::try_from(payload.len()).expect("fits").to_le_bytes());
+        buffer.extend_from_slice(&payload);
+
+        let mut deck = deck();
+        assert!(State::unserialize(&mut deck, &buffer));
+        run(&mut deck, 1);
     }
 
     /// A buffer smaller than the size promised is the frontend and the core disagreeing, which is

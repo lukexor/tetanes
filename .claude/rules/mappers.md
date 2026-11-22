@@ -36,11 +36,19 @@ takes `0x1000 + n` instead, above every real NES 2.0 number, and `Mapper::none()
 0 is NROM.
 
 This is why `Serialize`/`Deserialize` for `Mapper` are hand-rolled. Serde's derive tags variants by
-_declaration position_ and honours neither an explicit discriminant nor `#[repr]`
+_declaration position_ and honors neither an explicit discriminant nor `#[repr]`
 (`enum E { A = 10 }` still serializes as `0`), and bincode 2's own non-serde derive behaves the
 same, so the stability has to live in our code to survive changing serializer.
-`mapper::tests::variant_tag_is_the_stable_id_not_the_declaration_position` pins the bytes, and
-`board_ids_are_unique_and_not_reserved` catches a duplicated id.
+
+Current save states are MessagePack, which tags a board by its **variant name**, so renaming a
+`boards!` variant breaks saves (`mapper::tests::a_saved_board_is_tagged_by_name`). Version 3 states
+tag a board by its id, and `fs::v3` still reads them, so ids stay assign-once while it exists
+(`fs::v3::tests::a_board_is_tagged_by_its_stable_id`). `board_ids_are_unique_and_not_reserved`
+catches a duplicated id.
+
+`fs::v3` decodes a version 3 board with its current struct, so changing a board's serialized
+fields breaks its version 3 states. `fs::v3::tests::board_bytes_match_version_3` fails when it
+does, and `UPDATE_SNAPSHOT=1` records a new board's hash.
 
 Where two boards share a mapper number (34 is BNROM or NINA-001 depending on CHR size) they carry
 mutually exclusive `if` guards, so loader dispatch never depends on row order either.

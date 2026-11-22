@@ -121,16 +121,21 @@ impl Replay {
 
     /// Loads a replay recording file.
     pub fn load_path(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Bus> {
-        let path = path.as_ref();
-        let State((bus, mut events)) = fs::load_path(path)?;
-        events.reverse(); // So we can pop off the end
-        self.events = events;
-        Ok(bus)
+        self.load(fs::load_raw_path(path)?.as_slice())
     }
 
     /// Loads a replay from a reader.
     pub fn load(&mut self, replay: impl Read) -> anyhow::Result<Bus> {
-        let State((bus, mut events)) = fs::load(replay)?;
+        let (version, data) = fs::load_data(replay)?;
+        let State((bus, mut events)) = if version == fs::v3::SAVE_VERSION {
+            // The console, then the events, each decoded with its current type.
+            let (bus, len) = fs::v3::decode_state(&data)?;
+            let (events, _) = fs::v3::decode(&data[len..])?;
+            State((bus, events))
+        } else {
+            fs::check_version(version, fs::SAVE_VERSION)?;
+            fs::decode_value(&data)?
+        };
         events.reverse(); // So we can pop off the end
         self.events = events;
         Ok(bus)
@@ -149,5 +154,52 @@ impl Replay {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A replay reads back its events in the order they happened.
+    #[test]
+    fn a_replay_round_trips() {
+        let events = vec![
+            ReplayFrame {
+                frame: 1,
+                event: ReplayEvent::ZapperTrigger,
+            },
+            ReplayFrame {
+                frame: 2,
+                event: ReplayEvent::Joypad((Player::One, JoypadBtn::A, ElementState::Pressed)),
+            },
+        ];
+        let mut file = Vec::new();
+        fs::save(&mut file, &State((Bus::default(), events))).expect("saves");
+
+        let mut replay = Replay::new();
+        let _ = replay.load(file.as_slice()).expect("loads");
+        assert!(matches!(
+            replay.next(1),
+            Some(EmulationEvent::ZapperTrigger)
+        ));
+        assert!(matches!(replay.next(2), Some(EmulationEvent::Joypad(_))));
+    }
+
+    /// A replay recorded by 0.18, whose console and events are bincode.
+    #[test]
+    fn a_version_3_replay_loads() {
+        const V3: &[u8] =
+            include_bytes!("../../../../tetanes-core/test_roms/save_states/v3/spritecans.replay");
+        const ROM: &[u8] = include_bytes!("../../../../tetanes-core/test_roms/spritecans.nes");
+        let mut replay = Replay::new();
+        let bus = replay.load(V3).expect("loads");
+        assert!(replay.events.is_empty());
+
+        let mut deck = tetanes_core::control_deck::ControlDeck::new();
+        deck.load_rom("spritecans", &mut &ROM[..])
+            .expect("rom loads");
+        deck.load_bus(bus)
+            .expect("the console is the recorded cart's");
     }
 }
