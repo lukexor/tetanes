@@ -317,7 +317,7 @@ Support for the following mappers is currently implemented or in development:
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | ~1%                    |
 | 080 | Taito X1-005          | Minelvaton Saga, Kyonshiizu 2              | 7                      | &lt;1%                 |
 | 082 | Taito X1-017          | SD Keiji - Blader, Kyuukyoku Harikiri      | 4                      | &lt;1%                 |
-| 085 | VRC7 (no FM audio)    | Lagrange Point, Tiny Toon Adventures 2 (J) | 2                      | &lt;1%                 |
+| 085 | VRC7                  | Lagrange Point, Tiny Toon Adventures 2 (J) | 2                      | &lt;1%                 |
 | 086 | Jaleco JF-13          | Moero!! Pro Yakyuu                         | 1                      | &lt;1%                 |
 | 087 | Jaleco JF-xx          | City Connection, Argus, The Goonies (J)    | 9                      | &lt;1%                 |
 | 088 | DxROM/Namco 108       | Quinty, Dragon Spirit - Aratanaru Densetsu | 3                      | &lt;1%                 |

@@ -9,7 +9,7 @@
 use crate::{
     cart::Cart,
     common::ResetKind,
-    mapper::{self, Map, Mapper, MapperOps, vrc_irq::VrcIrq},
+    mapper::{self, Map, Mapper, MapperOps, vrc_irq::VrcIrq, vrc7_audio::Audio},
     memory::{Memory, Src},
     ppu::Mirroring,
 };
@@ -27,6 +27,8 @@ pub struct Vrc7 {
     pub control: u8,
     /// The scanline and CPU-cycle IRQ counter shared with VRC4 and VRC6.
     pub irq: VrcIrq,
+    /// The FM synth at `$9010` and `$9030`.
+    pub audio: Audio,
 }
 
 impl Vrc7 {
@@ -45,6 +47,7 @@ impl Vrc7 {
             chr: [0; 8],
             control: 0,
             irq: VrcIrq::default(),
+            audio: Audio::default(),
         };
         board.update_banks(&mut cart.memory);
         Ok(board.into())
@@ -81,7 +84,7 @@ impl Vrc7 {
 
 impl Map for Vrc7 {
     fn mapper_ops(&self) -> MapperOps {
-        MapperOps::CLOCKED | MapperOps::IRQ
+        MapperOps::CLOCKED | MapperOps::IRQ | MapperOps::AUDIO
     }
 
     fn mirroring(&self) -> Mirroring {
@@ -142,11 +145,13 @@ impl Map for Vrc7 {
                 self.control = val;
                 self.update_prg_ram(memory);
                 memory.set_mirroring(self.mirroring());
+                self.audio.set_silenced(val & 0x40 != 0);
             }
             0xE008 => self.irq.write_reload(val),
             0xF000 => self.irq.write_control(val),
             0xF008 => self.irq.acknowledge(),
-            // $9010 and $9030 are the FM audio address and data ports.
+            0x9010 => self.audio.write_address(val),
+            0x9030 => self.audio.write_data(val),
             _ => (),
         }
     }
@@ -163,10 +168,16 @@ impl Map for Vrc7 {
 
     fn clock(&mut self) {
         self.irq.clock();
+        self.audio.clock();
     }
 
     fn reset(&mut self, kind: ResetKind) {
         self.irq.reset(kind);
+        self.audio.reset(kind);
+    }
+
+    fn output(&self) -> f32 {
+        self.audio.output()
     }
 }
 
