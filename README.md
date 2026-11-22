@@ -308,6 +308,8 @@ Support for the following mappers is currently implemented or in development:
 | 072 | Jaleco JF-17          | Pinball Quest (J), Moero!! Pro Tennis      | 3                      | &lt;1%                 |
 | 075 | VRC1                  | Ganbare Goemon!, Tetsuwan Atom             | 6                      | &lt;1%                 |
 | 076 | DxROM/Namco 108       | Megami Tensei: Digital Devil Story         | 1                      | &lt;1%                 |
+| 077 | Irem LROG017          | Napoleon Senki                             | 1                      | &lt;1%                 |
+| 078 | Jaleco JF-16/IF-12    | Holy Diver, Uchuusen Cosmo Carrier         | 2                      | &lt;1%                 |
 | 079 | NINA-003/006          | Black Jack, Double Strike                  | 16                     | ~1%                    |
 | 080 | Taito X1-005          | Minelvaton Saga, Kyonshiizu 2              | 7                      | &lt;1%                 |
 | 082 | Taito X1-017          | SD Keiji - Blader, Kyuukyoku Harikiri      | 4                      | &lt;1%                 |
@@ -318,6 +320,7 @@ Support for the following mappers is currently implemented or in development:
 | 092 | Jaleco JF-19          | Moero!! Pro Soccer, Pro Yakyuu '88         | 2                      | &lt;1%                 |
 | 093 | Sunsoft-2             | Fantasy Zone (J), Shanghai                 | 2                      | &lt;1%                 |
 | 095 | DxROM/Namco 108       | Dragon Buster                              | 1                      | &lt;1%                 |
+| 097 | Irem TAM-S1           | Kaiketsu Yanchamaru                        | 1                      | &lt;1%                 |
 | 105 | NES-EVENT             | Nintendo World Championships 1990          | 1                      | &lt;1%                 |
 | 113 | NINA-003/006          | HES 6-in-1, Total Funpak                   | ~3                     | &lt;1%                 |
 | 118 | TxSROM/MMC3           | Armadillo, Goal! Two, Pro Sport Hockey     | 6                      | &lt;1%                 |
@@ -338,7 +341,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2389 / 2447           | ~97.6%                 |
+|     |                       |                                            | ~2393 / 2447           | ~97.8%                 |
 
 <!-- markdownlint-enable line-length -->
 
