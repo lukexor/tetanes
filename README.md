@@ -301,6 +301,7 @@ Support for the following mappers is currently implemented or in development:
 | 064 | Tengen RAMBO-1        | Klax, Shinobi, Skull & Crossbones          | 7                      | &lt;1%                 |
 | 065 | Irem H3001            | Spartan X 2, Daiku no Gen-san 2            | 3                      | &lt;1%                 |
 | 066 | GxROM/MxROM           | Super Mario Bros. + Duck Hunt              | ~17                    | ~1%                    |
+| 067 | Sunsoft-3             | Fantasy Zone II (J), Sekai Manyuu Ki       | 2                      | &lt;1%                 |
 | 068 | Sunsoft-4             | After Burner, Maharaja                     | 4                      | &lt;1%                 |
 | 069 | Sunsoft/FME-7         | Batman: Return of the Joker, Gimmick!      | ~15                    | ~1%                    |
 | 070 | Bandai 74161/7432     | Kamen Rider Club, Space Shadow             | 7                      | &lt;1%                 |
@@ -343,7 +344,7 @@ Support for the following mappers is currently implemented or in development:
 | 207 | Taito X1-005          | Fudou Myouou Den                           | 1                      | &lt;1%                 |
 | 210 | Namco175/340          | Dream Master, Family Circuit '91           | 4                      | &lt;1%                 |
 | 232 | Camerica BF9096       | Quattro Adventure, Quattro Sports          | 4                      | &lt;1%                 |
-|     |                       |                                            | ~2395 / 2447           | ~97.9%                 |
+|     |                       |                                            | ~2397 / 2447           | ~98.0%                 |
 
 <!-- markdownlint-enable line-length -->
 

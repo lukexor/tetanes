@@ -761,6 +761,8 @@ boards! {
     IremH3001(IremH3001) = 65 in m065_irem_h3001 { 65 => IremH3001::load(cart) },
     /// `GxROM` (Mapper 066)
     Gxrom(Gxrom) = 66 in m066_gxrom { 66 => Gxrom::load(cart) },
+    /// `Sunsoft-3` (Mapper 067)
+    Sunsoft3(Sunsoft3) = 67 in m067_sunsoft3 { 67 => Sunsoft3::load(cart) },
     /// `Sunsoft-4` (Mapper 068)
     Sunsoft4(Sunsoft4) = 68 in m068_sunsoft4 { 68 => Sunsoft4::load(cart) },
     /// `Sunsoft FME7` (Mapper 069)
