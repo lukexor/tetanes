@@ -166,124 +166,138 @@ impl<I: SliceIndex<[u8]>> IndexMut<I> for Frame {
     }
 }
 
-/// Turns raw PPU frames into RGBA output.
-#[derive(Clone)]
-#[must_use]
-#[non_exhaustive]
-pub struct Video {
-    /// The filter applied to each frame.
-    pub filter: VideoFilter,
-    /// The frame the last [`Video::apply_filter`] wrote into.
-    pub frame: Frame,
-}
+// `Video` is public only with the `unstable` feature. A stable caller gets the same output from
+// `ControlDeck::frame_buffer`.
+#[cfg(feature = "unstable")]
+pub use decode::Video;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use decode::Video;
 
-impl Default for Video {
-    fn default() -> Self {
-        Self::new()
+/// The filter pipeline behind [`Video`].
+mod decode {
+    use super::*;
+
+    /// Turns raw PPU frames into RGBA output.
+    #[derive(Clone)]
+    #[must_use]
+    #[non_exhaustive]
+    pub struct Video {
+        /// The filter applied to each frame.
+        pub filter: VideoFilter,
+        /// The frame the last [`Video::apply_filter`] wrote into.
+        pub frame: Frame,
     }
-}
 
-impl Video {
-    /// Create a new Video decoder with the default filter.
-    pub fn new() -> Self {
-        Self::with_filter(VideoFilter::default())
-    }
-
-    /// Create a new Video encoder with a filter.
-    pub fn with_filter(filter: VideoFilter) -> Self {
-        Self {
-            filter,
-            frame: Frame::new(),
+    impl Default for Video {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
-    /// Applies the configured filter to a raw PPU frame and returns the RGBA result.
-    pub fn apply_filter(
-        &mut self,
-        buffer: &[u16; ppu::size::FRAME],
-        frame_number: u32,
-    ) -> &[u8; Frame::SIZE] {
-        let output = self.frame.as_array_mut();
-        match self.filter {
-            VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
-            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
+    impl Video {
+        /// Create a new Video decoder with the default filter.
+        pub fn new() -> Self {
+            Self::with_filter(VideoFilter::default())
         }
 
-        self.frame.as_array()
-    }
-
-    /// Applies the configured filter to a raw PPU frame, writing the RGBA result into `output`.
-    pub fn apply_filter_into(
-        &self,
-        buffer: &[u16; ppu::size::FRAME],
-        frame_number: u32,
-        output: &mut [u8; Frame::SIZE],
-    ) {
-        match self.filter {
-            VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
-            VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
+        /// Create a new Video encoder with a filter.
+        pub fn with_filter(filter: VideoFilter) -> Self {
+            Self {
+                filter,
+                frame: Frame::new(),
+            }
         }
-    }
 
-    /// Fills a fully rendered frame with RGB colors.
-    pub fn decode_buffer(buffer: &[u16; ppu::size::FRAME], output: &mut [u8; Frame::SIZE]) {
-        for (color, [r, g, b, _]) in buffer.iter().zip(output.as_chunks_mut::<4>().0) {
-            let index = (*color as usize) * 3;
-            assert!(Ppu::NTSC_PALETTE.len() > index + 2);
-            *r = Ppu::NTSC_PALETTE[index];
-            *g = Ppu::NTSC_PALETTE[index + 1];
-            *b = Ppu::NTSC_PALETTE[index + 2];
+        /// Applies the configured filter to a raw PPU frame and returns the RGBA result.
+        pub fn apply_filter(
+            &mut self,
+            buffer: &[u16; ppu::size::FRAME],
+            frame_number: u32,
+        ) -> &[u8; Frame::SIZE] {
+            let output = self.frame.as_array_mut();
+            match self.filter {
+                VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
+                VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
+            }
+
+            self.frame.as_array()
         }
-    }
 
-    /// Applies the NTSC filter to the given video buffer.
-    ///
-    /// Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
-    /// to translate it to Rust
-    /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
-    /// See also: <https://wiki.nesdev.org/w/index.php/NTSC_video>
-    pub fn apply_ntsc_filter(
-        buffer: &[u16; ppu::size::FRAME],
-        frame_number: u32,
-        output: &mut [u8; Frame::SIZE],
-    ) {
-        // Hoisted out of the per-pixel loop: `even_phase` only depends on the frame parity, not
-        // on the pixel.
-        let even_phase = u32::from(frame_number & 0x01 != 0x01);
+        /// Applies the configured filter to a raw PPU frame, writing the RGBA result into `output`.
+        pub fn apply_filter_into(
+            &self,
+            buffer: &[u16; ppu::size::FRAME],
+            frame_number: u32,
+            output: &mut [u8; Frame::SIZE],
+        ) {
+            match self.filter {
+                VideoFilter::Pixellate => Self::decode_buffer(buffer, output),
+                VideoFilter::Ntsc => Self::apply_ntsc_filter(buffer, frame_number, output),
+            }
+        }
 
-        let mut prev_color = 0;
-        // Rolling replacement for the per-pixel `(2 + y * 341 + x + even_phase) % 3`: `phase`
-        // only ever needs `+ 1 mod 3` per pixel, recomputed from scratch just once per row.
-        let mut phase = 0;
-        for (idx, (color, pixels)) in buffer.iter().zip(output.as_chunks_mut::<4>().0).enumerate() {
-            let x = idx % 256;
-            let entry = if x == 0 {
-                // Remove pixel 0 artifact from not having a valid previous pixel
-                let y = (idx / 256) as u32;
-                phase = (2 + y * 341 + even_phase) % 3;
-                None
-            } else {
-                phase = if phase == 2 { 0 } else { phase + 1 };
-                let index = phase as usize
-                    + ((prev_color & 0x3F) as usize) * 3
-                    + (*color as usize) * 3 * 64;
-                NTSC_PALETTE.get(index * 3..index * 3 + 3)
-            };
-            prev_color = u32::from(*color);
-            // Alpha is left alone: `Frame::new` sets it to 255 and nothing here clears it.
-            match entry {
-                Some(rgb) => pixels[..3].copy_from_slice(rgb),
-                None => pixels[..3].fill(0),
+        /// Fills a fully rendered frame with RGB colors.
+        pub fn decode_buffer(buffer: &[u16; ppu::size::FRAME], output: &mut [u8; Frame::SIZE]) {
+            for (color, [r, g, b, _]) in buffer.iter().zip(output.as_chunks_mut::<4>().0) {
+                let index = (*color as usize) * 3;
+                assert!(Ppu::NTSC_PALETTE.len() > index + 2);
+                *r = Ppu::NTSC_PALETTE[index];
+                *g = Ppu::NTSC_PALETTE[index + 1];
+                *b = Ppu::NTSC_PALETTE[index + 2];
+            }
+        }
+
+        /// Applies the NTSC filter to the given video buffer.
+        ///
+        /// Amazing implementation Bisqwit! Much faster than my original, but boy what a pain
+        /// to translate it to Rust
+        /// Source: <https://bisqwit.iki.fi/jutut/kuvat/programming_examples/nesemu1/nesemu1.cc>
+        /// See also: <https://wiki.nesdev.org/w/index.php/NTSC_video>
+        pub fn apply_ntsc_filter(
+            buffer: &[u16; ppu::size::FRAME],
+            frame_number: u32,
+            output: &mut [u8; Frame::SIZE],
+        ) {
+            // Hoisted out of the per-pixel loop: `even_phase` only depends on the frame parity, not
+            // on the pixel.
+            let even_phase = u32::from(frame_number & 0x01 != 0x01);
+
+            let mut prev_color = 0;
+            // Rolling replacement for the per-pixel `(2 + y * 341 + x + even_phase) % 3`: `phase`
+            // only ever needs `+ 1 mod 3` per pixel, recomputed from scratch just once per row.
+            let mut phase = 0;
+            for (idx, (color, pixels)) in
+                buffer.iter().zip(output.as_chunks_mut::<4>().0).enumerate()
+            {
+                let x = idx % 256;
+                let entry = if x == 0 {
+                    // Remove pixel 0 artifact from not having a valid previous pixel
+                    let y = (idx / 256) as u32;
+                    phase = (2 + y * 341 + even_phase) % 3;
+                    None
+                } else {
+                    phase = if phase == 2 { 0 } else { phase + 1 };
+                    let index = phase as usize
+                        + ((prev_color & 0x3F) as usize) * 3
+                        + (*color as usize) * 3 * 64;
+                    NTSC_PALETTE.get(index * 3..index * 3 + 3)
+                };
+                prev_color = u32::from(*color);
+                // Alpha is left alone: `Frame::new` sets it to 255 and nothing here clears it.
+                match entry {
+                    Some(rgb) => pixels[..3].copy_from_slice(rgb),
+                    None => pixels[..3].fill(0),
+                }
             }
         }
     }
-}
 
-impl std::fmt::Debug for Video {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Video")
-            .field("filter", &self.filter)
-            .finish()
+    impl std::fmt::Debug for Video {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("Video")
+                .field("filter", &self.filter)
+                .finish()
+        }
     }
 }
 
@@ -295,7 +309,7 @@ impl std::fmt::Debug for Video {
 // otherwise land on whichever frame first turns the filter on. The length - 512 colors x 64 previous
 // colors x 3 phases, as triples - is spelled out rather than imported from the generator, which
 // `build.rs` owns; `ntsc_palette_matches_the_generator` asserts the two agree byte for byte.
-pub static NTSC_PALETTE: &[u8; 512 * 64 * 3 * 3] =
+pub(crate) static NTSC_PALETTE: &[u8; 512 * 64 * 3 * 3] =
     include_bytes!(concat!(env!("OUT_DIR"), "/ntsc_palette.bin"));
 
 #[cfg(test)]

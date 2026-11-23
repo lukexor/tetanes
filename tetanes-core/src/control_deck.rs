@@ -40,12 +40,15 @@
 
 pub use crate::{
     apu::Channel,
-    cart::Error as CartError,
     cpu::StateMismatch,
     mapper::{Bf909Revision, Error as MapperError, MapperRevision, Mmc3Revision},
     memory::RamState,
 };
 
+#[cfg(any(test, feature = "unstable"))]
+use crate::debug::{
+    AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory,
+};
 use crate::sys::fs as sys_fs;
 use crate::{
     apu::{self, Apu},
@@ -59,10 +62,6 @@ use crate::{
     patch::Patch,
     ppu,
     video::{Frame, Video, VideoFilter},
-};
-#[cfg(any(test, feature = "unstable"))]
-use crate::debug::{
-    AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -1798,7 +1797,6 @@ impl ControlDeck {
 }
 
 impl ControlDeck {
-
     /// Returns the current four player mode.
     #[inline]
     pub const fn four_player(&self) -> FourPlayer {

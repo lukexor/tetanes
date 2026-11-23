@@ -2,12 +2,16 @@
 //!
 //! # Stability
 //!
+//! [`Cart`] is stable: loading a ROM and reading what its header and the game database say about
+//! it. The board and memory inside it, [`Cart::mapper`] and [`Cart::memory`], need the `unstable`
+//! feature. See the crate-level [stability](crate#stability) note.
+//!
 //! [`Cart`]'s accessors are not field reads: [`Cart::mirroring`] decodes header flag bits,
 //! [`Cart::mapper_num`] and [`Cart::submapper_num`] prefer the game database's answer over the
-//! header's, and [`Cart::prg_rom`] and [`Cart::chr_rom`] trim the padding [`Memory`] added to
-//! reach a whole page. Reading the header or memory directly gets a different answer from the
-//! one the `ControlDeck` is running on. See the crate-level [stability](crate#stability) note for
-//! the tier this belongs to and why.
+//! header's, and [`Cart::prg_rom`] and [`Cart::chr_rom`] trim the padding `Memory` added to reach
+//! a whole page.
+
+pub use crate::ppu::Mirroring;
 
 use crate::{
     common::NesRegion,
@@ -15,7 +19,6 @@ use crate::{
     mapper::{self, Mapper},
     memory::RamState,
     memory::{Memory, MemoryLayout, Src},
-    ppu::Mirroring,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -78,27 +81,27 @@ impl Error {
 #[must_use]
 pub struct Cart {
     /// The ROM's name, taken from the path it was loaded from.
-    pub name: String,
+    pub(crate) name: String,
     /// The iNES/NES 2.0 header it was built from.
-    pub header: NesHeader,
+    pub(crate) header: NesHeader,
     /// The region the cart runs in.
-    pub region: NesRegion,
+    pub(crate) region: NesRegion,
     /// How the cart's RAM was initialized at power-on.
-    pub ram_state: RamState,
+    pub(crate) ram_state: RamState,
     /// The board serving this cart.
-    pub mapper: Mapper,
+    pub(crate) mapper: Mapper,
     /// All of the cart's memory, and the page tables that address it.
-    pub memory: Memory,
+    pub(crate) memory: Memory,
     /// Bytes of CHR-ROM; 0 for a cart with CHR-RAM instead.
-    pub chr_rom_size: usize,
+    pub(crate) chr_rom_size: usize,
     /// Bytes of CHR-RAM; 0 for a cart with CHR-ROM instead.
-    pub chr_ram_size: usize,
+    pub(crate) chr_ram_size: usize,
     /// Bytes of PRG-ROM.
-    pub prg_rom_size: usize,
+    pub(crate) prg_rom_size: usize,
     /// Bytes of PRG-RAM, battery-backed or not.
-    pub prg_ram_size: usize,
+    pub(crate) prg_ram_size: usize,
     /// What the game database knows about this ROM, matched by CRC.
-    pub game_info: Option<GameInfo>,
+    pub(crate) game_info: Option<GameInfo>,
 }
 
 impl Default for Cart {
@@ -217,15 +220,13 @@ impl Cart {
     ///
     /// ```no_run
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # #[cfg(feature = "unstable")] {
-    /// use tetanes_core::{cart::Cart, memory::RamState};
+    /// use tetanes_core::{cart::Cart, control_deck::RamState};
     ///
     /// let rom = std::fs::read("some_awesome_game.nes")?;
     /// let cart = Cart::from_rom("some_awesome_game", &mut rom.as_slice(), RamState::Random)?;
     ///
     /// println!("mapper {} ({})", cart.mapper_num(), cart.mapper_board());
     /// println!("{} PRG-ROM bytes, battery: {}", cart.prg_rom().len(), cart.battery_backed());
-    /// # }
     /// # Ok(())
     /// # }
     /// ```
@@ -553,6 +554,63 @@ impl Cart {
     pub const fn set_region(&mut self, region: NesRegion) {
         self.region = region;
     }
+
+    /// The iNES/NES 2.0 header the cart was built from.
+    pub const fn header(&self) -> &NesHeader {
+        &self.header
+    }
+
+    /// What the game database knows about this ROM, matched by CRC.
+    #[must_use]
+    pub const fn game_info(&self) -> Option<&GameInfo> {
+        self.game_info.as_ref()
+    }
+
+    /// The region the cart runs in.
+    pub const fn region(&self) -> NesRegion {
+        self.region
+    }
+
+    /// How the cart's RAM was initialized at power-on.
+    pub const fn ram_state(&self) -> RamState {
+        self.ram_state
+    }
+
+    /// Bytes of PRG-RAM, battery-backed or not.
+    #[must_use]
+    pub const fn prg_ram_size(&self) -> usize {
+        self.prg_ram_size
+    }
+
+    /// Bytes of CHR-RAM. Zero for a cart with CHR-ROM instead.
+    #[must_use]
+    pub const fn chr_ram_size(&self) -> usize {
+        self.chr_ram_size
+    }
+}
+
+/// The board and memory inside the cart, with the `unstable` feature.
+#[cfg(feature = "unstable")]
+impl Cart {
+    /// The board serving this cart.
+    pub const fn mapper(&self) -> &Mapper {
+        &self.mapper
+    }
+
+    /// The board serving this cart, to replace or adjust.
+    pub const fn mapper_mut(&mut self) -> &mut Mapper {
+        &mut self.mapper
+    }
+
+    /// All of the cart's memory, and the page tables that address it.
+    pub const fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    /// All of the cart's memory, to edit before the cart is loaded.
+    pub const fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
 }
 
 impl std::fmt::Display for Cart {
@@ -578,6 +636,7 @@ impl std::fmt::Display for Cart {
 /// or submapper; a database entry overrides the header.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub struct GameInfo {
     /// CRC32 of the ROM's PRG and CHR data, which is what the database is keyed by.
     pub crc32: u32,
@@ -587,6 +646,18 @@ pub struct GameInfo {
     pub mapper_num: u16,
     /// The submapper number the database says this ROM uses.
     pub submapper_num: u8,
+}
+
+impl GameInfo {
+    /// Creates a database entry for the ROM whose CRC32 is `crc32`.
+    pub const fn new(crc32: u32, region: NesRegion, mapper_num: u16, submapper_num: u8) -> Self {
+        Self {
+            crc32,
+            region,
+            mapper_num,
+            submapper_num,
+        }
+    }
 }
 
 /// Which cartridge header format a ROM carries.

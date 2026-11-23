@@ -7,6 +7,7 @@
 #![warn(missing_docs)]
 
 pub mod action;
+pub mod cart;
 #[macro_use]
 pub mod common;
 pub mod control_deck;
@@ -18,53 +19,49 @@ pub(crate) mod sys;
 pub mod time;
 pub mod video;
 
-// The emulated components. Each is `pub` with the `unstable` feature, for debuggers and other
-// tools that reach into the machine, and outside semantic versioning either way. Without the
-// feature they are crate-private, and the few types the `ControlDeck` API names are re-exported
-// from `control_deck`.
+// What is inside the console's case. Each is `pub` with the `unstable` feature, for debuggers and
+// other tools that reach into the machine, and outside semantic versioning either way. Without the
+// feature they are crate-private, and the few types the stable API names are re-exported from
+// stable modules.
 //
-// Their crate-private form allows dead code and unused imports. Constants, debugger helpers and
-// re-exports kept for the `unstable` API have no caller inside the crate.
+// The crate-private form allows dead code: about sixty `pub` items exist for `unstable` callers
+// and have no caller inside the crate. The `--all-features` lint, where these modules are `pub`,
+// still rejects private dead code in them.
 #[cfg(feature = "unstable")]
 pub mod apu;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod apu;
 #[cfg(feature = "unstable")]
 pub mod bus;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod bus;
-#[cfg(feature = "unstable")]
-pub mod cart;
-#[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
-pub(crate) mod cart;
 #[cfg(feature = "unstable")]
 pub mod cpu;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod cpu;
 /// Component debuggers.
 #[cfg(feature = "unstable")]
 pub mod debug;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod debug;
 #[cfg(feature = "unstable")]
 pub mod mapper;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod mapper;
 #[cfg(feature = "unstable")]
 pub mod memory;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod memory;
 #[cfg(feature = "unstable")]
 pub mod ppu;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code, unused_imports)]
+#[allow(dead_code)]
 pub(crate) mod ppu;
 
 pub mod prelude {
@@ -72,25 +69,24 @@ pub mod prelude {
 
     pub use crate::{
         action::Action,
+        cart::{Cart, Mirroring},
         common::{NesRegion, ResetKind},
         control_deck::{
             Channel, Clocked, Config, ControlDeck, HeadlessMode, MapperRevision, RamState,
         },
         genie::GenieCode,
-        input::{ExpansionDevice, FourPlayer, Player, PortDevice},
+        input::{ExpansionDevice, FourPlayer, Joypad, Player, PortDevice},
         video::Frame,
     };
 
     /// The emulated components, with the `unstable` feature.
-    // The crate's own tests use these through the prelude, so they build under `test` as well.
-    #[cfg(any(test, feature = "unstable"))]
+    #[cfg(feature = "unstable")]
     pub use crate::{
         apu::Apu,
-        cart::Cart,
         cpu::Cpu,
         input::Input,
         mapper::{Map, Mapper},
-        ppu::{Mirroring, Ppu},
+        ppu::Ppu,
     };
 }
 
@@ -99,17 +95,18 @@ mod tests {
     use super::prelude::*;
     use crate::{
         apu::{
-            dmc::Dmc, filter::FilterChain, frame_counter::FrameCounter, noise::Noise, pulse::Pulse,
-            triangle::Triangle,
+            Apu, dmc::Dmc, filter::FilterChain, frame_counter::FrameCounter, noise::Noise,
+            pulse::Pulse, triangle::Triangle,
         },
         bus::{self, Bus},
-        cpu::{IrqFlags, Status, instr::AddrMode},
+        cpu::{Cpu, IrqFlags, Status, instr::AddrMode},
         debug::Debugger,
-        mapper::{BOARD_LAYOUTS, MapperOps},
+        input::Input,
+        mapper::{BOARD_LAYOUTS, Mapper, MapperOps},
         memory::ConstArray,
         memory::Memory,
         patch::Patches,
-        ppu::{PaletteRam, frame::Frame as PpuFrame, mask, scroll::Scroll, sprite::Sprite},
+        ppu::{PaletteRam, Ppu, frame::Frame as PpuFrame, mask, scroll::Scroll, sprite::Sprite},
     };
 
     /// Utility to aid in struct field layout size and alignment.

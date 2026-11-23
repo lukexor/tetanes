@@ -163,11 +163,13 @@ impl Disasm {
     }
 
     /// How many bytes the instruction occupies, opcode included.
-    // `allow` rather than `expect`: the lint only fires where the type is public, which depends on
-    // the `unstable` feature.
-    #[allow(
-        clippy::len_without_is_empty,
-        reason = "an instruction is never zero bytes"
+    // The lint only fires where the type is public, which is with the `unstable` feature.
+    #[cfg_attr(
+        feature = "unstable",
+        expect(
+            clippy::len_without_is_empty,
+            reason = "an instruction is never zero bytes"
+        )
     )]
     pub const fn len(&self) -> u16 {
         1 + self.instr.addr_mode.operand_len() as u16

@@ -16,7 +16,6 @@ const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
 #[cfg(feature = "unstable")]
 pub mod v3;
 #[cfg(not(feature = "unstable"))]
-#[allow(dead_code)]
 pub(crate) mod v3;
 
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.

@@ -154,6 +154,10 @@ pub use mmc1::{Mmc1, Revision as Mmc1Revision};
 pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 // `boards!` re-exports each board type itself; a board module exporting anything *else* publicly -
 // so far only a revision enum - lists it here.
+#[cfg_attr(
+    not(feature = "unstable"),
+    expect(unused_imports, reason = "only `unstable` callers name the VRC2/VRC4 revision")
+)]
 pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
 pub use m033_m048_taito_tc0190::Revision as TaitoRevision;
