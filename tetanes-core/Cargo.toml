@@ -12,9 +12,6 @@ homepage.workspace = true
 categories = ["emulators"]
 keywords = ["nes", "emulator"]
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [[bench]]
 name = "clock_frame"
 harness = false
