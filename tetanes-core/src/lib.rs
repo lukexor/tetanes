@@ -18,14 +18,13 @@ pub mod time;
 pub mod common;
 pub mod control_deck;
 pub mod cpu;
-pub mod error;
 pub mod genie;
 pub mod input;
 pub mod mapper;
 pub mod memory;
 pub mod patch;
 pub mod ppu;
-pub mod sys;
+pub(crate) mod sys;
 pub mod video;
 
 pub mod prelude {

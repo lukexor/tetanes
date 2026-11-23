@@ -804,12 +804,16 @@ pub fn download_save_states() -> anyhow::Result<()> {
     use anyhow::{Context, anyhow};
     use base64::Engine;
     use std::io::{Cursor, Write};
-    use tetanes_core::{control_deck::Config as DeckConfig, fs, sys::fs::local_storage};
+    use tetanes_core::{control_deck::Config as DeckConfig, fs};
     use wasm_bindgen::JsCast;
     use web_sys::{self, js_sys};
     use zip::write::{SimpleFileOptions, ZipWriter};
 
-    let local_storage = local_storage()?;
+    let local_storage = web_sys::window()
+        .context("failed to get window")?
+        .local_storage()
+        .map_err(|err| anyhow!("failed to get local storage: {err:?}"))?
+        .context("no local storage available")?;
     let mut zip = ZipWriter::new(Cursor::new(Vec::with_capacity(30 * 1024)));
 
     for key in js_sys::Object::keys(&local_storage)

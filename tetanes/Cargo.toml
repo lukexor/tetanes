@@ -128,6 +128,7 @@ web-sys = { workspace = true, features = [
   "Navigator",
   "SpeechSynthesis",
   "SpeechSynthesisUtterance",
+  "Storage",
   "Window",
 ] }
 wasm-bindgen = "0.2.118"
