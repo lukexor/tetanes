@@ -1185,6 +1185,20 @@ impl ControlDeck {
         }
     }
 
+    /// Returns the frame number of the frame [`ControlDeck::frame_buffer_raw`] returns.
+    ///
+    /// Use this, not [`ControlDeck::frame_number`], to decode a raw frame yourself. With run-ahead
+    /// enabled the raw frame is from ahead of the console, and an NTSC decode needs that frame's
+    /// own parity to pick the right color phase.
+    #[inline]
+    #[must_use]
+    pub const fn frame_number_raw(&self) -> u32 {
+        match &self.run_ahead_frames {
+            Some(frames) if frames.pending_valid => frames.pending_frame_number,
+            _ => self.bus.ppu.frame_number(),
+        }
+    }
+
     /// Returns the frame to display as RGBA pixels, with the configured [`VideoFilter`] applied.
     ///
     /// The filter runs on the first call after a clock and the result is cached, so calling this
@@ -1243,7 +1257,8 @@ impl ControlDeck {
     /// Returns the number of frames the console has rendered since power on.
     ///
     /// This tracks the console, so with run-ahead enabled it lags the frame
-    /// [`ControlDeck::frame_buffer`] returns.
+    /// [`ControlDeck::frame_buffer`] returns. [`ControlDeck::frame_number_raw`] is that frame's
+    /// number.
     #[inline(always)]
     #[must_use]
     pub const fn frame_number(&self) -> u32 {
@@ -2370,6 +2385,19 @@ mod tests {
                 into.as_array(),
                 ahead.frame_buffer(),
                 "run_ahead {run_ahead}: frame_buffer_into must match frame_buffer"
+            );
+
+            // A caller decoding `frame_buffer_raw` itself needs the number of the frame it got,
+            // which is the future one, while `frame_number` stays with the console.
+            assert_eq!(
+                ahead.frame_number_raw(),
+                expected.frame_number(),
+                "run_ahead {run_ahead}: frame_number_raw must be the displayed frame's"
+            );
+            assert_eq!(
+                ahead.frame_number() + run_ahead as u32,
+                ahead.frame_number_raw(),
+                "run_ahead {run_ahead}: frame_number must lag frame_number_raw"
             );
         }
     }

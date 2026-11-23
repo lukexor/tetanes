@@ -65,7 +65,9 @@ impl Video {
                     *dst = self.palette[usize::from(entry) & (Self::PALETTE_LEN - 1)];
                 }
             }
-            VideoFilter::Ntsc => {
+            // Every other filter, including any a newer core adds, goes through the core's RGBA
+            // output, which applies whichever filter the deck is configured with.
+            _ => {
                 deck.frame_buffer_into(self.rgba.as_array_mut());
                 self.pack_rgba();
             }

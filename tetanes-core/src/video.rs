@@ -17,6 +17,7 @@ pub struct ParseVideoFilterError;
 /// How a raw PPU frame is turned into RGBA pixels.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum VideoFilter {
     /// One RGBA pixel per PPU pixel, straight from the palette.
     Pixellate,
@@ -168,6 +169,7 @@ impl<I: SliceIndex<[u8]>> IndexMut<I> for Frame {
 /// Turns raw PPU frames into RGBA output.
 #[derive(Clone)]
 #[must_use]
+#[non_exhaustive]
 pub struct Video {
     /// The filter applied to each frame.
     pub filter: VideoFilter,
