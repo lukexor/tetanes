@@ -30,10 +30,10 @@ use crate::{
     sys::{SystemInfo, info::System},
 };
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction, DragValue,
-    FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Panel, PopupCloseBehavior,
-    Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2, ViewportClass,
-    ViewportId, Visuals,
+    Align, Area, Button, CentralPanel, Color32, Context, CornerRadius, CursorIcon, Direction,
+    DragValue, FontData, FontDefinitions, FontFamily, Frame, Grid, Image, Layout, Order, Panel,
+    PopupCloseBehavior, Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2,
+    ViewportClass, ViewportId, Visuals,
     containers::menu::{MenuConfig, SubMenuButton},
     hex_color, include_image,
     style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals},
@@ -1397,7 +1397,7 @@ impl Gui {
         ui.add_enabled_ui(enabled, |ui| {
             let tx = &self.tx;
 
-            CentralPanel::default().show(ui, |ui| {
+            let panel = CentralPanel::default().show(ui, |ui| {
                 if self.loaded_rom.is_some() {
                     let layout = Layout {
                         main_dir: Direction::TopDown,
@@ -1424,8 +1424,7 @@ impl Gui {
                             if res.clicked() {
                                 tx.event(EmulationEvent::ZapperTrigger);
                             }
-                            if
-                                cfg
+                            if cfg
                                 .action_input(DeckAction::ZapperAimOffscreen)
                                 .is_some_and(|input| input_down(ui, gamepads, cfg, input))
                             {
@@ -1452,102 +1451,118 @@ impl Gui {
                 }
             });
 
-            let mut recording_labels = Vec::new();
-            if self.replay_recording {
-                recording_labels.push("Replay");
-            }
-            if self.audio_recording {
-                recording_labels.push("Audio");
-            }
-            if !recording_labels.is_empty() {
-                Frame::side_top_panel(ui.style()).show(ui, |ui| {
+            // The panel above fills `ui`, so anything laid out after it in `ui` lands below the
+            // window and is clipped. The status overlays float in an `Area` over the panel instead.
+            let panel_rect = panel.response.rect;
+            Area::new(ui.id().with("nes_frame_overlay"))
+                .order(Order::Middle)
+                .fixed_pos(panel_rect.min)
+                .constrain_to(panel_rect)
+                .show(ui.ctx(), |ui| {
+                    ui.set_max_width(panel_rect.width());
+                    ui.add_enabled_ui(enabled, |ui| self.status_overlay(ui, cfg));
+                });
+        });
+    }
+
+    /// Draws the recording labels, CPU error recovery, error bar, messages and pause icon over
+    /// the top of the game.
+    fn status_overlay(&mut self, ui: &mut Ui, cfg: &Config) {
+        let mut recording_labels = Vec::new();
+        if self.replay_recording {
+            recording_labels.push("Replay");
+        }
+        if self.audio_recording {
+            recording_labels.push("Audio");
+        }
+        if !recording_labels.is_empty() {
+            Frame::side_top_panel(ui.style()).show(ui, |ui| {
+                ui.with_layout(
+                    Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                    |ui| {
+                        ui.label(
+                            RichText::new(format!("Recording {}...", recording_labels.join(" & ")))
+                                .italics(),
+                        )
+                    },
+                );
+            });
+        }
+
+        if cfg.renderer.show_messages {
+            if let Some(instr) = self.corrupted_cpu_instr {
+                Frame::popup(ui.style()).show(ui, |ui| {
                     ui.with_layout(
                         Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
                         |ui| {
-                            ui.label(
-                                RichText::new(format!(
-                                    "Recording {}...",
-                                    recording_labels.join(" & ")
-                                ))
-                                .italics(),
-                            )
+                            ui.colored_label(
+                                Color32::RED,
+                                format!(
+                                    "Invalid CPU opcode: ${:02X} {:?} #{:?} encountered. Title: {}",
+                                    instr.opcode,
+                                    instr.instr,
+                                    instr.addr_mode,
+                                    self.loaded_rom
+                                        .as_ref()
+                                        .map(|rom| rom.name.as_str())
+                                        .unwrap_or_default()
+                                ),
+                            );
+
+                            ui.vertical(|ui| {
+                                ui.label("Recovery options:");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Reset").clicked() {
+                                        self.tx.event(EmulationEvent::Reset(ResetKind::Soft));
+                                        self.corrupted_cpu_instr = None;
+                                    }
+                                    if ui.button("Power Cycle").clicked() {
+                                        self.tx.event(EmulationEvent::Reset(ResetKind::Hard));
+                                        self.corrupted_cpu_instr = None;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    if ui.button("Clear Save States").clicked() {
+                                        preferences::State::clear_save_states(&self.tx);
+                                    }
+                                    if ui.button("Load ROM").clicked() {
+                                        self.tx.event(UiEvent::LoadRomDialog);
+                                    }
+                                });
+                            });
                         },
                     );
                 });
             }
 
-            if cfg.renderer.show_messages {
-                if let Some(instr) = self.corrupted_cpu_instr {
-                    Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.with_layout(
-                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                            |ui| {
-                                ui.colored_label(
-                                    Color32::RED,
-                                    format!(
-                                        "Invalid CPU opcode: ${:02X} {:?} #{:?} encountered. Title: {}",
-                                        instr.opcode,
-                                        instr.instr,
-                                        instr.addr_mode,
-                                        self.loaded_rom.as_ref().map(|rom| rom.name.as_str()).unwrap_or_default()
-                                    ),
-                                );
-
-                                ui.vertical(|ui| {
-                                    ui.label("Recovery options:");
-                                    ui.horizontal(|ui| {
-                                        if ui.button("Reset").clicked() {
-                                            self.tx.event(EmulationEvent::Reset(ResetKind::Soft));
-                                            self.corrupted_cpu_instr = None;
-                                        }
-                                        if ui.button("Power Cycle").clicked() {
-                                            self.tx.event(EmulationEvent::Reset(ResetKind::Hard));
-                                            self.corrupted_cpu_instr = None;
-                                        }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        if ui.button("Clear Save States").clicked() {
-                                            preferences::State::clear_save_states(&self.tx);
-                                        }
-                                        if ui.button("Load ROM").clicked() {
-                                            self.tx.event(UiEvent::LoadRomDialog);
-                                        }
-                                    });
-                                });
-                            },
-                        );
-                    });
-                }
-
-                if self.error.is_some() {
-                    Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.with_layout(
-                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                            |ui| {
-                                self.error_bar(ui);
-                            },
-                        );
-                    });
-                }
-
-                if !self.messages.is_empty() {
-                    Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.with_layout(
-                            Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
-                            |ui| {
-                                self.message_bar(ui);
-                            },
-                        );
-                    });
-                }
-
-                if self.run_state.paused() {
-                    Frame::new().inner_margin(5.0).show(ui, |ui| {
-                        ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
-                    });
-                }
+            if self.error.is_some() {
+                Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.with_layout(
+                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                        |ui| {
+                            self.error_bar(ui);
+                        },
+                    );
+                });
             }
-        });
+
+            if !self.messages.is_empty() {
+                Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.with_layout(
+                        Layout::top_down_justified(Align::LEFT).with_main_wrap(true),
+                        |ui| {
+                            self.message_bar(ui);
+                        },
+                    );
+                });
+            }
+
+            if self.run_state.paused() {
+                Frame::new().inner_margin(5.0).show(ui, |ui| {
+                    ui.heading(RichText::new("⏸").color(Color32::LIGHT_GRAY).size(40.0));
+                });
+            }
+        }
     }
 
     fn performance_stats(&mut self, ui: &mut Ui, cfg: &Config) {
