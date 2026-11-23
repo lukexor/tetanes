@@ -116,46 +116,47 @@ Input goes through `ControlDeck::joypad_mut`, and `ControlDeck::save_state` /
 
 ## Stability
 
-The aim is for general stability, but the version isn't `1.0` yet and there are
-several large features on the roadmap that may result in breaking changes. This
-applies to both APIs and save file formats.
+`tetanes-core` follows semantic versioning. The stable API is everything public
+with default features: `ControlDeck`, its `Config`, and the types its methods
+take and return.
 
-Once some of these larger features are completed, and `1.0` is released, more
-effort will be dedicated to versioning these files for backward compatibility
-in the event of future breaking changes.
+`ControlDeck`'s fields are private, and its accessors are not pass-throughs.
+`frame_buffer` applies the video filter, cached behind a dirty flag.
+`frame_buffer_raw` picks the run-ahead (older) frame over the most recent one.
+`sram` is a no-op unless the cart has a battery.
 
-Even past `1.0`, the API surface falls into three stability tiers. A mix of
-`pub` fields and getter methods is deliberate. A chain like
-`deck.bus().memory.prg_pages()` may look inconsistent but crosses separate API
-boundaries.
+### The `unstable` feature
 
-1. **`ControlDeck` is the primary stable API.** Its fields are private and it is
-   the only item covered by semantic versioning. Its accessors are not
-   pass-throughs: `frame_buffer` applies the video filter, cached behind a dirty
-   flag, `frame_buffer_raw` picks the run-ahead (older) frame over the most
-   recent one, `sram` is a no-op unless the cart has a battery, etc.
-2. **The ControlDeck component internals are unstable but public.** `Bus`,
-   `Cpu`, `Ppu`, `Apu`, `Input` and every mapper board expose all their fields
-   as `pub`, so a debugger, a cheat engine or a machine-learning harness can
-   read and write internals as needed for any imagined use case. A release may
-   add, rename or retype any of them. `ControlDeck::bus` and `bus_mut` enable
-   full access. Getters for internal fields are provided when the type is
-   wrapped in a container: `Bus::wram` returns `&[u8; 2048]` from a
-   `Box<ConstArray<..>>`, `Ppu::frame_buffer` dereferences a `Frame`, etc.
-3. **Types that require invariants.** `Memory`, `Cart`, `GenieCode`,
-   `PaletteRam` and `Scroll` have private fields and getters that require
-   additional logic. `Memory::sram` splices PRG-RAM together with the used
-   prefix of the battery region, `Cart::mapper_num` prefers the game database
-   over the header, `Cart::prg_rom` trims the padding `Memory` added to reach a
-   whole page, etc. `PaletteRam` is private *because* every access has to apply
-   `$3F10`/`$14`/`$18`/ `$1C` mirroring.
+The `unstable` feature makes the emulated components public. It also adds the
+`ControlDeck` methods that reach them, such as `bus`, `bus_mut`, `load_bus` and
+`clock_frame_until`, and the debugger hooks. A debugger, a cheat engine or a
+machine-learning harness can then read and write the whole machine.
 
-Derived state is split across the last two tiers. `Ppu`'s render-gating caches
-and `Bus::mapper_ops` are `pub` with a comment warning that writing them
-desynchronizes the emulator, while `Memory`'s page tables are private behind
-read-only getters. The difference is that `Memory`'s private set is not only
-derived — `data`, `ram_start` and the region ranges have to agree with each
-other, where the PPU's caches are scalars recomputed from a register write.
+Semantic versioning does not cover these items, and any release may add,
+rename or retype them. Pin the exact version when you enable the feature:
+
+```toml
+tetanes-core = { version = "=1.0.0", features = ["unstable"] }
+```
+
+A mix of `pub` fields and getters is deliberate here:
+
+- `Bus`, `Cpu`, `Ppu`, `Apu`, `Input` and every mapper board expose their
+  fields as `pub`. Getters exist where a field is wrapped in a container.
+  `Bus::wram` returns `&[u8; 2048]` from a `Box<ConstArray<..>>`, and
+  `Ppu::frame_buffer` dereferences a `Frame`.
+- `Memory`, `Cart`, `PaletteRam` and `Scroll` have private fields, because
+  their getters apply extra logic. `Memory::sram` splices PRG-RAM together with
+  the used prefix of the battery region. `Cart::mapper_num` prefers the game
+  database over the header. `Cart::prg_rom` trims the padding `Memory` added to
+  reach a whole page. `PaletteRam` applies `$3F10`/`$14`/`$18`/`$1C` mirroring
+  on every access.
+
+`Ppu`'s render-gating caches and `Bus::mapper_ops` are `pub`, with a comment
+warning that writing them desynchronizes the emulator. `Memory`'s page tables
+are private behind read-only getters, because `data`, `ram_start` and the
+region ranges have to agree with each other. The PPU's caches are scalars
+recomputed from a register write.
 
 ## Known Issues
 
