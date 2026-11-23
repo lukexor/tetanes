@@ -217,6 +217,7 @@ impl Cart {
     ///
     /// ```no_run
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # #[cfg(feature = "unstable")] {
     /// use tetanes_core::{cart::Cart, memory::RamState};
     ///
     /// let rom = std::fs::read("some_awesome_game.nes")?;
@@ -224,6 +225,7 @@ impl Cart {
     ///
     /// println!("mapper {} ({})", cart.mapper_num(), cart.mapper_board());
     /// println!("{} PRG-ROM bytes, battery: {}", cart.prg_rom().len(), cart.battery_backed());
+    /// # }
     /// # Ok(())
     /// # }
     /// ```

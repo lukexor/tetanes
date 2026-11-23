@@ -23,4 +23,4 @@ crate-type = ["cdylib"]
 workspace = true
 
 [dependencies]
-tetanes-core.workspace = true
+tetanes-core = { workspace = true, features = ["unstable"] }

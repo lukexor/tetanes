@@ -825,6 +825,7 @@ impl Zapper {
     /// This ignores timing. A port read senses light only for a few scanlines after the PPU
     /// draws the pixel, so between frames, where a debugger usually looks, a read reports dark
     /// wherever the Zapper is aimed.
+    #[cfg(feature = "unstable")]
     #[must_use]
     pub fn aims_at_light(&self, ppu: &Ppu) -> bool {
         self.lit_pixel(ppu, |_, _| true)

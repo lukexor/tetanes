@@ -34,29 +34,35 @@
 //!
 //! # Stability
 //!
-//! This is the crate's primary public API: [`ControlDeck`]'s fields are private, and is what
-//! semantic versioning covers. Reaching past it ([`ControlDeck::bus`] and [`ControlDeck::bus_mut`])
-//! is supported and is how a debugger or a cheat engine is meant to work, but what it reaches
-//! tracks implementation instead of the crate version. See the crate-level
-//! [stability](crate#stability) note for the three tiers and what decides which one a type is in.
+//! This is the crate's primary public API, and what semantic versioning covers. The methods that
+//! reach past it into the emulated components, such as [`ControlDeck::bus`], and the debugger
+//! hooks need the `unstable` feature. See the crate-level [stability](crate#stability) note.
+
+pub use crate::{
+    apu::Channel,
+    cart::Error as CartError,
+    cpu::StateMismatch,
+    mapper::{Bf909Revision, Error as MapperError, MapperRevision, Mmc3Revision},
+    memory::RamState,
+};
 
 use crate::sys::fs as sys_fs;
 use crate::{
-    apu::{self, Apu, Channel},
+    apu::{self, Apu},
     bus::{self, Bus},
     cart::{self, Cart},
     common::{NesRegion, ResetKind},
-    debug::{
-        AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory,
-    },
     fs,
     genie::{self, GenieCode},
     input::{ExpansionDevice, FourPlayer, Joypad, Player, PortDevice, PowerPad},
-    mapper::{self, Bf909Revision, Mapper, MapperRevision, Mmc3Revision},
-    memory::RamState,
+    mapper::{self, Mapper},
     patch::Patch,
     ppu,
     video::{Frame, Video, VideoFilter},
+};
+#[cfg(any(test, feature = "unstable"))]
+use crate::debug::{
+    AccessHit, Breakpoint, Breakpoints, CallStack, CodeMap, Debugger, FrameKind, PcHistory,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -657,8 +663,15 @@ impl ControlDeck {
     ///
     /// If the state was not produced by the currently loaded cart, in which case the running
     /// console is left untouched.
+    #[cfg(any(test, feature = "unstable"))]
     #[inline]
     pub fn load_bus(&mut self, bus: Bus) -> Result<()> {
+        self.replace_bus(bus)
+    }
+
+    /// [`ControlDeck::load_bus`], which the stable restore paths call whether or not the
+    /// `unstable` feature makes it public.
+    fn replace_bus(&mut self, bus: Bus) -> Result<()> {
         self.bus.load_state(bus)?;
         // Page tables are derived state and aren't serialized, so rebuild them from the restored
         // mapper registers.
@@ -784,7 +797,12 @@ impl ControlDeck {
     pub const fn set_emulate_ppu_warmup(&mut self, enabled: bool) {
         self.bus.ppu.emulate_warmup = enabled;
     }
+}
 
+/// Debugger hooks, with the `unstable` feature.
+// The crate's own tests drive the debugger through these, so they build under `test` as well.
+#[cfg(any(test, feature = "unstable"))]
+impl ControlDeck {
     /// Attaches a debugger callback, to be executed any time the debugger conditions match.
     ///
     /// This replaces whatever was attached before.
@@ -896,7 +914,9 @@ impl ControlDeck {
     pub const fn code_map(&self) -> Option<&CodeMap> {
         self.bus.code_map.as_ref()
     }
+}
 
+impl ControlDeck {
     /// Returns the name of the currently loaded ROM [`Cart`]. Returns `None` if no ROM is loaded.
     #[inline]
     #[must_use]
@@ -1061,7 +1081,7 @@ impl ControlDeck {
             fs::check_version(version, fs::SAVE_VERSION).and_then(|()| fs::decode_value(&data))
         }
         .map_err(Error::SaveState)?;
-        self.restore_state(bus)
+        self.replace_bus_keep_held(bus)
     }
 
     /// Bytes [`ControlDeck::serialize_state_into`] needs for the console as it stands.
@@ -1115,7 +1135,7 @@ impl ControlDeck {
     /// Restores a console state written by [`ControlDeck::serialize_state_into`].
     ///
     /// Trailing bytes past the state are ignored, so a frontend may hand back a buffer it padded.
-    /// The buttons held right now stay held, as [`Input::keep_held`](crate::input::Input::keep_held) describes.
+    /// The buttons held right now stay held.
     ///
     /// # Errors
     ///
@@ -1125,7 +1145,7 @@ impl ControlDeck {
             return Err(Error::RomNotLoaded);
         };
         let bus = fs::decode_value::<Bus>(src).map_err(Error::SaveState)?;
-        self.restore_state(bus)
+        self.replace_bus_keep_held(bus)
     }
 
     /// Replaces the running console with a decoded save state, keeping the buttons held now, as
@@ -1136,9 +1156,16 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If the state belongs to a different cart.
-    pub fn restore_state(&mut self, mut bus: Bus) -> Result<()> {
+    #[cfg(any(test, feature = "unstable"))]
+    pub fn restore_state(&mut self, bus: Bus) -> Result<()> {
+        self.replace_bus_keep_held(bus)
+    }
+
+    /// [`ControlDeck::restore_state`], which the stable restore paths call whether or not the
+    /// `unstable` feature makes it public.
+    fn replace_bus_keep_held(&mut self, mut bus: Bus) -> Result<()> {
         bus.input.keep_held(&self.bus.input);
-        self.load_bus(bus)
+        self.replace_bus(bus)
     }
 
     /// Save the current state of the console into a save file.
@@ -1467,6 +1494,7 @@ impl ControlDeck {
     //
     // A separate loop rather than a condition inside `clock_one_frame`, so the path that clocks
     // every frame of normal play does nothing for a feature that is almost always off.
+    #[cfg(any(test, feature = "unstable"))]
     fn clock_one_frame_until(&mut self, stop: &impl Fn(&Bus) -> bool) -> Result<bool> {
         let frame = self.frame_number();
         while frame == self.frame_number() {
@@ -1548,6 +1576,7 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
+    #[cfg(any(test, feature = "unstable"))]
     pub fn clock_frame_until(&mut self, stop: impl Fn(&Bus) -> bool) -> Result<Clocked> {
         self.clock_frame_with(|deck| deck.clock_one_frame_until(&stop))
     }
@@ -1695,7 +1724,7 @@ impl ControlDeck {
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
     pub fn clock_scanline(&mut self) -> Result<()> {
-        self.clock_scanline_until(|_| false).map(|_| ())
+        self.clock_scanline_stopping(|_| false).map(|_| ())
     }
 
     /// [`ControlDeck::clock_scanline`] that stops as soon as `stop` accepts the console, reporting
@@ -1708,7 +1737,14 @@ impl ControlDeck {
     /// # Errors
     ///
     /// If no ROM is loaded, or the CPU encounters an invalid opcode, then an error is returned.
+    #[cfg(any(test, feature = "unstable"))]
     pub fn clock_scanline_until(&mut self, stop: impl Fn(&Bus) -> bool) -> Result<bool> {
+        self.clock_scanline_stopping(stop)
+    }
+
+    /// [`ControlDeck::clock_scanline_until`], which [`ControlDeck::clock_scanline`] calls whether
+    /// or not the `unstable` feature makes it public.
+    fn clock_scanline_stopping(&mut self, stop: impl Fn(&Bus) -> bool) -> Result<bool> {
         if !self.running {
             return Err(Error::RomNotLoaded);
         }
@@ -1731,7 +1767,12 @@ impl ControlDeck {
     pub const fn cpu_corrupted(&self) -> bool {
         self.bus.cpu.corrupted
     }
+}
 
+/// Access to the emulated components, with the `unstable` feature.
+// The crate's own tests inspect the console through these, so they build under `test` as well.
+#[cfg(any(test, feature = "unstable"))]
+impl ControlDeck {
     /// Returns the ControlDeck bus state which contains all components.
     ///
     /// The components are `pub` fields of [`Bus`], so this is the way to the
@@ -1754,6 +1795,9 @@ impl ControlDeck {
     pub const fn bus_mut(&mut self) -> &mut Bus {
         &mut self.bus
     }
+}
+
+impl ControlDeck {
 
     /// Returns the current four player mode.
     #[inline]

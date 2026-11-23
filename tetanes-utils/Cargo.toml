@@ -36,4 +36,4 @@ bench = false
 anyhow.workspace = true
 clap.workspace = true
 image.workspace = true
-tetanes-core.workspace = true
+tetanes-core = { workspace = true, features = ["unstable"] }

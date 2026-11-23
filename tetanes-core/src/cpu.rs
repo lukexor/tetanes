@@ -163,7 +163,9 @@ impl Disasm {
     }
 
     /// How many bytes the instruction occupies, opcode included.
-    #[expect(
+    // `allow` rather than `expect`: the lint only fires where the type is public, which depends on
+    // the `unstable` feature.
+    #[allow(
         clippy::len_without_is_empty,
         reason = "an instruction is never zero bytes"
     )]

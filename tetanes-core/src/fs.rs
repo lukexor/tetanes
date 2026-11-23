@@ -12,7 +12,12 @@ use tracing::warn;
 
 const SAVE_FILE_MAGIC_LEN: usize = 8;
 const SAVE_FILE_MAGIC: [u8; SAVE_FILE_MAGIC_LEN] = *b"TETANES\x1a";
+// Decodes into the emulated components, so it is public only with the `unstable` feature.
+#[cfg(feature = "unstable")]
 pub mod v3;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code)]
+pub(crate) mod v3;
 
 // Keep this separate from Semver because breaking API changes may not invalidate the save format.
 //

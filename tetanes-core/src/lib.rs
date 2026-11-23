@@ -7,42 +7,90 @@
 #![warn(missing_docs)]
 
 pub mod action;
-pub mod apu;
-pub mod bus;
-pub mod cart;
-/// Component debuggers.
-pub mod debug;
-pub mod fs;
-pub mod time;
 #[macro_use]
 pub mod common;
 pub mod control_deck;
-pub mod cpu;
+pub mod fs;
 pub mod genie;
 pub mod input;
-pub mod mapper;
-pub mod memory;
 pub mod patch;
-pub mod ppu;
 pub(crate) mod sys;
+pub mod time;
 pub mod video;
+
+// The emulated components. Each is `pub` with the `unstable` feature, for debuggers and other
+// tools that reach into the machine, and outside semantic versioning either way. Without the
+// feature they are crate-private, and the few types the `ControlDeck` API names are re-exported
+// from `control_deck`.
+//
+// Their crate-private form allows dead code and unused imports. Constants, debugger helpers and
+// re-exports kept for the `unstable` API have no caller inside the crate.
+#[cfg(feature = "unstable")]
+pub mod apu;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod apu;
+#[cfg(feature = "unstable")]
+pub mod bus;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod bus;
+#[cfg(feature = "unstable")]
+pub mod cart;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod cart;
+#[cfg(feature = "unstable")]
+pub mod cpu;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod cpu;
+/// Component debuggers.
+#[cfg(feature = "unstable")]
+pub mod debug;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod debug;
+#[cfg(feature = "unstable")]
+pub mod mapper;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod mapper;
+#[cfg(feature = "unstable")]
+pub mod memory;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod memory;
+#[cfg(feature = "unstable")]
+pub mod ppu;
+#[cfg(not(feature = "unstable"))]
+#[allow(dead_code, unused_imports)]
+pub(crate) mod ppu;
 
 pub mod prelude {
     //! The prelude re-exports all the common structs/enums used for basic NES emulation.
 
     pub use crate::{
         action::Action,
-        apu::{Apu, Channel},
-        cart::Cart,
         common::{NesRegion, ResetKind},
-        control_deck::{Clocked, Config, ControlDeck, HeadlessMode},
-        cpu::Cpu,
+        control_deck::{
+            Channel, Clocked, Config, ControlDeck, HeadlessMode, MapperRevision, RamState,
+        },
         genie::GenieCode,
-        input::{ExpansionDevice, FourPlayer, Input, Player, PortDevice},
-        mapper::{Map, Mapper, MapperRevision},
-        memory::RamState,
-        ppu::{Mirroring, Ppu},
+        input::{ExpansionDevice, FourPlayer, Player, PortDevice},
         video::Frame,
+    };
+
+    /// The emulated components, with the `unstable` feature.
+    // The crate's own tests use these through the prelude, so they build under `test` as well.
+    #[cfg(any(test, feature = "unstable"))]
+    pub use crate::{
+        apu::Apu,
+        cart::Cart,
+        cpu::Cpu,
+        input::Input,
+        mapper::{Map, Mapper},
+        ppu::{Mirroring, Ppu},
     };
 }
 

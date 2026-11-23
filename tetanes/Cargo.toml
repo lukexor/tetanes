@@ -61,7 +61,7 @@ ringbuf = "0.5"
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = "0.39"
-tetanes-core.workspace = true
+tetanes-core = { workspace = true, features = ["unstable"] }
 thingbuf = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
