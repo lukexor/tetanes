@@ -323,6 +323,9 @@ impl AsRef<str> for Action {
                 DeckAction::SetVideoFilter(filter) => match filter {
                     VideoFilter::Pixellate => "Set Filter to Pixellate",
                     VideoFilter::Ntsc => "Set Filter to NTSC",
+                    // `VideoFilter` is `#[non_exhaustive]`, for the same reason as `DeckAction`
+                    // below.
+                    _ => "Set Filter",
                 },
                 // `DeckAction` is `#[non_exhaustive]`: a core release can add one this build has
                 // no label for, and a keybind list is not worth failing to build over.

@@ -52,6 +52,9 @@ pub fn generate_ntsc_palette() -> Vec<u8> {
                         let noise = (sample + palette_offset * 4) % 12;
                         // Sample either the previous or the current pixel.
                         // Use pixel=color0_offset to disable artifacts.
+                        //
+                        // Bisqwit's original uses `8 - channel * 2`. `5` is tuned by eye: with one
+                        // output color per pixel, `8` renders the artifact fringes as harsh dots.
                         let pixel = if noise < 5 - channel * 2 {
                             color0_offset
                         } else {

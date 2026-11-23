@@ -137,7 +137,7 @@ fn main() {
         if output {
             match filter {
                 VideoFilter::Pixellate => ", +frame_buffer (pixellate)",
-                VideoFilter::Ntsc => ", +frame_buffer",
+                _ => ", +frame_buffer",
             }
         } else {
             ""
