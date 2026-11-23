@@ -180,6 +180,15 @@ impl Opts {
         }
         if let Some(ExpansionDevice(device)) = self.expansion {
             cfg.deck.expansion = device;
+        } else if [&self.port1, &self.port2].iter().any(|port| {
+            matches!(
+                port,
+                Some(PortDevice(tetanes_core::input::PortDevice::PowerPad))
+            )
+        }) {
+            // The deck allows one mat and applies the expansion port last, so a saved Family
+            // Trainer would otherwise unplug the Power Pad asked for here.
+            cfg.deck.expansion = tetanes_core::input::ExpansionDevice::None;
         }
         if let Some(RamState(ram_state)) = self.ram_state {
             cfg.deck.ram_state = ram_state;
