@@ -208,6 +208,12 @@ pub enum DebugWrite {
     Sp(u8),
     /// The status flags, all eight at once.
     Status(Status),
+    /// Raise or drop a pending NMI, the one the CPU takes after the current instruction.
+    Nmi(bool),
+    /// Raise or acknowledge the APU frame counter's IRQ.
+    FrameIrq(bool),
+    /// Raise or acknowledge the APU DMC's IRQ.
+    DmcIrq(bool),
     /// A byte at a CPU address, which lands only where
     /// [`Bus::poke`](tetanes_core::bus::Bus::poke) finds RAM.
     Memory { addr: u16, val: u8 },

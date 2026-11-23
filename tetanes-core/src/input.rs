@@ -811,31 +811,56 @@ impl Zapper {
         self.triggered() | self.light_sense(ppu)
     }
 
+    /// Whether the trigger is pulled.
+    #[must_use]
+    pub fn is_triggered(&self) -> bool {
+        self.triggered > 0.0
+    }
+
+    /// Whether the aim point is on a pixel bright enough to sense, in the frame the PPU is
+    /// drawing.
+    ///
+    /// This ignores timing. A port read senses light only for a few scanlines after the PPU
+    /// draws the pixel, so between frames, where a debugger usually looks, a read reports dark
+    /// wherever the Zapper is aimed.
+    #[must_use]
+    pub fn aims_at_light(&self, ppu: &Ppu) -> bool {
+        self.lit_pixel(ppu, |_, _| true)
+    }
+
     fn triggered(&self) -> u8 {
-        if self.triggered > 0.0 { 0x10 } else { 0x00 }
+        if self.is_triggered() { 0x10 } else { 0x00 }
     }
 
     fn light_sense(&self, ppu: &Ppu) -> u8 {
-        let width = size::WIDTH;
-        let height = size::HEIGHT;
         let scanline = ppu.scanline;
         let cycle = ppu.cycle;
+        let behind_ppu =
+            |x, y| scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
+        if self.lit_pixel(ppu, behind_ppu) {
+            0x00
+        } else {
+            0x08
+        }
+    }
+
+    /// Whether a pixel within `radius` of the aim point, among those `visible` accepts, is bright
+    /// enough to sense.
+    fn lit_pixel(&self, ppu: &Ppu, visible: impl Fn(u16, u16) -> bool) -> bool {
         let min_y = self.y.saturating_sub(self.radius);
-        let max_y = (self.y + self.radius).min(height - 1);
+        let max_y = (self.y + self.radius).min(size::HEIGHT - 1);
         let min_x = self.x.saturating_sub(self.radius);
-        let max_x = (self.x + self.radius).min(width - 1);
+        let max_x = (self.x + self.radius).min(size::WIDTH - 1);
         for y in min_y..=max_y {
             for x in min_x..=max_x {
-                let behind_ppu =
-                    scanline >= y && (scanline - y) <= 20 && (scanline != y || cycle > x);
                 let brightness = ppu.pixel_brightness(x, y);
-                if behind_ppu && brightness >= 85 {
+                if visible(x, y) && brightness >= 85 {
                     trace!("zapper light: {brightness}");
-                    return 0x00;
+                    return true;
                 }
             }
         }
-        0x08
+        false
     }
 
     /// Counts the trigger's self-release down by one CPU cycle.

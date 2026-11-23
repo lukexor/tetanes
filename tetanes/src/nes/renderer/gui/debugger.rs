@@ -26,14 +26,19 @@ use std::{
 };
 use tetanes_core::{
     bus::Bus,
-    cpu::{Cpu, Disasm, Status, instr::InstrRef},
+    cpu::{Cpu, Disasm, IrqFlags, Status, instr::InstrRef},
     debug::{
         Access, AccessHit, Breakpoint as DeckBreakpoint, Breakpoints as DeckBreakpoints, CallFrame,
         FrameKind, RunTo,
         expr::{Expr, ParseError},
     },
+    input::{
+        ExpansionDevice, FourPlayer, JoypadBtn, JoypadBtnState, Player, PortDevice, PowerPad,
+        Zapper,
+    },
     memory::{Memory, PRG_PAGES, Page},
 };
+use winit::event::ElementState;
 
 /// A range of addresses the console stops at when one is accessed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,6 +373,57 @@ pub struct CpuSnapshot {
     pub prg_pages: [Page; PRG_PAGES],
     /// The frame the console is on, which scales the cycle count into something readable.
     pub frame: u32,
+    /// What each interrupt line is doing.
+    pub interrupts: Interrupts,
+    /// The buttons held on each controller port.
+    pub joypads: [JoypadBtnState; 4],
+    /// Which four-player adapter is plugged in, which decides whether ports 3 and 4 exist.
+    pub four_player: FourPlayer,
+    /// What is plugged into ports 1 and 2.
+    pub ports: [PortDevice; 2],
+    /// What is plugged into the Famicom expansion port.
+    pub expansion: ExpansionDevice,
+    /// The Power Pad mat, which a port or the Family Trainer reads.
+    pub power_pad: PowerPad,
+    /// The Zapper's aim and trigger.
+    pub zapper: Zapper,
+    /// Whether the Zapper is aimed at a bright pixel, from [`Zapper::aims_at_light`].
+    pub zapper_light: bool,
+}
+
+/// The pending interrupts and the sources that drive them, as of a [`CpuSnapshot`].
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct Interrupts {
+    /// The CPU has seen the NMI edge and will take the NMI after the current instruction.
+    pub nmi_latched: bool,
+    /// `$2000` bit 7, without which vblank asserts no NMI.
+    pub nmi_enabled: bool,
+    /// The APU frame counter is asserting IRQ.
+    pub frame_irq: bool,
+    /// The DMC is asserting IRQ.
+    pub dmc_irq: bool,
+    /// The cartridge board is asserting IRQ.
+    pub mapper_irq: bool,
+}
+
+impl Interrupts {
+    /// Read the interrupt state off `bus` without moving anything.
+    pub fn capture(bus: &Bus) -> Self {
+        Self {
+            nmi_latched: bus.cpu.irq_flags.contains(IrqFlags::NMI),
+            nmi_enabled: bus.ppu.ctrl_nmi_enabled,
+            frame_irq: bus.apu.frame_counter.irq_pending,
+            dmc_irq: bus.apu.dmc.irq_pending,
+            mapper_irq: bus.mapper.irq_pending(),
+        }
+    }
+
+    /// Whether any source is asserting IRQ, whether or not the I flag lets it through.
+    #[must_use]
+    pub const fn irq_line(&self) -> bool {
+        self.frame_irq | self.dmc_irq | self.mapper_irq
+    }
 }
 
 impl Default for CpuSnapshot {
@@ -383,6 +439,14 @@ impl Default for CpuSnapshot {
             watches: Vec::new(),
             prg_pages: [Page::UNMAPPED; PRG_PAGES],
             frame: 0,
+            interrupts: Interrupts::default(),
+            joypads: [JoypadBtnState::empty(); 4],
+            four_player: FourPlayer::default(),
+            ports: [PortDevice::default(); 2],
+            expansion: ExpansionDevice::default(),
+            power_pad: PowerPad::new(),
+            zapper: Zapper::default(),
+            zapper_light: false,
         }
     }
 }
@@ -432,6 +496,14 @@ impl CpuSnapshot {
             watches: Vec::new(),
             prg_pages: *bus.memory.prg_pages(),
             frame: bus.ppu.frame_number(),
+            interrupts: Interrupts::capture(bus),
+            joypads: bus.input.joypads.map(|joypad| joypad.buttons),
+            four_player: bus.input.four_player,
+            ports: bus.input.ports,
+            expansion: bus.input.expansion,
+            power_pad: bus.input.power_pad,
+            zapper: bus.input.zapper,
+            zapper_light: bus.input.zapper.aims_at_light(&bus.ppu),
         }
     }
 }
@@ -627,6 +699,8 @@ pub enum Pane {
     Watches,
     /// The CPU address space as hex bytes, where RAM can be typed over.
     Memory,
+    /// The buttons held on each controller, which a click presses or releases.
+    Input,
 }
 
 impl Pane {
@@ -636,10 +710,11 @@ impl Pane {
 
     /// The panes a window opens with.
     ///
-    /// Everything but the history and the memory. The history answers what has run, where the call
-    /// stack answers how execution got here, and it takes a ring buffer plus the bottom of the
-    /// window to do it. The memory pane takes the same bottom and a copy of the console's bytes
-    /// each frame. Both wait for the View menu to ask.
+    /// Everything but the history, the memory and the input. The history answers what has run,
+    /// where the call stack answers how execution got here, and it takes a ring buffer plus the
+    /// bottom of the window to do it. The memory pane takes the same bottom and a copy of the
+    /// console's bytes each frame. The input pane is for pressing buttons while stepping, which few
+    /// sessions do. All three wait for the View menu to ask.
     pub const DEFAULT: [Self; 6] = [
         Self::Disassembly,
         Self::Registers,
@@ -660,6 +735,7 @@ impl panes::Pane for Pane {
         Self::Breakpoints,
         Self::History,
         Self::Memory,
+        Self::Input,
     ];
 
     fn title(self) -> &'static str {
@@ -672,15 +748,19 @@ impl panes::Pane for Pane {
             Self::History => "Recently executed",
             Self::Watches => "Watches",
             Self::Memory => "Memory",
+            Self::Input => "Input",
         }
     }
 
     fn column(self) -> Column {
         match self {
             Self::Disassembly => Column::Center,
-            Self::Registers | Self::Stack | Self::CallStack | Self::Watches | Self::Breakpoints => {
-                Column::Right
-            }
+            Self::Registers
+            | Self::Stack
+            | Self::CallStack
+            | Self::Watches
+            | Self::Breakpoints
+            | Self::Input => Column::Right,
             // A hex row is sixteen bytes plus their text, which is wider than the right column
             // and about what the bottom one spans.
             Self::History | Self::Memory => Column::Bottom,
@@ -690,13 +770,16 @@ impl panes::Pane for Pane {
     fn default_size(self) -> f32 {
         match self {
             Self::Disassembly => 0.0,
-            Self::Registers => 92.0,
+            Self::Registers => 116.0,
             Self::Stack => 160.0,
             Self::CallStack => 120.0,
             Self::Breakpoints => 160.0,
             Self::History => 140.0,
             Self::Watches => 120.0,
             Self::Memory => 180.0,
+            // Four controller rows with a four-player adapter, so the pane only scrolls when
+            // dragged shorter.
+            Self::Input => 132.0,
         }
     }
 
@@ -710,6 +793,7 @@ impl panes::Pane for Pane {
             Self::History => "pane_history",
             Self::Watches => "pane_watches",
             Self::Memory => "pane_memory",
+            Self::Input => "pane_input",
         }
     }
 }
@@ -1857,6 +1941,7 @@ impl State {
             // this is ordered by time, so the two only coincide in straight-line code.
             Pane::History => self.history(ui),
             Pane::Memory => self.memory(ui),
+            Pane::Input => self.input(ui),
         }
     }
 
@@ -1951,9 +2036,68 @@ impl State {
             }
         });
 
+        written = self.interrupt_row(ui).or(written);
+
         if let Some(write) = written {
             self.tx.event(EmulationEvent::DebugWrite(write));
         }
+    }
+
+    /// The pending interrupts as checkboxes, laid out the way Mesen's CPU status lays them out.
+    /// Ticking one raises it and clearing one drops it. Returns the write a click asked for.
+    fn interrupt_row(&self, ui: &mut Ui) -> Option<DebugWrite> {
+        let interrupts = self.snapshot.interrupts;
+        let blocked = self.snapshot.cpu.status.contains(Status::I);
+        let mut written = None;
+        ui.horizontal_wrapped(|ui| {
+            let line = interrupts.irq_line();
+            ui.strong("IRQs:").on_hover_text(if line && blocked {
+                "An IRQ source is asserted, but the I flag is holding it off."
+            } else if line {
+                "An IRQ source is asserted, and the IRQ is taken once the current instruction \
+                 finishes."
+            } else {
+                "No interrupt is pending."
+            });
+
+            let mut nmi = interrupts.nmi_latched;
+            if ui
+                .checkbox(&mut nmi, "NMI")
+                .on_hover_text(format!(
+                    "Taken after the current instruction. NMI on VBlank ($2000 bit 7) is {}.",
+                    if interrupts.nmi_enabled { "on" } else { "off" }
+                ))
+                .changed()
+            {
+                written = Some(DebugWrite::Nmi(nmi));
+            }
+
+            // Each board keeps its IRQ in its own registers, so there is no one place to set it.
+            let mut cart = interrupts.mapper_irq;
+            ui.add_enabled(false, egui::Checkbox::new(&mut cart, "Cart"))
+                .on_disabled_hover_text(
+                    "Raised and acknowledged by the cartridge board's own registers.",
+                );
+
+            let mut frame = interrupts.frame_irq;
+            if ui
+                .checkbox(&mut frame, "Frame Counter")
+                .on_hover_text("APU frame counter. A read of $4015 acknowledges it.")
+                .changed()
+            {
+                written = Some(DebugWrite::FrameIrq(frame));
+            }
+
+            let mut dmc = interrupts.dmc_irq;
+            if ui
+                .checkbox(&mut dmc, "DMC")
+                .on_hover_text("APU DMC, at the end of a sample. A write to $4015 acknowledges it.")
+                .changed()
+            {
+                written = Some(DebugWrite::DmcIrq(dmc));
+            }
+        });
+        written
     }
 
     /// An address in both the terms it can be named in: where the CPU sees it, and where the byte
@@ -3137,6 +3281,187 @@ impl State {
                     ui.label(RichText::new(format!("$01{offset:02X}  ${value:02X}")).monospace());
                 }
             });
+    }
+
+    /// What is plugged into each port, with its buttons. Clicking one presses or releases it.
+    ///
+    /// A click sends the same [`EmulationEvent::Joypad`] or [`EmulationEvent::PowerPad`] a key
+    /// does, so a replay records it, and the button stays as set until a click or a key changes
+    /// it, so a frame can be stepped with Right held. Ports 3 and 4 are listed only with a
+    /// four-player adapter. The Zapper row shows the aim, the light sense and the trigger, and
+    /// Fire pulls the trigger. Aiming stays with the mouse.
+    fn input(&mut self, ui: &mut Ui) {
+        // Each button's label for a narrow button, then for one wide enough to spell it out.
+        const BUTTONS: [(JoypadBtn, &str, &str); 8] = [
+            (JoypadBtn::Up, "U", "Up"),
+            (JoypadBtn::Down, "D", "Down"),
+            (JoypadBtn::Left, "L", "Left"),
+            (JoypadBtn::Right, "R", "Right"),
+            (JoypadBtn::Select, "SEL", "Select"),
+            (JoypadBtn::Start, "STA", "Start"),
+            (JoypadBtn::B, "B", "B"),
+            (JoypadBtn::A, "A", "A"),
+        ];
+        // Wide enough for six monospace characters plus the button's padding.
+        const WIDE: f32 = 56.0;
+        const ROW_HEIGHT: f32 = 20.0;
+        let snapshot = &self.snapshot;
+        let ports: &[Player] = if snapshot.four_player == FourPlayer::Disabled {
+            &[Player::One, Player::Two]
+        } else {
+            &[Player::One, Player::Two, Player::Three, Player::Four]
+        };
+        let device = |player: Player| match player {
+            Player::One => snapshot.ports[0],
+            Player::Two => snapshot.ports[1],
+            Player::Three | Player::Four => PortDevice::Joypad,
+        };
+        // The Family Trainer reads the same mat state a port's Power Pad does, so it gets a row of
+        // its own only when no port already draws the mat.
+        let trainer_mat = snapshot.expansion == ExpansionDevice::FamilyTrainer
+            && !snapshot.ports.contains(&PortDevice::PowerPad);
+
+        const LABEL_WIDTH: f32 = 32.0;
+        let gap = ui.spacing().item_spacing.x;
+        // Buttons share the width left of the label evenly, so a wide pane gets wide buttons
+        // rather than a cluster at the left edge.
+        let button_size = |ui: &Ui, count: f32| {
+            let width = (ui.available_width() - LABEL_WIDTH - gap * count) / count;
+            Vec2::new(width.clamp(24.0, 72.0), ROW_HEIGHT)
+        };
+        let label = |ui: &mut Ui, text: &str| {
+            ui.add_sized(
+                [LABEL_WIDTH, ROW_HEIGHT],
+                Label::new(RichText::new(text).strong()),
+            );
+        };
+
+        let mut event = None;
+        let mat = |ui: &mut Ui, row: &str, event: &mut Option<EmulationEvent>| {
+            let size = button_size(ui, 4.0);
+            // Three rows of four, numbered the way the mat prints them.
+            for first in [1, 5, 9] {
+                ui.horizontal(|ui| {
+                    label(ui, if first == 1 { row } else { "" });
+                    for button in first..first + 4 {
+                        let on = snapshot.power_pad.button(button);
+                        let name = format!("Mat {button}");
+                        if toggle_button(ui, &button.to_string(), &name, on, size) {
+                            *event = Some(EmulationEvent::PowerPad((button, press_state(!on))));
+                        }
+                    }
+                });
+            }
+        };
+        ScrollArea::vertical()
+            .id_salt("input")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for &player in ports {
+                    let row = format!("P{}", player as usize + 1);
+                    match device(player) {
+                        PortDevice::Joypad => {
+                            let held = snapshot.joypads[player as usize];
+                            let size = button_size(ui, BUTTONS.len() as f32);
+                            ui.horizontal(|ui| {
+                                label(ui, &row);
+                                for (button, short, long) in BUTTONS {
+                                    let on = held.contains(button.into());
+                                    let text = if size.x >= WIDE { long } else { short };
+                                    if toggle_button(ui, text, button.as_ref(), on, size) {
+                                        event = Some(EmulationEvent::Joypad((
+                                            player,
+                                            button,
+                                            press_state(!on),
+                                        )));
+                                    }
+                                }
+                            });
+                        }
+                        PortDevice::Zapper => {
+                            ui.horizontal(|ui| {
+                                label(ui, &row);
+                                if zapper_row(ui, &snapshot.zapper, snapshot.zapper_light) {
+                                    event = Some(EmulationEvent::ZapperTrigger);
+                                }
+                            });
+                        }
+                        PortDevice::PowerPad => mat(ui, &row, &mut event),
+                    }
+                }
+                if trainer_mat {
+                    mat(ui, "Mat", &mut event);
+                }
+            });
+
+        if let Some(event) = event {
+            self.tx.event(event);
+        }
+    }
+}
+
+/// The Zapper's aim, light sense and trigger, plus a Fire button. Returns whether Fire was
+/// clicked.
+fn zapper_row(ui: &mut Ui, zapper: &Zapper, light: bool) -> bool {
+    let mark = |ui: &mut Ui, name: &str, on: bool, hover: &str| {
+        let text = if on {
+            RichText::new(name).monospace().strong()
+        } else {
+            RichText::new(name).monospace().color(Color32::DARK_GRAY)
+        };
+        ui.label(text).on_hover_text(hover);
+    };
+    ui.monospace(format!("X {:3}  Y {:3}", zapper.x, zapper.y))
+        .on_hover_text("Where the Zapper is aimed, in screen pixels.");
+    mark(
+        ui,
+        "LIGHT",
+        light,
+        if light {
+            "Aimed at a bright pixel. The game senses it in the scanlines just after the PPU \
+             draws it."
+        } else {
+            "Aimed at a dark pixel, or off the screen."
+        },
+    );
+    let pulled = zapper.is_triggered();
+    mark(
+        ui,
+        "TRIGGER",
+        pulled,
+        if pulled {
+            "Trigger: pulled. It releases itself after about 100ms of emulated time."
+        } else {
+            "Trigger: released."
+        },
+    );
+    ui.button("Fire")
+        .on_hover_text("Pull the trigger, as a click on the game screen does.")
+        .clicked()
+}
+
+/// A button the Input pane toggles, filled while held. Returns whether it was clicked.
+fn toggle_button(ui: &mut Ui, label: &str, name: &str, on: bool, size: Vec2) -> bool {
+    let text = if on {
+        RichText::new(label).monospace().strong()
+    } else {
+        RichText::new(label).monospace()
+    };
+    ui.add(egui::Button::new(text).selected(on).min_size(size))
+        .on_hover_text(format!(
+            "{name}: {}. Click to {}.",
+            if on { "held" } else { "released" },
+            if on { "release" } else { "press" },
+        ))
+        .clicked()
+}
+
+/// The key state a click that presses (`true`) or releases (`false`) a button stands for.
+const fn press_state(press: bool) -> ElementState {
+    if press {
+        ElementState::Pressed
+    } else {
+        ElementState::Released
     }
 }
 
