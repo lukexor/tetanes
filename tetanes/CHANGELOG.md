@@ -7,6 +7,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0](https://github.com/lukexor/tetanes/compare/0.18.0..0.19.0) - 2026-11-23
+
+### ⛰️  Features
+
+- *(debugger)* Make the cartridge IRQ writable - ([ae432c6](https://github.com/lukexor/tetanes/commit/ae432c6be3eb300cb2acf519bbb20307ca4bc9d0))
+- *(debugger)* Lay out pending interrupts like Mesen and make them writable - ([982d273](https://github.com/lukexor/tetanes/commit/982d273ddce2ffd4109eb656a8d6bc093df65477))
+- *(debugger)* Show interrupt state and edit controller input - ([85cdf28](https://github.com/lukexor/tetanes/commit/85cdf282e6fde93393bd46a5f56d19d65786c739))
+- *(linux)* Embed update information in the AppImage - ([15ecb8e](https://github.com/lukexor/tetanes/commit/15ecb8ee0579702eeb8c7f93857a0a5de409352b))
+- *(mapper)* Add VRC7 FM audio - ([13f1d7c](https://github.com/lukexor/tetanes/commit/13f1d7ce53595bcfc43375ae07d9486215f8b55b))
+- *(mapper)* Add VRC7 (mapper 085) banking and IRQ - ([a848594](https://github.com/lukexor/tetanes/commit/a84859470a854fbf7852c65949b35bd5629c475f))
+- *(mapper)* Add MMC3 multicarts PAL-ZZ (037) and NES-QJ (047) - ([7b24aea](https://github.com/lukexor/tetanes/commit/7b24aea39786dbffe78081e9ed08b063721aecbe))
+- *(mapper)* Add VRC3 (mapper 073) - ([f54daf5](https://github.com/lukexor/tetanes/commit/f54daf5b43debaa30e911454d057fd9e55b0de8a))
+- *(mapper)* Add Sunsoft-3 (mapper 067) - ([8bd5b57](https://github.com/lukexor/tetanes/commit/8bd5b573d6ae1c45d1e6d22315fc98e0829a0e5a))
+- *(mapper)* Add UN1ROM (094) and UNROM 74HC08 (180) - ([4b2bf1d](https://github.com/lukexor/tetanes/commit/4b2bf1d4cbec3f200f12dd667380bc86a7a7366a))
+- *(mapper)* Add Irem LROG017 (077), JF-16/IF-12 (078) and TAM-S1 (097) - ([87b24e6](https://github.com/lukexor/tetanes/commit/87b24e691220189aa543bcf59bd5d1b344040c5a))
+- *(mapper)* Add Sunsoft-2 (mappers 089, 093) - ([8c244d5](https://github.com/lukexor/tetanes/commit/8c244d5ac36025cd17abcfbdc30d6fd90d730a26))
+- *(mapper)* Add Jaleco JF-17/JF-19 (mappers 072, 092) and JF-11/14 (140) - ([62a9256](https://github.com/lukexor/tetanes/commit/62a9256901ba442d3da5288dc01b5f70a02d6bc8))
+- *(mapper)* Add Irem H3001 (mapper 065) - ([d7a12c2](https://github.com/lukexor/tetanes/commit/d7a12c2a52d0f086ac77eb1c4213750a6a48a425))
+- *(mapper)* Add Jaleco JF-13 (mapper 086) - ([ecbd52d](https://github.com/lukexor/tetanes/commit/ecbd52db886d378f1976f59ac35ba3afb6641420))
+- *(mapper)* Add CPROM (mapper 013) and Sunsoft-4 (mapper 068) - ([f8b2841](https://github.com/lukexor/tetanes/commit/f8b284165cd69ddffa3d769707b3be63a98339a6))
+- *(mapper)* Add Tengen RAMBO-1 (mapper 064) - ([b5645ee](https://github.com/lukexor/tetanes/commit/b5645eea3d5e4c7bdf9a2f5af6684ba31c7b8776))
+- *(mapper)* Add Irem G-101 (mapper 032) and VRC1 (mapper 075) - ([3449c3a](https://github.com/lukexor/tetanes/commit/3449c3a0c44237d4c46796ec473570b6efd3a70d))
+- *(mapper)* Add UNROM 512 (mapper 30) - ([f8a8198](https://github.com/lukexor/tetanes/commit/f8a819816faa10eff6b856699ac1e13e39772623))
+- *(mapper)* Add Taito X1-005 (mappers 080, 207) and X1-017 (082) - ([64eb2f6](https://github.com/lukexor/tetanes/commit/64eb2f643571e993df7f003c552abae15d7dc23b))
+- *(mapper)* Add mappers 070, 087, 152, 184, 185 and 232 - ([5a1ad7f](https://github.com/lukexor/tetanes/commit/5a1ad7fdeea77e3ae9d33b116605006c35aab38f))
+- *(mapper)* Add TxSROM (mapper 118) and TQROM (mapper 119) - ([741c62b](https://github.com/lukexor/tetanes/commit/741c62b8846e14503f8cdd56aa0e72359816a9df))
+- *(ui)* Give the Power Pad its own keybinds tab, with a map of the mat - ([87ff962](https://github.com/lukexor/tetanes/commit/87ff9628fbb1412774719d34f23d2918627412a1))
+- *(video)* [**breaking**] Settle the video API for 1.0 - ([cb4b230](https://github.com/lukexor/tetanes/commit/cb4b2300a8b2af85b23de0ef7cdf7d7c2f8316fb))
+**BREAKING**: `VideoFilter` and `Video` are `#[non_exhaustive]`.
+
+- [**breaking**] Add the Power Pad and Family Trainer Mat as pluggable input devices - ([cd099e8](https://github.com/lukexor/tetanes/commit/cd099e8a06bb608caf163f331b6aab87b00c07e2))
+**BREAKING**: `connect_zapper`, `zapper_connected` and `Config::zapper` are replaced by `set_port_device`, `port_device` and `Config::ports`.
+- [**breaking**] Save in MessagePack, reading version 3 files through fs::v3 - ([beac9bb](https://github.com/lukexor/tetanes/commit/beac9bb7b1e068267c69c2e6d7605099e69bad1a))
+**BREAKING**: save states, SRAM, replays and `ControlDeck::serialize_state_into` output are MessagePack, and `serialized_state_len` varies by a few bytes as the console runs.
+
+### 🐛 Bug Fixes
+
+- *(audio)* Pace frames at the running console's region - ([0c33000](https://github.com/lukexor/tetanes/commit/0c33000460b54591682c64a3327ad7c41169c8aa))
+- *(input)* Make the Power Pad and Family Trainer mutually exclusive - ([1276615](https://github.com/lukexor/tetanes/commit/1276615ce8b320b4bf203b98cd49170858379a4c))
+- *(ui)* Float status messages over the game instead of below it - ([0f185af](https://github.com/lukexor/tetanes/commit/0f185af3b49793d7939d10a74b136bbde20950f5))
+- *(ui)* Bind new actions' default keys in an existing config - ([0953cd9](https://github.com/lukexor/tetanes/commit/0953cd9a9458f9ba99369fd2b45b5a27181f0c18))
+- *(web)* Decode base64 entries when downloading save states - ([e8b1b28](https://github.com/lukexor/tetanes/commit/e8b1b287f7e3595b65eb5aeb081a61a6790f34bd))
+
+
+### 📚 Documentation
+
+
+- Update the supported-mapper table's total - ([474149e](https://github.com/lukexor/tetanes/commit/474149e6bf2863494ce1e282d682901ce7d77474))
+
+### 🎨 Styling
+
+
+- Use US spelling throughout, enforced by typos - ([9f09012](https://github.com/lukexor/tetanes/commit/9f09012e8bb801980ff5d5ddf7e960aa9e8ad2c7))
+
+
 ## [0.18.0](https://github.com/lukexor/tetanes/compare/0.17.0..0.18.0) - 2026-11-20
 
 ### 🐛 Bug Fixes
