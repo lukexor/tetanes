@@ -160,6 +160,16 @@ impl Map for TaitoTc0190 {
         self.irq_pending
     }
 
+    // A drop clears the counter's hit and the delay too, as the $C003 acknowledge does, so the
+    // next hit raises the line again.
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq_pending = pending;
+        if !pending {
+            self.mmc3.irq_pending = false;
+            self.irq_delay = 0;
+        }
+    }
+
     /// The TC0690 counts scanlines from A12 rising edges, exactly as MMC3 does.
     fn ppu_bus_addr(&mut self, _memory: &mut Memory, addr: u16) {
         let was_pending = self.mmc3.irq_pending;
@@ -455,10 +465,7 @@ mod tests {
         assert!(!mapper.irq_pending(), "the first edge only reloads");
 
         a12_edge(&mut mapper, &mut cart);
-        assert!(
-            board(&mapper).mmc3.irq_pending,
-            "the counter has hit zero"
-        );
+        assert!(board(&mapper).mmc3.irq_pending, "the counter has hit zero");
         assert!(!mapper.irq_pending(), "but the CPU has not seen it yet");
 
         clock(&mut mapper, usize::from(TaitoTc0190::IRQ_DELAY) - 1);

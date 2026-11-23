@@ -220,6 +220,10 @@ impl Map for Vrc6 {
         self.irq.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq.irq_pending = pending;
+    }
+
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         if addr < 0x8000 {
             return;

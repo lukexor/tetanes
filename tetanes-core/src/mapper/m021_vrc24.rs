@@ -226,6 +226,10 @@ impl Map for Vrc24 {
         self.irq.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq.irq_pending = pending;
+    }
+
     /// VRC2's latch is one bit of RAM, not memory, so no page entry can describe it.
     fn prg_peek(&self, addr: u16) -> Option<u8> {
         // The rest of the bus floats on a read; report it as clear.

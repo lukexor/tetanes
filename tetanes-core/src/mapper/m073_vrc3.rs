@@ -76,6 +76,10 @@ impl Map for Vrc3 {
         self.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq_pending = pending;
+    }
+
     fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
         out.push(("PRG $8000", u32::from(self.prg_bank)));
         out.push(("IRQ counter", u32::from(self.irq_counter)));
@@ -208,7 +212,10 @@ mod tests {
         for _ in 0..3 {
             mapper.clock();
         }
-        assert!(!mapper.irq_pending(), "$D000 copied a clear enable-on-ack bit");
+        assert!(
+            !mapper.irq_pending(),
+            "$D000 copied a clear enable-on-ack bit"
+        );
     }
 
     /// In 8-bit mode only the low byte counts, it reloads only the low byte, and the high byte
@@ -225,12 +232,18 @@ mod tests {
         let Mapper::Vrc3(vrc3) = &mapper else {
             panic!("expected a VRC3");
         };
-        assert_eq!(vrc3.irq_counter, 0x12FE, "low byte reloaded, high byte untouched");
+        assert_eq!(
+            vrc3.irq_counter, 0x12FE,
+            "low byte reloaded, high byte untouched"
+        );
 
         write(&mut mapper, &mut cart, 0xD000, 0);
         assert!(!mapper.irq_pending(), "$D000 acknowledges");
         mapper.clock();
         mapper.clock();
-        assert!(mapper.irq_pending(), "enable-on-ack kept the counter running");
+        assert!(
+            mapper.irq_pending(),
+            "enable-on-ack kept the counter running"
+        );
     }
 }

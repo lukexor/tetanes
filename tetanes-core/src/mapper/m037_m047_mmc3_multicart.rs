@@ -146,6 +146,10 @@ impl Map for Mmc3Multicart {
         self.mmc3.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.mmc3.irq_pending = pending;
+    }
+
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }

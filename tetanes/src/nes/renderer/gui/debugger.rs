@@ -36,6 +36,7 @@ use tetanes_core::{
         ExpansionDevice, FourPlayer, JoypadBtn, JoypadBtnState, Player, PortDevice, PowerPad,
         Zapper,
     },
+    mapper::MapperOps,
     memory::{Memory, PRG_PAGES, Page},
 };
 use winit::event::ElementState;
@@ -405,6 +406,8 @@ pub struct Interrupts {
     pub dmc_irq: bool,
     /// The cartridge board is asserting IRQ.
     pub mapper_irq: bool,
+    /// The cartridge board has an IRQ at all.
+    pub mapper_has_irq: bool,
 }
 
 impl Interrupts {
@@ -416,6 +419,7 @@ impl Interrupts {
             frame_irq: bus.apu.frame_counter.irq_pending,
             dmc_irq: bus.apu.dmc.irq_pending,
             mapper_irq: bus.mapper.irq_pending(),
+            mapper_has_irq: bus.mapper_ops.contains(MapperOps::IRQ),
         }
     }
 
@@ -2072,12 +2076,21 @@ impl State {
                 written = Some(DebugWrite::Nmi(nmi));
             }
 
-            // Each board keeps its IRQ in its own registers, so there is no one place to set it.
             let mut cart = interrupts.mapper_irq;
-            ui.add_enabled(false, egui::Checkbox::new(&mut cart, "Cart"))
-                .on_disabled_hover_text(
-                    "Raised and acknowledged by the cartridge board's own registers.",
-                );
+            if ui
+                .add_enabled(
+                    interrupts.mapper_has_irq,
+                    egui::Checkbox::new(&mut cart, "Cart"),
+                )
+                .on_hover_text(
+                    "Cartridge board. The board's own acknowledge register clears it, as it \
+                     would a real one.",
+                )
+                .on_disabled_hover_text("This cartridge board has no IRQ.")
+                .changed()
+            {
+                written = Some(DebugWrite::CartIrq(cart));
+            }
 
             let mut frame = interrupts.frame_irq;
             if ui

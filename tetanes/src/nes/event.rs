@@ -210,6 +210,8 @@ pub enum DebugWrite {
     Status(Status),
     /// Raise or drop a pending NMI, the one the CPU takes after the current instruction.
     Nmi(bool),
+    /// Raise or acknowledge the cartridge board's IRQ.
+    CartIrq(bool),
     /// Raise or acknowledge the APU frame counter's IRQ.
     FrameIrq(bool),
     /// Raise or acknowledge the APU DMC's IRQ.

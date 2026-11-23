@@ -34,6 +34,7 @@ use tetanes_core::{
     cpu::{Cpu, IrqFlags},
     debug::{Access, Breakpoint, CodeMap, RunTo, expr::Expr},
     input::{ExpansionDevice, Player, PortDevice},
+    mapper::MapperOps,
     memory::{PRG_PAGES, Page},
     ppu,
     time::{Duration, Instant},
@@ -1201,6 +1202,13 @@ impl State {
             // The CPU polls these every cycle, so a change is seen before the next instruction
             // ends, the way a source changing on its own would be.
             DebugWrite::Nmi(pending) => bus.cpu.irq_flags.set(IrqFlags::NMI, pending),
+            // The CPU reads the line only where `mapper_ops` has `IRQ`, and `Mapper` asserts that a
+            // board without it never raises one.
+            DebugWrite::CartIrq(pending) => {
+                if bus.mapper_ops.contains(MapperOps::IRQ) {
+                    bus.mapper.set_irq_pending(pending);
+                }
+            }
             DebugWrite::FrameIrq(pending) => bus.apu.frame_counter.irq_pending = pending,
             DebugWrite::DmcIrq(pending) => bus.apu.dmc.irq_pending = pending,
             DebugWrite::Memory { addr, val } => {
