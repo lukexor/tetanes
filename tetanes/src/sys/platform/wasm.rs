@@ -804,7 +804,7 @@ pub fn download_save_states() -> anyhow::Result<()> {
     use anyhow::{Context, anyhow};
     use base64::Engine;
     use std::io::{Cursor, Write};
-    use tetanes_core::{control_deck::Config as DeckConfig, sys::fs::local_storage};
+    use tetanes_core::{control_deck::Config as DeckConfig, fs, sys::fs::local_storage};
     use wasm_bindgen::JsCast;
     use web_sys::{self, js_sys};
     use zip::write::{SimpleFileOptions, ZipWriter};
@@ -819,14 +819,15 @@ pub fn download_save_states() -> anyhow::Result<()> {
             key.ends_with(Config::SAVE_EXTENSION) || key.ends_with(DeckConfig::SRAM_EXTENSION)
         })
     {
-        zip.start_file(&*key, SimpleFileOptions::default())?;
-        let Some(data) = local_storage
-            .get_item(&key)
-            .map_err(|_| anyhow!("failed to find data for {key}"))?
-            .and_then(|value| serde_json::from_str::<Vec<u8>>(&value).ok())
-        else {
-            continue;
+        // The core's reader decodes the stored string, whichever form it was written in.
+        let data = match fs::load_raw_path(&key) {
+            Ok(data) => data,
+            Err(err) => {
+                tracing::warn!("skipping {key} in save download: {err:?}");
+                continue;
+            }
         };
+        zip.start_file(&*key, SimpleFileOptions::default())?;
         zip.write_all(&data)?;
     }
 
