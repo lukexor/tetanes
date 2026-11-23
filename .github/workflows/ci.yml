@@ -109,7 +109,10 @@ jobs:
       - env:
           # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
           CARGO_ENCODED_RUSTFLAGS: ""
+        # Both feature sets: the default one is the stable API library users build, and
+        # `--all-features` makes the `unstable` modules public.
         run: |
+          cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-targets --keep-going -- -D warnings
           cargo +${{ matrix.toolchain }} clippy --locked -p tetanes-core --all-features --all-targets --keep-going -- -D warnings
 
   lint-tetanes-libretro:

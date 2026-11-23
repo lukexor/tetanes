@@ -44,13 +44,22 @@ command = "cargo"
 args = ["clippy", "--locked", "--lib", "--bin", "tetanes", "--workspace", "--exclude", "tetanes-libretro", "--target", "wasm32-unknown-unknown", "--all-features", "--keep-going", "--", "-D", "warnings"]
 dependencies = ["add-wasm-target"]
 
+# Keep in sync with CI's `lint-tetanes-core` job
+#
+# The default feature set is the stable API library users build. `lint` covers `--all-features`.
+[tasks.lint-core-default]
+description = "Lint TetaNES Core without features"
+category = "Development"
+command = "cargo"
+args = ["clippy", "--locked", "-p", "tetanes-core", "--all-targets", "--keep-going", "--", "-D", "warnings"]
+
 # `--all-targets` and `-D warnings`, both of which CI applies.
 [tasks.lint]
 description = "Lint TetaNES"
 category = "Development"
 command = "cargo"
 args = ["clippy", "--locked", "--all-features", "--all-targets", "--keep-going", "--", "-D", "warnings"]
-dependencies = ["typos", "lint-web"]
+dependencies = ["typos", "lint-web", "lint-core-default"]
 
 [tasks.pgo-profile]
 description = "Run benchmark to generate PGO profile"
