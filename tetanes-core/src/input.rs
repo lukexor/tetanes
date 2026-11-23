@@ -144,6 +144,7 @@ impl FromStr for FourPlayer {
 /// Save states store this by variant name, so renaming a variant breaks them.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum PortDevice {
     /// A standard controller, or a [`FourPlayer`] adapter's view of two of them.
     #[default]
@@ -205,6 +206,7 @@ impl FromStr for PortDevice {
 /// Save states store this by variant name, so renaming a variant breaks them.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum ExpansionDevice {
     /// Nothing.
     #[default]
