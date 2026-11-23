@@ -82,6 +82,10 @@ impl Map for IremH3001 {
         self.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq_pending = pending;
+    }
+
     fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
         for (name, bank) in ["PRG $8000", "PRG $A000", "PRG $C000"]
             .into_iter()

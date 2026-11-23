@@ -80,6 +80,10 @@ impl Map for SunsoftFme7 {
         self.regs.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.regs.irq_pending = pending;
+    }
+
     fn write_register(&mut self, memory: &mut Memory, addr: u16, val: u8) {
         match addr {
             // The command register only picks which register the next $A000 write lands in, so it

@@ -492,6 +492,11 @@ macro_rules! impl_dispatch {
                 dispatch!(self, [$($variant),+], m => m.irq_pending())
             }
 
+            /// Raise or drop the board's IRQ line from outside the emulation, for a debugger.
+            pub fn set_irq_pending(&mut self, pending: bool) {
+                dispatch!(self, [$($variant),+], m => m.set_irq_pending(pending))
+            }
+
             /// Whether an DMA is pending acknowledgement.
             pub fn dma_pending(&self) -> bool {
                 dispatch!(self, [$($variant),+], m => m.dma_pending())
@@ -915,6 +920,11 @@ pub trait Map {
     fn irq_pending(&self) -> bool {
         false
     }
+
+    /// Raise or drop the board's IRQ line from outside the emulation, for a debugger. The board's
+    /// own acknowledge register clears a raised line as it would a real one. A board whose line is
+    /// computed from a counter rather than latched ignores this.
+    fn set_irq_pending(&mut self, _pending: bool) {}
 
     /// Clear pending DMA.
     fn clear_dma_pending(&mut self) {}

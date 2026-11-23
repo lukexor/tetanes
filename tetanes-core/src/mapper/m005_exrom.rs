@@ -817,6 +817,15 @@ impl Map for Exrom {
         self.regs.irq_pending || self.dmc.irq_pending
     }
 
+    // A raise goes on the scanline IRQ, which a game's handler acknowledges by reading $5204.
+    // A drop clears the PCM channel's IRQ too, since `irq_pending` reports the two ORed.
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.regs.irq_pending = pending;
+        if !pending {
+            self.dmc.irq_pending = false;
+        }
+    }
+
     fn dma_pending(&self) -> bool {
         self.dmc.dma_pending
     }

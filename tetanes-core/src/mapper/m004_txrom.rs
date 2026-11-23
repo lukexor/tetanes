@@ -191,6 +191,10 @@ impl Map for Txrom {
         self.mmc3.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.mmc3.irq_pending = pending;
+    }
+
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
@@ -396,5 +400,19 @@ mod tests {
         bank(&mut mapper, &mut cart, 0x00, 2, 0x43);
         // 64 pages of CHR-ROM, so bank $43 wraps to page 3.
         assert_eq!(chr_peek(&mapper, &cart, 0x1000), 0x83);
+    }
+
+    /// A debugger-raised IRQ is acknowledged by the board's own $E000 write, like a counted one.
+    #[test]
+    fn a_set_irq_is_acknowledged_by_the_board() {
+        let (mut mapper, mut cart) = txrom(4);
+        mapper.set_irq_pending(true);
+        assert!(mapper.irq_pending());
+        write(&mut mapper, &mut cart, 0xE000, 0);
+        assert!(!mapper.irq_pending(), "$E000 acknowledges");
+
+        mapper.set_irq_pending(true);
+        mapper.set_irq_pending(false);
+        assert!(!mapper.irq_pending(), "a drop clears it");
     }
 }

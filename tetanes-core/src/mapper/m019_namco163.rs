@@ -141,6 +141,10 @@ impl Map for Namco163 {
         self.regs.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.regs.irq_pending = pending;
+    }
+
     /// Internal sound RAM is battery-backed on this board, so it belongs in the `.sram` after
     /// PRG-RAM.
     //

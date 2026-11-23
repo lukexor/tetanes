@@ -72,6 +72,10 @@ impl Map for Sunsoft3 {
         self.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq_pending = pending;
+    }
+
     fn registers(&self, out: &mut Vec<(&'static str, u32)>) {
         out.push(("PRG $8000", u32::from(self.prg_bank)));
         for (name, bank) in ["CHR $0000", "CHR $0800", "CHR $1000", "CHR $1800"]
@@ -241,7 +245,10 @@ mod tests {
         write(&mut mapper, &mut cart, 0xC800, 0x01);
         write(&mut mapper, &mut cart, 0xD800, 0x10);
         mapper.clock();
-        assert!(!mapper.irq_pending(), "counter is $0001, not $AA01 or $0100");
+        assert!(
+            !mapper.irq_pending(),
+            "counter is $0001, not $AA01 or $0100"
+        );
         mapper.clock();
         assert!(mapper.irq_pending());
     }

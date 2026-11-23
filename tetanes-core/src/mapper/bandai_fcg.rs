@@ -291,6 +291,10 @@ impl Map for BandaiFCG {
         self.regs.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.regs.irq_pending = pending;
+    }
+
     /// Datach carts answer $6000-$7FFF from a barcode reader and one or two serial EEPROMs.
     fn prg_read(&mut self, addr: u16) -> Option<u8> {
         // Both devices latch their output when clocked, so a read only samples it. Nothing here

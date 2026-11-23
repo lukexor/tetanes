@@ -171,6 +171,10 @@ impl Map for Rambo1 {
         self.irq_pending
     }
 
+    fn set_irq_pending(&mut self, pending: bool) {
+        self.irq_pending = pending;
+    }
+
     fn mirroring(&self) -> Mirroring {
         self.mirroring
     }
