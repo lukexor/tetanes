@@ -98,11 +98,31 @@ args = ["run", "--bin", "build-artifacts", "${@}"]
 
 # The `libretro` profile, not `release`: the latter sets `panic = "abort"`, which the crate rejects
 # with a `compile_error!` because a panic would then take the frontend's process down.
+#
+# The copy gives the library the name a frontend matches against `tetanes_libretro.info`. RetroArch
+# 1.22.2 loading the `lib`-prefixed name finds no `.info`, and a network `GET_STATUS` then
+# dereferences the missing `systemid` and segfaults. Only the host layout is copied: a `--target`
+# build lands elsewhere, and `libretro-artifacts` handles those.
 [tasks.build-libretro]
 description = "Build the libretro core"
 category = "Build"
-command = "cargo"
-args = ["build", "--locked", "-p", "tetanes-libretro", "--profile", "libretro", "${@}"]
+# `bash` for the same reason as `libretro-artifacts` below.
+script_runner = "bash"
+script = '''
+set -e
+cargo build --locked -p tetanes-libretro --profile libretro ${@}
+out="${CARGO_TARGET_DIR:-${CARGO_MAKE_CRATE_TARGET_DIRECTORY:-target}}/libretro"
+# Windows already emits `tetanes_libretro.dll`.
+case "$(uname -s)" in
+  Darwin) built="$out/libtetanes_libretro.dylib"; name="tetanes_libretro.dylib" ;;
+  Linux)  built="$out/libtetanes_libretro.so";    name="tetanes_libretro.so" ;;
+  *)      exit 0 ;;
+esac
+if [ -f "$built" ]; then
+  cp -f "$built" "$out/$name"
+  echo "core: $out/$name"
+fi
+'''
 
 [tasks.test-libretro]
 description = "Test the libretro core"
