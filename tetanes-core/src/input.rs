@@ -424,7 +424,10 @@ mod ports {
         /// Releases every button, the mat's included, and clears the zapper trigger.
         #[cfg_attr(
             not(any(test, feature = "unstable")),
-            expect(dead_code, reason = "only tests and `unstable` callers clear the ports")
+            expect(
+                dead_code,
+                reason = "only tests and `unstable` callers clear the ports"
+            )
         )]
         pub fn clear(&mut self) {
             for pad in &mut self.joypads {

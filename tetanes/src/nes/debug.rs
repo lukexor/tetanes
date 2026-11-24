@@ -244,7 +244,10 @@ mod tests {
 
         let read = Session::load_path(&path);
         let code_map = read.code_map.as_ref().expect("a map was written");
-        assert!(code_map.covers(cart.memory()), "the map still fits the cart");
+        assert!(
+            code_map.covers(cart.memory()),
+            "the map still fits the cart"
+        );
         assert_eq!(read.marks.labels, written.marks.labels);
         assert_eq!(read.marks.breakpoints.len(), 1);
         let breakpoint = &read.marks.breakpoints[0];

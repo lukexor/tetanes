@@ -156,7 +156,10 @@ pub use mmc3::{Mmc3, Revision as Mmc3Revision};
 // so far only a revision enum - lists it here.
 #[cfg_attr(
     not(feature = "unstable"),
-    expect(unused_imports, reason = "only `unstable` callers name the VRC2/VRC4 revision")
+    expect(
+        unused_imports,
+        reason = "only `unstable` callers name the VRC2/VRC4 revision"
+    )
 )]
 pub use m021_vrc24::Revision as Vrc24Revision;
 pub use m024_m026_vrc6::Revision as Vrc6Revision;
