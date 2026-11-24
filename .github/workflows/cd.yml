@@ -223,7 +223,9 @@ jobs:
               echo "$platform|$arch|[$kind]($url)|\`$sum\`"
             done | sort -t'|' -k1,1n -k3,3 | cut -d'|' -f2- | sed 's/|/ | /g; s/^/| /; s/$/ |/'
           } > table.md
-          gh release view "$RELEASE_TAG" --repo "$REPO" --json body --jq .body \
+          # A body edited in the GitHub web UI comes back with CRLF line endings, and the CR would
+          # stop the marker line matching.
+          gh release view "$RELEASE_TAG" --repo "$REPO" --json body --jq .body | tr -d '\r' \
             | sed "/^$marker\$/,\$d" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > notes.md
           { echo; cat table.md; } >> notes.md
           gh release edit "$RELEASE_TAG" --repo "$REPO" --notes-file notes.md
