@@ -1813,7 +1813,7 @@ mod tests {
     fn bus() -> Bus {
         let mut bus = Bus::default();
         let mut cart = Cart::empty();
-        cart.mapper = Nrom::load(&mut cart).unwrap();
+        *cart.mapper_mut() = Nrom::load(&mut cart).unwrap();
         bus.load_cart(cart);
         bus.reset(ResetKind::Hard);
         bus

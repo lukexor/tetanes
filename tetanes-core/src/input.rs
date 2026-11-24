@@ -2,11 +2,10 @@
 //!
 //! # Stability
 //!
-//! The methods here - [`Joypad::set_button`], [`Zapper::aim`] and the rest - are the input API and
-//! are covered like any other. The *fields* are the emulation's internal wiring, public so that
-//! embedders and debuggers can read them, and they track the implementation rather than the crate
-//! version. See the crate-level [stability](crate#stability) note for the tier this belongs to and
-//! why.
+//! The devices that plug into the console are stable: [`Joypad`], [`Zapper`], [`PowerPad`] and
+//! the adapter and port settings, fields included. Each device is `#[non_exhaustive]`, so a release
+//! can add fields. [`Input`], the port wiring inside the console, needs the `unstable` feature. See
+//! the crate-level [stability](crate#stability) note.
 
 use crate::{
     bus::Bus,
@@ -144,6 +143,7 @@ impl FromStr for FourPlayer {
 /// Save states store this by variant name, so renaming a variant breaks them.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum PortDevice {
     /// A standard controller, or a [`FourPlayer`] adapter's view of two of them.
     #[default]
@@ -205,6 +205,7 @@ impl FromStr for PortDevice {
 /// Save states store this by variant name, so renaming a variant breaks them.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub enum ExpansionDevice {
     /// Nothing.
     #[default]
@@ -255,281 +256,300 @@ impl FromStr for ExpansionDevice {
     }
 }
 
-/// The console's input hardware: what is plugged in, and the state of each device.
-#[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
-#[must_use]
-pub struct Input {
-    /// The four controllers. Only the first two are reachable without an adapter.
-    pub joypads: [Joypad; 4],
-    /// The Four Score's two signature registers, shifted out after the pads.
-    pub signatures: [Joypad; 2],
-    /// The zapper, read when a port has [`PortDevice::Zapper`].
-    pub zapper: Zapper,
-    /// The floor mat, read when a port has [`PortDevice::PowerPad`] or the expansion port has
-    /// [`ExpansionDevice::FamilyTrainer`].
-    // Defaulted, as are `ports` and `expansion`, so a state saved before they existed still loads.
-    #[serde(default)]
-    pub power_pad: PowerPad,
-    /// Frames left before the turbo buttons toggle.
-    pub turbo_timer: u32,
-    /// Which four-player adapter is plugged in.
-    pub four_player: FourPlayer,
-    /// What is plugged into ports 1 and 2.
-    #[serde(default)]
-    pub ports: [PortDevice; 2],
-    /// What is plugged into the expansion port.
-    #[serde(default)]
-    pub expansion: ExpansionDevice,
-}
+// `Input` is the port wiring inside the console, so it is public only with the `unstable`
+// feature. The devices plugged into it are stable.
+#[cfg(feature = "unstable")]
+pub use ports::Input;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use ports::Input;
 
-impl Input {
-    /// Creates input state timed for `region`.
-    pub fn new(region: NesRegion) -> Self {
-        Self {
-            joypads: [Joypad::new(); 4],
-            signatures: Self::signatures(),
-            zapper: Zapper::new(region),
-            power_pad: PowerPad::new(),
-            turbo_timer: 30,
-            four_player: FourPlayer::default(),
-            ports: [PortDevice::Joypad; 2],
-            expansion: ExpansionDevice::None,
+/// The console's controller ports, which [`Input`] models.
+mod ports {
+    use super::*;
+
+    /// The console's input hardware: what is plugged in, and the state of each device.
+    #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
+    #[must_use]
+    pub struct Input {
+        /// The four controllers. Only the first two are reachable without an adapter.
+        pub joypads: [Joypad; 4],
+        /// The Four Score's two signature registers, shifted out after the pads.
+        pub signatures: [Joypad; 2],
+        /// The zapper, read when a port has [`PortDevice::Zapper`].
+        pub zapper: Zapper,
+        /// The floor mat, read when a port has [`PortDevice::PowerPad`] or the expansion port has
+        /// [`ExpansionDevice::FamilyTrainer`].
+        // Defaulted, as are `ports` and `expansion`, so a state saved before they existed still loads.
+        #[serde(default)]
+        pub power_pad: PowerPad,
+        /// Frames left before the turbo buttons toggle.
+        pub turbo_timer: u32,
+        /// Which four-player adapter is plugged in.
+        pub four_player: FourPlayer,
+        /// What is plugged into ports 1 and 2.
+        #[serde(default)]
+        pub ports: [PortDevice; 2],
+        /// What is plugged into the expansion port.
+        #[serde(default)]
+        pub expansion: ExpansionDevice,
+    }
+
+    impl Input {
+        /// Creates input state timed for `region`.
+        pub fn new(region: NesRegion) -> Self {
+            Self {
+                joypads: [Joypad::new(); 4],
+                signatures: Self::signatures(),
+                zapper: Zapper::new(region),
+                power_pad: PowerPad::new(),
+                turbo_timer: 30,
+                four_player: FourPlayer::default(),
+                ports: [PortDevice::Joypad; 2],
+                expansion: ExpansionDevice::None,
+            }
         }
-    }
 
-    /// The Four Score's signature registers before any of them is read.
-    const fn signatures() -> [Joypad; 2] {
-        // Signature bits are reversed so they can shift right
-        [
-            Joypad::from_bytes(0b0000_1000),
-            Joypad::from_bytes(0b0000_0100),
-        ]
-    }
-
-    /// Borrows one port's controller.
-    pub const fn joypad(&self, player: Player) -> &Joypad {
-        &self.joypads[player as usize]
-    }
-
-    /// Mutably borrows one port's controller, which is how buttons are set.
-    pub const fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
-        &mut self.joypads[player as usize]
-    }
-
-    /// Sets the region, which re-times the zapper's trigger release.
-    pub fn set_region(&mut self, region: NesRegion) {
-        self.zapper.trigger_release_delay = Cpu::region_clock_rate(region) / 10.0;
-    }
-
-    /// Allows opposing D-Pad directions to be held at once. The hardware permits it and a few
-    /// games rely on it, but most were never tested against it.
-    pub fn set_concurrent_dpad(&mut self, enabled: bool) {
-        self.joypads
-            .iter_mut()
-            .for_each(|pad| pad.concurrent_dpad = enabled);
-    }
-
-    /// Returns what is plugged into `port`. Ports three and four always hold a controller.
-    pub const fn port_device(&self, port: Player) -> PortDevice {
-        match port {
-            Player::One => self.ports[0],
-            Player::Two => self.ports[1],
-            Player::Three | Player::Four => PortDevice::Joypad,
+        /// The Four Score's signature registers before any of them is read.
+        const fn signatures() -> [Joypad; 2] {
+            // Signature bits are reversed so they can shift right
+            [
+                Joypad::from_bytes(0b0000_1000),
+                Joypad::from_bytes(0b0000_0100),
+            ]
         }
-    }
 
-    /// Plugs `device` into `port`, releasing that device's buttons if it changes what is plugged
-    /// in. Ports three and four only take a controller, so they are ignored.
-    ///
-    /// There is one mat, so plugging in [`PortDevice::PowerPad`] unplugs an
-    /// [`ExpansionDevice::FamilyTrainer`], leaving the expansion port with
-    /// [`ExpansionDevice::None`].
-    ///
-    /// Selecting what is already selected changes nothing, for the reason given on
-    /// [`Input::set_four_player`].
-    pub fn set_port_device(&mut self, port: Player, device: PortDevice) {
-        let slot = match port {
-            Player::One => &mut self.ports[0],
-            Player::Two => &mut self.ports[1],
-            Player::Three | Player::Four => return,
-        };
-        if *slot == device {
-            return;
+        /// Borrows one port's controller.
+        pub const fn joypad(&self, player: Player) -> &Joypad {
+            &self.joypads[player as usize]
         }
-        *slot = device;
-        if device == PortDevice::PowerPad && self.expansion == ExpansionDevice::FamilyTrainer {
-            self.expansion = ExpansionDevice::None;
-        }
-        self.clear_device(device);
-    }
 
-    /// Plugs `device` into the expansion port, releasing its buttons if that changes what is
-    /// plugged in.
-    ///
-    /// There is one mat, so plugging in [`ExpansionDevice::FamilyTrainer`] puts a controller
-    /// back in any port holding [`PortDevice::PowerPad`].
-    ///
-    /// Selecting what is already selected changes nothing, for the reason given on
-    /// [`Input::set_four_player`].
-    pub fn set_expansion_device(&mut self, device: ExpansionDevice) {
-        if self.expansion == device {
-            return;
+        /// Mutably borrows one port's controller, which is how buttons are set.
+        pub const fn joypad_mut(&mut self, player: Player) -> &mut Joypad {
+            &mut self.joypads[player as usize]
         }
-        self.expansion = device;
-        if device == ExpansionDevice::FamilyTrainer {
-            for port in &mut self.ports {
-                if *port == PortDevice::PowerPad {
-                    *port = PortDevice::Joypad;
+
+        /// Sets the region, which re-times the zapper's trigger release.
+        pub fn set_region(&mut self, region: NesRegion) {
+            self.zapper.trigger_release_delay = Cpu::region_clock_rate(region) / 10.0;
+        }
+
+        /// Allows opposing D-Pad directions to be held at once. The hardware permits it and a few
+        /// games rely on it, but most were never tested against it.
+        pub fn set_concurrent_dpad(&mut self, enabled: bool) {
+            self.joypads
+                .iter_mut()
+                .for_each(|pad| pad.concurrent_dpad = enabled);
+        }
+
+        /// Returns what is plugged into `port`. Ports three and four always hold a controller.
+        pub const fn port_device(&self, port: Player) -> PortDevice {
+            match port {
+                Player::One => self.ports[0],
+                Player::Two => self.ports[1],
+                Player::Three | Player::Four => PortDevice::Joypad,
+            }
+        }
+
+        /// Plugs `device` into `port`, releasing that device's buttons if it changes what is plugged
+        /// in. Ports three and four only take a controller, so they are ignored.
+        ///
+        /// There is one mat, so plugging in [`PortDevice::PowerPad`] unplugs an
+        /// [`ExpansionDevice::FamilyTrainer`], leaving the expansion port with
+        /// [`ExpansionDevice::None`].
+        ///
+        /// Selecting what is already selected changes nothing, for the reason given on
+        /// [`Input::set_four_player`].
+        pub fn set_port_device(&mut self, port: Player, device: PortDevice) {
+            let slot = match port {
+                Player::One => &mut self.ports[0],
+                Player::Two => &mut self.ports[1],
+                Player::Three | Player::Four => return,
+            };
+            if *slot == device {
+                return;
+            }
+            *slot = device;
+            if device == PortDevice::PowerPad && self.expansion == ExpansionDevice::FamilyTrainer {
+                self.expansion = ExpansionDevice::None;
+            }
+            self.clear_device(device);
+        }
+
+        /// Plugs `device` into the expansion port, releasing its buttons if that changes what is
+        /// plugged in.
+        ///
+        /// There is one mat, so plugging in [`ExpansionDevice::FamilyTrainer`] puts a controller
+        /// back in any port holding [`PortDevice::PowerPad`].
+        ///
+        /// Selecting what is already selected changes nothing, for the reason given on
+        /// [`Input::set_four_player`].
+        pub fn set_expansion_device(&mut self, device: ExpansionDevice) {
+            if self.expansion == device {
+                return;
+            }
+            self.expansion = device;
+            if device == ExpansionDevice::FamilyTrainer {
+                for port in &mut self.ports {
+                    if *port == PortDevice::PowerPad {
+                        *port = PortDevice::Joypad;
+                    }
                 }
-            }
-            self.power_pad.reset(ResetKind::Hard);
-        }
-    }
-
-    /// Resets the state of a device that was just plugged in.
-    const fn clear_device(&mut self, device: PortDevice) {
-        match device {
-            PortDevice::Joypad => (),
-            PortDevice::Zapper => self.zapper.reset(ResetKind::Hard),
-            PortDevice::PowerPad => self.power_pad.reset(ResetKind::Hard),
-        }
-    }
-
-    /// Selects the four-player adapter, clearing all input state if that changes what is plugged
-    /// in.
-    ///
-    /// Selecting what is already selected changes nothing, and must not clear anything: restoring
-    /// a state carries the session's adapter across every time, and rewind does it once per
-    /// display frame. Resetting unconditionally there released any button the player was holding.
-    pub fn set_four_player(&mut self, four_player: FourPlayer) {
-        if self.four_player == four_player {
-            return;
-        }
-        self.four_player = four_player;
-        self.reset(ResetKind::Hard);
-    }
-
-    /// Releases every button, the mat's included, and clears the zapper trigger.
-    pub fn clear(&mut self) {
-        for pad in &mut self.joypads {
-            pad.clear();
-        }
-        self.zapper.clear();
-        self.power_pad.clear();
-    }
-
-    /// Takes the buttons, trigger and aim from `live`, keeping every shift register's position.
-    ///
-    /// For restoring a state under a player who is still holding the controls. A key held in the
-    /// state but not now would otherwise stay pressed, since the release it needs already came.
-    pub const fn keep_held(&mut self, live: &Self) {
-        let mut i = 0;
-        while i < self.joypads.len() {
-            self.joypads[i].buttons = live.joypads[i].buttons;
-            i += 1;
-        }
-        self.power_pad.buttons = live.power_pad.buttons;
-        self.zapper.triggered = live.zapper.triggered;
-        self.zapper.x = live.zapper.x;
-        self.zapper.y = live.zapper.y;
-    }
-
-    /// Reads one controller port, shifting its register on.
-    ///
-    /// The joypads and four-score signatures only. The zapper shares $4017 with port two;
-    /// `Bus::input_read` composes the two.
-    pub fn read_port(&mut self, player: Player) -> u8 {
-        // Read $4016/$4017 D0 8x for controller #1/#2.
-        // Read $4016/$4017 D0 8x for controller #3/#4.
-        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let player = player as usize;
-        assert!(player < 4);
-        match self.four_player {
-            FourPlayer::Disabled => self.joypads[player].read(),
-            FourPlayer::FourScore => {
-                if self.joypads[player].index < 8 {
-                    self.joypads[player].read()
-                } else if self.joypads[player + 2].index < 8 {
-                    self.joypads[player + 2].read()
-                } else if self.signatures[player].index < 8 {
-                    self.signatures[player].read()
-                } else {
-                    0x01
-                }
-            }
-            FourPlayer::Satellite => {
-                self.joypads[player].read() | (self.joypads[player + 2].read() << 1)
+                self.power_pad.reset(ResetKind::Hard);
             }
         }
-    }
 
-    /// Reads one controller port without shifting. See [`Input::read_port`].
-    pub fn peek_port(&self, player: Player) -> u8 {
-        // Read $4016/$4017 D0 8x for controller #1/#2.
-        // Read $4016/$4017 D0 8x for controller #3/#4.
-        // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
-        let player = player as usize;
-        assert!(player < 4);
-        match self.four_player {
-            FourPlayer::Disabled => self.joypads[player].peek(),
-            FourPlayer::FourScore => {
-                if self.joypads[player].index < 8 {
-                    self.joypads[player].peek()
-                } else if self.joypads[player + 2].index < 8 {
-                    self.joypads[player + 2].peek()
-                } else if self.signatures[player].index < 8 {
-                    self.signatures[player].peek()
-                } else {
-                    0x01
-                }
-            }
-            FourPlayer::Satellite => {
-                self.joypads[player].peek() | (self.joypads[player + 2].peek() << 1)
+        /// Resets the state of a device that was just plugged in.
+        const fn clear_device(&mut self, device: PortDevice) {
+            match device {
+                PortDevice::Joypad => (),
+                PortDevice::Zapper => self.zapper.reset(ResetKind::Hard),
+                PortDevice::PowerPad => self.power_pad.reset(ResetKind::Hard),
             }
         }
-    }
 
-    /// Writes $4016, whose bit 0 is the strobe that reloads every controller register.
-    pub fn write(&mut self, val: u8) {
-        for pad in &mut self.joypads {
-            pad.write(val);
+        /// Selects the four-player adapter, clearing all input state if that changes what is plugged
+        /// in.
+        ///
+        /// Selecting what is already selected changes nothing, and must not clear anything: restoring
+        /// a state carries the session's adapter across every time, and rewind does it once per
+        /// display frame. Resetting unconditionally there released any button the player was holding.
+        pub fn set_four_player(&mut self, four_player: FourPlayer) {
+            if self.four_player == four_player {
+                return;
+            }
+            self.four_player = four_player;
+            self.reset(ResetKind::Hard);
         }
-        for sig in &mut self.signatures {
-            sig.write(val);
-        }
-        self.power_pad.write(val);
-    }
 
-    /// Clocks the turbo timer and the zapper's trigger release.
-    pub fn clock(&mut self) {
-        self.zapper.clock();
-        if self.turbo_timer > 0 {
-            self.turbo_timer -= 1;
-        }
-        if self.turbo_timer == 0 {
-            // Roughly 20Hz
-            self.turbo_timer += 89500;
+        /// Releases every button, the mat's included, and clears the zapper trigger.
+        #[cfg_attr(
+            not(any(test, feature = "unstable")),
+            expect(
+                dead_code,
+                reason = "only tests and `unstable` callers clear the ports"
+            )
+        )]
+        pub fn clear(&mut self) {
             for pad in &mut self.joypads {
-                if pad.button(JoypadBtnState::TURBO_A) {
-                    let pressed = pad.button(JoypadBtnState::A);
-                    pad.set_button(JoypadBtnState::A, !pressed);
+                pad.clear();
+            }
+            self.zapper.clear();
+            self.power_pad.clear();
+        }
+
+        /// Takes the buttons, trigger and aim from `live`, keeping every shift register's position.
+        ///
+        /// For restoring a state under a player who is still holding the controls. A key held in the
+        /// state but not now would otherwise stay pressed, since the release it needs already came.
+        pub const fn keep_held(&mut self, live: &Self) {
+            let mut i = 0;
+            while i < self.joypads.len() {
+                self.joypads[i].buttons = live.joypads[i].buttons;
+                i += 1;
+            }
+            self.power_pad.buttons = live.power_pad.buttons;
+            self.zapper.triggered = live.zapper.triggered;
+            self.zapper.x = live.zapper.x;
+            self.zapper.y = live.zapper.y;
+        }
+
+        /// Reads one controller port, shifting its register on.
+        ///
+        /// The joypads and four-score signatures only. The zapper shares $4017 with port two;
+        /// `Bus::input_read` composes the two.
+        pub fn read_port(&mut self, player: Player) -> u8 {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            let player = player as usize;
+            assert!(player < 4);
+            match self.four_player {
+                FourPlayer::Disabled => self.joypads[player].read(),
+                FourPlayer::FourScore => {
+                    if self.joypads[player].index < 8 {
+                        self.joypads[player].read()
+                    } else if self.joypads[player + 2].index < 8 {
+                        self.joypads[player + 2].read()
+                    } else if self.signatures[player].index < 8 {
+                        self.signatures[player].read()
+                    } else {
+                        0x01
+                    }
                 }
-                if pad.button(JoypadBtnState::TURBO_B) {
-                    let pressed = pad.button(JoypadBtnState::B);
-                    pad.set_button(JoypadBtnState::B, !pressed);
+                FourPlayer::Satellite => {
+                    self.joypads[player].read() | (self.joypads[player + 2].read() << 1)
                 }
             }
         }
-    }
 
-    /// Resets input state.
-    pub fn reset(&mut self, kind: ResetKind) {
-        for pad in &mut self.joypads {
-            pad.reset(kind);
+        /// Reads one controller port without shifting. See [`Input::read_port`].
+        pub fn peek_port(&self, player: Player) -> u8 {
+            // Read $4016/$4017 D0 8x for controller #1/#2.
+            // Read $4016/$4017 D0 8x for controller #3/#4.
+            // Read $4016/$4017 D0 8x for signature: 0b00010000/0b00100000
+            let player = player as usize;
+            assert!(player < 4);
+            match self.four_player {
+                FourPlayer::Disabled => self.joypads[player].peek(),
+                FourPlayer::FourScore => {
+                    if self.joypads[player].index < 8 {
+                        self.joypads[player].peek()
+                    } else if self.joypads[player + 2].index < 8 {
+                        self.joypads[player + 2].peek()
+                    } else if self.signatures[player].index < 8 {
+                        self.signatures[player].peek()
+                    } else {
+                        0x01
+                    }
+                }
+                FourPlayer::Satellite => {
+                    self.joypads[player].peek() | (self.joypads[player + 2].peek() << 1)
+                }
+            }
         }
-        self.signatures = Self::signatures();
-        self.zapper.reset(kind);
-        self.power_pad.reset(kind);
+
+        /// Writes $4016, whose bit 0 is the strobe that reloads every controller register.
+        pub fn write(&mut self, val: u8) {
+            for pad in &mut self.joypads {
+                pad.write(val);
+            }
+            for sig in &mut self.signatures {
+                sig.write(val);
+            }
+            self.power_pad.write(val);
+        }
+
+        /// Clocks the turbo timer and the zapper's trigger release.
+        pub fn clock(&mut self) {
+            self.zapper.clock();
+            if self.turbo_timer > 0 {
+                self.turbo_timer -= 1;
+            }
+            if self.turbo_timer == 0 {
+                // Roughly 20Hz
+                self.turbo_timer += 89500;
+                for pad in &mut self.joypads {
+                    if pad.button(JoypadBtnState::TURBO_A) {
+                        let pressed = pad.button(JoypadBtnState::A);
+                        pad.set_button(JoypadBtnState::A, !pressed);
+                    }
+                    if pad.button(JoypadBtnState::TURBO_B) {
+                        let pressed = pad.button(JoypadBtnState::B);
+                        pad.set_button(JoypadBtnState::B, !pressed);
+                    }
+                }
+            }
+        }
+
+        /// Resets input state.
+        pub fn reset(&mut self, kind: ResetKind) {
+            for pad in &mut self.joypads {
+                pad.reset(kind);
+            }
+            self.signatures = Self::signatures();
+            self.zapper.reset(kind);
+            self.power_pad.reset(kind);
+        }
     }
 }
 
@@ -656,6 +676,7 @@ impl From<JoypadBtn> for JoypadBtnState {
 /// A standard NES controller: eight buttons behind a shift register.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub struct Joypad {
     /// Which buttons are currently held.
     pub buttons: JoypadBtnState,
@@ -758,6 +779,7 @@ impl Joypad {
 /// it is aimed at is lit.
 #[derive(Default, Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub struct Zapper {
     /// Seconds left before the trigger releases itself; 0 when not pulled.
     #[serde(skip)] // Don't save triggered state
@@ -823,6 +845,7 @@ impl Zapper {
     /// This ignores timing. A port read senses light only for a few scanlines after the PPU
     /// draws the pixel, so between frames, where a debugger usually looks, a read reports dark
     /// wherever the Zapper is aimed.
+    #[cfg(feature = "unstable")]
     #[must_use]
     pub fn aims_at_light(&self, ppu: &Ppu) -> bool {
         self.lit_pixel(ppu, |_, _| true)
@@ -884,6 +907,7 @@ impl Zapper {
 /// side B. A game made for side A sees the same numbers, with the mat flipped over.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[must_use]
+#[non_exhaustive]
 pub struct PowerPad {
     /// Which buttons are held, button `n` at bit `n - 1`.
     pub buttons: u16,

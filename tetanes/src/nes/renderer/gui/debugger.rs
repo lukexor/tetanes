@@ -3400,6 +3400,13 @@ impl State {
                             });
                         }
                         PortDevice::PowerPad => mat(ui, &row, &mut event),
+                        // A device this panel has no controls for yet still gets its row.
+                        other => {
+                            ui.horizontal(|ui| {
+                                label(ui, &row);
+                                ui.label(other.to_string());
+                            });
+                        }
                     }
                 }
                 if trainer_mat {

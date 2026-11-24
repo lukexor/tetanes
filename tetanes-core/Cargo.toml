@@ -29,6 +29,9 @@ workspace = true
 default = []
 profiling = []
 trace = []
+# Makes the emulated components (`Bus`, `Cpu`, `Ppu`, `Apu`, the mappers) and the debugger public.
+# Not covered by semantic versioning: any release may change them.
+unstable = []
 
 [dependencies]
 bincode.workspace = true

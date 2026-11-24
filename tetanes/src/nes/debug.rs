@@ -200,12 +200,12 @@ mod tests {
 
     fn cart() -> Cart {
         let mut cart = Cart::empty();
-        cart.mapper = Nrom::load(&mut cart).expect("valid mapper");
+        *cart.mapper_mut() = Nrom::load(&mut cart).expect("valid mapper");
         cart
     }
 
     fn marked(cart: &Cart) -> Session {
-        let mut code_map = CodeMap::new(cart.memory.len(), cart.memory.rom_crc32());
+        let mut code_map = CodeMap::new(cart.memory().len(), cart.memory().rom_crc32());
         code_map.mark(0x10, ByteKind::CODE);
         Session {
             code_map: Some(code_map),
@@ -244,7 +244,10 @@ mod tests {
 
         let read = Session::load_path(&path);
         let code_map = read.code_map.as_ref().expect("a map was written");
-        assert!(code_map.covers(&cart.memory), "the map still fits the cart");
+        assert!(
+            code_map.covers(cart.memory()),
+            "the map still fits the cart"
+        );
         assert_eq!(read.marks.labels, written.marks.labels);
         assert_eq!(read.marks.breakpoints.len(), 1);
         let breakpoint = &read.marks.breakpoints[0];
@@ -262,13 +265,13 @@ mod tests {
     fn a_map_recorded_against_another_cart_is_refused() {
         let cart = cart();
         let mut session = marked(&cart);
-        session.accept(&cart.memory);
+        session.accept(cart.memory());
         assert!(session.code_map.is_some(), "the cart it was recorded for");
 
         let mut other = Cart::empty_sized(0x8000, 0x2000);
-        other.mapper = Nrom::load(&mut other).expect("valid mapper");
+        *other.mapper_mut() = Nrom::load(&mut other).expect("valid mapper");
         let mut session = marked(&cart);
-        session.accept(&other.memory);
+        session.accept(other.memory());
         assert!(session.code_map.is_none(), "a cart of another size");
     }
 

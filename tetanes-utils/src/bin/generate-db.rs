@@ -60,12 +60,7 @@ fn main() -> anyhow::Result<()> {
                 db_txt_file,
                 "  {crc32:8X}, {region}, {mapper}, {submapper}, {chr_banks}, {prg_rom_banks}, {prg_ram_banks}, {battery}, {mirroring:?}, {title:?}",
             )?;
-            entries.push(GameInfo {
-                crc32: *crc32,
-                region: *region,
-                mapper_num: *mapper,
-                submapper_num: *submapper,
-            });
+            entries.push(GameInfo::new(*crc32, *region, *mapper, *submapper));
         }
         fs::save_version_path(GAME_DB, &entries, fs::GAME_DB_VERSION)?;
     } else if path.is_file() {
@@ -208,14 +203,14 @@ impl Game {
 
         // Not `Cart::chr_size`, which measures the mapped region and so reports zero for the
         // unmapped carts this binary loads - it would write a `0` into every row.
-        let chr_size = if cart.chr_rom_size > 0 {
-            cart.chr_rom_size
+        let chr_size = if cart.chr_rom().is_empty() {
+            cart.chr_ram_size()
         } else {
-            cart.chr_ram_size
+            cart.chr_rom().len()
         };
         let chr_banks = chr_size / (8 * 1024);
-        let prg_rom_banks = cart.prg_rom_size / (16 * 1024);
-        let prg_ram_banks = cart.prg_ram_size / (16 * 1024);
+        let prg_rom_banks = cart.prg_rom().len() / (16 * 1024);
+        let prg_ram_banks = cart.prg_ram_size() / (16 * 1024);
         let mirroring = cart.mirroring();
 
         Ok(Game {
@@ -224,8 +219,8 @@ impl Game {
             // Read the ROM's own header, not `Cart::mapper_num`/`submapper_num`, which consult
             // the database this binary generates. Doing otherwise makes the database regenerate
             // itself from itself, so a wrong entry can never be corrected - it just gets rewritten.
-            mapper: cart.header.mapper_num,
-            submapper: cart.header.submapper_num,
+            mapper: cart.header().mapper_num,
+            submapper: cart.header().submapper_num,
             chr_banks,
             prg_rom_banks,
             prg_ram_banks,

@@ -122,7 +122,7 @@ pub fn reader_impl(path: impl AsRef<Path>) -> Result<impl Read> {
     let key = path.to_string_lossy().into_owned();
     let data = local_storage
         .get_item(&key)
-        .map_err(|_| Error::custom("failed to find data for {key}"))?
+        .map_err(|_| Error::custom(format!("failed to find data for {key}")))?
         .map(|value| decode(&value))
         .unwrap_or_else(|| Ok(Vec::new()))?;
 
