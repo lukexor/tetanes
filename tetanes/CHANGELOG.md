@@ -7,6 +7,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/lukexor/tetanes/compare/0.19.0..1.0.0) - 2026-11-24
+
+### ⛰️  Features
+
+- *(core)* [**breaking**] Draw the stable line at the console's case - ([d15e95c](https://github.com/lukexor/tetanes/commit/d15e95cae829e69be34baf11b24c5c01aa344c4f))
+**BREAKING**: `Cart` fields are private behind getters, its board and memory need `unstable`, `input::Input` and `video::Video` need `unstable`, and `Joypad`, `Zapper`, `PowerPad` and `GameInfo` are non-exhaustive.
+- *(core)* [**breaking**] Put the emulated components behind an `unstable` feature - ([b80c86c](https://github.com/lukexor/tetanes/commit/b80c86c97c8a428e4f711d47b6c3a4be77bb5ea6))
+**BREAKING**: `apu`, `bus`, `cart`, `cpu`, `debug`, `mapper`, `memory`, `ppu`, `fs::v3`, `ControlDeck::bus`/`bus_mut`/`load_bus`/`restore_state`/`clock_*_until` and the debugger hooks need the `unstable` feature.
+
+
+### 🐛 Bug Fixes
+
+- *(ci)* Strip CR from Windows checksums in the release table - ([033b6ca](https://github.com/lukexor/tetanes/commit/033b6ca6ae1ff98c90212f28fd2f432a0b74dd53))
+- *(macos)* Sign the app binary before copying it onto the disk image - ([74cc7c1](https://github.com/lukexor/tetanes/commit/74cc7c194fa9723324a6f47a03fe000b6007f5a3))
+- *(release)* Sign the whole macOS bundle and list every release asset - ([75a5c56](https://github.com/lukexor/tetanes/commit/75a5c56b0fb65ed35954b44bbf9fad503884dbda))
+
+
+### 🚜 Refactor
+
+- *(core)* [**breaking**] Drop the deprecated error module and the platform shims from the public API - ([c510de2](https://github.com/lukexor/tetanes/commit/c510de292e57f5012faadbf62922bc95e9b80cb1))
+**BREAKING**: `tetanes_core::error` is removed and `tetanes_core::sys` is private.
+- *(input)* [**breaking**] Mark PortDevice and ExpansionDevice non-exhaustive - ([f473a36](https://github.com/lukexor/tetanes/commit/f473a369e093e598fbbef1592b6e2992bd7a515c))
+**BREAKING**: matches on `PortDevice` and `ExpansionDevice` need a wildcard arm.
+
+
+### 📚 Documentation
+
+
+- Describe 1.0 stability in the README - ([3d2e7b3](https://github.com/lukexor/tetanes/commit/3d2e7b3d682b93a143b9b0679346e60b21b6aa31))
+
+### 🎨 Styling
+
+
+- Format the unstable-feature expectations - ([285c4eb](https://github.com/lukexor/tetanes/commit/285c4eb4dd7dbaa2cf8cf286260593a9c45ff1c4))
+
+
 ## [0.19.0](https://github.com/lukexor/tetanes/compare/0.18.0..0.19.0) - 2026-11-23
 
 ### ⛰️  Features
