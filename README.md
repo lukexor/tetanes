@@ -86,23 +86,15 @@ Try it out in your [browser](https://lukeworks.tech/tetanes-web)!
 ## TetaNES Core
 
 TetaNES is split into two crates. This is the primary crate, which provides the
-cross-platform emulator UI
-binary. [tetanes-core](https://crates.io/crates/tetanes_core) is the emulation
-library that emulator developers can use to develop custom emulator applications
-with. `tetanes-core` is aimed to have stronger stability guarantees, but it's
-still not `1.0` yet and there are several large features on the roadmap that may
-result in breaking changes.
+cross-platform emulator UI binary.
+[tetanes-core](https://crates.io/crates/tetanes_core) is the emulation library
+for building custom emulator applications. `tetanes-core` follows semantic
+versioning, and its README describes which parts of the API are stable.
 
 ## Stability
 
-Preferences and save file formats are fairly stable at this point, but since
-TetaNES is not yet `1.0` and there are several large features on the roadmap
-that may result in breaking changes which may result in being unable to restore
-your preferences or save files.
-
-Once some of these larger features are completed, and `1.0` is released, more
-effort will be dedicatged to versioning these files for backward compatibility
-in the event of future breaking changes.
+Save states and battery-backed RAM saves start with a format version. Any `1.x`
+release loads files written by `0.16` or any later release.
 
 ## Getting Started
 
