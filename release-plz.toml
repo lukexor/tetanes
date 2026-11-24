@@ -16,3 +16,6 @@ git_release_name = "TetaNES v{{ version }}"
 [[package]]
 name = "tetanes-core"
 git_release_name = "TetaNES Core v{{ version }}"
+# The AppImage's update information looks up GitHub's latest release, which has to be a `tetanes`
+# release with the AppImage attached.
+git_release_latest = false
