@@ -328,10 +328,13 @@ impl Build {
 
         let _ = cmd_status(Command::new("mdutil").args(["-i", "off"]).arg(&volume));
 
-        let app_dir = volume.join(&app_name);
+        // The bundle is assembled and signed in the build directory, then copied onto the mounted
+        // image. Signing on the image fails with "internal error in Code Signing subsystem" on
+        // macOS 26. The whole bundle is signed, because `codesign --verify` on a bundled
+        // executable expects the bundle's resources to be sealed.
+        let app_dir = build_dir.join(&app_name);
         create_dir_all(app_dir.join("Contents/MacOS"))?;
         create_dir_all(app_dir.join("Contents/Resources"))?;
-        create_dir_all(volume.join(".Picture"))?;
 
         println!("updating Info.plist version: {}", self.version);
 
@@ -345,33 +348,21 @@ impl Build {
             app_dir.join("Contents/Resources/Icon.icns"),
         )?;
         copy(
-            "assets/macos/background.png",
-            volume.join(".Picture/background.png"),
-        )?;
-        copy("assets/macos/.DS_Store", volume.join(".DS_Store"))?;
-        // The binary is signed in the target directory, not on the mounted image. Signing on the
-        // image fails with "internal error in Code Signing subsystem" on macOS 26.
-        cmd_spawn_wait(
-            Command::new("codesign")
-                .args(["--force", "--sign", "-"])
-                .arg(&self.bin_path),
-        )?;
-        copy(
             &self.bin_path,
             app_dir.join("Contents/MacOS").join(self.bin_name),
         )?;
 
-        symlink("/Applications", volume.join("Applications"))?;
-
-        println!("configuring app bundle window...");
-
-        let app_bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
+        cmd_spawn_wait(
+            Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&app_dir),
+        )?;
         // TODO: fix
         // ensure spctl --assess --type execute "${VOLUME}/${APP_NAME}.app"
         cmd_spawn_wait(
             Command::new("codesign")
                 .args(["--verify", "--strict", "--verbose=2"])
-                .arg(&app_bin_path),
+                .arg(&app_dir),
         )?;
 
         self.tar_gz(
@@ -379,8 +370,27 @@ impl Build {
                 "{}-{}-{}.tar.gz",
                 self.bin_name, self.version, self.target_arch
             ),
-            &volume,
+            &build_dir,
             [&app_name],
+        )?;
+
+        // `ditto` keeps the extended attributes and the signature the bundle carries.
+        cmd_spawn_wait(
+            Command::new("ditto")
+                .arg(&app_dir)
+                .arg(volume.join(&app_name)),
+        )?;
+        create_dir_all(volume.join(".Picture"))?;
+        copy(
+            "assets/macos/background.png",
+            volume.join(".Picture/background.png"),
+        )?;
+        copy("assets/macos/.DS_Store", volume.join(".DS_Store"))?;
+        symlink("/Applications", volume.join("Applications"))?;
+        cmd_spawn_wait(
+            Command::new("codesign")
+                .args(["--verify", "--strict", "--verbose=2"])
+                .arg(volume.join(&app_name)),
         )?;
 
         std::thread::sleep(std::time::Duration::from_secs(2));

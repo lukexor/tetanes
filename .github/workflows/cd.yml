@@ -164,24 +164,25 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           failed=()
-          uploaded=()
           for file in artifacts/*; do
             if [ ! -s "$file" ]; then
               echo "::error::empty artifact: $file"
               failed+=("$file")
               continue
             fi
-            if gh release upload "$RELEASE_TAG" "$file" --clobber --repo "$REPO"; then
-              uploaded+=("$(basename "$file")")
-            else
+            if ! gh release upload "$RELEASE_TAG" "$file" --clobber --repo "$REPO"; then
               echo "::error::upload failed: $file"
               failed+=("$file")
             fi
           done
 
-          # The download table lists an artifact only when both it and its checksum were attached.
-          # Everything after the marker is replaced, so a re-dispatch rewrites the table instead of
-          # appending a second one.
+          # The download table is built from every asset on the release, not just this run's
+          # uploads, so a dispatch for one platform keeps the other platforms' rows. An asset is
+          # listed only when its checksum is attached too. Everything after the marker is replaced,
+          # so a re-dispatch rewrites the table instead of appending a second one.
+          gh release view "$RELEASE_TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
+            > assets.txt
+          gh release download "$RELEASE_TAG" --repo "$REPO" --pattern '*-sha256.txt' --dir sums
           marker='<!-- release-artifacts -->'
           {
             echo "$marker"
@@ -190,10 +191,9 @@ jobs:
             echo
             echo "| Platform | Arch | Download | SHA-256 |"
             echo "| --- | --- | --- | --- |"
-            for name in "${uploaded[@]}"; do
-              case "$name" in *-sha256.txt) continue ;; esac
-              sum_file="artifacts/$name-sha256.txt"
-              printf '%s\n' "${uploaded[@]}" | grep -qxF "$name-sha256.txt" || continue
+            for sum_file in sums/*-sha256.txt; do
+              name=$(basename "$sum_file" -sha256.txt)
+              grep -qxF "$name" assets.txt || continue
               case "$name" in
                 *aarch64* | *arm64*) arch="ARM64" ;;
                 *wasm32*) arch="WASM" ;;
