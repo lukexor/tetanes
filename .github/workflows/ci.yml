@@ -42,9 +42,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          targets: wasm32-unknown-unknown
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
+          components: rustfmt
       - run: |
           time cargo fmt --all --check
 
@@ -61,6 +59,8 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # `--lib --bin tetanes` rather than `--all-targets`: the tests do not build for wasm
       # `tetanes-libretro` is excluded because wasm implies `panic = "abort"`, which it rejects.
       - run: |
@@ -82,6 +82,8 @@ jobs:
           toolchain: nightly
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt update
@@ -97,6 +99,12 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         toolchain: [nightly, stable, 1.88]
+        # Stable and MSRV breakage is about the language and std, not the OS, so Ubuntu covers it.
+        exclude:
+          - { os: macos-latest, toolchain: stable }
+          - { os: macos-latest, toolchain: 1.88 }
+          - { os: windows-latest, toolchain: stable }
+          - { os: windows-latest, toolchain: 1.88 }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,6 +114,8 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - env:
           # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
           CARGO_ENCODED_RUSTFLAGS: ""
@@ -124,6 +134,12 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
         # As tetanes-core: a source build of the core must not need a nightly toolchain.
         toolchain: [nightly, stable, 1.88]
+        # As tetanes-core: Ubuntu alone covers stable and MSRV.
+        exclude:
+          - { os: macos-latest, toolchain: stable }
+          - { os: macos-latest, toolchain: 1.88 }
+          - { os: windows-latest, toolchain: stable }
+          - { os: windows-latest, toolchain: 1.88 }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -133,6 +149,8 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - env:
           # Unset nightly RUSTFLAGS so we can lint with non-nightly toolchains
           CARGO_ENCODED_RUSTFLAGS: ""
@@ -153,6 +171,8 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: |
           cargo nextest run --locked -p tetanes-libretro --all-features --profile ci
 
@@ -174,6 +194,8 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-make
@@ -194,6 +216,8 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: |
           sudo apt update
           sudo apt install -y libudev-dev libasound2-dev
@@ -214,6 +238,8 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: |
           cargo nextest run --locked -p tetanes-core --all-features --profile ci
 
@@ -227,6 +253,8 @@ jobs:
           toolchain: nightly
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - env:
           RUSTDOCFLAGS: -D warnings
         run: |
@@ -245,6 +273,8 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt update
