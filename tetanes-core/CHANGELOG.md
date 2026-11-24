@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1](https://github.com/lukexor/tetanes/compare/0.19.0..0.19.1) - 2026-11-24
+
+### 📚 Documentation
+
+- *(core)* Describe the library's own features, its stable build, and the save format promise - ([b302edf](https://github.com/lukexor/tetanes/commit/b302edff049401cdd08ac7ede053385c84f18277))
+
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Version tetanes-core apart from the application - ([4172845](https://github.com/lukexor/tetanes/commit/4172845ad6bb2311e6f2d7d2b6a3afee722bc562))
+
+
 ## [0.19.0](https://github.com/lukexor/tetanes/compare/0.18.0..0.19.0) - 2026-11-23
 
 ### ⛰️  Features

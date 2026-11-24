@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1](https://github.com/lukexor/tetanes/compare/0.19.0..0.19.1) - 2026-11-24
+
+### 🐛 Bug Fixes
+
+- *(ci)* Strip CR from Windows checksums in the release table - ([033b6ca](https://github.com/lukexor/tetanes/commit/033b6ca6ae1ff98c90212f28fd2f432a0b74dd53))
+
+
+
 ## [0.19.0](https://github.com/lukexor/tetanes/compare/0.18.0..0.19.0) - 2026-11-23
 
 ### ⛰️  Features
