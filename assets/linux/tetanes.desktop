@@ -3,4 +3,4 @@ Name=TetaNES
 Exec=tetanes
 Icon=icon
 Type=Application
-Categories=Game;
+Categories=Game;Emulator;
