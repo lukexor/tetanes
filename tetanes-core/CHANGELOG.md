@@ -7,6 +7,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0](https://github.com/lukexor/tetanes/compare/0.19.0..0.20.0) - 2026-11-24
+
+### ⛰️  Features
+
+- *(core)* [**breaking**] Draw the stable line at the console's case - ([d15e95c](https://github.com/lukexor/tetanes/commit/d15e95cae829e69be34baf11b24c5c01aa344c4f))
+**BREAKING**: `Cart` fields are private behind getters, its board and memory need `unstable`, `input::Input` and `video::Video` need `unstable`, and `Joypad`, `Zapper`, `PowerPad` and `GameInfo` are non-exhaustive.
+- *(core)* [**breaking**] Put the emulated components behind an `unstable` feature - ([b80c86c](https://github.com/lukexor/tetanes/commit/b80c86c97c8a428e4f711d47b6c3a4be77bb5ea6))
+**BREAKING**: `apu`, `bus`, `cart`, `cpu`, `debug`, `mapper`, `memory`, `ppu`, `fs::v3`, `ControlDeck::bus`/`bus_mut`/`load_bus`/`restore_state`/`clock_*_until` and the debugger hooks need the `unstable` feature.
+
+
+### 🐛 Bug Fixes
+
+- *(fs)* Name the missing local-storage key in the wasm read error - ([c4e6961](https://github.com/lukexor/tetanes/commit/c4e6961322ef674130e49e9558141f2d9175d7c9))
+
+
+### 🚜 Refactor
+
+- *(core)* [**breaking**] Drop the deprecated error module and the platform shims from the public API - ([c510de2](https://github.com/lukexor/tetanes/commit/c510de292e57f5012faadbf62922bc95e9b80cb1))
+**BREAKING**: `tetanes_core::error` is removed and `tetanes_core::sys` is private.
+- *(input)* [**breaking**] Mark PortDevice and ExpansionDevice non-exhaustive - ([f473a36](https://github.com/lukexor/tetanes/commit/f473a369e093e598fbbef1592b6e2992bd7a515c))
+**BREAKING**: matches on `PortDevice` and `ExpansionDevice` need a wildcard arm.
+
+
+### 📚 Documentation
+
+- *(core)* Describe the stable API by what is outside the console's case - ([d797c0e](https://github.com/lukexor/tetanes/commit/d797c0e7db7de8c605f9637af633f28579f2356f))
+- *(core)* Describe the 1.0 stability promise and the `unstable` feature - ([d01737e](https://github.com/lukexor/tetanes/commit/d01737e681c1c5fbb994397de6e7e99cd40d2115))
+- *(core)* Describe the library's own features, its stable build, and the save format promise - ([b302edf](https://github.com/lukexor/tetanes/commit/b302edff049401cdd08ac7ede053385c84f18277))
+
+
+### 🎨 Styling
+
+
+- Format the unstable-feature expectations - ([285c4eb](https://github.com/lukexor/tetanes/commit/285c4eb4dd7dbaa2cf8cf286260593a9c45ff1c4))
+
+### ⚙️ Miscellaneous Tasks
+
+
+- Version tetanes-core apart from the application - ([4172845](https://github.com/lukexor/tetanes/commit/4172845ad6bb2311e6f2d7d2b6a3afee722bc562))
+
+
 ## [0.19.0](https://github.com/lukexor/tetanes/compare/0.18.0..0.19.0) - 2026-11-23
 
 ### ⛰️  Features
