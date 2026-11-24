@@ -54,15 +54,29 @@ The current minimum Rust version is `1.88.0`.
 - iNES and NES 2.0 ROM header formats supported.
 - Over 30 supported mappers covering >90% of licensed games.
 - Game Genie Codes.
-- Preference snd keybonding menus using [egui](https://egui.rs).
-  - Increase/Decrease speed & Fast Forward
-  - Save & Load States
-  - Battery-backed RAM saves
+- Adjustable emulation speed.
+- Run-ahead to hide input lag.
+- Save states and battery-backed RAM saves.
+- Debugger hooks: breakpoints, call stack, and execution history.
 
 ### Building
 
-To build the project, you'll need a nightly version of the compiler and run
-`cargo build` or `cargo build --release` (if you want better framerates).
+`tetanes-core` builds on stable Rust. Add it to your `Cargo.toml` and run
+`cargo build`. Use `--release` for full-speed emulation.
+
+### WebAssembly
+
+`tetanes-core` builds for `wasm32-unknown-unknown`. Its random number source,
+`getrandom`, needs a backend picked by the final application. Add this to your
+application's `Cargo.toml`:
+
+```toml
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+```
+
+On `wasm32`, the `fs` module reads and writes the browser's `localStorage`
+instead of a filesystem, with each path used as a key.
 
 ### Getting Started
 
@@ -169,6 +183,12 @@ warning that writing them desynchronizes the emulator. `Memory`'s page tables
 are private behind read-only getters, because `data`, `ram_start` and the
 region ranges have to agree with each other. The PPU's caches are scalars
 recomputed from a register write.
+
+## Save Files
+
+Save states and battery-backed RAM saves start with a format version. Any
+`1.x` release loads files written by `0.16` or any later release. An older
+release refuses a file with a newer version and returns an error.
 
 ## Known Issues
 
