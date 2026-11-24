@@ -216,8 +216,9 @@ jobs:
                 *wasm32*) platform="6|Web" kind="static bundle" ;;
                 *) platform="99|Other" kind="$name" ;;
               esac
-              # PowerShell's Get-FileHash writes uppercase hex, the other platforms lowercase.
-              sum=$(awk '{ print tolower($1) }' "$sum_file")
+              # PowerShell's Get-FileHash writes uppercase hex and CRLF, the other platforms
+              # lowercase and LF. A stray CR would end the code span mid-row.
+              sum=$(tr -d '\r' < "$sum_file" | awk '{ print tolower($1) }')
               url="https://github.com/$REPO/releases/download/$RELEASE_TAG/$name"
               echo "$platform|$arch|[$kind]($url)|\`$sum\`"
             done | sort -t'|' -k1,1n -k3,3 | cut -d'|' -f2- | sed 's/|/ | /g; s/^/| /; s/$/ |/'
