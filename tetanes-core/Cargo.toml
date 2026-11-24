@@ -1,6 +1,7 @@
 [package]
 name = "tetanes-core"
-version.workspace = true
+# Versioned apart from the workspace, which is the `tetanes` application's release line.
+version = "0.19.0"
 rust-version = "1.88.0"
 edition.workspace = true
 license.workspace = true
@@ -16,9 +17,6 @@ keywords = ["nes", "emulator"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 
 [[bench]]
 name = "clock_frame"

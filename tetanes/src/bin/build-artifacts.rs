@@ -157,7 +157,9 @@ impl Build {
 
         println!("sha256: {sha256}");
 
-        write(output, shasum.stdout)
+        // PowerShell ends its output with CRLF, which would break the code span the release
+        // download table wraps each hash in.
+        write(output, format!("{sha256}\n"))
     }
 
     /// Create a Gzipped tarball.

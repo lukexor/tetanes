@@ -2,6 +2,9 @@
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
 [config]
+# `CARGO_MAKE_PROJECT_VERSION` comes from this member. The workspace root has no `[package]`, so
+# without it the variable is empty.
+main_project_member = "tetanes"
 reduce_output = false
 skip_core_tasks = true
 default_to_workspace = false

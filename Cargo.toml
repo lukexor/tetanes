@@ -6,6 +6,8 @@ resolver = "2"
 members = ["tetanes", "tetanes-core", "tetanes-libretro", "tetanes-utils"]
 
 [workspace.package]
+# The `tetanes` application's version, shared by the libretro core and dev tools that ship with it.
+# `tetanes-core` sets its own.
 version = "0.19.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
