@@ -319,7 +319,9 @@ impl Build {
         }
         cmd_spawn_wait(
             Command::new("hdiutil")
-                .args(["create", "-size", "50m", "-volname", &artifact_name])
+                // `hdiutil convert` compresses the image, so the unused space does not reach the
+                // released `.dmg`.
+                .args(["create", "-size", "200m", "-volname", &artifact_name])
                 .arg(&dmg_path),
         )?;
         cmd_spawn_wait(Command::new("hdiutil").arg("attach").arg(&dmg_path))?;
@@ -347,6 +349,13 @@ impl Build {
             volume.join(".Picture/background.png"),
         )?;
         copy("assets/macos/.DS_Store", volume.join(".DS_Store"))?;
+        // The binary is signed in the target directory, not on the mounted image. Signing on the
+        // image fails with "internal error in Code Signing subsystem" on macOS 26.
+        cmd_spawn_wait(
+            Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&self.bin_path),
+        )?;
         copy(
             &self.bin_path,
             app_dir.join("Contents/MacOS").join(self.bin_name),
@@ -357,11 +366,6 @@ impl Build {
         println!("configuring app bundle window...");
 
         let app_bin_path = app_dir.join("Contents/MacOS").join(self.bin_name);
-        cmd_spawn_wait(
-            Command::new("codesign")
-                .args(["--force", "--sign", "-"])
-                .arg(&app_bin_path),
-        )?;
         // TODO: fix
         // ensure spctl --assess --type execute "${VOLUME}/${APP_NAME}.app"
         cmd_spawn_wait(
