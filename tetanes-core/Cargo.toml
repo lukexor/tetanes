@@ -11,6 +11,12 @@ homepage.workspace = true
 categories = ["emulators"]
 keywords = ["nes", "emulator"]
 
+# No wasm32 target: `getrandom` needs its `wasm_js` feature, which only the final application can
+# enable, so a docs.rs build of this crate alone fails there.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
